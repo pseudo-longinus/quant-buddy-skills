@@ -1,0 +1,786 @@
+# ============================================================
+# 概念/主题预设  【共 779 行，按字母序排列，查名称时需一次性读完】
+# 来源：平台 theme_list / 概念板块列表
+# 关键：公式中必须用 name 字段，如 板块(机器人概念)、板块(人工智能)
+#
+# ── 字母范围速查（估算，实际以文件内容为准）──────────────────
+#   L11   A-B（3D打印 / 5G / 阿里 / 比亚迪概念…）
+#   ~L120 C-F（ChatGPT / 储能 / 低空经济 / 芯片…）
+#   ~L280 G-J（钙钛矿 / 国资改革 / 华为概念…）
+#   ~L430 K-N（锂电池 / 绿色电力 / 美容护理…）
+#   ~L560 P-S（氢能源 / 人工智能 / 数字经济…）
+#   ~L680 T-Z（碳中和 / 新能源汽车 / 医疗器械 / 中特估…）
+#
+# 用法：查看此文件 → 找到目标概念名称 → 放入公式
+#       若此文件没有目标项 → 调用 confirm_multiple_assets 获取
+# ============================================================
+
+# ── 概念板块（主题投资）──────────────────────────────────────
+concepts:
+  - name: 3D打印
+    type: concept
+  - name: 5G
+    type: concept
+  - name: 6G
+    type: concept
+  - name: 阿尔茨海默概念
+    type: concept
+  - name: 阿里
+    type: concept
+  - name: 安防
+    type: concept
+  - name: 白酒概念
+    type: concept
+  - name: 百度概念
+    type: concept
+  - name: 北交所概念
+    type: concept
+  - name: 比亚迪概念
+    type: concept
+  - name: 边缘计算
+    type: concept
+  - name: 参股保险
+    type: concept
+  - name: 参股民营银行
+    type: concept
+  - name: 参股券商
+    type: concept
+  - name: 参股新三板
+    type: concept
+  - name: 草甘膦
+    type: concept
+  - name: 超超临界发电
+    type: concept
+  - name: 超导
+    type: concept
+  - name: 超级电容
+    type: concept
+  - name: 超级品牌
+    type: concept
+  - name: 超级真菌
+    type: concept
+  - name: 车联网(车路协同)
+    type: concept
+  - name: 成飞概念
+    type: concept
+  - name: 充电桩
+    type: concept
+  - name: 宠物经济
+    type: concept
+  - name: 抽水蓄能
+    type: concept
+  - name: 储能
+    type: concept
+  - name: 触摸屏
+    type: concept
+  - name: 传感器
+    type: concept
+  - name: 创投
+    type: concept
+  - name: 创新药
+    type: concept
+  - name: 创业板重组松绑
+    type: concept
+  - name: 大豆
+    type: concept
+  - name: 大飞机
+    type: concept
+  - name: 大数据
+    type: concept
+  - name: 代糖概念
+    type: concept
+  - name: 地下管网
+    type: concept
+  - name: 低空经济
+    type: concept
+  - name: 迪士尼
+    type: concept
+  - name: 第三代半导体
+    type: concept
+  - name: 电力改革
+    type: concept
+  - name: 电力物联网
+    type: concept
+  - name: 电子发票
+    type: concept
+  - name: 电子竞技
+    type: concept
+  - name: 电子身份证
+    type: concept
+  - name: 电子信息
+    type: concept
+  - name: 电子烟
+    type: concept
+  - name: 电子纸
+    type: concept
+  - name: 东盟自贸区
+    type: concept
+  - name: 动力电池回收
+    type: concept
+  - name: 动物疫苗
+    type: concept
+  - name: 抖音概念
+    type: concept
+  - name: 独角兽
+    type: concept
+  - name: 俄乌冲突概念
+    type: concept
+  - name: 钒电池
+    type: concept
+  - name: 房屋检测
+    type: concept
+  - name: 仿制药一致性评价
+    type: concept
+  - name: 飞行汽车(eVTOL)
+    type: concept
+  - name: 分散染料
+    type: concept
+  - name: 芬太尼
+    type: concept
+  - name: 风电
+    type: concept
+  - name: 氟化工概念
+    type: concept
+  - name: 福建自贸区
+    type: concept
+  - name: 辅助生殖
+    type: concept
+  - name: 富士康概念
+    type: concept
+  - name: 钙钛矿电池
+    type: concept
+  - name: 肝炎概念
+    type: concept
+  - name: 高端装备
+    type: concept
+  - name: 高送转
+    type: concept
+  - name: 高铁
+    type: concept
+  - name: 高校
+    type: concept
+  - name: 高压氧舱
+    type: concept
+  - name: 工业4.0
+    type: concept
+  - name: 工业大麻
+    type: concept
+  - name: 工业互联网
+    type: concept
+  - name: 工业母机
+    type: concept
+  - name: 供销社
+    type: concept
+  - name: 供应链金融
+    type: concept
+  - name: 共享单车
+    type: concept
+  - name: 股权转让
+    type: concept
+  - name: 钴
+    type: concept
+  - name: 固废处理
+    type: concept
+  - name: 固态电池
+    type: concept
+  - name: 光伏概念
+    type: concept
+  - name: 光刻机
+    type: concept
+  - name: 光刻胶
+    type: concept
+  - name: 光热发电
+    type: concept
+  - name: 广东自贸区
+    type: concept
+  - name: 国产操作系统
+    type: concept
+  - name: 国产软件
+    type: concept
+  - name: 国家大基金持股
+    type: concept
+  - name: 国企改革
+    type: concept
+  - name: 国资云
+    type: concept
+  - name: 海工装备
+    type: concept
+  - name: 海南自贸区
+    type: concept
+  - name: 航空发动机
+    type: concept
+  - name: 航运概念
+    type: concept
+  - name: 毫米波雷达
+    type: concept
+  - name: 合成生物
+    type: concept
+  - name: 核电
+    type: concept
+  - name: 核污染防治
+    type: concept
+  - name: 黑龙江自贸区
+    type: concept
+  - name: 恒大概念
+    type: concept
+  - name: 横琴新区
+    type: concept
+  - name: 猴痘
+    type: concept
+  - name: 互联网+
+    type: concept
+  - name: 互联网保险
+    type: concept
+  - name: 互联网金融
+    type: concept
+  - name: 互联网医疗
+    type: concept
+  - name: 沪股通
+    type: concept
+  - name: 华为概念
+    type: concept
+  - name: 华为海思概念
+    type: concept
+  - name: 华为鲲鹏
+    type: concept
+  - name: 华为欧拉
+    type: concept
+  - name: 华为盘古
+    type: concept
+  - name: 华为汽车
+    type: concept
+  - name: 华为昇腾
+    type: concept
+  - name: 华为手机
+    type: concept
+  - name: 化肥
+    type: concept
+  - name: 化债(AMC)
+    type: concept
+  - name: 环氧丙烷
+    type: concept
+  - name: 换电概念
+    type: concept
+  - name: 黄金概念
+    type: concept
+  - name: 回购增持再贷款
+    type: concept
+  - name: 机器人概念
+    type: concept
+  - name: 机器视觉
+    type: concept
+  - name: 基因测序
+    type: concept
+  - name: 集成电路概念
+    type: concept
+  - name: 家庭医生
+    type: concept
+  - name: 家用电器
+    type: concept
+  - name: 减肥药
+    type: concept
+  - name: 减速器
+    type: concept
+  - name: 建筑节能
+    type: concept
+  - name: 健康中国
+    type: concept
+  - name: 节能环保
+    type: concept
+  - name: 节能照明
+    type: concept
+  - name: 今日头条
+    type: concept
+  - name: 金融IC
+    type: concept
+  - name: 金属回收
+    type: concept
+  - name: 京津冀一体化
+    type: concept
+  - name: 净水概念
+    type: concept
+  - name: 举牌
+    type: concept
+  - name: 军工
+    type: concept
+  - name: 军工信息化
+    type: concept
+  - name: 军民融合
+    type: concept
+  - name: 抗病毒面料
+    type: concept
+  - name: 壳资源
+    type: concept
+  - name: 可降解塑料
+    type: concept
+  - name: 可控核聚变
+    type: concept
+  - name: 可燃冰
+    type: concept
+  - name: 空间计算
+    type: concept
+  - name: 口罩
+    type: concept
+  - name: 跨境电商
+    type: concept
+  - name: 快手概念
+    type: concept
+  - name: 宽带中国
+    type: concept
+  - name: 垃圾分类
+    type: concept
+  - name: 蓝宝石
+    type: concept
+  - name: 冷链物流
+    type: concept
+  - name: 锂电池概念
+    type: concept
+  - name: 粮食概念
+    type: concept
+  - name: 两轮车
+    type: concept
+  - name: 两桶油改革
+    type: concept
+  - name: 量子通信
+    type: concept
+  - name: 磷化工
+    type: concept
+  - name: 流感
+    type: concept
+  - name: 旅游概念
+    type: concept
+  - name: 绿色电力
+    type: concept
+  - name: 蚂蚁金服概念
+    type: concept
+  - name: 煤化工概念
+    type: concept
+  - name: 煤炭概念
+    type: concept
+  - name: 美丽中国
+    type: concept
+  - name: 免税店
+    type: concept
+  - name: 民爆概念
+    type: concept
+  - name: 民营医院
+    type: concept
+  - name: 钠离子电池
+    type: concept
+  - name: 能源互联网
+    type: concept
+  - name: 宁德时代概念
+    type: concept
+  - name: 农村电商
+    type: concept
+  - name: 农机
+    type: concept
+  - name: 农业种植
+    type: concept
+  - name: 培育钻石
+    type: concept
+  - name: 啤酒概念
+    type: concept
+  - name: 拼多多概念
+    type: concept
+  - name: 苹果概念
+    type: concept
+  - name: 期货概念
+    type: concept
+  - name: 汽车拆解
+    type: concept
+  - name: 汽车电子
+    type: concept
+  - name: 汽车热管理
+    type: concept
+  - name: 汽车芯片
+    type: concept
+  - name: 禽流感
+    type: concept
+  - name: 青蒿素
+    type: concept
+  - name: 氢能源
+    type: concept
+  - name: 区块链
+    type: concept
+  - name: 燃料电池
+    type: concept
+  - name: 燃料乙醇
+    type: concept
+  - name: 人工智能
+    type: concept
+  - name: 人脸识别
+    type: concept
+  - name: 人形机器人
+    type: concept
+  - name: 人造肉
+    type: concept
+  - name: 融资融券
+    type: concept
+  - name: 柔性屏
+    type: concept
+  - name: 乳业
+    type: concept
+  - name: 赛马概念
+    type: concept
+  - name: 三胎概念
+    type: concept
+  - name: 商业航天
+    type: concept
+  - name: 上海国资改革
+    type: concept
+  - name: 上海自贸区
+    type: concept
+  - name: 社区团购
+    type: concept
+  - name: 深股通
+    type: concept
+  - name: 深圳国资改革
+    type: concept
+  - name: 生态农业
+    type: concept
+  - name: 生物医药
+    type: concept
+  - name: 生物疫苗
+    type: concept
+  - name: 生物质能
+    type: concept
+  - name: 石墨电极
+    type: concept
+  - name: 石墨烯
+    type: concept
+  - name: 时空大数据
+    type: concept
+  - name: 食品安全
+    type: concept
+  - name: 数据安全
+    type: concept
+  - name: 数据确权
+    type: concept
+  - name: 数据要素
+    type: concept
+  - name: 数据中心
+    type: concept
+  - name: 数字货币
+    type: concept
+  - name: 数字经济
+    type: concept
+  - name: 数字孪生
+    type: concept
+  - name: 数字水印
+    type: concept
+  - name: 数字乡村
+    type: concept
+  - name: 水泥概念
+    type: concept
+  - name: 送转填权
+    type: concept
+  - name: 算力租赁
+    type: concept
+  - name: 胎压监测
+    type: concept
+  - name: 太赫兹
+    type: concept
+  - name: 太阳能
+    type: concept
+  - name: 钛白粉概念
+    type: concept
+  - name: 碳交易
+    type: concept
+  - name: 碳纤维
+    type: concept
+  - name: 碳中和
+    type: concept
+  - name: 特钢概念
+    type: concept
+  - name: 特高压
+    type: concept
+  - name: 特色小镇
+    type: concept
+  - name: 特斯拉
+    type: concept
+  - name: 腾讯概念
+    type: concept
+  - name: 体育产业
+    type: concept
+  - name: 天津自贸区
+    type: concept
+  - name: 天然气
+    type: concept
+  - name: 通用航空
+    type: concept
+  - name: 铜缆高速连接
+    type: concept
+  - name: 统一大市场
+    type: concept
+  - name: 土地流转
+    type: concept
+  - name: 土壤修复
+    type: concept
+  - name: 托育服务
+    type: concept
+  - name: 网络安全
+    type: concept
+  - name: 网络游戏
+    type: concept
+  - name: 网约车
+    type: concept
+  - name: 微信小程序
+    type: concept
+  - name: 维生素
+    type: concept
+  - name: 尾气治理
+    type: concept
+  - name: 文化传媒概念
+    type: concept
+  - name: 污水处理
+    type: concept
+  - name: 无人机
+    type: concept
+  - name: 无人驾驶
+    type: concept
+  - name: 无人零售
+    type: concept
+  - name: 无线充电
+    type: concept
+  - name: 无线耳机
+    type: concept
+  - name: 物联网
+    type: concept
+  - name: 物流电商平台
+    type: concept
+  - name: 物业管理
+    type: concept
+  - name: 西安自贸区
+    type: concept
+  - name: 西部大开发
+    type: concept
+  - name: 稀缺资源
+    type: concept
+  - name: 稀土永磁
+    type: concept
+  - name: 细胞免疫治疗
+    type: concept
+  - name: 乡村振兴
+    type: concept
+  - name: 小红书
+    type: concept
+  - name: 小金属概念
+    type: concept
+  - name: 小米概念
+    type: concept
+  - name: 小米汽车
+    type: concept
+  - name: 芯片概念
+    type: concept
+  - name: 新材料
+    type: concept
+  - name: 新股与次新股
+    type: concept
+  - name: 新冠检测
+    type: concept
+  - name: 新疆振兴
+    type: concept
+  - name: 新零售
+    type: concept
+  - name: 新能源
+    type: concept
+  - name: 新型城镇化
+    type: concept
+  - name: 新型工业化
+    type: concept
+  - name: 信创
+    type: concept
+  - name: 信托概念
+    type: concept
+  - name: 雄安新区
+    type: concept
+  - name: 熊去氧胆酸
+    type: concept
+  - name: 虚拟电厂
+    type: concept
+  - name: 虚拟数字人
+    type: concept
+  - name: 虚拟现实
+    type: concept
+  - name: 血氧仪
+    type: concept
+  - name: 牙科医疗
+    type: concept
+  - name: 烟草
+    type: concept
+  - name: 盐湖提锂
+    type: concept
+  - name: 眼科医疗
+    type: concept
+  - name: 养鸡
+    type: concept
+  - name: 养老概念
+    type: concept
+  - name: 页岩气
+    type: concept
+  - name: 一带一路
+    type: concept
+  - name: 医疗器械概念
+    type: concept
+  - name: 医药电商
+    type: concept
+  - name: 移动互联网
+    type: concept
+  - name: 移动支付
+    type: concept
+  - name: 英伟达概念
+    type: concept
+  - name: 幽门螺杆菌概念
+    type: concept
+  - name: 油品升级
+    type: concept
+  - name: 有机硅
+    type: concept
+  - name: 语音技术
+    type: concept
+  - name: 玉米
+    type: concept
+  - name: 预制菜
+    type: concept
+  - name: 元宇宙
+    type: concept
+  - name: 粤港澳自贸区
+    type: concept
+  - name: 云计算
+    type: concept
+  - name: 云游戏
+    type: concept
+  - name: 在线教育
+    type: concept
+  - name: 在线旅游
+    type: concept
+  - name: 摘帽
+    type: concept
+  - name: 债转股
+    type: concept
+  - name: 长三角一体化
+    type: concept
+  - name: 振兴东北
+    type: concept
+  - name: 证金持股
+    type: concept
+  - name: 知识产权保护
+    type: concept
+  - name: 职业教育
+    type: concept
+  - name: 智慧城市
+    type: concept
+  - name: 智慧灯杆
+    type: concept
+  - name: 智慧政务
+    type: concept
+  - name: 智能穿戴
+    type: concept
+  - name: 智能电网
+    type: concept
+  - name: 智能家居
+    type: concept
+  - name: 智能交通
+    type: concept
+  - name: 智能医疗
+    type: concept
+  - name: 智能音箱
+    type: concept
+  - name: 智能制造
+    type: concept
+  - name: 智能座舱
+    type: concept
+  - name: 智谱AI
+    type: concept
+  - name: 中船系
+    type: concept
+  - name: 中俄贸易
+    type: concept
+  - name: 中韩自贸区
+    type: concept
+  - name: 中芯国际概念
+    type: concept
+  - name: 猪肉
+    type: concept
+  - name: 注册制次新股
+    type: concept
+  - name: 专精特新
+    type: concept
+  - name: 转基因
+    type: concept
+  - name: 转融券标的
+    type: concept
+  - name: 装配式建筑
+    type: concept
+  - name: 自由贸易港
+    type: concept
+  - name: 租售同权
+    type: concept
+  - name: 足球概念
+    type: concept
+  - name: AI手机
+    type: concept
+  - name: AI眼镜
+    type: concept
+  - name: AI语料
+    type: concept
+  - name: AI智能体
+    type: concept
+  - name: AIGC
+    type: concept
+  - name: BC电池
+    type: concept
+  - name: ChatGPT
+    type: concept
+  - name: CRO
+    type: concept
+  - name: DeepSeek
+    type: concept
+  - name: DRG/DIP
+    type: concept
+  - name: EDR概念
+    type: concept
+  - name: ERP概念
+    type: concept
+  - name: ETC
+    type: concept
+  - name: F5G
+    type: concept
+  - name: LED
+    type: concept
+  - name: MCU芯片
+    type: concept
+  - name: MicroLED
+    type: concept
+  - name: MiniLED
+    type: concept
+  - name: MLOps概念
+    type: concept
+  - name: MSCI概念
+    type: concept
+  - name: O2O概念
+    type: concept
+  - name: OLED
+    type: concept
+  - name: P2P概念
+    type: concept
+  - name: PCB概念
+    type: concept
+  - name: PEEK材料
+    type: concept
+  - name: PM2.5
+    type: concept
+  - name: POE胶膜
+    type: concept
+  - name: PVDF概念
+    type: concept
+  - name: Sora概念(文生视频)
+    type: concept
+  - name: Web3.0
+    type: concept
+# ============================================================
+# 注意事项
+# 1. 上述 name 均来自平台概念板块列表，公式中请用 name
+# 2. 扩充时请从 resource: theme_list 或 confirm_multiple_assets 获取
+# ============================================================

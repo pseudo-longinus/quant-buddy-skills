@@ -1,0 +1,221 @@
+# ============================================================
+# 常用全市场数据集预设
+# 来源：平台内置数据集（通过 confirmDataMulti 获取 index_title）
+#
+# 关键概念：
+#   index_title  = confirmDataMulti 返回的精确名称
+#                  公式中必须用这个名字，原始描述词无效
+#   dimension    = one（一维/时序）或 two（二维，资产×日期矩阵）
+#   is_bool      = true（布尔掩码，可直接用于乘法过滤）
+#                  false（数值型，如价格、市值）
+#
+# 用法：
+#   1. 查此文件 → 直接用 index_title 写公式
+#   2. 若此文件无目标数据 → 调用 confirmDataMulti，将返回的
+#      index_title 补充到此文件
+# ============================================================
+
+# ── 行情类（数值，二维，日频）───────────────────────────────
+# minute_mapped: true 表示该数据名在 use_minute_data=true 时
+#   会被服务端自动映射到分钟频数据源，公式写法不变。
+price:
+  - index_title: 全市场每日收盘价
+    dimension: two
+    is_bool: false
+    minute_mapped: true
+    description: "A股全市场复权收盘价，二维矩阵（资产×日期）"
+    usage: >
+      全市场收益矩阵 = 涨跌幅("全市场每日收盘价")
+      茅台收盘 = "全市场每日收盘价" * 取出(贵州茅台)
+
+  - index_title: 全市场每日开盘价
+    dimension: two
+    is_bool: false
+    minute_mapped: true
+    description: "A股全市场开盘价，二维矩阵（资产×日期）"
+
+  - index_title: 全市场每日最高价
+    dimension: two
+    is_bool: false
+    minute_mapped: true
+    description: "A股全市场最高价，二维矩阵（资产×日期）"
+
+  - index_title: 全市场每日最低价
+    dimension: two
+    is_bool: false
+    minute_mapped: true
+    description: "A股全市场最低价，二维矩阵（资产×日期）"
+
+  - index_title: 全市场每日收盘价（不复权）
+    dimension: two
+    is_bool: false
+    minute_mapped: true
+    description: "A股全市场不复权收盘价，二维矩阵（资产×日期）。涨停/跌停判断需用不复权价"
+
+  # 注意：查询「全市场每日涨跌幅」时，平台返回 index_title 为「全市场每日回报率」
+  # 公式中必须用 index_title，写「全市场每日回报率」否则报「数据名不存在」
+  - index_title: 全市场每日回报率
+    dimension: two
+    is_bool: false
+    intention_alias: 全市场每日涨跌幅
+    description: "A股全市场日度涨跌幅（回报率），二维矩阵"
+
+  - index_title: 全市场每日成交额
+    dimension: two
+    is_bool: false
+    minute_mapped: true
+    description: "A股全市场日度成交额（元），二维矩阵"
+    usage: >
+      行业成交额 = 成分求和汇总("全市场每日成交额","申万资产所属指数")
+
+  - index_title: 全市场每日成交量
+    dimension: two
+    is_bool: false
+    minute_mapped: true
+    description: "A股全市场日度成交量（股），二维矩阵"
+
+# ── 估值类（数值，二维，日频）───────────────────────────────
+valuation:
+  - index_title: A股市盈率（PE）〔估值数据〕
+    dimension: two
+    is_bool: false
+    description: "市盈率（静态PE），日频"
+    usage: >
+      低PE = ("A股市盈率（PE）〔估值数据〕">0) * ("A股市盈率（PE）〔估值数据〕"<20) * 板块(万得全A)
+
+  - index_title: A股市盈率（PE, TTM）〔估值数据〕
+    dimension: two
+    is_bool: false
+    intention_alias: PE_TTM
+    description: "市盈率（TTM滚动12个月），日频，负值=亏损股"
+
+  - index_title: A股市净率（PB）〔估值数据〕
+    dimension: two
+    is_bool: false
+    description: "市净率PB，日频"
+    usage: >
+      破净股 = ("A股市净率（PB）〔估值数据〕">0) * ("A股市净率（PB）〔估值数据〕"<1) * 板块(万得全A)
+
+  - index_title: A股市销率（PS，TTM）〔估值数据〕
+    dimension: two
+    is_bool: false
+    description: "市销率PS（TTM），日频"
+
+  - index_title: A股流通市值〔估值数据〕
+    dimension: two
+    is_bool: false
+    unit: 亿元
+    description: "日度流通市值（亿元）"
+    usage: >
+      小盘股 = ("A股流通市值〔估值数据〕"<50) * 板块(万得全A)
+
+  - index_title: A股总市值〔估值数据〕
+    dimension: two
+    is_bool: false
+    unit: 亿元
+    description: "日度总市值（亿元）"
+
+  - index_title: A股股息率〔估值数据〕
+    dimension: two
+    is_bool: false
+    unit: "%"
+    description: "股息率（%），日频"
+    usage: >
+      高股息 = ("A股股息率〔估值数据〕">3) * 板块(万得全A) * 缺失填零("非ST股")
+
+# ── 情绪/量价类（数值，二维，日频）──────────────────────────
+sentiment:
+  - index_title: A股换手率〔估值数据〕
+    dimension: two
+    is_bool: false
+    unit: "%"
+    description: "个股日度换手率（%），来源聚宽"
+    usage: >
+      行业换手率 = 成分平均汇总("A股换手率〔估值数据〕","申万资产所属指数")
+
+# ── 财务类（数值，二维，季度频率）────────────────────────────
+# ⚠️ 季度数据按财报期对齐（如 2024Q1），非交易日发布日
+financials:
+  - index_title: A股营业收入〔报告期利润表〕
+    dimension: two
+    is_bool: false
+    unit: 元
+    description: "营业收入（元），季度频率"
+
+  - index_title: A股净利润〔报告期利润表〕
+    dimension: two
+    is_bool: false
+    unit: 元
+    description: "净利润（元），季度频率"
+
+  - index_title: A股归属于母公司股东的净利润〔报告期利润表〕
+    dimension: two
+    is_bool: false
+    unit: 元
+    description: "归母净利润（元），季度频率"
+
+  - index_title: A股股东权益合计〔报告期资产负债表〕
+    dimension: two
+    is_bool: false
+    unit: 元
+    intention_alias: 净资产
+    description: "股东权益/净资产（元），季度频率"
+
+  - index_title: A股资产总计〔报告期资产负债表〕
+    dimension: two
+    is_bool: false
+    unit: 元
+    description: "总资产（元），季度频率"
+
+  - index_title: A股净资产收益率ROE
+    dimension: two
+    is_bool: false
+    unit: "%"
+    description: "ROE（%），季度频率"
+    usage: >
+      高ROE = ("A股净资产收益率ROE">15) * 板块(万得全A)
+
+# ── 行业归属（索引类，二维）──────────────────────────────────
+industry:
+  - index_title: 申万资产所属指数
+    dimension: two
+    is_bool: false
+    description: "每只股票所属申万一级行业指数代码，用于行业聚合函数"
+    usage: >
+      行业均值 = 成分平均汇总("任意因子","申万资产所属指数")
+
+# ── 常见派生指标（需用公式自行计算，非平台内置）─────
+# 以下指标不是平台数据集，而是由上述基础数据用公式组合得到。
+# 直接用 confirmDataMulti 搜索这些名词会失败。
+derived_indicators:
+  - name: 资产负债率
+    formula: |
+      总负债 = "A股资产总计〔报告期资产负债表〕" - "A股股东权益合计〔报告期资产负债表〕"
+      资产负债率 = 总负债 / "A股资产总计〔报告期资产负债表〕"
+    note: "平台无直接的'负债合计'数据，用 总资产-股东权益 = 总负债"
+
+  - name: 净利率
+    formula: |
+      净利率 = "A股净利润〔报告期利润表〕" / "A股营业收入〔报告期利润表〕"
+    note: "结果为小数，转百分比需乘100"
+
+  - name: 营收同比增长率
+    formula: |
+      营收同比 = 同比增长("A股营业收入〔报告期利润表〕")
+    note: "同比增长是平台内置函数，自动计算年同比"
+# ── 过滤掩码（布尔，二维）────────────────────────────────────
+filters:
+  - index_title: 非ST股
+    dimension: two
+    is_bool: true
+    description: "True=非ST/ST*股票，用于过滤垃圾股"
+    usage: >
+      信号 = 缺失填零("非ST股") * 板块(万得全A) * ("PE">0)
+
+# ============================================================
+# 扩充指引
+# 1. 需要新数据时，用 confirmDataMulti 传入描述词（如"市盈率"）
+# 2. 从返回的 matched_items 中取 index_title
+# 3. 将结果以相同格式追加到本文件对应分类下
+# 4. 去掉注释前缀后即为可直接用的 index_title
+# ============================================================

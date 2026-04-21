@@ -1,0 +1,6 @@
+{
+  "endpoint": "http://test.guanzhao12.com:3010",
+  "auth_endpoint": "http://test.guanzhao12.com:3009",
+  "api_key": "",
+  "bocha_api_key": ""
+}

@@ -1,2 +1,58 @@
 # quant-buddy-skills
-A股、美股、港股量化分析 AI skill，支持行情查询、选股、回测、财务分析等。可通过 npx 一键安装到本地 IDE。
+
+A股、港股、美股量化分析 Agent Skill，支持实时行情、财务数据查询、选股、因子计算、策略回测等。遵循 [Agent Skills 规范](https://agentskills.io/specification)，可通过 `npx skills` 一键安装到本地 IDE。
+
+## Skills
+
+| Skill | 描述 |
+|-------|------|
+| quant-buddy-skill | 查询 A 股、港股、美股的行情、估值、财务数据；支持选股筛选、因子计算、策略回测、净值对比、图表渲染 |
+
+## 安装
+
+### npx（推荐）
+
+```bash
+npx skills add pseudo-longinus/quant-buddy-skills
+```
+
+安装时会提示选择目标 IDE（Claude Code、GitHub Copilot、Cursor、Windsurf 等），以及全局安装或项目级安装。
+
+### 手动安装
+
+**Claude Code**
+
+```bash
+git clone https://github.com/pseudo-longinus/quant-buddy-skills.git
+cp -r quant-buddy-skills/skills/quant-buddy-skill ~/.claude/skills/
+```
+
+**GitHub Copilot**
+
+```bash
+cp -r quant-buddy-skills/skills/quant-buddy-skill ~/.copilot/skills/
+```
+
+**Cursor / Windsurf / 其他**
+
+参考 [npx skills 支持的 IDE 列表](https://www.npmjs.com/package/skills#supported-agents)，将 `skills/quant-buddy-skill/` 目录复制到对应路径。
+
+## 配置
+
+安装后，首次使用前需要配置 API Key：
+
+1. 编辑 skill 目录下的 `config.json`，填入你的 `api_key`
+2. 或者在 skill 激活后按照认证向导完成手机号登录
+
+## 数据覆盖范围
+
+| 市场 | 行情 | 估值（PE/PB/市值） | 财务数据 |
+|------|------|-------------------|---------|
+| A 股（沪深主板/创业板/科创板/北交所） | ✅ | ✅ | ✅ |
+| 港股 | ✅ | ❌ | ❌ |
+| 美股（NASDAQ / NYSE / AMEX） | ✅ | ❌ | ❌ |
+| 主要宽基指数（沪深300、中证500等） | ✅ | ✅ | — |
+
+## License
+
+MIT

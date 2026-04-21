@@ -1,0 +1,25 @@
+# 运行时日志
+logs/
+
+# 运行时输出（CSV、HTML、图片、JSON 结果）
+output/
+
+# Eval 测试工作区（跑分结果、iteration）
+eval-workspace/
+
+# Eval 测试样本数据
+evals/files/
+
+# Python 缓存
+**/__pycache__/
+*.pyc
+*.pyo
+
+# 私有配置（含 api_key）
+config.local.json
+
+# 运行时状态数据
+**/published_stocks.json
+
+# 调试临时文件
+scripts/_debug_cv_out.txt
