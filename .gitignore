@@ -128,6 +128,13 @@ dist
 # yarn v3
 .pnp.*
 .yarn/*
+
+# Skill runtime files
+.session.json
+*.session.json
+skills/**/output/
+skills/**/logs/
+skills/**/config.local.json
 !.yarn/patches
 !.yarn/plugins
 !.yarn/releases
