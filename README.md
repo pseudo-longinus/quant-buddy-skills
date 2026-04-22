@@ -53,6 +53,14 @@ cp -r quant-buddy-skills/skills/quant-buddy-skill ~/.copilot/skills/
 | 美股（NASDAQ / NYSE / AMEX） | ✅ | ❌ | ❌ |
 | 主要宽基指数（沪深300、中证500等） | ✅ | ✅ | — |
 
+## 联系作者
+
+<p align="center">
+  <img src="assets/wechat_qr.jpg" width="180" alt="微信二维码" />
+  <br/>
+  <sub>扫码添加微信，欢迎交流量化投研</sub>
+</p>
+
 ## License
 
 MIT
