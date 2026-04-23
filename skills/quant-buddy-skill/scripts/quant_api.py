@@ -3,11 +3,11 @@
 观照量化 API —— Python 可编程接口
 
 供业务 Skill 的脚本 import 使用，底层走 executor.py REST API，不依赖 MCP 协议。
-所有工具名、参数格式、认证、session 管理均复用 guanzhao-quant-skill 的基础设施。
+所有工具名、参数格式、认证、session 管理均复用 quant-buddy-skill 的基础设施。
 
 用法：
-    import sys, os
-    sys.path.insert(0, r"d:\\liangye\\.claude\\skills\\guanzhao-quant-skill\\scripts")
+    import sys
+    sys.path.insert(0, r"/path/to/quant-buddy-skill/scripts")
     from quant_api import QuantAPI
 
     api = QuantAPI()                  # 自动定位 skill root
@@ -27,7 +27,7 @@ import uuid
 
 __all__ = ["QuantAPI"]
 
-# 本文件所在目录 = guanzhao-quant-skill/scripts/
+# 本文件所在目录 = quant-buddy-skill/scripts/
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _SKILL_ROOT = os.path.dirname(_SCRIPT_DIR)
 
@@ -38,7 +38,7 @@ class QuantAPI:
     Parameters
     ----------
     skill_root : str, optional
-        guanzhao-quant-skill 的根目录，默认自动检测（本文件上两级）。
+        quant-buddy-skill 的根目录，默认自动检测（本文件上两级）。
     timeout : int
         每次 API 调用的最大等待秒数，默认 300。
     """
@@ -57,7 +57,7 @@ class QuantAPI:
         if not os.path.isdir(self._scripts_dir):
             raise FileNotFoundError(
                 f"找不到 scripts 目录: {self._scripts_dir}\n"
-                f"请确认 skill_root 指向 guanzhao-quant-skill 根目录"
+                f"请确认 skill_root 指向 quant-buddy-skill 根目录"
             )
 
     # ────────────────────────────────────────────

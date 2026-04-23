@@ -20,8 +20,8 @@ SKILL_ROOT = SCRIPT_DIR.parent
 CONFIG_PATH = SKILL_ROOT / "config.json"
 
 # 兜底默认值——仅在 config.json 尚不存在时使用，勿在其他地方直接引用
-_DEFAULT_AUTH_ENDPOINT = "http://test.guanzhao12.com:3009"
-_DEFAULT_TOOL_ENDPOINT = "http://test.guanzhao12.com:3010"
+_DEFAULT_TOOL_ENDPOINT = "https://test.quantbuddy.cn/skill"
+_DEFAULT_AUTH_ENDPOINT = "https://test.quantbuddy.cn/user"
 
 
 def _read_endpoints():
@@ -176,7 +176,7 @@ def _print_manual_config():
 # ── 主流程 ──────────────────────────────────────────────────────────────────────
 def main():
     print(bold("\n=== 观照量化投研 Skill 安装向导 ==="))
-    print("  依赖：Python 3.6+，无需安装其他包\n")
+    print("  依赖：Python 3.8+，无需安装其他包\n")
 
     # 1. 检查是否已配置
     existing_cfg = step_check_existing()

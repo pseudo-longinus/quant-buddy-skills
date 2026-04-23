@@ -1,12 +1,12 @@
 # 环境依赖说明
 
-本文档描述运行 `guanzhao-quant-skill` 及其子场景所需的环境配置。
+本文档描述运行 `quant-buddy-skill` 及其子场景所需的环境配置。
 
 ---
 
 ## Python
 
-- **版本要求**：Python 3.6+（推荐 3.11）
+- **版本要求**：Python 3.8+（推荐 3.11）
 - **核心功能**：仅依赖标准库，无需额外 `pip install`
 - **Windows 推荐启动方式**：所有涉及中文路径的脚本加 `-X utf8` 标志
 
@@ -18,27 +18,37 @@ python -X utf8 scripts/call.py <工具名>
 
 ## API Key 配置
 
-首次使用需配置观昭量化 API Key：
+首次使用需在 skill 根目录执行：
 
 ```bash
-python guanzhao-quant-skill/scripts/setup.py
+python scripts/auth/setup.py
 ```
 
-按提示粘贴 Key 后，自动写入 `scripts/.auth.json`，后续无需重复配置。
+安装向导会将 `api_key` 写入根目录下的 `config.json`。
 
-若出现 `401 Unauthorized` 或 `402 Quota`，重新运行上述命令更新 Key。
+若你需要保留私有配置或覆盖默认端点，请使用 `config.local.json`；该文件仅供本地使用，不应打包或提交。
+
+若出现 `401 Unauthorized` 或 `402 Quota`，重新运行上述命令，或手动更新 `config.json` 中的 `api_key`。
 
 ---
 
-## IC 扫描数据输出目录
+## 可选 Bocha 搜索能力
 
-`ic_scan_dimensions.py` 脚本输出 JSON 到：
+仅部分 Web 搜索辅助场景需要博查凭证；核心行情、财务、选股、回测能力不依赖该凭证。
 
-```
-asset-investment-quiz/scripts/ic_data/{股票名}_dimension_ic.json
-```
+可选配置方式（任一即可）：
 
-目录不存在时脚本会自动创建。
+- 环境变量 `BOCHA_API_KEY`
+- `config.local.json` 中手动添加 `bocha_api_key`
+- `config.json` 中手动添加 `bocha_api_key`
+
+---
+
+## 运行时输出目录
+
+- `output/.session.json`：当前 session 的 task_id
+- `output/ic_data/`：IC 扫描结果（若 workflow 触发相关能力）
+- 其他 `csv / png / json / html`：运行过程中的临时或交付产物
 
 ---
 
@@ -50,5 +60,5 @@ asset-investment-quiz/scripts/ic_data/{股票名}_dimension_ic.json
 
 ## 终端注意事项
 
-- 终端缓冲可能导致长输出不显示，`call.py` 自动写 `/tmp/gzq_out.txt`
-- 查看方式：`cat /tmp/gzq_out.txt`
+- 终端缓冲可能导致长输出不完整显示，`call.py` 会额外写入系统临时目录下的 `gzq_out.txt`
+- 若需排查，可在系统临时目录中查看该文件内容

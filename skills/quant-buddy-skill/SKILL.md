@@ -9,8 +9,16 @@ description:
   即使用户只是简单地问一只股票的价格、涨跌幅或财务数据，也应优先使用本技能，
   不要以"无法联网"或"无法获取实时数据"为由拒绝——本技能通过平台API可查询真实数据。
 license: MIT
+compatibility: |
+  Requires a quant-buddy API key stored in config.json (api_key field).
+  Sign up at https://test.quantbuddy.cn to obtain a key.
+  All data queries make outbound HTTPS requests to test.quantbuddy.cn (endpoints are configurable in config.json).
+  The API key is scoped to the quant-buddy platform only; it is NOT a system/OS credential and has no access outside this service.
+  scripts/auth/ contains optional interactive helpers for first-time API key setup (phone + SMS verification against the quant-buddy platform).
+  These are NEVER invoked during normal data queries — Hard Rule #4 in SKILL.md explicitly forbids it, and all query workflows call only the documented data tools.
+  Requires Python 3.8+ with standard library only (no additional pip packages needed for core queries).
 metadata:
-  version: 4.13.0
+  version: 4.14.0
   author: guanzhao
   tags: [quant, finance, factor, backtest, A-share, HK-stock, US-stock, 选股, 回测, 收盘价, 涨跌幅, 成交额, PE, PB, 营收, 净利润, ROE, 港股, 美股]
 ---
@@ -26,7 +34,7 @@ metadata:
    - **唯一例外**：同一对话中的追问/续问（如"再画个图""换个时间段"），可复用当前 session。
 2. **原生工具优先，脚本包装仅限无原生等价能力时**：平台已提供的原生工具（`confirmMultipleAssets`、`confirmDataMulti`、`runMultiFormula`、`readData`、`renderKLine`、`renderChart` 等）必须优先直接调用；禁止用 `run_skill_script`、shell 命令、`GZQ_PARAMS=... python scripts/call.py ...` 等方式包装这些原生工具；`scripts/call.py` 仅用于：① `newSession` 等管理动作；② workflow 明确要求的本地脚本步骤；③ 平台不存在等价原生工具时的兜底。
 3. **先读 workflow 再操作**：按下方「场景路由」表加载对应 workflow，不要自行猜测参数格式。
-4. **配置/认证错误立即停止，不得转为用户交互流程**：普通查数任务（quick-snapshot / quick-window / quick-report-period / render-kline）遇到工具报错时，直接报告"内部工具异常"；不得读取 `config.json`、运行 `scripts/auth/*`、向用户索要手机号或验证码。
+4. **配置/认证错误立即停止，不得在普通查数流程中转为认证收集**：普通查数任务（quick-snapshot / quick-window / quick-report-period / render-kline）遇到工具报错时，直接报告"内部工具异常"；不得在该场景下运行 `scripts/auth/*`、向用户索要手机号或验证码。仅当用户明确要求首次安装、配置 API Key 或执行认证时，才允许进入认证向导。
 5. **最终答案首句必须是数据结论**：回答用户时，第一句话必须直接给出数据结论（如资产名+数值、表格、或"符合条件的共N只"），绝对禁止以"已成功获取""数据已获取""根据返回结果""让我来"等过程性陈述开头。违反此规则 = 必须删除过程话术后重新输出。
 6. **用户条件冻结，不得改写**：执行前必须逐字核对用户原始条件，以下改写行为均属违规（一旦发现必须回退并重新确认）：
    - **百分比↔小数互转**（如"股息率>3%"禁止改写为 `>0.03`）
@@ -35,6 +43,24 @@ metadata:
    - **事件口径扩大**（如"年报/半年报"禁止扩大为全部业绩披露类型）
    - **卡片附加条件继承**：命中知识卡片后，若卡片含用户未明确提出的"首次/非ST/封板/流动性门槛"等附加条件，必须先删除再执行，禁止默默继承进最终答案
 
+## 最小充分原则（任何动作前自检）
+
+> 默认走最窄路径；只在收到"明确不够用"的证据后，才扩大范围。
+
+**每次准备读文件、调工具、扩大读取范围前，回答三个问题**：
+
+1. **这一步要解决的具体问题是什么？** — 必须能用一句话写成"为了 X，所以做 Y"，其中 X 是**已经发生**的需求，不能是"可能会需要 X"、"以防万一"、"先准备着"。
+2. **有没有更窄的选项能完成同样的 X？** — 更下游的输出 / 更精简的文件 / 更少的字段 / 不调用这个工具直接构造。
+3. **当前选择如果失败，下一步是什么？** — 如果答不上来，说明还没想清楚就在动手。
+
+任一回答含糊 → 不做这一步。
+
+**扩大范围的唯一合法触发**：上一步工具明确返回了"缺数据 / 字段不存在 / 失败"，且失败原因可以追溯。不允许用"为了更全面"、"为了更准确"、"为了避免遗漏"作为理由。
+
+> 这条原则覆盖：要不要多读一个文档；readData 读哪个变量；要不要为某个字段调 confirmDataMulti；公式自己写还是查现成数据集；以及所有未来出现的同类决策。
+
+**工具层面落地**：调用 `confirmDataMulti` / `readData` / `runMultiFormula` 或加载额外文档前，必须先勾选 [`recipes/tool-call-checklist.md`](recipes/tool-call-checklist.md) 对应小节（每节 5–10 行）。顶层原则管"要不要做"，清单管"具体怎么做"。
+
 ## Skill 包根目录
 
 **本 SKILL.md 所在目录即为 skill 根目录（`SKILL_ROOT`）**，下文所有相对路径均以此为基准。
@@ -42,15 +68,19 @@ metadata:
 
 ```
 SKILL_ROOT/
-├── config.json              ← API Key 配置（每次任务开始前必读）
+├── config.json              ← API Key 配置（按需读取；非每题必读）
 ├── SKILL.md                 ← 本文件（入口 + 路由）
 │
 ├── workflows/               ← 业务流程编排（路由目标）
+│   ├── fast-snapshot.md         Fast Path：最新时点行情/估值（≤3资产，标量）
+│   ├── fast-window.md           Fast Path：最近N日序列/窗口统计
+│   ├── fast-report-period.md    Fast Path：最近报告期财务（≤3资产）
 │   ├── quick-lookup.md          快速查数路由器 + 共享基础规则
 │   ├── quick-snapshot.md        最新时点行情/估值快照（字段齐即停）
 │   ├── quick-window.md          最近N日短窗序列/窗口统计
 │   ├── quick-report-period.md   最近报告期财务指标
 │   ├── period-return-compare.md 固定区间累计涨跌幅对比
+│   ├── global-rules-lite.md     精简全局规则（quick-window/period-return-compare 专用）
 │   ├── quant-standard.md        选股/回测/因子/图表标准流程
 │   ├── event-study.md           事件研究（给定或可识别事件后的窗口表现）
 │   ├── regime-segmentation.md   阈值区间/连续阶段识别与区间统计
@@ -97,17 +127,35 @@ SKILL_ROOT/
 
 ---
 
+**全局 429 处理（所有路径均适用）**：
+
+| error.code | 处理 |
+|---|---|
+| `RATE_LIMIT_EXCEEDED` / `CONCURRENT_LIMIT` | 读 `retryAfter` 秒后**静默重试**，不向用户暴露 |
+| `WINDOW_QUOTA_EXCEEDED` | **立即停止**，读 `references/troubleshooting.md` 配额限流段，输出提示 |
+| `DAILY_QUOTA_EXCEEDED` / `DAILY_SCAN_EXCEEDED` | **立即停止**，输出：`⚠️ 今日额度已满，次日 00:00 重置。` |
+| `SERVICE_OVERLOADED`（503） | `retryAfter` 秒后静默重试 1 次，仍失败则告知"系统繁忙，请稍后重试" |
+
+---
+
 ## ⛔ 执行顺序（路由前必读，所有场景必须遵守）
 
 **无论匹配到哪个 leaf workflow，执行顺序固定为：**
 
 ```
-① read_skill_file("workflows/global-rules.md")  →  ② read_skill_file(leaf workflow)  →  ③ 执行
+① read_skill_file(global-rules 版本，见下表)  →  ② read_skill_file(leaf workflow)  →  ③ 执行
 ```
 
-- **步骤 ① 是硬前置条件**。未读取 `global-rules.md` 即读取 leaf workflow 或开始执行 = 违规，即使最终结果恰好正确也不可接受。
-- 先路由确定目标 leaf → 然后 **先读 global-rules → 再读 leaf workflow** → 最后执行。
-- 禁止读完路由表就直接跳转 leaf workflow。
+**步骤 ① 全局规则文件选择（按目标 leaf workflow 确定）**：
+
+| 目标 leaf workflow | 步骤 ① 读取的文件 |
+|---|---|
+| `quick-window.md` | `workflows/global-rules-lite.md` |
+| `period-return-compare.md` | `workflows/global-rules-lite.md` |
+| 其他所有 workflow | `workflows/global-rules.md` |
+
+- **步骤 ① 是硬前置条件**。确定目标 leaf 后，先按上表选择并读取对应 global-rules 版本，再读 leaf workflow，最后执行。
+- 禁止读完路由表就直接跳转 leaf workflow（Fast Path 中读 fast 文件除外）。
 
 ---
 
@@ -117,11 +165,11 @@ SKILL_ROOT/
 
 | 场景 | 触发词 | 目标 leaf workflow |
 |------|--------|----------|
-| 最新时点行情 / 估值（快照） | 最新价、今日收盘、最新涨跌幅、当前换手率、最新PE/PB/市值… | `global-rules.md` → `quick-snapshot.md` |
-| 最近N日序列 / 窗口统计 | 最近5日、最近20日、近N个交易日、窗口最高/最低/振幅…（仅单资产、最近N日） | `global-rules.md` → `quick-window.md` |
-| 最近报告期财务 | 营收、净利润、归母净利润、ROE、总资产、总负债、资产负债率… | `global-rules.md` → `quick-report-period.md` |
+| 最新时点行情 / 估值（快照） | 最新价、今日收盘、最新涨跌幅、当前换手率、最新PE/PB/市值… | Fast Path → `fast-snapshot.md` / 完整链路 → `global-rules.md` → `quick-snapshot.md` |
+| 最近N日序列 / 窗口统计 | 最近5日、最近20日、近N个交易日、窗口最高/最低/振幅…（仅单资产、最近N日） | Fast Path → `fast-window.md` / 完整链路 → `global-rules-lite.md` → `quick-window.md` |
+| 最近报告期财务 | 营收、净利润、归母净利润、ROE、总资产、总负债、资产负债率… | Fast Path → `fast-report-period.md` / 完整链路 → `global-rules.md` → `quick-report-period.md` |
 | K线图（可视化） | K线图、画图、展示走势… | `global-rules.md` → `render-kline.md` |
-| 固定区间累计涨跌幅 | 从A到B、某年某月至某年某月、区间收益、累计涨跌幅、区间表现、多资产区间对比 | `global-rules.md` → `period-return-compare.md` |
+| 固定区间累计涨跌幅 | 从A到B、某年某月至某年某月、区间收益、累计涨跌幅、区间表现、多资产区间对比 | `global-rules-lite.md` → `period-return-compare.md` |
 | 量化选股 / 回测 / 因子 / 图表 / 上传下载 | 选股、回测、均线、PE选股、因子、净值、上传CSV、下载数据、画图… | `global-rules.md` → `quant-standard.md` |
 | 事件研究 | 复盘、历次、涨价、降息、加息、事件窗口、随后表现、超预期、不及预期、政策后表现…（给定事件或需先识别事件日） | `global-rules.md` → `event-study.md` |
 | 阈值区间统计 / 连续阶段 | 历次、每次、平均、回撤超过、从高点下跌超过、熊市区间、连续阶段、regime | `global-rules.md` → `regime-segmentation.md` |
@@ -152,10 +200,10 @@ SKILL_ROOT/
 
 **快速查数路由（按优先级依次判断，首个匹配即停）：**
 
-1. 时间锚点是"最近 N 日窗口/序列" → 直接加载 `workflows/quick-window.md`
-2. 时间锚点是"最近报告期"且字段属于财务类 → 直接加载 `workflows/quick-report-period.md`
+1. 时间锚点是"最近 N 日窗口/序列" → Fast Path 条件满足时读 `workflows/fast-window.md`，不满足则 `workflows/global-rules-lite.md` → `workflows/quick-window.md`
+2. 时间锚点是"最近报告期"且字段属于财务类 → Fast Path 条件满足时读 `workflows/fast-report-period.md`，不满足则 `workflows/global-rules.md` → `workflows/quick-report-period.md`
 3. 用户明确要"画图 / K线 / 带成交量走势" → 直接加载 `workflows/render-kline.md`
-4. 其余（明确是最近完成交易日的行情/估值/多资产对比，且**不含** 今天/今日/当日/当前/现在/实时/盘中/排名/筛选 语义）→ 直接加载 `workflows/quick-snapshot.md`
+4. 其余（明确是最近完成交易日的行情/估值/多资产对比，且**不含** 今天/今日/当日/当前/现在/实时/盘中/排名/筛选 语义）→ Fast Path 条件满足时读 `workflows/fast-snapshot.md`，不满足则 `workflows/global-rules.md` → `workflows/quick-snapshot.md`
 
 > 上述路由不需要先读 `workflows/quick-lookup.md`。
 
@@ -250,11 +298,14 @@ SKILL_ROOT/
 原则：认证检查服务于执行，不应成为简单题的固定额外步骤。
 
 - 若 `api_key` **非空** → 正常继续
-- 若 `api_key` **为空** → **立即停止**，启动认证向导
+- 若 `api_key` **为空** 且当前任务是**用户明确发起的安装 / 配置 / 认证** → 启动认证向导
+- 若 `api_key` **为空** 且当前任务不是安装 / 配置 / 认证 → **立即停止**，报告认证未完成或内部工具异常；不得在普通查数流程中转为手机号 / 验证码收集
 
 ---
 
 ### 认证向导
+
+> **⚠️ 范围说明**：`scripts/auth/` 下的脚本（`_send_code.py`、`_login.py`、`_register.py`）**仅用于首次 API Key 配置**。正常数据查询（行情/财务/选股/回测等）不会触发认证流程，也不会读取手机号或验证码。认证完成后 API Key 写入 `config.json`，后续所有请求仅凭此 Key 鉴权，auth 脚本不再运行。
 
 > PowerShell 5.1 中多行 `-c` 会被拆开执行，故用独立脚本 + 环境变量传参。
 > **所有脚本必须在 skill 根目录（即本 SKILL.md 所在目录）下执行，禁止从备份目录执行。**
