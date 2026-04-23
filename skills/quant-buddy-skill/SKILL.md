@@ -1,5 +1,8 @@
 ---
 name: quant-buddy-skill
+slug: quant-buddy-skill
+author: guanzhao
+version: 4.14.11
 description:
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据。
   查询最近N个交易日的价格序列、日涨跌幅序列、窗口最高价、最低价、振幅等短期统计。
@@ -8,33 +11,52 @@ description:
   港股、美股目前支持行情价格查询（收盘价、开盘价、涨跌幅、成交量、成交额等）。
   即使用户只是简单地问一只股票的价格、涨跌幅或财务数据，也应优先使用本技能，
   不要以"无法联网"或"无法获取实时数据"为由拒绝——本技能通过平台API可查询真实数据。
-license: MIT
-compatibility: |
-  Requires a quant-buddy API key stored in config.json (api_key field).
-  Sign up at https://test.quantbuddy.cn to obtain a key.
-  All data queries make outbound HTTPS requests to test.quantbuddy.cn (endpoints are configurable in config.json).
-  The API key is scoped to the quant-buddy platform only; it is NOT a system/OS credential and has no access outside this service.
-  scripts/auth/ contains optional interactive helpers for first-time API key setup (phone + SMS verification against the quant-buddy platform).
-  These are NEVER invoked during normal data queries — Hard Rule #4 in SKILL.md explicitly forbids it, and all query workflows call only the documented data tools.
-  Requires Python 3.8+ with standard library only (no additional pip packages needed for core queries).
-metadata:
-  version: 4.14.0
-  author: guanzhao
-  tags: [quant, finance, factor, backtest, A-share, HK-stock, US-stock, 选股, 回测, 收盘价, 涨跌幅, 成交额, PE, PB, 营收, 净利润, ROE, 港股, 美股]
+credentials:
+  - name: quant-buddy API Key
+    storage: config.json
+    file: config.json
+    field: api_key
+    required: true
+    sensitive: true
+    description: quant-buddy 平台 API Key。**唯一存储位置是 skill 目录下的 config.json 的 `api_key` 字段**，不读取任何环境变量。
+    how_to_get: "https://test.quantbuddy.cn/login"
+  - name: BOCHA_API_KEY
+    storage: environment_variable
+    required: false
+    sensitive: true
+    description: 可选。仅 scripts/event_study_local.py 的事件新闻搜索功能通过环境变量 BOCHA_API_KEY 读取；不配置则该功能自动禁用。
+    how_to_get: "https://open.bochaai.com"
+requirements:
+  python: "3.8+"
+  packages: []
+  environment_variables:
+    - name: BOCHA_API_KEY
+      required: false
+      sensitive: true
+      description: Optional, only needed for the event-study news feature.
+  network_access: true
 ---
 
 # 观照量化投研
 
 > **⚠️ 必读：本文件较长，必须完整读取，不要设置 limit 参数截断。前 50 行不包含操作规范。**
 
-## 硬规则（6 条，违反必失败）
+## 硬规则（7 条，违反必失败）
+
+0. **开工第一步：先查 API Key，再做任何其他事**。收到新问题后的第一个动作必须是读 `config.json`（或等效检查 api_key 字段）：
+   - 若 `api_key` 为空字符串 → **立即停止**，直接输出「前置条件」章节的**新用户引导消息**，**禁止** newSession、**禁止**读 workflow / quick-lookup / 任何业务文档、**禁止**调用 `scripts/call.py` 或任何平台工具。等用户贴入 `sk-` 开头的 Key 后再执行「配置向导」。
+   - 若 `api_key` 非空 → 继续第 1 条。
+   - **唯一例外**：用户本轮消息本身就是 `sk-` 开头的 Key（进入配置向导）或与查数无关的闲聊/元问题（如"你会做什么"）。
+   - **为什么**：查数类工作流最终都会调 `scripts/call.py`，api_key 为空时必然失败。提前在入口拦截可以避免多次失败调用，给新用户直接、清晰的第一印象。
 
 1. **每个新问题/新对话必须新建 session**：收到用户的新问题后，在调用任何平台工具之前，必须先新建 session（优先直接调用原生 `newSession` 工具；仅当当前环境没有原生 `newSession` 时，才使用 `python scripts/call.py newSession`）。newSession 是本地 UUID 生成，零网络开销，不可省略。
    - **为什么**：`.session.json` 会自动注入到所有工具调用中。不新建 session = 复用上一轮对话的 task_id = 变量名冲突风险 + session 污染。
    - **唯一例外**：同一对话中的追问/续问（如"再画个图""换个时间段"），可复用当前 session。
 2. **原生工具优先，脚本包装仅限无原生等价能力时**：平台已提供的原生工具（`confirmMultipleAssets`、`confirmDataMulti`、`runMultiFormula`、`readData`、`renderKLine`、`renderChart` 等）必须优先直接调用；禁止用 `run_skill_script`、shell 命令、`GZQ_PARAMS=... python scripts/call.py ...` 等方式包装这些原生工具；`scripts/call.py` 仅用于：① `newSession` 等管理动作；② workflow 明确要求的本地脚本步骤；③ 平台不存在等价原生工具时的兜底。
 3. **先读 workflow 再操作**：按下方「场景路由」表加载对应 workflow，不要自行猜测参数格式。
-4. **配置/认证错误立即停止，不得在普通查数流程中转为认证收集**：普通查数任务（quick-snapshot / quick-window / quick-report-period / render-kline）遇到工具报错时，直接报告"内部工具异常"；不得在该场景下运行 `scripts/auth/*`、向用户索要手机号或验证码。仅当用户明确要求首次安装、配置 API Key 或执行认证时，才允许进入认证向导。
+4. **配置/认证错误立即停止，不得在普通查数流程中转为认证收集**：
+   - **工具返回 API Key 缺失错误**（含 `api_key 为空` 消息 / `code: 1`）：立即停止查数，输出**新用户引导消息**（格式见「前置条件」章节模板），禁止继续执行查数；等待用户粘贴 Key 后再执行配置向导。
+   - **其他工具报错**（网络、服务端错误等）：直接报告"内部工具异常"，不做认证相关引导。
 5. **最终答案首句必须是数据结论**：回答用户时，第一句话必须直接给出数据结论（如资产名+数值、表格、或"符合条件的共N只"），绝对禁止以"已成功获取""数据已获取""根据返回结果""让我来"等过程性陈述开头。违反此规则 = 必须删除过程话术后重新输出。
 6. **用户条件冻结，不得改写**：执行前必须逐字核对用户原始条件，以下改写行为均属违规（一旦发现必须回退并重新确认）：
    - **百分比↔小数互转**（如"股息率>3%"禁止改写为 `>0.03`）
@@ -285,6 +307,8 @@ SKILL_ROOT/
 
 ## 前置条件（按需执行，不是简单查数的默认首步）
 
+> **凭据存储说明**：本 skill 的 quant-buddy API Key **只存放在 skill 目录下的 `config.json` 的 `api_key` 字段**，不使用环境变量（`QUANT_BUDDY_API_KEY` 等环境变量不会被读取）。仅可选的 `BOCHA_API_KEY`（事件新闻搜索）走环境变量。
+
 仅在以下情形下，才需要显式读取 `config.json` 检查 `api_key`：
 - 本轮实际需要调用本地脚本或平台工具，且当前环境尚未建立可用 session
 - 上一轮工具调用已出现 401 / 402 / 明确认证错误
@@ -298,43 +322,27 @@ SKILL_ROOT/
 原则：认证检查服务于执行，不应成为简单题的固定额外步骤。
 
 - 若 `api_key` **非空** → 正常继续
-- 若 `api_key` **为空** 且当前任务是**用户明确发起的安装 / 配置 / 认证** → 启动认证向导
-- 若 `api_key` **为空** 且当前任务不是安装 / 配置 / 认证 → **立即停止**，报告认证未完成或内部工具异常；不得在普通查数流程中转为手机号 / 验证码收集
+- 若 `api_key` **为空** → **立即停止**，禁止继续查数，输出以下**新用户引导消息**（原样输出，不得删减）：
+
+  ---
+  ⚠️ 尚未配置 API Key，当前无法查询数据。
+
+  前往 https://test.quantbuddy.cn/login 登录/注册并获取 API Key，然后直接发给我：
+  > 帮我配置 APIkey：sk-xxxxxxxx
+  ---
 
 ---
 
-### 认证向导
+### 配置向导（用户粘贴 Key）
 
-> **⚠️ 范围说明**：`scripts/auth/` 下的脚本（`_send_code.py`、`_login.py`、`_register.py`）**仅用于首次 API Key 配置**。正常数据查询（行情/财务/选股/回测等）不会触发认证流程，也不会读取手机号或验证码。认证完成后 API Key 写入 `config.json`，后续所有请求仅凭此 Key 鉴权，auth 脚本不再运行。
+当用户消息中包含 `sk-` 开头的字符串时：
 
-> PowerShell 5.1 中多行 `-c` 会被拆开执行，故用独立脚本 + 环境变量传参。
-> **所有脚本必须在 skill 根目录（即本 SKILL.md 所在目录）下执行，禁止从备份目录执行。**
+1. 从用户消息中提取 `sk-` 开头的完整 Key 字符串
+2. 将 Key 写入 `config.json` 的 `api_key` 字段（用 `replace_string_in_file` 直接写入）
+3. **必须输出**：「✅ API Key 配置成功！」
+4. **自动重试**：若本对话中有被 api_key 缺失错误中断的查询（如之前用户问过行情），**立即重新执行该查询并给出数据结论**，不需要用户再次发起。
 
-| 步骤 | 操作 |
-|------|------|
-| 1. 询问手机号 | `ask_questions` 弹输入框收集手机号 |
-| 2. 发短信（见下方平台适配） | 执行 `_send_code.py`，从 stdout **解析 JSON**，提取 `session_token` 和 `is_registered` |
-| 3. 询问验证码 | `ask_questions` 弹输入框收集验证码 |
-| 4. 判断登录/注册 | 若 Step 2 返回 `is_registered: true` → 调用 `_login.py`；否则 → 调用 `_register.py` |
-| 4a. 注册返回 409 | 已注册 → 改调 `_login.py` |
-| 5. 写入 | 将 `api_key` 写入 `config.json`，告知用户「认证完成」 |
-
-#### 平台适配
-
-```bash
-# Step 2
-GZQ_PHONE='<手机号>' python scripts/auth/_send_code.py
-# Step 4（login 或 register）
-GZQ_TOKEN='<session_token>' GZQ_SMS='<验证码>' python scripts/auth/_login.py
-```
-
-#### 关键规则
-
-- **session_token 必须从 Step 2 的 stdout 解析**，不可省略。若 stdout 为空或脚本报错，检查是否在 skill 根目录执行。
-- **禁止在 sendCode 返回"发送太频繁"后立即重试**——等待用户收到验证码后继续传给 Step 4 即可（验证码已成功发送，只是重发被限流）。
-- Step 4 **必须传 `GZQ_TOKEN`（session_token）+ `GZQ_SMS`（验证码）**，缺一不可。
-
-**运行时 401/402** → 立即停止，提示用户 API Key 无效/过期/配额耗尽，重走认证向导。
+**运行时 401/402** → 立即停止，提示用户 API Key 无效/过期/配额耗尽，请重新前往官网获取新的 Key 并重新配置。
 
 ---
 

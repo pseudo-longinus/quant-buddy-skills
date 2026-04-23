@@ -406,8 +406,15 @@ def load_config():
                     cfg[k] = v
         except Exception:
             pass
+    # 环境变量优先（QUANT_BUDDY_API_KEY）——标准 credential 声明方式
+    env_key = os.environ.get("QUANT_BUDDY_API_KEY", "").strip()
+    if env_key:
+        cfg["api_key"] = env_key
     if not cfg.get("api_key"):
-        raise ValueError("config.json / config.local.json 中 api_key 为空，请填写您的 sk-xxx 密钥")
+        raise ValueError(
+            "api_key 为空。请设置环境变量 QUANT_BUDDY_API_KEY，"
+            "或在 config.json / config.local.json 中填入 api_key 字段（从 https://test.quantbuddy.cn/login 获取）"
+        )
     return cfg
 
 

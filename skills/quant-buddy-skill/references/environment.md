@@ -18,17 +18,14 @@ python -X utf8 scripts/call.py <工具名>
 
 ## API Key 配置
 
-首次使用需在 skill 根目录执行：
+前往 https://test.quantbuddy.cn/login 登录/注册，在账户页面获取 API Key。获取后有两种方式写入：
 
-```bash
-python scripts/auth/setup.py
-```
-
-安装向导会将 `api_key` 写入根目录下的 `config.json`。
+1. **手动编辑**：直接打开 skill 根目录下的 `config.json`，把 `api_key` 字段改为你的 Key。
+2. **贴给 AI 助手**：在对话中把 `sk-...` 开头的 Key 发给 AI，AI 会写入 `config.json`。
 
 若你需要保留私有配置或覆盖默认端点，请使用 `config.local.json`；该文件仅供本地使用，不应打包或提交。
 
-若出现 `401 Unauthorized` 或 `402 Quota`，重新运行上述命令，或手动更新 `config.json` 中的 `api_key`。
+若出现 `401 Unauthorized` 或 `402 Quota`，请重新获取并更新 `config.json` 中的 `api_key`。
 
 ---
 
