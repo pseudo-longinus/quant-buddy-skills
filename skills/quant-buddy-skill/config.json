@@ -1,5 +1,5 @@
 {
-  "endpoint": "https://test.quantbuddy.cn/skill",
-  "auth_endpoint": "https://test.quantbuddy.cn/user",
+  "endpoint": "https://www.quantbuddy.cn/skill",
+  "auth_endpoint": "https://www.quantbuddy.cn/user",
   "api_key": ""
 }

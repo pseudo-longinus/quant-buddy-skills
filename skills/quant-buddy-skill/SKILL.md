@@ -2,7 +2,7 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.14.12
+version: 4.14.18
 description:
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据。
   查询最近N个交易日的价格序列、日涨跌幅序列、窗口最高价、最低价、振幅等短期统计。
@@ -11,30 +11,61 @@ description:
   港股、美股目前支持行情价格查询（收盘价、开盘价、涨跌幅、成交量、成交额等）。
   即使用户只是简单地问一只股票的价格、涨跌幅或财务数据，也应优先使用本技能，
   不要以"无法联网"或"无法获取实时数据"为由拒绝——本技能通过平台API可查询真实数据。
-credentials:
+runtime: python
+primaryCredential: quant-buddy API Key
+metadata:
+  version: 4.14.18
+  author: guanzhao
+  category: quant-finance
+  tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
+  runtime: python
+  primaryCredential: quant-buddy API Key
+  requiredCredentials:
+    - quant-buddy API Key
+  requiredConfigPaths:
+    - config.json
+  requiredEnvVars:
+    - BOCHA_API_KEY (optional)
+  networkEndpoints:
+    - https://www.quantbuddy.cn/skill
+    - https://www.quantbuddy.cn/user
+  pythonPackages:
+    - python-dateutil (optional)
+    - Pillow (optional)
+requiredCredentials:
   - name: quant-buddy API Key
-    storage: config.json
-    file: config.json
-    field: api_key
     required: true
     sensitive: true
-    description: quant-buddy 平台 API Key。**唯一存储位置是 skill 目录下的 config.json 的 `api_key` 字段**，不读取任何环境变量。
-    how_to_get: "https://test.quantbuddy.cn/login"
+    storage: config_file
+    path: config.json
+    field: api_key
+    description: quant-buddy 平台 API Key。存储位置：skill 目录下的 config.json 的 `api_key` 字段（本 skill 不读环境变量版本的该 Key）。使用时作为 HTTP `Authorization` 头仅发送给 `networkEndpoints` 中声明的 quantbuddy 域名用于鉴权，不会被写入日志或转发给第三方主机。
+    how_to_get: "https://www.quantbuddy.cn/login"
+requiredConfigPaths:
+  - path: config.json
+    required: true
+    description: Skill 目录下的 API Key 配置文件，仅包含 quant-buddy api_key 和两个公开端点配置，由 skill 本地脚本读取；api_key 仅作为 HTTP `Authorization` 头发给 `networkEndpoints` 中声明的 quantbuddy 域名，不发送给其他主机。
+requiredEnvVars:
   - name: BOCHA_API_KEY
-    storage: environment_variable
     required: false
     sensitive: true
-    description: 可选。仅 scripts/event_study_local.py 的事件新闻搜索功能通过环境变量 BOCHA_API_KEY 读取；不配置则该功能自动禁用。
+    description: 可选。仅 scripts/event_study_local.py 的事件新闻搜索功能读取；未配置时该可选功能自动禁用，其它功能不受影响。
     how_to_get: "https://open.bochaai.com"
-requirements:
+networkAccess: true
+networkEndpoints:
+  - https://www.quantbuddy.cn/skill
+  - https://www.quantbuddy.cn/user
+runtimeRequirements:
   python: "3.8+"
-  packages: []
-  environment_variables:
-    - name: BOCHA_API_KEY
+  packages:
+    - name: python-dateutil
+      version: ">=2.8"
       required: false
-      sensitive: true
-      description: Optional, only needed for the event-study news feature.
-  network_access: true
+      description: Used by scripts/event_study_local.py for the optional event-study / Bocha news feature. Not needed if BOCHA_API_KEY is not configured.
+    - name: Pillow
+      version: ">=9.0"
+      required: false
+      description: Used by scripts/call.py saveChart command to convert chart images to JPEG. Falls back gracefully (writes raw bytes) if not installed; no credential exposure risk.
 ---
 
 # 观照量化投研
@@ -49,8 +80,7 @@ requirements:
    - **唯一例外**：用户本轮消息本身就是 `sk-` 开头的 Key（进入配置向导）或与查数无关的闲聊/元问题（如"你会做什么"）。
    - **为什么**：查数类工作流最终都会调 `scripts/call.py`，api_key 为空时必然失败。提前在入口拦截可以避免多次失败调用，给新用户直接、清晰的第一印象。
 
-1. **每个新问题/新对话必须新建 session**：收到用户的新问题后，在调用任何平台工具之前，必须先新建 session（优先直接调用原生 `newSession` 工具；仅当当前环境没有原生 `newSession` 时，才使用 `python scripts/call.py newSession`）。newSession 是本地 UUID 生成，零网络开销，不可省略。
-   - **必须传 `user_query`**：调用 `newSession` 时，将**用户的原始提问**作为 `user_query` 参数传入（例：`GZQ_PARAMS='{"user_query":"帮我分析茅台"}' python scripts/call.py newSession`）。这是唯一能把用户问题关联到 trace 的时机，必须执行。
+1. **每个新问题/新对话必须新建 session**：收到用户的新问题后，在调用任何平台工具之前，必须先新建 session（优先直接调用原生 `newSession` 工具；仅当当前环境没有原生 `newSession` 时，才使用 `GZQ_PARAMS='{"user_query":"<用户的问题>"}' python scripts/call.py newSession`）。newSession 是本地 UUID 生成，不可省略；`user_query` 仅用于本地 session 初始化标注，方便后续 trace 分析。
    - **为什么**：`.session.json` 会自动注入到所有工具调用中。不新建 session = 复用上一轮对话的 task_id = 变量名冲突风险 + session 污染。
    - **唯一例外**：同一对话中的追问/续问（如"再画个图""换个时间段"），可复用当前 session。
 2. **原生工具优先，脚本包装仅限无原生等价能力时**：平台已提供的原生工具（`confirmMultipleAssets`、`confirmDataMulti`、`runMultiFormula`、`readData`、`renderKLine`、`renderChart` 等）必须优先直接调用；禁止用 `run_skill_script`、shell 命令、`GZQ_PARAMS=... python scripts/call.py ...` 等方式包装这些原生工具；`scripts/call.py` 仅用于：① `newSession` 等管理动作；② workflow 明确要求的本地脚本步骤；③ 平台不存在等价原生工具时的兜底。
@@ -328,7 +358,7 @@ SKILL_ROOT/
   ---
   ⚠️ 尚未配置 API Key，当前无法查询数据。
 
-  前往 https://test.quantbuddy.cn/login 登录/注册并获取 API Key，然后直接发给我：
+  前往 https://www.quantbuddy.cn/login 登录/注册并获取 API Key，然后直接发给我：
   > 帮我配置 APIkey：sk-xxxxxxxx
   ---
 

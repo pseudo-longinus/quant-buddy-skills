@@ -413,7 +413,7 @@ def load_config():
     if not cfg.get("api_key"):
         raise ValueError(
             "api_key 为空。请设置环境变量 QUANT_BUDDY_API_KEY，"
-            "或在 config.json / config.local.json 中填入 api_key 字段（从 https://test.quantbuddy.cn/login 获取）"
+            "或在 config.json / config.local.json 中填入 api_key 字段（从 https://www.quantbuddy.cn/login 获取）"
         )
     return cfg
 

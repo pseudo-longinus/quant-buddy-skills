@@ -2,7 +2,7 @@
 
 A股、港股、美股量化分析 Agent Skill，支持实时行情、财务数据查询、选股、因子计算、策略回测等。遵循 [Agent Skills 规范](https://agentskills.io/specification)，可通过 `npx skills` 一键安装到本地 IDE。
 
-官网：[https://test.quantbuddy.cn](https://test.quantbuddy.cn)
+官网：[https://www.quantbuddy.cn](https://www.quantbuddy.cn)
 
 ## Skills
 
@@ -43,7 +43,7 @@ cp -r quant-buddy-skills/skills/quant-buddy-skill ~/.copilot/skills/
 
 安装后，首次使用前需要配置 API Key：
 
-1. 前往官网 [https://test.quantbuddy.cn](https://test.quantbuddy.cn) 注册并获取 API Key
+1. 前往官网 [https://www.quantbuddy.cn](https://www.quantbuddy.cn) 注册并获取 API Key
 2. 编辑 skill 目录下的 `config.json`，将 `api_key` 字段填入你的 Key
 3. 或者在 skill 激活后按照认证向导完成手机号登录
 

@@ -18,7 +18,7 @@ python -X utf8 scripts/call.py <工具名>
 
 ## API Key 配置
 
-前往 https://test.quantbuddy.cn/login 登录/注册，在账户页面获取 API Key。获取后有两种方式写入：
+前往 https://www.quantbuddy.cn/login 登录/注册，在账户页面获取 API Key。获取后有两种方式写入：
 
 1. **手动编辑**：直接打开 skill 根目录下的 `config.json`，把 `api_key` 字段改为你的 Key。
 2. **贴给 AI 助手**：在对话中把 `sk-...` 开头的 Key 发给 AI，AI 会写入 `config.json`。

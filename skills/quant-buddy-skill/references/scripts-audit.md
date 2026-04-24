@@ -17,7 +17,7 @@ Last audited against version: **4.14.7**
 
 ### `scripts/executor.py`
 - **Purpose**: Calls the quant-buddy HTTPS API and returns the response.
-- **Network**: Only `https://test.quantbuddy.cn/**` via `urllib.request` (stdlib). Host is taken from `config.json#endpoint` with a hardcoded default; no redirects to third-party hosts are followed without verification.
+- **Network**: Only `https://www.quantbuddy.cn/**` via `urllib.request` (stdlib). Host is taken from `config.json#endpoint` with a hardcoded default; no redirects to third-party hosts are followed without verification.
 - **Authentication**: Resolves `api_key` in this order: (1) `QUANT_BUDDY_API_KEY` env var, (2) `config.local.json` `api_key` field, (3) `config.json` `api_key` field. The resolved key is sent **only** in the `Authorization: Bearer <key>` header. It is never logged, printed to stdout/stderr, or written to files.
 - **Subprocess**: None.
 - **Filesystem writes**: Optional response cache under `.cache/` within the skill root; chart / CSV outputs under `output/` when invoked by chart or download tools.
@@ -31,7 +31,7 @@ Last audited against version: **4.14.7**
 ### `scripts/event_study_local.py`
 - **Purpose**: Optional event-study helper. Combines quant-buddy data with a Bocha web-search step for news context.
 - **Network**:
-  - `https://test.quantbuddy.cn/**` (via `executor.py`) — required.
+  - `https://www.quantbuddy.cn/**` (via `executor.py`) — required.
   - `https://api.bochaai.com/v1/web-search` — **opt-in only**. The function returns `{"ok": false, "error": "BOCHA_API_KEY 未配置"}` immediately if the user has not set `BOCHA_API_KEY` (env var / `bocha_api_key` in `config.local.json` / `config.json`). No request is made without the key.
 - **Subprocess**: None.
 - **Filesystem writes**: None.
@@ -54,7 +54,7 @@ Offline evaluation harness for the skill author to measure quality regressions. 
 
 | Concern | Status |
 |---|---|
-| Outbound network hosts | `test.quantbuddy.cn` (required), `api.bochaai.com` (opt-in only) |
+| Outbound network hosts | `www.quantbuddy.cn` (required), `api.bochaai.com` (opt-in only) |
 | api_key ever logged / transmitted to other host | No |
 | PII (phone / SMS / email / device ID) collected | No |
 | Subprocess / shell to external binary | No (only re-invokes `sys.executable` for dispatch) |
