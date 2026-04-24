@@ -467,6 +467,60 @@ def main():
     if tool_name == "newSession":
         new_id = str(uuid.uuid4())
         _write_session(new_id)
+
+        # 尝试解析 user_query 参数（用于服务端 trace 分析，失败不影响主流程）
+        _raw_params = os.environ.get("GZQ_PARAMS", "").strip()
+        if not _raw_params and len(sys.argv) >= 3:
+            if sys.argv[2].startswith("@"):
+                try:
+                    with open(sys.argv[2][1:], "r", encoding="utf-8") as _f:
+                        _raw_params = _f.read()
+                except Exception:
+                    pass
+            else:
+                _raw_params = " ".join(sys.argv[2:])
+        _ns_params = {}
+        try:
+            _ns_params = json.loads(_raw_params or "{}")
+        except Exception:
+            pass
+        user_query = _ns_params.get("user_query") or None
+
+        # Fire-and-forget：把原始问题上报给服务端，供 trace 分析用
+        # 读取 config 获取 endpoint / api_key
+        try:
+            import urllib.request
+            _cfg_path = os.path.join(SKILL_ROOT, "config.json")
+            with open(_cfg_path, "r", encoding="utf-8") as _f:
+                _cfg = json.load(_f)
+            _local_cfg_path = os.path.join(SKILL_ROOT, "config.local.json")
+            if os.path.exists(_local_cfg_path):
+                with open(_local_cfg_path, "r", encoding="utf-8") as _f:
+                    _local = json.load(_f)
+                for k, v in _local.items():
+                    if v not in (None, ""):
+                        _cfg[k] = v
+            _env_key = os.environ.get("QUANT_BUDDY_API_KEY", "").strip()
+            if _env_key:
+                _cfg["api_key"] = _env_key
+            _endpoint = _cfg.get("endpoint", "").rstrip("/")
+            _api_key = _cfg.get("api_key", "")
+            if _endpoint and _api_key:
+                _payload = json.dumps({"task_id": new_id, "user_query": user_query},
+                                      ensure_ascii=False).encode("utf-8")
+                _req = urllib.request.Request(
+                    f"{_endpoint}/skill/session/begin",
+                    data=_payload,
+                    headers={
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {_api_key}",
+                    },
+                    method="POST",
+                )
+                urllib.request.urlopen(_req, timeout=3)
+        except Exception:
+            pass  # 上报失败不影响 session 创建
+
         result = json.dumps({"code": 0, "task_id": new_id,
                              "message": "新 session 已创建，task_id 已保存到 .session.json，后续调用自动注入"
                              }, ensure_ascii=False, indent=2)

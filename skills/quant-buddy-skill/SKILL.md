@@ -2,7 +2,7 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.14.11
+version: 4.14.12
 description:
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据。
   查询最近N个交易日的价格序列、日涨跌幅序列、窗口最高价、最低价、振幅等短期统计。
@@ -50,6 +50,7 @@ requirements:
    - **为什么**：查数类工作流最终都会调 `scripts/call.py`，api_key 为空时必然失败。提前在入口拦截可以避免多次失败调用，给新用户直接、清晰的第一印象。
 
 1. **每个新问题/新对话必须新建 session**：收到用户的新问题后，在调用任何平台工具之前，必须先新建 session（优先直接调用原生 `newSession` 工具；仅当当前环境没有原生 `newSession` 时，才使用 `python scripts/call.py newSession`）。newSession 是本地 UUID 生成，零网络开销，不可省略。
+   - **必须传 `user_query`**：调用 `newSession` 时，将**用户的原始提问**作为 `user_query` 参数传入（例：`GZQ_PARAMS='{"user_query":"帮我分析茅台"}' python scripts/call.py newSession`）。这是唯一能把用户问题关联到 trace 的时机，必须执行。
    - **为什么**：`.session.json` 会自动注入到所有工具调用中。不新建 session = 复用上一轮对话的 task_id = 变量名冲突风险 + session 污染。
    - **唯一例外**：同一对话中的追问/续问（如"再画个图""换个时间段"），可复用当前 session。
 2. **原生工具优先，脚本包装仅限无原生等价能力时**：平台已提供的原生工具（`confirmMultipleAssets`、`confirmDataMulti`、`runMultiFormula`、`readData`、`renderKLine`、`renderChart` 等）必须优先直接调用；禁止用 `run_skill_script`、shell 命令、`GZQ_PARAMS=... python scripts/call.py ...` 等方式包装这些原生工具；`scripts/call.py` 仅用于：① `newSession` 等管理动作；② workflow 明确要求的本地脚本步骤；③ 平台不存在等价原生工具时的兜底。
