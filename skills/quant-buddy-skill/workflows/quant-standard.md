@@ -485,7 +485,8 @@ PE条件 = ("PE数据" < 20)
 
 | 文件 | 内容 | 何时加载 |
 |------|------|----------|
-| `presets/assets.yaml` | 常用资产的 `name` + code / type | 涉及已知资产时先查此文件；没有再调 `confirmMultipleAssets` |
+| `presets/assets.yaml` | 99 行精选常用资产 | 涉及已知资产时**先**查此文件，可一次读完；命中即用 |
+| `presets/assets_db/*.yaml` | 全量资产字典（A股/港股/美股/指数/期货分文件，共 1 万+ 条；**不含指数成分股映射**） | `assets.yaml` 未命中时**用 grep 检索对应文件**（如 `grep "中航重机" presets/assets_db/stock_a.yaml`），⚠️ **禁止 `read_file` 整文件**（5505 行会爆 context）；grep 仍未命中 → 调 `confirmMultipleAssets` 兜底。用户说「确认资产 / 批量确认 / 找ticker」也必须先查本地库，不得直接调用工具。若用户要「标普500全部成分股 / 沪深300成分股」这类指数成分名单，`assets_db` 只能确认指数本身，不能推出成分股列表。 |
 | `presets/functions.yaml` | 常用函数的 `format`（公式写法） | 涉及常见函数时先查此文件；没有再调 `searchFunctions` |
 | `presets/data_catalog.yaml` | 全市场数据集的 `index_title` + 维度 | 需要全市场数据时先查此文件；没有再调 `confirmDataMulti` |
 | `presets/cases_index.yaml` | 111 张知识卡片目录（id \| name \| tags） | **任务开始时必先读**（一次读完），按 tags 匹配卡片 |
@@ -800,7 +801,7 @@ PE数据="A股市盈率（PE, TTM）〔估值数据〕"
 | 公式中出现了… | 必须先查 / 先调 | 怎么做 |
 |---------------|----------------|--------|
 | **函数名**（如 `取出`、`涨跌幅`、`成分平均汇总`） | `presets/functions.yaml` | 函数名 + 参数个数必须与 yaml 中一致；若 yaml 无此函数 → 调 `searchFunctions` 确认 |
-| **资产名**（如 `贵州茅台`、`沪深300`） | `presets/assets.yaml` | name 字段必须精确匹配；若 yaml 无此资产 → 调 `confirmMultipleAssets` 确认后补入 yaml |
+| **资产名**（如 `贵州茅台`、`沪深300`） | `presets/assets.yaml` → `presets/assets_db/{类型}.yaml`（grep） | ① 先查 `assets.yaml`（精选 99 条）；② 未命中则 **grep `assets_db/` 对应类型文件**（A股 → `stock_a.yaml`、港股 → `stock_hk.yaml`、美股 → `stock_us.yaml`、指数 → `index.yaml`、期货 → `future.yaml`），⚠️ 禁止 `read_file` 整文件；③ grep 仍未命中 → 调 `confirmMultipleAssets`。用户说「确认资产 / 批量确认 / 找ticker」同样适用此顺序。**name 字段必须精确匹配**；`assets_db` 不含指数成分股映射，不能用全量股票文件冒充某指数成分池。 |
 | **板块名 / 行业名**（如 `板块(芯片概念)`） | `presets/sectors.yaml` 或 `presets/themes.yaml` | 必须用 yaml 中的精确名称；若无 → 调 `confirmMultipleAssets` 确认 |
 | **全市场数据集名**（如 `"全市场每日收盘价"`） | `presets/data_catalog.yaml` | 必须用 `index_title`；若 yaml 无 → 调 `confirmDataMulti` 确认后补入 yaml |
 

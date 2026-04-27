@@ -26,7 +26,7 @@
 | `readData` 返回 400 | 参数名用了 `variable_names` | 改为 `ids` 数组 |
 | `match_quality=low` | searchSimilarCases 未找到好模板 | 调整 query 关键词，**最多重试 1 次** |
 | confirmDataMulti 返回 404 | 查询的是单资产价格，不是平台聚合数据 | 用 `收盘价(资产名)` 函数，无需 confirmDataMulti |
-| confirmMultipleAssets 30次超时 | intentions 用了前缀格式如 `CMX-铜` | 用简洁中文品种名如 `铜`、`黄金` |
+| confirmMultipleAssets 30次超时 | intentions 用了前缀格式如 `CMX-铜` | **优先方案**：先 `grep "铜" presets/assets_db/future.yaml` 拿到规范 name（如 `CMX-铜` / `沪铜主力合约`）直接用；**兜底**：如确需调用 `confirmMultipleAssets`，传简洁中文品种名如 `铜`、`黄金` |
 
 ---
 

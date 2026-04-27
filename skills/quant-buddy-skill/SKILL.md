@@ -2,7 +2,7 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.14.19
+version: 4.15.1
 description:
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据。
   查询最近N个交易日的价格序列、日涨跌幅序列、窗口最高价、最低价、振幅等短期统计。
@@ -14,7 +14,7 @@ description:
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.14.19
+  version: 4.15.1
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -82,8 +82,11 @@ runtimeRequirements:
 
 1. **每个新问题/新对话必须新建 session**：收到用户的新问题后，在调用任何平台工具之前，必须先新建 session（优先直接调用原生 `newSession` 工具；仅当当前环境没有原生 `newSession` 时，才使用 `GZQ_PARAMS='{"user_query":"<用户的问题>"}' python scripts/call.py newSession`）。newSession 是本地 UUID 生成，不可省略；`user_query` 仅用于本地 session 初始化标注，方便后续 trace 分析。
    - **为什么**：`.session.json` 会自动注入到所有工具调用中。不新建 session = 复用上一轮对话的 task_id = 变量名冲突风险 + session 污染。
-   - **唯一例外**：同一对话中的追问/续问（如"再画个图""换个时间段"），可复用当前 session。
-2. **原生工具优先，脚本包装仅限无原生等价能力时**：平台已提供的原生工具（`confirmMultipleAssets`、`confirmDataMulti`、`runMultiFormula`、`readData`、`renderKLine`、`renderChart` 等）必须优先直接调用；禁止用 `run_skill_script`、shell 命令、`GZQ_PARAMS=... python scripts/call.py ...` 等方式包装这些原生工具；`scripts/call.py` 仅用于：① `newSession` 等管理动作；② workflow 明确要求的本地脚本步骤；③ 平台不存在等价原生工具时的兜底。
+   - **唯一例外**：① 同一对话中的追问/续问（如"再画个图""换个时间段"），可复用当前 session；② 进入 **Fast Path**（`fast-snapshot.md`、`fast-window.md`、`fast-report-period.md`）时，**无需** `newSession`——`fast_query` 使用服务端固定 session，与本地 `.session.json` 无关。
+2. **原生工具优先，脚本包装仅限无原生等价能力时**：平台已提供的原生工具（`fast_query`、`confirmMultipleAssets`、`confirmDataMulti`、`runMultiFormula`、`readData`、`renderKLine`、`renderChart` 等）必须优先直接调用；禁止用 `run_skill_script`、shell 命令、`GZQ_PARAMS=... python scripts/call.py ...` 等方式包装这些原生工具；`scripts/call.py` 仅用于：① `newSession` 等管理动作；② workflow 明确要求的本地脚本步骤；③ 平台不存在等价原生工具时的兜底。
+   - **⛔ 典型违规反例（直接失败）**：`confirmMultipleAssets` 的 `intentions` 本身就是数组，设计意图是「一次传多个资产名同时确认」；**任何在 for 循环 / while 循环里对它重复调用的写法都是违规**，无论是通过原生工具还是 `scripts/call.py` 包装。需批量确认资产时，应单次调用并传完整数组；若数组过大，则按批传入（每批一次调用），而不是每个资产调用一次。
+  - **确认资产也必须先查本地库**：用户明确说「确认资产 / 批量确认 / confirm / 找代码 / 找ticker」时，仍然先走本地资产路由：`presets/assets.yaml`（可读完）→ `grep presets/assets_db/{类型}.yaml`（禁止整文件读取）→ 仍未命中再调用 `confirmMultipleAssets`。不得因为用户使用了「确认」二字就直接调用工具。
+  - **英文代码无市场后缀时必须 grep 确认格式**：用户直接输入英文股票代码（如 `GOOGL`、`AAPL`、`BIDU`）但未携带市场后缀（`.O`、`.N`、`.A`）时，**不得凭 user memory / 猜测 / 拼接后缀直接查数**，必须先 `grep presets/assets_db/stock_us.yaml` 找到正确 ticker 后再调用工具。
 3. **先读 workflow 再操作**：按下方「场景路由」表加载对应 workflow，不要自行猜测参数格式。
 4. **配置/认证错误立即停止，不得在普通查数流程中转为认证收集**：
    - **工具返回 API Key 缺失错误**（含 `api_key 为空` 消息 / `code: 1`）：立即停止查数，输出**新用户引导消息**（格式见「前置条件」章节模板），禁止继续执行查数；等待用户粘贴 Key 后再执行配置向导。
@@ -95,6 +98,7 @@ runtimeRequirements:
    - **资产宇宙替换**（如"普通股票"禁止改写为"万得全A成分股"或"非ST股"）
    - **事件口径扩大**（如"年报/半年报"禁止扩大为全部业绩披露类型）
    - **卡片附加条件继承**：命中知识卡片后，若卡片含用户未明确提出的"首次/非ST/封板/流动性门槛"等附加条件，必须先删除再执行，禁止默默继承进最终答案
+7. **任务含糊时先反问，禁止猜测开干**：若用户的指令有 **2 种以上合理解读**（如"批量确认X"不清楚是确认指数本身还是全部成分股、"分析一下Y"不清楚要哪个维度），**第一步必须向用户提问澄清，不得凭推测选择一种解读自行执行**。反问应简洁列出各种可能（例："您的意思是 ① … 还是 ② …？"），等用户确认后再继续。**唯一例外**：用户语义明确无歧义（如"给我贵州茅台今日收盘价"），无需反问。
 
 ## 最小充分原则（任何动作前自检）
 
@@ -159,7 +163,13 @@ SKILL_ROOT/
 │
 ├── presets/                 ← 已验证的常用数据（按需加载）
 │   ├── cases_index.yaml         106 张案例卡片目录（量化标准场景必读，快速查数无需）
-│   ├── assets.yaml              常用资产
+│   ├── assets.yaml              常用资产（99 行精选，可一次读完）
+│   ├── assets_db/               全量资产字典（按类型分文件，⚠️ 仅 grep 检索，禁止 read_file 整文件；不含指数成分股映射）
+│   │   ├── stock_a.yaml             A 股 5505 条（SH/SZ）
+│   │   ├── stock_hk.yaml            港股 2862 条（HK 前缀，仅行情）
+│   │   ├── stock_us.yaml            美股 1044 条（.N/.O/.A，仅行情）
+│   │   ├── index.yaml               指数 503 条
+│   │   └── future.yaml              期货 257 条
 │   ├── functions.yaml           常用函数
 │   ├── data_catalog.yaml        常用数据集
 │   ├── sectors.yaml             行业板块
@@ -203,12 +213,15 @@ SKILL_ROOT/
 
 | 目标 leaf workflow | 步骤 ① 读取的文件 |
 |---|---|
+| `fast-snapshot.md` | 无（Fast Path，跳过步骤 ①，直接执行） |
+| `fast-window.md` | 无（Fast Path，跳过步骤 ①，直接执行） |
+| `fast-report-period.md` | 无（Fast Path，跳过步骤 ①，直接执行） |
 | `quick-window.md` | `workflows/global-rules-lite.md` |
 | `period-return-compare.md` | `workflows/global-rules-lite.md` |
 | 其他所有 workflow | `workflows/global-rules.md` |
 
 - **步骤 ① 是硬前置条件**。确定目标 leaf 后，先按上表选择并读取对应 global-rules 版本，再读 leaf workflow，最后执行。
-- 禁止读完路由表就直接跳转 leaf workflow（Fast Path 中读 fast 文件除外）。
+- Fast Path（fast-*.md）直接从步骤 ② 开始，无需步骤 ①。
 
 ---
 
@@ -250,6 +263,12 @@ SKILL_ROOT/
 - **有阈值条件 + 问"连续阶段/区间内表现"** → `regime-segmentation`（连续阶段统计）
 
 若用户请求满足以下任一模式，应优先判定为【快速查数任务】，按以下路由直接跳转，不得先进入其他 workflow：
+
+**Fast Path 条件（同时满足以下 3 点才可走 Fast Path；否则走完整链路）：**
+
+- 资产数 ≤ 3
+- 所有目标字段属于 fast_query whitelist（价格/估值/财务/衍生字段，详见 `tools/fast_query.md`），不涉及自定义公式/选股/排名
+- 非全市场横截面查询（不是"全市场排名/前N只"等场景）
 
 **快速查数路由（按优先级依次判断，首个匹配即停）：**
 

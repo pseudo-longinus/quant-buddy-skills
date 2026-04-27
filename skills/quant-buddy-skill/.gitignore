@@ -23,3 +23,6 @@ config.local.json
 
 # 调试临时文件
 scripts/_debug_cv_out.txt
+
+# 维护工具脚本（含数据库连接串，不入版本控制）
+scripts/export_assets_by_type.py

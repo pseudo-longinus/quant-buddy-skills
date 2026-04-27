@@ -51,6 +51,7 @@ SKILL_ROOT = os.path.dirname(SCRIPT_DIR)
 # 工具名 → HTTP 方法 + 路径 映射表
 # ────────────────────────────────────────────────
 TOOL_ROUTES = {
+    "fast_query":            ("POST", "/skill/fastQuery"),
     "searchFunctions":       ("POST", "/skill/searchFunctions"),
     "searchSimilarCases":    ("POST", "/skill/searchSimilarCases"),
     "getCardFormulas":       ("POST", "/skill/getCardFormulas"),

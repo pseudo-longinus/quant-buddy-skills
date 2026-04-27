@@ -125,6 +125,8 @@ runMultiFormula 成功 → readData 读取最后有效值与日期 → 回答
 ], "begin_date": 20240101}
 ```
 
+> ⚠️ **财务查询严禁传 `use_minute_data: true`**：财务报告期数据（dimension=one-row）不支持分钟级刷新，强行传入会导致服务端 HTTP 500。本流程所有 `runMultiFormula` 调用均不得携带 `use_minute_data` 参数（或必须设为 `false`）。
+
 **begin_date 默认参数说明**：对"最近一个已披露报告期"场景，runMultiFormula 的 begin_date 默认使用近两年起点即可（如 20240101），不鼓励无界历史。
 
 ---

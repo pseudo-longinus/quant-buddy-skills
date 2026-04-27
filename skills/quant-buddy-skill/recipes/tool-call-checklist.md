@@ -28,6 +28,12 @@
   - 标量/小表（≤20 行）→ 直接读
   - 大表/全市场序列（>100 行 或 >5000 token） → **不读**，回去给公式加截断
 
+## runMultiFormula 调用前必勾选
+
+- [ ] 是否财务报告期查询（毛利率、ROE、营收、净利润、资产负债率等 one-row 数据）？
+  - 是 → **严禁**传 `use_minute_data: true`，会导致 HTTP 500；直接省略该参数或设为 `false`
+  - 否（行情选股、涨跌幅等二维矩阵数据）→ 可按需传 `use_minute_data: true`
+
 ## runMultiFormula 调用后必勾选
 
 - [ ] 工具返回的 description / 完整序列 / 中间变量值，会被回填进下一轮 prompt 吗？
