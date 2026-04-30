@@ -578,6 +578,7 @@ def main():
                 _headers = {
                     "Content-Type": "application/json",
                     "Authorization": f"Bearer {_api_key}",
+                    "x-skill-version": _current_ver,
                 }
                 if _channel:
                     _headers["x-skill-channel"] = _channel

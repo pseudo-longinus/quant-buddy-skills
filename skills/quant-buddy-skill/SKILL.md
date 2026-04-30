@@ -2,7 +2,7 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.20.4
+version: 4.20.5
 description: 
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据。
   查询最近N个交易日的价格序列、日涨跌幅序列、窗口最高价、最低价、振幅等短期统计。
@@ -14,7 +14,7 @@ description:
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.20.4
+  version: 4.20.5
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -115,12 +115,43 @@ runtimeRequirements:
    - **事件口径扩大**（如"年报/半年报"禁止扩大为全部业绩披露类型）
    - **卡片附加条件继承**：命中知识卡片后，若卡片含用户未明确提出的"首次/非ST/封板/流动性门槛"等附加条件，必须先删除再执行，禁止默默继承进最终答案
 7. **任务含糊时先反问，禁止猜测开干**：若用户的指令有 **2 种以上合理解读**（如"批量确认X"不清楚是确认指数本身还是全部成分股、"分析一下Y"不清楚要哪个维度），**第一步必须向用户提问澄清，不得凭推测选择一种解读自行执行**。反问应简洁列出各种可能（例："您的意思是 ① … 还是 ② …？"），等用户确认后再继续。**唯一例外**：用户语义明确无歧义（如"给我贵州茅台今日收盘价"），无需反问。
-8. **工具返回 `SKILL_VERSION_MISMATCH` 时必须自愈，不得继续执行原任务**：当任何工具调用的输出中出现 `"error": "SKILL_VERSION_MISMATCH"` 时，说明当前对话上下文中的工具签名/参数格式已过时。此时必须执行以下自愈流程（每步不得省略）：
+8. **检测到版本不匹配时必须按规定流程自愈，禁止以任何方式伪造版本号**：版本不匹配信号有两类，必须分别处理。
+
+   **【P0 红线 — 任何情况下都不允许】**
+   - ❌ 禁止用 `replace_string_in_file` / `multi_replace_string_in_file` / `create_file` 覆盖 / 终端 `sed`、`echo >` 等任何手段，修改本地 `SKILL.md`、`config.json`、`scripts/*.py`、`CHANGELOG.md` 中任何 `version: x.y.z` / `metadata.version` / `_read_skill_version()` 相关字段，企图让本地版本号"对上"服务端。
+   - ❌ 禁止把 `.session.json` 的 `skill_version_at_creation` 改成新值绕过本地校验。
+   - ⚠️ 这种"改字符串骗过校验"是**欺骗式自愈**：本地工具签名/参数格式仍是旧版，下次调用必然继续失败或行为错乱，且会污染用户工作目录。一旦你**正在考虑**做这类编辑，立即停手并改走下面的 (A) / (B) 流程。
+
+   **(A) 类：本地 session 与本地 SKILL.md 版本不匹配**（信号：工具输出含 `"error": "SKILL_VERSION_MISMATCH"`，由本地 `scripts/call.py` 校验抛出，原因是当前 session 创建时记录的版本 ≠ 当前本地 SKILL.md 版本，通常是用户中途升级了 skill）：
    1. **立即停止**当前任务，不得再调用任何平台工具；
-   2. 调用 `newSession`（新建 session，获取新 task_id）；
-   3. **强制重读** `SKILL.md`（本文件）+ 当前场景对应的 workflow 文档 + 涉及的 tools/*.md；
+   2. 调用 `newSession`（新建 session，获取新 task_id，并写入新版本号）；
+   3. **强制重读** `SKILL.md`（本文件）+ 当前场景对应的 workflow 文档 + 涉及的 `tools/*.md`；
    4. 以**新读取**的工具签名和参数格式重新执行用户原始任务；
    5. **禁止**询问用户"是否继续"或解释版本升级过程——直接静默完成自愈并返回结果。
+
+   **(B) 类：服务端要求版本高于本地 skill 版本**（信号：任何工具返回的 message / intro / error 中出现"skill 版本过低"、"请执行以下命令更新"、"npx skills update"、"skill_server_version"、`code: -1` 且文案提示更新等；或者 `newSession` 返回的 `skill_version` 与服务端最新版本不一致而服务端要求强制升级）：
+   1. **立即停止**当前任务，不得继续调用任何平台工具（再调也只会重复报错）；
+   2. **直接输出**给用户**一段明确的更新提示**，并通过 `run_in_terminal` 执行（用户已授权 skill 内置脚本路径下的更新命令）：
+      ```bash
+      # 默认走更新（适用于已安装过的老用户，不挑当年装在 .claude / .cursor / 全局还是项目）
+      npx skills update pseudo-longinus/quant-buddy-skills -y
+      ```
+      若上一步退出码非 0、或输出含 `not installed` / `skill not found` 之类（说明用户从未安装过），回落到首装命令：
+      ```bash
+      npx skills add pseudo-longinus/quant-buddy-skills -g -a '*' -y
+      ```
+      Windows 上若任一命令报 symlink / `EPERM` / 权限错，末尾追加 `--copy` 重试一次：
+      ```bash
+      npx skills add pseudo-longinus/quant-buddy-skills -g -a '*' --copy -y
+      ```
+      用户拿不准当前装在哪，可让其自检：`npx skills list -g --json`。
+      （如服务端 `intro` 字段给出的命令与此不同，**以服务端返回的命令为准**，不要自作主张换包名/换源/换标志位。）
+   3. 等待命令执行完毕（成功标志：退出码 0 且输出含 `installed` / `updated to x.y.z`）；若仍失败（`command not found` / `EACCES` / 网络/registry 不通等），把原始错误整段交给用户，让用户线下处理，**不要**自己尝试改文件凑数、不要换源、不要换包名；
+   4. 命令成功后，**强制重读** `SKILL.md`（确认 `version` 已是新版）+ 当前场景的 workflow + 相关 `tools/*.md`；
+   5. 调用 `newSession` 重建 session（让 `skill_version_at_creation` 更新为新版）；
+   6. 以新版工具签名重新执行用户原始任务。
+
+   **判别提示**：分不清是 (A) 还是 (B) 时，**先按 (A) 跑一遍** newSession + 重读；如果重试仍立刻报版本错或服务端继续提示要更新，就转 (B) 跑 `npx skills update`（必要时回落 `add`）。**永远不要**反过来"先改本地版本号试试看"。
 
 ## 最小充分原则（任何动作前自检）
 

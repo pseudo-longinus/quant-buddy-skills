@@ -97,7 +97,8 @@ cd <SKILL_ROOT> && GZQ_PARAMS='{"ids":["<_id>"],"mode":"last_column_full"}' pyth
 | 现象 | 处理 |
 |---|---|
 | 某批返回 `code=-1` | 读返回的 `errors` 数组，定位失败公式；不重试整批，先报告错误位置 |
-| `SKILL_VERSION_MISMATCH` | 按 SKILL.md 硬规则 #8 自愈（newSession + 重读文档 + 重跑） |
+| `SKILL_VERSION_MISMATCH` | 按 SKILL.md 硬规则 #8 (A) 自愈（newSession + 重读文档 + 重跑） |
+| 服务端要求 skill 升级（响应里有 `npx skills update` 提示） | 按 SKILL.md 硬规则 #8 (B) 自愈（运行 `npx skills update pseudo-longinus/quant-buddy-skills -y` + 重读 + newSession + 重跑），**禁止改本地版本号字符串** |
 | 配额超限 | 按 SKILL.md 全局 429 处理表 |
 | stdout 截断 | 回读 `/tmp/gzq_out.txt`（仅 Linux/macOS）或用返回的 task_id 查询 |
 | 某批**超时 / 报错被动拆分** | 不得沿用失败批次的 `force_reusable_array` 或全列兏底；必须重新对拆分后的每个子批逐条过三问法；特别注意：原批内的引用在拆分后变成跨批引用的变量，必须在对应子批重新写入数组 |

@@ -91,3 +91,19 @@
 | downloadData 返回 403 | 计算结果 `provider=dunhe`，无权限 | 改用 `readData(mode=full)` |
 | 下载到全量历史几千行 | 未传 begin_date | 调用前先问用户要哪段时间 |
 | 上传数据 NaN 率高 | CSV 列标题缺少交易所后缀 | 改为 `600519.SH` 格式 |
+
+---
+
+## 版本不匹配（SKILL_VERSION_MISMATCH / 服务端要求升级）
+
+| 问题现象 | 类型 | 处理方式 |
+|----------|------|----------|
+| 工具返回 `"error": "SKILL_VERSION_MISMATCH"` | 本地 session 与本地 SKILL.md 不一致 | 按 SKILL.md 硬规则 #8 (A)：`newSession` + 重读 SKILL.md / workflow / tools，重跑任务 |
+| 工具返回 message 含「skill 版本过低 / 请执行 `npx skills update`」 | 服务端要求版本高于本地（已安装老用户） | 终端执行 `npx skills update pseudo-longinus/quant-buddy-skills -y`，等更新完成后重读 SKILL.md，再 `newSession` 重跑 |
+| 上一步 `update` 报 `not installed` / `skill not found` | 用户从未安装过本 skill | 改用 `npx skills add pseudo-longinus/quant-buddy-skills -g -a '*' -y`（一次装到全局所有检测到的 agent），完成后再 `newSession` 重跑 |
+| Windows 上 `add` / `update` 报 symlink / `EPERM` / 权限错 | 账户无 symlink 权限 | 命令末尾追加 `--copy` 重试，例：`npx skills add pseudo-longinus/quant-buddy-skills -g -a '*' --copy -y` |
+| `newSession` 返回的 `skill_version` 旧于服务端 intro 提示版本 | 服务端要求版本高于本地 | 同「服务端要求升级」流程 |
+| 不确定当前装在哪 / 是否装过 | 诊断 | 让用户运行 `npx skills list -g --json` 把输出发回 |
+| `npx skills update` 报 `command not found` / 权限 / 网络错误 | 用户机器环境问题 | 把原始错误整段交给用户线下处理；**禁止**改本地版本号字符串凑数 |
+
+> ⚠️ **P0 红线**：任何情况下都禁止用编辑工具修改 `SKILL.md` / `config.json` / `scripts/*.py` / `CHANGELOG.md` 中的 `version` 字段，或改写 `.session.json` 的 `skill_version_at_creation` 来"伪装版本一致"。这是欺骗式自愈，本地工具签名仍是旧的，下一次调用必然继续报错；服务端审计日志也会记录真实上报版本，伪造无效。

@@ -100,6 +100,18 @@ TOOL_ROUTES = {
     "scanDimensions":        ("POST", "/skill/scanDimensions"),
 }
 
+# 部分工具需要覆盖默认超时（单位：秒）
+# 未在此表的工具统一使用 call_post/call_get 的默认值（900s）
+TOOL_TIMEOUTS = {
+    "runMultiFormulaBatch": 900,
+    "scanDimensions":       900,
+    "downloadData":         900,   # call_get 默认仅 60s，大 CSV 下载需覆盖
+    "uploadData":           900,   # call_multipart 原来硬编码 120s，大文件上传需覆盖
+    "renderChart":          900,
+    "renderKLine":          900,
+    "reRenderChart":        900,
+}
+
 # saveChart 不走 HTTP，本地处理 base64 → PNG
 SAVE_CHART_TOOL = "saveChart"
 
@@ -450,7 +462,7 @@ def load_config():
     return cfg
 
 
-def call_multipart(endpoint, api_key, path, file_path, fields=None):
+def call_multipart(endpoint, api_key, path, file_path, fields=None, timeout=900):
     """用 multipart/form-data 上传文件，附带额外表单字段 (fields dict)。"""
     import email.mime.multipart
     import uuid
@@ -483,11 +495,11 @@ def call_multipart(endpoint, api_key, path, file_path, fields=None):
         },
         method='POST',
     )
-    with _NO_PROXY_OPENER.open(req, timeout=120) as resp:
+    with _NO_PROXY_OPENER.open(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode('utf-8'))
 
 
-def call_post(endpoint, api_key, path, params, accept_yaml=True, timeout=300):
+def call_post(endpoint, api_key, path, params, accept_yaml=True, timeout=900):
     """发送 POST 请求。accept_yaml=True 时返回 YAML 原文(str)，否则返回 JSON(dict)。"""
     url = f"{endpoint}{path}"
     data = json.dumps(params, ensure_ascii=False).encode("utf-8")
@@ -508,7 +520,7 @@ def call_post(endpoint, api_key, path, params, accept_yaml=True, timeout=300):
         return json.loads(raw)
 
 
-def call_get(endpoint, api_key, path, params, timeout=60):
+def call_get(endpoint, api_key, path, params, timeout=900):
     """发送 GET 请求（downloadData / getChartSpec 等）"""
     # 用 params 中的值填充路径模板（支持 {id}、{task_id} 等）
     formatted_path = path.format(**params) if '{' in path else path
@@ -561,8 +573,10 @@ def upload_data(endpoint, api_key, params):
         data_name = os.path.splitext(os.path.basename(file_path))[0]
 
     # Step 1: preview — multipart/form-data（后端用 multer upload.single('file')）
+    _upload_timeout = TOOL_TIMEOUTS.get("uploadData", 300)
     preview_result = call_multipart(endpoint, api_key, "/skill/upload/preview",
-                                    file_path=file_path, fields={"data_name": data_name})
+                                    file_path=file_path, fields={"data_name": data_name},
+                                    timeout=_upload_timeout)
 
     if preview_result.get("code") != 0:
         return preview_result
@@ -793,10 +807,11 @@ def main():
     # ── Presets miss → 走网络 ────────────────────────────────
 
     try:
+        _timeout = TOOL_TIMEOUTS.get(tool_name, 300)
         if method == "GET":
-            result = call_get(endpoint, api_key, path, params)
+            result = call_get(endpoint, api_key, path, params, timeout=_timeout)
         else:
-            result = call_post(endpoint, api_key, path, params)
+            result = call_post(endpoint, api_key, path, params, timeout=_timeout)
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8")
         ct = e.headers.get("Content-Type", "") if hasattr(e, 'headers') else ""
