@@ -32,6 +32,36 @@ _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _SKILL_ROOT = os.path.dirname(_SCRIPT_DIR)
 
 
+def _read_skill_version(skill_root: str = _SKILL_ROOT) -> str:
+    """从 SKILL.md frontmatter 读取 version 字段；读取失败时返回空字符串。"""
+    skill_md = os.path.join(skill_root, "SKILL.md")
+    try:
+        with open(skill_md, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("version:"):
+                    return line.split(":", 1)[1].strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _resolve_session_file(skill_root: str) -> str:
+    """按优先级解析 session 文件路径，支持多会话并行：
+    1) QBS_SESSION_FILE 环境变量直接指定路径
+    2) QBS_SESSION_KEY 派生为 .session.<key>.json
+    3) 默认 .session.json（向后兼容）
+    """
+    explicit = os.environ.get("QBS_SESSION_FILE", "").strip()
+    if explicit:
+        return explicit
+    key = os.environ.get("QBS_SESSION_KEY", "").strip()
+    if key:
+        safe_key = re.sub(r"[^A-Za-z0-9_\-]", "_", key)[:64]
+        return os.path.join(skill_root, "output", f".session.{safe_key}.json")
+    return os.path.join(skill_root, "output", ".session.json")
+
+
 class QuantAPI:
     """观照量化平台的同步 Python 客户端。
 
@@ -47,7 +77,7 @@ class QuantAPI:
         self.skill_root = skill_root or _SKILL_ROOT
         self.timeout = timeout
         self._scripts_dir = os.path.join(self.skill_root, "scripts")
-        self._session_file = os.path.join(self.skill_root, "output", ".session.json")
+        self._session_file = _resolve_session_file(self.skill_root)
         # in-memory task_id：一旦初始化后不再从文件重读，避免并发写入导致跨批次 task_id 漂移
         self._task_id: str = ""
         # 配额累积器：跨工具调用累计本 session 消耗的 RU
@@ -71,11 +101,14 @@ class QuantAPI:
         except Exception:
             return ""
 
-    def _write_session(self, task_id: str):
+    def _write_session(self, task_id: str, user_query: str = None):
         self._task_id = task_id          # 同步更新内存，保证同一进程内一致
         os.makedirs(os.path.dirname(self._session_file), exist_ok=True)
+        data = {"task_id": task_id, "skill_version_at_creation": _read_skill_version(self.skill_root)}
+        if user_query is not None:
+            data["user_query"] = user_query
         with open(self._session_file, "w", encoding="utf-8") as f:
-            json.dump({"task_id": task_id}, f)
+            json.dump(data, f, ensure_ascii=False)
 
     # ────────────────────────────────────────────
     # 底层调用（直接 HTTP，不走 subprocess）
@@ -92,9 +125,44 @@ class QuantAPI:
         # ── newSession：本地生成 UUID，不需要 HTTP ──────────────────
         if tool_name == "newSession":
             new_id = str(_uuid.uuid4())
-            self._write_session(new_id)   # 同时更新内存 + 文件
-            return {"code": 0, "task_id": new_id,
-                    "message": "新 session 已创建，task_id 已保存到 .session.json"}
+            # 覆写前先读旧版本号
+            _prev_ver = None
+            try:
+                with open(self._session_file, "r", encoding="utf-8") as _sf:
+                    _prev_ver = json.load(_sf).get("skill_version_at_creation")
+            except Exception:
+                pass
+            self._write_session(new_id, user_query=params.get("user_query"))   # 同时更新内存 + 文件
+            _cur_ver = _read_skill_version(self.skill_root)
+            _changed = bool(_prev_ver and _prev_ver != _cur_ver)
+            return {
+                "code": 0,
+                "task_id": new_id,
+                "skill_version": _cur_ver,
+                "version_changed_from_last_session": _changed,
+                "previous_skill_version": _prev_ver if _changed else None,
+                "message": (
+                    f"新 session 已创建（skill {_cur_ver}）。"
+                    + (f"检测到 skill 从 {_prev_ver} 升级到 {_cur_ver}，"
+                       "必须先重读 SKILL.md 再继续。"
+                       if _changed else
+                       "task_id 已保存到 .session.json。")
+                ),
+            }
+
+        # ── 版本守卫：检测旧会话与当前 skill 版本是否匹配 ─────────────
+        _cur_ver = _read_skill_version(self.skill_root)
+        if _cur_ver:
+            try:
+                with open(self._session_file, "r", encoding="utf-8") as _sf:
+                    _session_ver = json.load(_sf).get("skill_version_at_creation")
+                if _session_ver is None or _session_ver != _cur_ver:
+                    raise RuntimeError(
+                        f"SKILL_VERSION_MISMATCH: session 创建于 {_session_ver}，"
+                        f"当前为 {_cur_ver}。请调用 newSession 并重读 SKILL.md 后再继续。"
+                    )
+            except FileNotFoundError:
+                pass  # 尚未创建 session，不阻断
 
         # ── 注入 task_id（优先用内存缓存，避免文件被并发覆盖导致跨批次漂移）──
         if "task_id" not in params:
@@ -225,7 +293,17 @@ class QuantAPI:
         if begin_date:
             params["begin_date"] = begin_date
         params.update(kwargs)
-        return self._unwrap(self._call("runMultiFormula", params))
+        return self._unwrap(self._call("runMultiFormulaBatch", params))
+
+    def refresh_snapshot_time(self, task_id: str = None) -> dict:
+        """强制刷新指定 session 的分钟数据截止时间。"""
+        task_id = task_id or self._task_id or self._read_session()
+        if not task_id:
+            raise ValueError(
+                "refresh_snapshot_time 需要 task_id：请先调用 new_session()，"
+                "或显式传入 task_id 参数。"
+            )
+        return self._unwrap(self._call("refreshSnapshotTime", {"task_id": task_id}))
 
     def read_data(self, ids: list, mode: str = "smart_sample",
                   sample_points: int = None, **kwargs) -> dict:

@@ -55,11 +55,11 @@ meta: query_time_ms / partial_ok
 | 3 FIELD_MARKET_MISMATCH | 字段不支持该市场 | 告知，其余字段继续 |
 | 4 | 数据为空/公式失败 | 告知该字段暂无数据 |
 
-**FIELD_UNRESOLVABLE 恢复**（partial_ok: true）：保留已成功字段，仅对失败字段补 `confirmDataMulti` → `runMultiFormula`（公式：`"字段全名"*取出(资产名)`，**禁止 LAST() 语法**），不得重读任何 workflow .md。若 field_error 带 `fallback_hint`，按其操作。
+**FIELD_UNRESOLVABLE 恢复**（partial_ok: true）：保留已成功字段，仅对失败字段补 `confirmDataMulti` → `runMultiFormulaBatch`（公式：`"字段全名"*取出(资产名)`，**禁止 LAST() 语法**），不得重读任何 workflow .md。若 field_error 带 `fallback_hint`，按其操作。
 
 ## ⚠️ 注意
 
-- **无需 newSession**：服务端管理固定 session
+- **须先调 newSession**：每轮新问题都应先调 `newSession` 建立 session，`user_query` 再随 `fast_query` 参数一并传入
 - **涨跌幅**：返回值已是百分比数（如 `-2.74`），直接加 `%`，不再乘 100
 - **总市值/流通市值**：单位已是亿元
 - **window series**：已按日期升序，长度 = window_days

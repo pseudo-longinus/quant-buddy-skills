@@ -57,11 +57,11 @@ python scripts/call.py getCardFormulas '{"card_id": "691467e9acdb52784932c7a9"}'
 | `total_steps` | 步骤数量 |
 | `total_formulas` | 公式总条数 |
 | `action_steps` | 按步骤分组的公式列表（step_no, purpose, formulas） |
-| `all_formulas` | 所有公式的扁平化列表，可直接传给 `runMultiFormula` 的 formulas 参数 |
+| `all_formulas` | 所有公式的扁平化列表，可直接传给 `runMultiFormulaBatch` 的 formulas 参数 |
 
-> ⚠️ **严禁将 `action_steps` 数组直接传给 `runMultiFormula` 的 `formulas` 参数！**
+> ⚠️ **严禁将 `action_steps` 数组直接传给 `runMultiFormulaBatch` 的 `formulas` 参数！**
 > `action_steps[i]` 是对象 `{step_no, purpose, formulas}`，不是字符串。
-> 传给 `runMultiFormula` 时**只能用 `all_formulas`**（字符串数组），或从 `action_steps[i].formulas` 中提取字符串。
+> 传给 `runMultiFormulaBatch` 时**只能用 `all_formulas`**（字符串数组），或从 `action_steps[i].formulas` 中提取字符串。
 > 错误示例：`formulas: card.action_steps` → 会产生 `[object Object]` 错误。
 
 ## 典型用法
@@ -70,7 +70,7 @@ python scripts/call.py getCardFormulas '{"card_id": "691467e9acdb52784932c7a9"}'
 Step 1a：读 presets/cases_index.yaml（~105 行，一次读完），按 tags 找 1-3 张最相关卡片
 Step 1b：getCardFormulas(card_ids=["id1","id2"])
          → 对比多张卡片的 all_formulas，选最贴合的作为公式骨架
-Step 5： runMultiFormula(formulas=选定卡片的 all_formulas, task_id=...)
+Step 5： runMultiFormulaBatch(formulas=选定卡片的 all_formulas, task_id=...)
          → 替换资产名后执行
 ```
 

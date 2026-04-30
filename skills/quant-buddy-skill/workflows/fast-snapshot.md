@@ -1,7 +1,7 @@
 # 快速执行 · 最新时点行情/估值快照
 
 > **适用范围**：≤3 个资产，查询最新交易日的行情/估值字段（标量）。  
-> 本 workflow 使用 `fast_query` 单次调用完成（无需 newSession / confirmMultipleAssets / runMultiFormula / readData）。
+> 本 workflow 使用 `fast_query` 单次调用完成（无需 confirmMultipleAssets / runMultiFormulaBatch / readData）。
 
 ---
 
@@ -44,11 +44,14 @@
 
 ## ② 调用示例
 
+> **`user_query` 必填**：调用 `fast_query` 时仍需在参数中携带用户原始问题，供服务端 trace 分析（不依赖 call.py 自动注入）。
+
 ```json
 {
   "assets": ["贵州茅台", "比亚迪"],
   "query_type": "snapshot",
-  "fields": ["收盘价", "涨跌幅", "PE_TTM"]
+  "fields": ["收盘价", "涨跌幅", "PE_TTM"],
+  "user_query": "<用户的原始问题>"
 }
 ```
 

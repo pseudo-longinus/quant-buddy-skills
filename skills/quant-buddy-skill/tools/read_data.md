@@ -1,6 +1,6 @@
 # read_data — 读取/验证计算结果
 
-> 读取 `runMultiFormula` 生成的数据结果，用于验证选股是否合理、净值曲线是否正常、查看数值分布。
+> 读取 `runMultiFormulaBatch` 生成的数据结果，用于验证选股是否合理、净值曲线是否正常、查看数值分布。
 
 ## 端点
 
@@ -10,7 +10,7 @@
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `ids` | string[] | ✅ | 数据ID数组（来自 `runMultiFormula` 返回的 `data_id`），最多 10 个。超过须分批调用 |
+| `ids` | string[] | ✅ | 数据ID数组（来自 `runMultiFormulaBatch` 返回的 `data_id`），最多 10 个。超过须分批调用 |
 | `mode` | string | ❌ | 查询模式，详见下方。默认 `verify` |
 | `start_date` | number | ❌ | 起始日期（格式 20250101） |
 | `end_date` | number | ❌ | 结束日期（格式 20251231） |
@@ -20,13 +20,14 @@
 | `top_assets` | number | ❌ | `smart_sample` 模式：采样资产数，默认 3，最大 50 |
 | `align_samples` | boolean | ❌ | 是否启用对齐采样，默认 true（多数据时按锚点对齐） |
 | `anchor_index` | number | ❌ | 对齐锚点索引，默认 0 |
+| `allow_zero_values` | boolean | ❌ | `last_column_full` 模式专用：是否在结果中保留 value=0 的行。默认 `false`（过滤零值，布尔掩码只返回命中=1的行；数值型过滤无效零）。设为 `true` 时保留全部零值行，适合需要"哪些股票不满足条件"的场景 |
 | `task_id` | string | ❌ | 任务ID（UUID） |
 
 ### ⚠️ 常见参数错误
 
 | 错误写法 | 正确写法 | 说明 |
 |---------|---------|------|
-| `{"variable_names": ["趋势放量背景"]}` | `{"ids": ["60a1b2c3d4e5f6a7b8c9d0e1"]}` | 参数名是 `ids`，不是 `variable_names`；值必须是 `runMultiFormula` 返回的 24位 hex data_id，不是中文变量名 |
+| `{"variable_names": ["趋势放量背景"]}` | `{"ids": ["60a1b2c3d4e5f6a7b8c9d0e1"]}` | 参数名是 `ids`，不是 `variable_names`；值必须是 `runMultiFormulaBatch` 返回的 24位 hex data_id，不是中文变量名 |
 | `{"ids": ["NAV", "收盘价"]}` | `{"ids": ["60a1b2...", "60a1b3..."]}` | ids 不接受变量名，只接受 hex ID |
 | `{"ids": [...], "mode": "table_data", "sample_points": 12}` | `{"ids": [...], "mode": "table_data"}` | `table_data` 模式不支持 `sample_points` 和 `align_samples` 参数，会报 500 错误。一维数据建议用 `last_column_full` 配合 `start_date`/`end_date` 读取 |
 
@@ -67,8 +68,8 @@
             {"asset": "SH600176", "value": 1, "name": "中国巨石"}
           ],
           "total_rows": 9851,
-          "returned_rows": 5082,
-          "_note": "布尔掩码已过滤零值行：5007 行 value=0 已移除，保留命中 75 条"
+          "returned_rows": 75,
+          "valid_rows": 75
         }
       }
     ],
@@ -79,7 +80,7 @@
 ```
 
 > **关键路径**：命中名单 = `data.data[0].last_column_full.matched_names`（call.py 后处理注入，无需手动遍历 values）。
-> 原始完整 values 列表只保留 value=1 的行；若需原始全量数据，直接调 executor.py 绕过 call.py 后处理。
+> 零值过滤由后端控制：默认 `allow_zero_values=false` 时后端只返回 `value=1` 的行（`returned_rows=75`）；传入 `allow_zero_values=true` 时后端保留零值行，`matched_names` 仍仅含命中名单。
 
 ### smart_sample 模式 - 二维掩码（选股信号）
 ```json
@@ -177,7 +178,7 @@ python scripts/executor.py readData '{
 
 ## 注意事项
 
-- `ids` 用 `runMultiFormula` 返回的 `data_id`，或 `confirmDataMulti` 返回的 `_id`
+- `ids` 用 `runMultiFormulaBatch` 返回的 `data_id`，或 `confirmDataMulti` 返回的 `_id`
 - `precheck` 模式会快速预检数据状态，适合在正式读取前检查数据健康度
 - 绘制净值曲线时建议 `sample_points` 设为 200-500（数据点较多时）
 - 多数据对齐比较时，`align_samples=true` 会返回 `aligned_comparison` 字段（可直接用于画表格）

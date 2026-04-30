@@ -80,7 +80,7 @@ python scripts/executor.py uploadData '{
 python scripts/executor.py confirmDataMulti '{"data_desc": "我的动量因子"}'
 
 # 在公式中引用（用 index_title）
-python scripts/executor.py runMultiFormula '{
+python scripts/executor.py runMultiFormulaBatch '{
   "formulas": [
     "MyFactor=\"我的动量因子.csv\"",
     "Signal=(\"MyFactor\">0)*板块(万得全A)*\"非ST\""

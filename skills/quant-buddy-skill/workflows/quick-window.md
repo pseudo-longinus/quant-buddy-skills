@@ -15,12 +15,12 @@
 | CP | 名称 | 已验证状态 | Acceptance Test |
 |----|------|-----------|-----------------|
 | W0 | 目标冻结 | 资产、N、目标统计已确定 | 只有一个资产、N 为正整数、目标字段在本文档模板表中 |
-| W1 | 公式模板冻结 | 单资产一维时间序列已生成 | runMultiFormula 成功，返回一维 data_id |
+| W1 | 公式模板冻结 | 单资产一维时间序列已生成 | runMultiFormulaBatch 成功，返回一维 data_id |
 | W2 | 尾部数据已读取 | N 条尾部记录已在手 | 返回行数 ≤ N，尾部日期与最新交易日一致（或注明停牌） |
 | W3 | 统计/交付完成 | 窗口统计已算完，准备输出 | 所有统计值仅基于这 N 行，无窗口外数据引用 |
 
 ### 首选路径（默认必须先尝试）
-1. `runMultiFormula` 生成单资产一维时间序列
+1. `runMultiFormulaBatch` 生成单资产一维时间序列
 2. `readData(mode="last_n_rows", last_n_rows=N)` 读取尾部 N 行
 
 ### Backward Recovery（失败时）
@@ -140,7 +140,7 @@ Step 1 确认资产（见本文档末尾「自包含执行规则」）
 
 #### 路径 A：用户只需要窗口统计量（极值/振幅/区间收益）→ 公式内计算，跳过 readData
 
-**这是首选路径**——直接在 `runMultiFormula` 中用聚合函数计算统计结果，避免读取原始序列。
+**这是首选路径**——直接在 `runMultiFormulaBatch` 中用聚合函数计算统计结果，避免读取原始序列。
 
 平台支持的窗口聚合函数（来自 `presets/functions.yaml`）：
 - `最大(数据, N)` — 滚动 N 日最大值
@@ -239,7 +239,7 @@ Step 1 确认资产（见本文档末尾「自包含执行规则」）
 
 最终答案中的每个数值都必须能追溯到这三个冻结值或它们的回答层派生。
 
-当目标统计量可由已取标量通过四则运算直接得出时，**在回答层计算，不得为此再发 `runMultiFormula`**：
+当目标统计量可由已取标量通过四则运算直接得出时，**在回答层计算，不得为此再发 `runMultiFormulaBatch`**：
 
 | 可直接派生 | 来源 | 公式 |
 |-----------|------|------|
@@ -289,7 +289,7 @@ Step 1 确认资产（见本文档末尾「自包含执行规则」）
 
 ### Compaction：工具返回后立即压缩工作状态（每次工具调用后必须执行）
 
-每次 `runMultiFormula` 或 `readData` 返回后，立即将原始输出压缩为结构化工作状态，然后丢弃原始文本。后续步骤只引用压缩后的状态，不回溯原始工具输出。
+每次 `runMultiFormulaBatch` 或 `readData` 返回后，立即将原始输出压缩为结构化工作状态，然后丢弃原始文本。后续步骤只引用压缩后的状态，不回溯原始工具输出。
 
 **路径 A（公式内聚合）压缩模板：**
 ```
@@ -340,7 +340,7 @@ Step 1 确认资产（见本文档末尾「自包含执行规则」）
 | # | 检查项 | 通过标准 |
 |---|--------|---------|
 | 1 | 资产已确认 | 来自 `presets/assets.yaml` 或 `confirmMultipleAssets` 返回 |
-| 2 | 时间序列为一维 | `runMultiFormula` 返回的 data_id 对应单资产序列 |
+| 2 | 时间序列为一维 | `runMultiFormulaBatch` 返回的 data_id 对应单资产序列 |
 | 3 | 行数 = N | `readData` 返回行数 ≤ 用户要求的 N（不足需注明） |
 | 4 | 仅窗口内统计 | 所有计算仅基于读取到的 N 行，无窗口外数据 |
 | 5 | 日期/年份一致 | 回答中写出的每个日期（年、月、日）与工具返回的原始日期逐字一致，不得凭记忆填写 |
@@ -461,7 +461,7 @@ Step 1 确认资产（见本文档末尾「自包含执行规则」）
 - 总结性段落：「说明」「小结」「走势分析」「整体来看」「综上所述」「总结一下」
 - 过程性语言：「让我」「根据 workflow」「我将为你」「按照流程」「接下来我」
 - 主动延伸：未被请求的均线/技术指标分析、投资建议、风险提示
-- 工具/流程内部名词：workflow 名称、checkpoint 编号、路径 A/B 标签、readData/runMultiFormula 等工具名
+- 工具/流程内部名词：workflow 名称、checkpoint 编号、路径 A/B 标签、readData/runMultiFormulaBatch 等工具名
 - 重复表述：同一数值在表格和正文中各出现一次以上
 
 **原则**：数据到手 → 格式化 → 回答 → 停止。不解释你做了什么，不总结你查到了什么。
@@ -513,19 +513,19 @@ GZQ_PARAMS='{"intentions": ["贵州茅台"], "types": ["asset"]}' python scripts
 ### 确认 ≠ 结果（硬规则）
 
 `confirmMultipleAssets` / `confirmDataMulti` 返回的是资产名称映射或数据集ID，**不包含任何行情数值**。
-拿到确认结果后，必须再调用 `runMultiFormula` 才能获取实际数据。
+拿到确认结果后，必须再调用 `runMultiFormulaBatch` 才能获取实际数据。
 
 ---
 
 ### 失败恢复规则（硬规则）
 
-**`runMultiFormula` 返回 `PARTIAL_SUCCESS`：**
+**`runMultiFormulaBatch` 返回 `PARTIAL_SUCCESS`：**
 - 保留已成功项，仅修失败项
 - 失败项属于数据名问题 → 先 `confirmDataMulti`
 - 失败项属于函数写法问题且字段**在本文档模板表中** → 直接重写为标准模板，跳过 `searchFunctions`
 - 同一结构失败后不得用同结构再次重试
 
-**`runMultiFormula` 返回 500 / Internal Server Error：**
+**`runMultiFormulaBatch` 返回 500 / Internal Server Error：**
 1. 检查是否使用了非标准模板或禁用写法
 2. 若是 → 重写为标准模板重试一次
 3. 仍失败 → fallback：取原始序列 → readData → 回答层计算

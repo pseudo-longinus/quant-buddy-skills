@@ -8,7 +8,7 @@
 
 ## 前置条件
 
-假设已通过 `runMultiFormula` 得到以下 `data_id`：
+假设已通过 `runMultiFormulaBatch` 得到以下 `data_id`：
 - 策略A净值：`nav_aaa111`
 - 策略B净值：`nav_bbb222`
 - 沪深300净值：`nav_ccc333`

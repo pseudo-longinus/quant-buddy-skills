@@ -87,5 +87,5 @@ python scripts/executor.py confirmDataMulti '{
 4. **用返回的 `_id` 给 `readData`**：`readData` 的 `ids` 参数用 `_id` 字段
 5. 季度财务数据（净利润等）是二维但按季度更新，计算时注意对齐日期
 6. **根据 `dimension` 决定后续操作**：
-   - `dimension: "one-row"` → 已是一维时间序列（单资产或宏观数据）→ **直接 `readData(ids=[_id])`，禁止再套 `取出()` 或 `runMultiFormula`**
-   - `dimension: "two"` → 全市场二维截面 → 走规则 1（`runMultiFormula` + `取出()`），但公式左侧变量名与 `index_title` **不得相同**（否则循环依赖），命名规范：`{股票名}{指标名}` 或 `{指标名}_val`
+   - `dimension: "one-row"` → 已是一维时间序列（单资产或宏观数据）→ **直接 `readData(ids=[_id])`，禁止再套 `取出()` 或 `runMultiFormulaBatch`**
+   - `dimension: "two"` → 全市场二维截面 → 走规则 1（`runMultiFormulaBatch` + `取出()`），但公式左侧变量名与 `index_title` **不得相同**（否则循环依赖），命名规范：`{股票名}{指标名}` 或 `{指标名}_val`

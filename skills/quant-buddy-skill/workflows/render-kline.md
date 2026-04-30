@@ -32,7 +32,7 @@
 |---------|--------|-------------------|------|
 | K0 资产确认失败 | — | 重试 1 次（换别名） | 用相似资产替代 |
 | K1.5 日期锚点获取失败 | K1 | 重试 1 次（换轻量工具获取当前日期）；重试仍失败 → **必须 safe-fail**，回复"当前日期暂时无法从工具获取，无法确认起始日期，请稍后重试" | 模型自行猜测/估算当前日期（**即使看起来合理也绝对禁止，HTTP 错误不是猜测的许可证**） |
-| K2 renderKLine 失败 | K1 | 调整 begin_date 或去掉 indicators | 改用 runMultiFormula 自行画图 |
+| K2 renderKLine 失败 | K1 | 调整 begin_date 或去掉 indicators | 改用 runMultiFormulaBatch 自行画图 |
 | K2 返回空图 | K1 | 缩短时间范围 | 切换到取数路径 |
 
 ### Retry Budget
@@ -47,16 +47,16 @@
 
 **❌ 错误行为（T-011 反例）**：
 ```
-runMultiFormula → HTTP 500
-runMultiFormula → HTTP 500
+runMultiFormulaBatch → HTTP 500
+runMultiFormulaBatch → HTTP 500
 // 错误推理："服务器有问题，让我用合理的begin_date来覆盖最近半年。根据当前是 2026 年 4 月..."
 renderKLine(begin_date=20251001)   ← 违规：日期来自模型记忆，不是工具返回
 ```
 
 **✅ 正确行为**：
 ```
-runMultiFormula → HTTP 500
-runMultiFormula（换公式重试）→ HTTP 500
+runMultiFormulaBatch → HTTP 500
+runMultiFormulaBatch（换公式重试）→ HTTP 500
 // 重试全部失败，K1.5 未通过 → 禁止调用 renderKLine
 回复用户："当前日期暂时无法从工具确认，无法生成 K 线图，请稍后重试"
 ```
@@ -85,8 +85,8 @@ runMultiFormula（换公式重试）→ HTTP 500
 
 **当前日期获取（硬规则）**：禁止模型凭自身知识估算当前日期。必须按以下优先级顺序获取，**首个可用即停止，无需继续往下执行**：
 1. **系统上下文已有当前日期**（如 system prompt 中的"当前日期是 YYYY-MM-DD"）→ 直接用于换算 begin_date，**无需任何额外工具调用**
-2. 本轮已有工具返回的日期（如之前 `runMultiFormula` / `readData` 返回的最新交易日）
-3. 以上均无 → 仅用最简赋值公式调用一次 `runMultiFormula`（如 `close="全市场每日收盘价"`），从返回中读取最新日期；**禁止在此步骤使用任何 `presets/functions.yaml` 中不存在的函数名**（如 `LASTDAY`、`MA` 均不在 functions.yaml，调用会返回 HTTP 500）
+2. 本轮已有工具返回的日期（如之前 `runMultiFormulaBatch` / `readData` 返回的最新交易日）
+3. 以上均无 → 仅用最简赋值公式调用一次 `runMultiFormulaBatch`（如 `close="全市场每日收盘价"`），从返回中读取最新日期；**禁止在此步骤使用任何 `presets/functions.yaml` 中不存在的函数名**（如 `LASTDAY`、`MA` 均不在 functions.yaml，调用会返回 HTTP 500）
 
 将用户时间描述转为 `begin_date`（YYYYMMDD 整数）时，必须以**工具确认的当前日期**为锚点：
 
@@ -120,7 +120,7 @@ runMultiFormula（换公式重试）→ HTTP 500
 4. 禁止使用"大约""按当前日期应该是"之类估算替代
 
 若无法获得当前日期锚点：
-1. 允许重试一次推荐路径（如轻量 runMultiFormula 获取最新交易日）
+1. 允许重试一次推荐路径（如轻量 runMultiFormulaBatch 获取最新交易日）
 2. 若仍失败，只能说明"当前无法精确锁定相对时间窗口，暂不返回可能误导的图"
 3. 禁止自行猜测 begin_date，禁止使用"大约/约等于/通常半年从某月开始"这类口径
 

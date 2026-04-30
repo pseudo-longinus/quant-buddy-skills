@@ -53,7 +53,7 @@ python scripts/call.py confirmDataMulti '{"data_desc": "全市场每日收盘价
 ### Step 3 — 执行公式（生成信号 + 回测）
 
 ```bash
-python scripts/call.py runMultiFormula '{
+python scripts/call.py runMultiFormulaBatch '{
   "task_id": "<Step 0 的 task_id>",
   "begin_date": 20150101,
   "formulas": [

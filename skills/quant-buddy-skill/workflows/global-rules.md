@@ -22,7 +22,7 @@
 4. **Working State 冻结**：关键中间决策通过 `write_skill_file` 写入 `output/_working/{task_id}/`，后续步骤必须从文件读回取参，参数不一致 = checkpoint 失败
 5. **失败门禁**：脚本无输出 ≠ 已完成；公式/读取失败必须回退到最近已验证 checkpoint；禁止带着脏结果继续
 6. **资产口径冻结**：`confirmMultipleAssets` 返回的资产名称/体系必须与用户原口径一致；若仅为近似匹配或跨体系匹配（如用户说"申万消费"，平台返回"可选消费（万得）"），**禁止静默替代继续计算**——必须向用户确认是否接受代理口径，或在同体系内寻找替代
-7. **公式失败受控恢复**：`runMultiFormula` 失败时：
+7. **公式失败受控恢复**：`runMultiFormulaBatch` 失败时：
    - **提交前防拆分检查**：提交前必须校验 `formulas` 数组，若 `formulas.length > 15` 且平均每元素字符数 < 3，说明公式被逐字符拆分（如 `["个","股","近",...]`），禁止提交，重新构造为完整公式字符串后再调用。
    - **失败后诊断顺序**：① 检查语法/引号错误 → ② 出现 400/前置校验失败时**必须先调 `searchFunctions` 确认函数名**（禁止凭记忆直接重写函数）→ ③ 仅重试失败公式。
    - **重试止损**：同一 task_id 下，同类错误（相同错误信息或相同 formulas 内容）**最多重试 2 次**；第 3 次失败或连续两次返回相同错误，必须 safe-fail，不得继续消耗 RU。
@@ -30,8 +30,32 @@
 8. **禁止伪恢复**：当关键参数（事件日、报告期、相对时间锚点、筛选阈值、begin_date、资产口径）未被工具证据确认时，禁止用经验值、近似日期、拍脑袋 begin_date、代理口径、手写区间替代后继续输出确定性结果。可重试；不可脑补
 9. **筛选条件运算符级冻结**：对条件选股/排名题，公式中的布尔条件必须与用户原始约束逐项对应，且精确到运算符级别。"低于20" → 只能生成 `< 20`；"高于3%" → 只能生成 `> 3%`。不得默认补充 `>0`、非ST、主板、剔除北交所、流动性门槛、市值门槛等任何额外条件。若认为某额外过滤"常见但用户未说"，只能在最终答案末尾提出"如需加该过滤，我可以再筛一版"，不得先加后说
 10. **排名题一致性校验**：对"前N / 排名 / TopK / 榜单"类问题，最终输出前必须执行——① 名次必须与展示数值严格一致；② 不得直接信任 readData 原始顺序，必须按最终排序字段显式重排；③ 若第k名数值小于第k+1名（降序场景）或大于第k+1名（升序场景），禁止输出，必须先纠正；④ 排名名单、展示数值、口径说明必须来自同一套公式口径，不得混用。**⚠️ 实测陷阱（T-028）**：`取前(..., 返回数值)` 公式的 `readData` 结果按**资产代码字母序**返回（SH... 排在 SZ... 前，同前缀再按数字序），而非按数值大小排列。例如：SH601899（紫金矿业 104.22亿）会排在 SZ300394（天孚通信 100.92亿）前面，若直接依此顺序分配排名，6-8位就会出现"值越来越大"的大错。**正确做法**：① 从 `readData.last_column_full.values` 拿到 `[{asset, value, name}, ...]`；② 将该数组按 `value` 字段**降序**排列；③ 按排列后的顺序分配排名 1, 2, 3, ...。**此排序校验必须在内部默默完成，最终答案里只输出排好序的正确表格；禁止在 ## 最终答案 里先写草稿表再"等等，需要重排"后再写正式表——这类暴露修正过程的行为等同于去过程化违规（Rule 3）**。
-11. **表格占位符硬禁令**：最终答案的表格中，**禁止**使用 `-`、`N/A`、`<数值>`、`待查`、`...` 等占位符代替"未被工具读取到"的列值（如在涨幅列填 `-`、在PE列填 `<20`）。若某资产/某列的具体数值未被工具返回，只能：(a) **完全省略该列**；(b) 仅列出**已有真实数值的行**，不列未读取的行；(c) 不得用"以及其他N只"等方式补全未读取的部分。**⚠️ 截断时的正确路径（T-029 教训）**：当 readData 因过长被截断、而你手头只有 description 的名称列表时，正确处理步骤是：① 若用户只问"有哪些"，直接输出 description 中的 `全部名称` 列表（仅含名称和总数）即可收工，**禁止**构建含 `-`/`<20` 占位符的"虚假数值表格"；② 若用户还要具体字段值（如涨幅、PE），必须对每个候选股票用 `confirmMultipleAssets` + 单资产 `runMultiFormula` 逐只取值，取完后再输出带真实数值的表格，**不得**在取不到数据时用占位符填充。**实测反例（T-029、T-030）**：readData 截断后模型仍在表格中填写 `-` 和 `<20`，构建出"看起来完整实际有残缺"的误导性答案。
+11. **表格占位符硬禁令**：最终答案的表格中，**禁止**使用 `-`、`N/A`、`<数值>`、`待查`、`...` 等占位符代替"未被工具读取到"的列值（如在涨幅列填 `-`、在PE列填 `<20`）。若某资产/某列的具体数值未被工具返回，只能：(a) **完全省略该列**；(b) 仅列出**已有真实数值的行**，不列未读取的行；(c) 不得用"以及其他N只"等方式补全未读取的部分。**⚠️ 截断时的正确路径（T-029 教训）**：当 readData 因过长被截断、而你手头只有 description 的名称列表时，正确处理步骤是：① 若用户只问"有哪些"，直接输出 description 中的 `全部名称` 列表（仅含名称和总数）即可收工，**禁止**构建含 `-`/`<20` 占位符的"虚假数值表格"；② 若用户还要具体字段值（如涨幅、PE），必须对每个候选股票用 `confirmMultipleAssets` + 单资产 `runMultiFormulaBatch` 逐只取值，取完后再输出带真实数值的表格，**不得**在取不到数据时用占位符填充。**实测反例（T-029、T-030）**：readData 截断后模型仍在表格中填写 `-` 和 `<20`，构建出"看起来完整实际有残缺"的误导性答案。
 12. **429 前置拦截（优先于 leaf Retry Budget）**：任何工具调用返回 HTTP 429 或返回体含 `error.code` 为以下值时，**优先按本条处理，不受 leaf workflow Retry Budget 约束**：
+   - `RATE_LIMIT_EXCEEDED` → 读 `error.retryAfter` 秒后**静默重试**，不计入 leaf Retry Budget，不向用户暴露
+   - `CONCURRENT_LIMIT` → 读 `error.retryAfter` 秒后**静默重试**，不计入 leaf Retry Budget，不向用户暴露
+   - `WINDOW_QUOTA_EXCEEDED` → **立即停止**，读 `error.nextResetIn` 秒，按第 9 条窗口耗尽格式输出
+   - `DAILY_QUOTA_EXCEEDED` → **立即停止**，读 `error.resetIn` 秒，按第 9 条日配额耗尽格式输出
+   - `DAILY_SCAN_EXCEEDED` → **立即停止**，读 `error.resetIn` 秒，按第 9 条 IC 扫描耗尽格式输出
+   - `SERVICE_OVERLOADED`（503）→ 读 `error.retryAfter` 秒后静默重试 1 次，仍失败则告知用户"系统繁忙，请稍后重试"
+
+   **恢复时间字段速查**：
+   | error.code | 时间字段 | 含义 |
+   |---|---|---|
+   | `WINDOW_QUOTA_EXCEEDED` | `nextResetIn` / `nextResetAt` | 最早一批 RU 恢复秒数/时间点 |
+   | `DAILY_QUOTA_EXCEEDED` | `resetIn` / `resetAt` | 距次日 00:00 秒数/时间点 |
+   | `DAILY_SCAN_EXCEEDED` | `resetIn` / `resetAt` | 距次日 00:00 秒数/时间点 |
+   | `RATE_LIMIT_EXCEEDED` | `retryAfter` | 建议等待秒数 |
+   | `CONCURRENT_LIMIT` | `retryAfter` | 建议等待秒数 |
+   | `SERVICE_OVERLOADED` | `retryAfter` | 建议等待秒数 |
+
+   完整分类表见 `references/troubleshooting.md`「配额限流」段。
+13. **`runMultiFormulaBatch` 多公式必须评估 `force_reusable_array`（硬规则）**：每次组装 `runMultiFormulaBatch` 的 `formulas` 数组时，若 `formulas.length ≥ 2`，**必须同步附上 `force_reusable_array` 字符串数组**（数组元素是公式左侧变量名）；评估方法：对每条公式问三个问题——(a) 这个左侧变量会被 `readData` 或最终业务步骤读取吗？(b) 它会被**后续 batch / 后续 `runMultiFormulaBatch` 调用 / 用户后续追问**引用吗？(c) 我此刻是否能确定它"以后再不会被读"？三问任一答"会/不能确定" → 把变量名**写进** `force_reusable_array`；只有完全确定"仅本批后续公式用、再无人引用" → 不要写进数组。命名含 `_中间`/`_条件`/`_掩码`/`_排序值`/`_因子`/`MA5`/`Signal` 等的变量基本是中间量。**末批内仅最终输出变量（readData 读取的那一条，通常命名为 `*_Top10`、`*_Result`、`*_Final` 等）必须写进数组；末批内的中间计算量（`*_Score`、`*_Ratio` 等只在本批后续公式引用的变量）仍按三问法正常判断，不因在末批而自动写进数组**——"末批数组列出全部变量名"等同于 all-true 退化，是 P0 级规则退化。**禁止**对多公式调用直接省略该参数让所有公式默认复用；同时**禁止为"保险"把所有变量名都列进数组**——全列与未传等价。
+    > **缓存兜底 ≠ 数组标对**：服务端缓存层会替你兜底重算丢失的中间变量，所以即便数组标错，最终结果可能仍然能跑出来。但这不能算 `force_reusable_array` 用对了，下次同 session 追问时一旦缓存失效就会暴露。
+   - **多批次扩展规则（跨批保活）**：当公式链拆分为多次 `runMultiFormulaBatch` 时，**被后续批次公式引用的变量，在当批中必须写进 `force_reusable_array`**（即使本批不被 `readData` 读）。组装每个 batch 的数组前，先扫描后续 batch 公式的右侧引用，凡被引用到的左侧变量本批必须列入。**禁止**用"全列"代替依赖分析——分批后某批数组列全本批所有变量名是规则退化的明显信号，应回退重新扫描跨批引用边后再标注。
+     - **链条未知时（场景 B：分轮追加公式）**：首批无法预见后续公式会引用什么。此时对本批的"汇总因子"级变量及其直接操作数一律写进 `force_reusable_array`。判断标准：变量 RHS 组合了本批多个其他变量、语义是最终评分或基础综合因子、且非原子基础数据 → 该变量及其所有 RHS 直接引用的本批变量均写入数组。（示例：`R31_BasicScore` = 汇总因子 → 列入；`R31_AmtRatio` 是 `R31_BasicScore` 的直接操作数 → 也列入。）
+   - **被动拆批后必须重新推理数组**：若某批因超时、服务端报错或 `task_id` 丢失而失败，被动重试或拆分时：① 不得沿用失败批次的 `force_reusable_array` 或直接全列兜底；② 必须重新对拆分后的每个子批逐条过三问法；③ 特别注意跨越拆分点的变量（原批内的引用在拆分后变成了跨批引用）必须在对应子批中重新判断并写入数组。
+14. **用户主动要求刷新盘中数据时必须先调 `refreshSnapshotTime`（硬规则）**：追问含"刷新/更新/推进/最新行情/重新算/再算一次"等刷新语义时，**必须先调 `refreshSnapshotTime '{}'`，再重跑 `runMultiFormulaBatch`**。不得跳过 `refreshSnapshotTime` 直接重跑公式。
    - `RATE_LIMIT_EXCEEDED` → 读 `error.retryAfter` 秒后**静默重试**，不计入 leaf Retry Budget，不向用户暴露
    - `CONCURRENT_LIMIT` → 读 `error.retryAfter` 秒后**静默重试**，不计入 leaf Retry Budget，不向用户暴露
    - `WINDOW_QUOTA_EXCEEDED` → **立即停止**，读 `error.nextResetIn` 秒，按第 9 条窗口耗尽格式输出
@@ -57,7 +81,7 @@
 2. **删无证据归因**：删除所有不能追溯到本次工具调用结果的背景解释（"受疫情冲击""政策宽松预期""市场恐慌""风格轮动""利好出尽""OPEC+减产"等）
 3. **校验汇总数值**：若输出均值/合计，用表中数值手算验证；不一致则修正或删除汇总行
 4. **核对 Working State**：最终表格中的事件日/区间/口径是否与 `_working/` 文件中的冻结值一致；不一致 = 必须修正
-5. **时间口径一致性**：`use_minute_data: true` 已是全局业务默认参数（所有 `runMultiFormula` 调用都应传），因此盘中查询通常能拿到当日数据。但仍须在输出前**验证实际日期**：检查 `description` 或 `readData` 返回的 `effective_matches_date` / `last_column_full.date`，确认确实生效到了当日。若结果日期早于当前交易日（如用户 4 月 13 日问"现在"，结果显示 4 月 10 日），则：(a) 禁止将结果表述为"当前/现在/今天"的答案；(b) 必须明确声明"以下为最后可得交易日 YYYY-MM-DD 的结果，非实时数据"。
+5. **时间口径一致性**：`use_minute_data: true` 已是全局业务默认参数（所有 `runMultiFormulaBatch` 调用都应传），因此盘中查询通常能拿到当日数据。但仍须在输出前**验证实际日期**：检查 `description` 或 `readData` 返回的 `effective_matches_date` / `last_column_full.date`，确认确实生效到了当日。若结果日期早于当前交易日（如用户 4 月 13 日问"现在"，结果显示 4 月 10 日），则：(a) 禁止将结果表述为"当前/现在/今天"的答案；(b) 必须明确声明"以下为最后可得交易日 YYYY-MM-DD 的结果，非实时数据"。
 6. **资产范围校验与资产宇宙污染回退（硬规则）**：若用户指定了市场/板块范围（如"A股""A股主板""沪深300成分股"），逐条检查结果名单中的资产是否全部属于该范围。发现以下任一情况即判定为"范围未对齐"，禁止输出名单：(a) 出现港股代码（HKxxxx）；(b) 出现美股代码（xxx.N / xxx.O）；(c) 出现指数/基金/期货（如xx主连、xx.SHF、xx.CFE、xx.DCE）；(d) 用户说"主板"但结果含创业板（300xxx）或科创板（688xxx）。范围未对齐时只能说明"筛选范围未成功限定，暂不能给出可信名单"。**特别注意**：`description` 中的 `其中十个分别名称` 是快速排查资产范围的捷径——若样本中出现 HK/期货/指数代码，说明公式中缺少资产宇宙掩码，必须回退修正公式后重跑。
    **资产宇宙污染回退规则**：对股票筛选/股票名单/股票TopN题，若中间或最终结果中出现指数、基金、期货、债券、港股、美股等非目标资产证据，视为"资产宇宙未对齐"，不得直接回答——必须回退并补加股票资产宇宙掩码后重跑。不得在自然语言层把"全市场资产结果"口头解释成"股票结果"。常见污染信号：description 中出现指数名称/主连合约/基金名称、readData 返回中出现 .CFE/.DCE/.SHF 等代码模式、用户问"普通股票"但结果覆盖了非股票资产
 7. **多数据源日期一致性**：当本次任务使用了多个数据源（如涨跌幅、PE、非ST 等），检查各数据源 `readData` / `description` 返回的 `effective_date`（或 `effective_matches_date` / `last_column_full.date`）是否一致。若不同数据源的有效日期不同（如涨幅数据 = 0410、PE 数据 = 0407、非ST 数据 = 0413），则：(a) **禁止**将结果表述为"今天/当前/最新"——必须逐项列出各数据源的实际日期；(b) 优先尝试对齐日期：使用 `begin_date` 参数或 `use_minute_data: true` 将所有数据源拉齐到同一交易日；(c) 若无法对齐，最终答案必须明确声明"以下结果基于不同日期的数据（涨幅: YYYY-MM-DD, PE: YYYY-MM-DD），仅供参考"。**实测教训**：T-029 涨幅(0410) + PE(0407) + 非ST(0413) 三个日期不一致却声称"今天"，属于严重误导
@@ -69,7 +93,7 @@
    - **日配额耗尽格式**（429 `DAILY_QUOTA_EXCEEDED`）：替代正常答案输出 `⚠️ 今日 RU 已用完（{daily.used}/{daily.limit}），次日 00:00 重置。`
    - **IC 扫描耗尽格式**（429 `DAILY_SCAN_EXCEEDED`）：替代正常答案输出 `⚠️ IC 扫描今日次数已满，次日 00:00 重置。`
    - `RATE_LIMIT_EXCEEDED` / `CONCURRENT_LIMIT` 静默重试，**不输出**配额行
-   - **tier 感知**：`_quota.tier` 标识用户层级（`free`/`plus`/`pro`/`ultra`），可用于判断 `runMultiFormula` 单次公式上限（free=20/plus=30/pro=40/ultra=不限）。若当前批次公式数接近上限，应拆分为多次调用
+   - **tier 感知 + 统一 20 条保守模板**：`_quota.tier` 标识用户层级（`free`/`plus`/`pro`/`ultra`）。**无论何种 tier，单次 `runMultiFormulaBatch` 一律按 20 条切批**（保守模板，已与服务端确认）。后端虽对 plus=30/pro=40/ultra=不限，但前端必须保守在 20，以降低依赖回溯失败、超时与跨批保活复杂度
    - 若工具返回不含 `_quota` 字段，跳过此项
 
 ---
@@ -108,7 +132,7 @@
 - **event-study**：Step 1 后写入 `event_candidates.json`（候选事件表）
 - **regime-segmentation**：Step 2 后写入 `segment_table.json`（区间识别表）
 - **简单查数 workflow**（quick-snapshot / quick-window / quick-report-period / render-kline）：工具调用链本身就是参数传递，**不需要**写入 Working State 文件
-- **quant-standard**：工具链较长但参数通过 confirmDataMulti → runMultiFormula → readData 自然传递；仅当筛选条件特别复杂时，可选写入 `filter_spec.json`
+- **quant-standard**：工具链较长但参数通过 confirmDataMulti → runMultiFormulaBatch → readData 自然传递；仅当筛选条件特别复杂时，可选写入 `filter_spec.json`
 
 ---
 
@@ -135,7 +159,7 @@
 
 ### A级证据：正式取值结果（可直接用于最终答案）
 - `readData` 返回的结构化样本（如最新1行、最近N行、last_valid结果）
-- `runMultiFormula` 返回中可明确识别的结构化末值字段
+- `runMultiFormulaBatch` 返回中可明确识别的结构化末值字段
 - 仅在 `quick-snapshot.md` 明确允许的受控场景下，`description` 中满足固定模式 `最后值: 数值(日期)` 的末值文本，可视为等价的快照末值证据
 
 只有 A 级证据可用于回答具体数值。
@@ -153,7 +177,7 @@ B 级证据中附带的任何数值（如 description 里的 last_value）不得
 ### 例外：快照类窄场景的受控文本抽取（仅限 quick-snapshot）
 仅在同时满足以下条件时，允许把 `description` 中的 `最后值: 数值(日期)` 作为等价末值证据：
 1. leaf workflow 已明确是 `quick-snapshot.md`
-2. `runMultiFormula` 已成功
+2. `runMultiFormulaBatch` 已成功
 3. 字段属于最新交易日标量字段，而非滚动窗口统计、报告期财务或确认类返回
 4. 字段文本中不存在多个相互竞争的末值口径
 5. 最终回答前已通过该 workflow 的日期一致性与格式化校验
@@ -208,7 +232,7 @@ B 级证据中附带的任何数值（如 description 里的 last_value）不得
 
 在一次查数任务中，首次工具返回的"最新交易日"即为本轮锚点日期，后续所有查询和回答必须基于此锚点：
 
-- 第一次 `runMultiFormula` / `readData` 返回的最新日期，记为 **锚点日期**
+- 第一次 `runMultiFormulaBatch` / `readData` 返回的最新日期，记为 **锚点日期**
 - 后续追加字段或补取数据时，若返回日期与锚点不一致，必须：
   - 优先用 `readData` 读取与锚点同日的数据
   - 若无法对齐（如该字段该日无数据），明确在回答中标注日期差异
@@ -269,13 +293,24 @@ B 级证据中附带的任何数值（如 description 里的 last_value）不得
 - `types` **必须传** `["asset"]`（查个股/指数）或根据场景传 `["sector"]` / `["theme"]`
 - 禁止省略 `types`，否则返回结果可能包含板块/概念干扰项
 
-### runMultiFormula
+### runMultiFormulaBatch
 ```json
-{"formulas": ["..."], "begin_date": 20240101, "include_description": true}
+{"formulas": ["..."], "begin_date": 20240101, "include_description": true, "use_minute_data": true, "force_reusable_array": ["最终输出变量名"]}
 ```
 - `begin_date` **必须传**，默认 `20240101`；用户指定更早起点时按需调整
 - `include_description` **必须传** `true`，确保返回 description 供后续判断
-- 禁止省略这两个参数
+- `use_minute_data` 默认传 `true`；财务报告期查询按 leaf workflow 规则省略或设为 `false`
+- **`force_reusable_array` 在 `formulas.length ≥ 2` 时必须主动评估并按需传递（硬规则）**：
+  - 评估方法：对每条公式问一句「这个左侧变量名，会被 `readData` / 最终业务步骤读取，或被后续 batch / 用户后续追问引用吗？」
+    - 会被读取/被后续引用 → 把变量名**写进** `force_reusable_array`
+    - 仅被本批后续公式引用、**不会**被 `readData` 读 → 不要写进数组
+  - 单公式（`formulas.length == 1`）可省略
+  - 形如 `..._中间`、`..._条件`、`..._掩码`、`..._筛选`、`..._排序值`、`..._因子矩阵`、`MA5`、`MA20`、`Signal` 这类命名的变量，几乎都是中间量，**不要**写进 `force_reusable_array`
+  - 数组元素必须严格匹配 `formulas` 中某条公式的左侧变量名（前后空格自动忽略，大小写敏感）；不存在的变量名服务端会直接返回 `code: -1`
+  - 多输出公式（如 `"净值, 持仓 = 回测(...)"`）任写其中一个变量名即可标记整条公式复用
+  - 当前 `formulas` 不允许出现重复左值变量名，否则同样返回 `code: -1`
+- 禁止省略 `begin_date` 和 `include_description`
+- 禁止传 `refresh_snapshot_time`；需要强制刷新分钟数据截止时间时，先调用独立 `refreshSnapshotTime` 工具
 
 ### readData
 - 各场景的 readData 模式选择**以对应 leaf workflow 为准**（quick-snapshot / quick-window / quick-report-period 各有明确规定）
@@ -291,7 +326,7 @@ B 级证据中附带的任何数值（如 description 里的 last_value）不得
 适用工具（包括但不限于）：
 - `confirmMultipleAssets`
 - `confirmDataMulti`
-- `runMultiFormula`
+- `runMultiFormulaBatch`
 - `readData`
 - `renderKLine`
 - `renderChart`
@@ -303,7 +338,7 @@ B 级证据中附带的任何数值（如 description 里的 last_value）不得
 
 明确禁止：
 - `GZQ_PARAMS='...' python scripts/call.py confirmMultipleAssets` ← 禁止
-- `GZQ_PARAMS='...' python scripts/call.py runMultiFormula` ← 禁止
+- `GZQ_PARAMS='...' python scripts/call.py runMultiFormulaBatch` ← 禁止
 - shell 失败后继续修补参数转义而不切回原生工具 ← 禁止
 - 为了"传参方便"用脚本中转已有原生能力 ← 禁止
 
@@ -488,4 +523,4 @@ B 级证据中附带的任何数值（如 description 里的 last_value）不得
 - 从 description / 图表 artifact / 草稿排序中推断强结论
 - 在无直接证据时写"今日均涨停""共有287个数据点""2025年三季报"等确定性表述
 
-**强制 fallback**：当 `readData(last_column_full)` 返回资产数 > 200 且输出被截断，而最终答案需要为命中的少量候选股票列出精确字段值时，必须进入"逐只核验模式"——对每个候选用 `confirmMultipleAssets` + 单资产 `runMultiFormula` 取值，而非从截断大表中提值。
+**强制 fallback**：当 `readData(last_column_full)` 返回资产数 > 200 且输出被截断，而最终答案需要为命中的少量候选股票列出精确字段值时，必须进入"逐只核验模式"——对每个候选用 `confirmMultipleAssets` + 单资产 `runMultiFormulaBatch` 取值，而非从截断大表中提值。

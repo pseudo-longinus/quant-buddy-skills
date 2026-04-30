@@ -1,7 +1,7 @@
 # 快速执行 · 最近 N 日短窗序列/窗口统计
 
 > **适用范围**：≤3 个资产，最近 N 日（1~60）的价格/成交序列或窗口统计量。  
-> 本 workflow 使用 `fast_query` 单次调用完成（无需 newSession / confirmMultipleAssets / runMultiFormula / readData）。
+> 本 workflow 使用 `fast_query` 单次调用完成（无需 confirmMultipleAssets / runMultiFormulaBatch / readData）。
 
 ---
 
@@ -40,12 +40,15 @@
 
 ## ② 调用示例
 
+> **`user_query` 必填**：调用 `fast_query` 时仍需在参数中携带用户原始问题，供服务端 trace 分析（不依赖 call.py 自动注入）。
+
 ```json
 {
   "assets": ["贵州茅台"],
   "query_type": "window",
   "fields": ["收盘价", "涨跌幅"],
-  "window_days": 10
+  "window_days": 10,
+  "user_query": "<用户的原始问题>"
 }
 ```
 
@@ -56,7 +59,8 @@
   "assets": ["贵州茅台", "比亚迪"],
   "query_type": "window",
   "fields": ["收盘价"],
-  "window_days": 5
+  "window_days": 5,
+  "user_query": "<用户的原始问题>"
 }
 ```
 
@@ -83,7 +87,7 @@
 | Layer 1（ASSETS_LIMIT_EXCEEDED 等） | 退出 fast path → 完整链路 |
 | Layer 2（ASSET_NOT_FOUND） | 告知用户，其余资产正常输出 |
 | Layer 3（FIELD_MARKET_MISMATCH / FIELD_UNRESOLVABLE） | 告知用户，其余字段正常输出 |
-| Layer 4（DATA_UNAVAILABLE） | **立即退出 fast path → 完整链路（newSession → confirmMultipleAssets → runMultiFormula → readData）**；禁止重试 fast_query，禁止 confirmDataMulti 换字段名后再重试 |
+| Layer 4（DATA_UNAVAILABLE） | **立即退出 fast path → 完整链路（newSession → confirmMultipleAssets → runMultiFormulaBatch → readData）**；禁止重试 fast_query，禁止 confirmDataMulti 换字段名后再重试 |
 | HTTP 500 / 任何网络错误 | **立即退出 fast path → 完整链路**；禁止重试同一接口 |
 
 ---

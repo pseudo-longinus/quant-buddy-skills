@@ -35,7 +35,7 @@
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `id` | string | ✅ | 数据ID（来自 `runMultiFormula` 的 `data_id`） |
+| `id` | string | ✅ | 数据ID（来自 `runMultiFormulaBatch` 的 `data_id`） |
 | `name` | string | ✅ | 曲线图例名称 |
 | `axis` | string | ❌ | `left`（默认）或 `right`（右轴，适合量纲不同的数据） |
 
@@ -46,7 +46,7 @@
 | 错误写法 | 正确写法 | 说明 |
 |---------|---------|------|
 | `{"variable_names": ["金银比价"]}` | `{"lines": [{"id": "60a1b2...", "name": "金银比价"}]}` | 参数名是 `lines`，不是 `variable_names` |
-| `{"lines": [{"name": "NAV"}]}` | `{"lines": [{"id": "60a1b2...", "name": "NAV"}]}` | `id` 必填，必须是 `runMultiFormula` 返回的 24位 hex data_id |
+| `{"lines": [{"name": "NAV"}]}` | `{"lines": [{"id": "60a1b2...", "name": "NAV"}]}` | `id` 必填，必须是 `runMultiFormulaBatch` 返回的 24位 hex data_id |
 | `{"chart_type":"bar","x_data":[...],"series":[...]}` | `{"chart_type":"bar","lines":[{"id":"hex","name":"X"}]}` | 柱状图也用 `lines` 数组，不是 `x_data`/`series` |
 
 ### candlestick 对象（K线图用）
@@ -107,11 +107,11 @@ python scripts/call.py renderChart '{"title": "累计收益", "chart_type": "are
 
 ### K线图
 
-需要先通过 `runMultiFormula` 计算 OHLC 数据，然后传入 4 个 data_id：
+需要先通过 `runMultiFormulaBatch` 计算 OHLC 数据，然后传入 4 个 data_id：
 
 ```bash
 # Step 1: 计算 OHLC（同一 task_id）
-python scripts/call.py runMultiFormula '{"task_id": "kline-001", "formulas": ["O=开盘价(贵州茅台)", "H=最高价(贵州茅台)", "L=最低价(贵州茅台)", "C=收盘价(贵州茅台)", "V=成交量(贵州茅台)"]}'
+python scripts/call.py runMultiFormulaBatch '{"task_id": "kline-001", "formulas": ["O=开盘价(贵州茅台)", "H=最高价(贵州茅台)", "L=最低价(贵州茅台)", "C=收盘价(贵州茅台)", "V=成交量(贵州茅台)"]}'
 
 # Step 2: 渲染K线图
 python scripts/call.py renderChart '{
@@ -207,7 +207,7 @@ with open("chart.png", "wb") as f:
 
 ## 注意事项
 
-- **一维净值曲线**（`runMultiFormula` 里 `回测()` 的结果）：`ticker` 不传
+- **一维净值曲线**（`runMultiFormulaBatch` 里 `回测()` 的结果）：`ticker` 不传
 - **二维数据**（收盘价矩阵等）：必须传 `ticker` 指定要画哪只资产
 - 图片默认 2x 分辨率（高清），1200x600 像素实际输出 2400x1200
 - `errors` 字段记录部分曲线加载失败的情况（不影响其他曲线渲染）

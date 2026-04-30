@@ -37,7 +37,56 @@ import uuid
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 SKILL_ROOT = os.path.dirname(SCRIPT_DIR)
 EXECUTOR = os.path.join(SCRIPT_DIR, "executor.py")
-SESSION_FILE = os.path.join(SKILL_ROOT, "output", ".session.json")
+
+
+def _resolve_session_file():
+    """按优先级解析 session 文件路径，支持多会话并行：
+    1) QBS_SESSION_FILE 环境变量直接指定路径（最高优先级）
+    2) QBS_SESSION_KEY 派生为 .session.<key>.json
+    3) 默认 .session.json（向后兼容单会话场景）
+    """
+    explicit = os.environ.get("QBS_SESSION_FILE", "").strip()
+    if explicit:
+        return explicit
+    key = os.environ.get("QBS_SESSION_KEY", "").strip()
+    if key:
+        # 仅允许字母数字、连字符、下划线，防止路径注入
+        safe_key = re.sub(r"[^A-Za-z0-9_\-]", "_", key)[:64]
+        return os.path.join(SKILL_ROOT, "output", f".session.{safe_key}.json")
+    return os.path.join(SKILL_ROOT, "output", ".session.json")
+
+
+SESSION_FILE = _resolve_session_file()
+
+
+def _cleanup_stale_sessions(max_age_days: int = 7):
+    """清理 output/ 下超过 max_age_days 的 .session.*.json，best-effort，失败不抛。"""
+    try:
+        import glob
+        import time
+        cutoff = time.time() - max_age_days * 86400
+        for path in glob.glob(os.path.join(SKILL_ROOT, "output", ".session.*.json")):
+            try:
+                if os.path.getmtime(path) < cutoff:
+                    os.remove(path)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
+def _read_skill_version() -> str:
+    """从 SKILL.md frontmatter 读取 version 字段；读取失败时返回空字符串。"""
+    skill_md = os.path.join(SKILL_ROOT, "SKILL.md")
+    try:
+        with open(skill_md, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("version:"):
+                    return line.split(":", 1)[1].strip()
+    except Exception:
+        pass
+    return ""
 
 
 def _read_session():
@@ -49,11 +98,14 @@ def _read_session():
         return None
 
 
-def _write_session(task_id):
-    """持久化 task_id 到 .session.json。"""
+def _write_session(task_id, user_query=None):
+    """持久化 task_id（和可选的 user_query）到 .session.json，同时写入当前 skill 版本。"""
     os.makedirs(os.path.dirname(SESSION_FILE), exist_ok=True)
+    data = {"task_id": task_id, "skill_version_at_creation": _read_skill_version()}
+    if user_query is not None:
+        data["user_query"] = user_query
     with open(SESSION_FILE, "w", encoding="utf-8") as f:
-        json.dump({"task_id": task_id}, f)
+        json.dump(data, f, ensure_ascii=False)
 
 
 def _run_executor(tool_name, param_arg):
@@ -71,20 +123,34 @@ def _run_executor(tool_name, param_arg):
         env["PYTHONIOENCODING"] = "utf-8"
         result = subprocess.run(
             [sys.executable, EXECUTOR, tool_name, param_arg],
-            capture_output=True, timeout=300,
+            capture_output=True, timeout=900,
             creationflags=extra_flags,
             env=env,
         )
         return result.returncode, result.stdout, result.stderr
+    except subprocess.TimeoutExpired:
+        # 子进程超时（900s），返回明确错误码与提示，避免向上抛出导致客户端崩溃
+        msg = (
+            f"[call.py] tool '{tool_name}' exceeded 900s timeout; "
+            "subprocess killed. Consider splitting into smaller batches."
+        )
+        return 124, b"", msg.encode("utf-8")
     except KeyboardInterrupt:
         # 捕获并重试一次（处理极端情况）
-        result = subprocess.run(
-            [sys.executable, EXECUTOR, tool_name, param_arg],
-            capture_output=True, timeout=300,
-            creationflags=extra_flags,
-            env=env,
-        )
-        return result.returncode, result.stdout, result.stderr
+        try:
+            result = subprocess.run(
+                [sys.executable, EXECUTOR, tool_name, param_arg],
+                capture_output=True, timeout=900,
+                creationflags=extra_flags,
+                env=env,
+            )
+            return result.returncode, result.stdout, result.stderr
+        except subprocess.TimeoutExpired:
+            msg = (
+                f"[call.py] tool '{tool_name}' exceeded 900s timeout on retry; "
+                "subprocess killed."
+            )
+            return 124, b"", msg.encode("utf-8")
     finally:
         if old_handler is not None:
             try:
@@ -348,11 +414,15 @@ def _auto_save_csv(stdout_str, params):
 
 
 def _auto_summarize_read_data(stdout_str, params):
-    """readData last_column_full 模式：布尔掩码自动过滤零值行，注入 matched_names 平铺列表。
+    """readData last_column_full 模式：为布尔掩码数据注入 matched_names 平铺列表。
 
     触发条件：mode=last_column_full 且数据为布尔型（signature.is_bool=true 或值域仅含 0/1）。
-    效果：原始 values 替换为仅含 value=1 的行，顶层注入 matched_count + matched_names，
-    大幅减少 LLM 需要解析的 token 量（如 5082 行 → 75 行）。
+    效果：注入 matched_count + matched_names（value=1 的命中名单），便于 LLM 直接读取，
+    无需遍历 values 列表（如 5000 行只需读 matched_names 的 75 个名字）。
+
+    零值过滤由后端 allow_zero_values 参数控制，此处不再重复过滤：
+    - allow_zero_values=false（默认）：后端已过滤零值，values 仅含命中行
+    - allow_zero_values=true：后端保留零值，values 含全部行，matched_names 仍仅含命中名单
     非布尔型数据原样返回，不做任何修改。
     """
     if params.get("mode") != "last_column_full":
@@ -394,32 +464,14 @@ def _auto_summarize_read_data(stdout_str, params):
             if sample and all(v in (0, 1, 0.0, 1.0) for v in sample):
                 is_bool = True
 
-        total_original = lcf.get("total_rows", len(values))
+        if not is_bool:
+            continue
 
-        if is_bool:
-            # 布尔型：提取命中行（value == 1）
-            matched = [v for v in values if v.get("value") in (1, 1.0)]
-            lcf["matched_count"] = len(matched)
-            lcf["matched_names"] = [v.get("name", "") for v in matched if v.get("name")]
-            lcf["values"] = matched
-            lcf["_note"] = (
-                f"布尔掩码已过滤零值行：{total_original - len(matched)} 行 value=0 已移除，"
-                f"保留命中 {len(matched)} 条（原始 total_rows={total_original}）"
-            )
-        else:
-            # 数值型：过滤 value==0 / value==None 的行，保留有效非零行
-            nonzero = [v for v in values
-                       if v.get("value") is not None and v["value"] != 0 and v["value"] != 0.0]
-            removed = len(values) - len(nonzero)
-            if removed > 0:
-                lcf["nonzero_count"] = len(nonzero)
-                lcf["values"] = nonzero
-                lcf["_note"] = (
-                    f"数值型数据已过滤零值/空值行：{removed} 行已移除，"
-                    f"保留非零 {len(nonzero)} 条（原始 returned_rows={len(values)}）"
-                )
-            else:
-                continue
+        # 布尔型：注入 matched_count + matched_names（仅统计命中=1的行）
+        # values 列表本身不修改（已由后端按 allow_zero_values 控制）
+        matched = [v for v in values if v.get("value") in (1, 1.0)]
+        lcf["matched_count"] = len(matched)
+        lcf["matched_names"] = [v.get("name", "") for v in matched if v.get("name")]
         modified = True
 
     if not modified:
@@ -440,8 +492,8 @@ def _normalize_params(tool_name, params):
                     params["intentions"] = params.pop(alias)
                     break
 
-    # runMultiFormula: formulas 元素必须是字符串，不能是对象
-    if tool_name == "runMultiFormula" and "formulas" in params:
+    # runMultiFormulaBatch: formulas 元素必须是字符串，不能是对象
+    if tool_name == "runMultiFormulaBatch" and "formulas" in params:
         fixed = []
         for item in params["formulas"]:
             if isinstance(item, str):
@@ -466,7 +518,9 @@ def main():
     # ── newSession：生成新 task_id 并持久化 ──────────────────────
     if tool_name == "newSession":
         new_id = str(uuid.uuid4())
-        _write_session(new_id)
+
+        # 顺手清理超过 7 天的旧 session 文件，避免 output/ 累积垃圾
+        _cleanup_stale_sessions()
 
         # 尝试解析 user_query 参数（用于服务端 trace 分析，失败不影响主流程）
         _raw_params = os.environ.get("GZQ_PARAMS", "").strip()
@@ -485,6 +539,18 @@ def main():
         except Exception:
             pass
         user_query = _ns_params.get("user_query") or None
+
+        # 在覆写 session 文件之前，先读取旧版本号（用于检测版本变更）
+        _prev_version = None
+        try:
+            with open(SESSION_FILE, "r", encoding="utf-8") as _sf:
+                _prev_version = json.load(_sf).get("skill_version_at_creation")
+        except Exception:
+            pass
+
+        _write_session(new_id, user_query=user_query)
+        _current_ver = _read_skill_version()
+        _version_changed = bool(_prev_version and _prev_version != _current_ver)
 
         # Fire-and-forget：把原始问题上报给服务端，供 trace 分析用
         # 读取 config 获取 endpoint / api_key
@@ -505,25 +571,40 @@ def main():
                 _cfg["api_key"] = _env_key
             _endpoint = _cfg.get("endpoint", "").rstrip("/")
             _api_key = _cfg.get("api_key", "")
+            _channel = _cfg.get("_channel", "")
             if _endpoint and _api_key:
                 _payload = json.dumps({"task_id": new_id, "user_query": user_query},
                                       ensure_ascii=False).encode("utf-8")
+                _headers = {
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {_api_key}",
+                }
+                if _channel:
+                    _headers["x-skill-channel"] = _channel
                 _req = urllib.request.Request(
                     f"{_endpoint}/skill/session/begin",
                     data=_payload,
-                    headers={
-                        "Content-Type": "application/json",
-                        "Authorization": f"Bearer {_api_key}",
-                    },
+                    headers=_headers,
                     method="POST",
                 )
                 urllib.request.urlopen(_req, timeout=3)
         except Exception:
             pass  # 上报失败不影响 session 创建
 
-        result = json.dumps({"code": 0, "task_id": new_id,
-                             "message": "新 session 已创建，task_id 已保存到 .session.json，后续调用自动注入"
-                             }, ensure_ascii=False, indent=2)
+        result = json.dumps({
+            "code": 0,
+            "task_id": new_id,
+            "skill_version": _current_ver,
+            "version_changed_from_last_session": _version_changed,
+            "previous_skill_version": _prev_version if _version_changed else None,
+            "message": (
+                f"新 session 已创建（skill {_current_ver}）。"
+                + (f"检测到 skill 从 {_prev_version} 升级到 {_current_ver}，"
+                   "旧上下文中的工具签名/参数可能已失效，必须先重读 SKILL.md 再继续。"
+                   if _version_changed else
+                   "task_id 已保存到 .session.json，后续调用自动注入。")
+            ),
+        }, ensure_ascii=False, indent=2)
         out_file = os.path.join(tempfile.gettempdir(), "gzq_out.txt")
         with open(out_file, "w", encoding="utf-8") as f:
             f.write(result)
@@ -564,6 +645,35 @@ def main():
             _f.write(_output)
         print(_output)
         sys.exit(0)
+
+    # ── 版本守卫：检测旧会话与当前 skill 版本是否匹配 ─────────────
+    current_version = _read_skill_version()
+    if current_version:
+        try:
+            with open(SESSION_FILE, "r", encoding="utf-8") as _sf:
+                _session_data = json.load(_sf)
+            session_version = _session_data.get("skill_version_at_creation")
+            if session_version is None or session_version != current_version:
+                _mismatch_result = json.dumps({
+                    "error": "SKILL_VERSION_MISMATCH",
+                    "current_version": current_version,
+                    "session_version": session_version,
+                    "message": (
+                        f"检测到 skill 版本不匹配（session 创建于 {session_version}，当前为 {current_version}）。"
+                        "请立即调用 newSession 创建新 session，"
+                        "然后强制重读 SKILL.md 及当前 workflow 后再继续。"
+                    ),
+                }, ensure_ascii=False, indent=2)
+                out_file = os.path.join(tempfile.gettempdir(), "gzq_out.txt")
+                with open(out_file, "w", encoding="utf-8") as _of:
+                    _of.write(_mismatch_result)
+                print(_mismatch_result)
+                sys.exit(0)
+        except FileNotFoundError:
+            # 尚未创建过 session，不阻断（模型可能正要新建）
+            pass
+        except Exception:
+            pass
 
     # ── 解析参数来源 ──────────────────────────────────────────────
     # 优先级: GZQ_PARAMS 环境变量 > @file > 命令行 argv > stdin
@@ -624,14 +734,24 @@ def main():
                 json.dump(params, f, ensure_ascii=False)
             param_arg = f"@{tmp_path}"
 
-        # ── 自动注入 task_id（若 params 未提供）───────────────────
+        # ── 自动注入 session 字段（task_id、user_query）──────────────
         session_task_id = _read_session()
+        _needs_rewrite = False
         if session_task_id and "task_id" not in params:
             params["task_id"] = session_task_id
-            # 重写临时文件（仅 tmp_path 路径，at_file 不重写）
-            if tmp_path:
-                with open(tmp_path, "w", encoding="utf-8") as f:
-                    json.dump(params, f, ensure_ascii=False)
+            _needs_rewrite = True
+        # 注入 user_query（供服务端 skill_call_logs trace 用）
+        try:
+            with open(SESSION_FILE, "r", encoding="utf-8") as _sf:
+                _uq = json.load(_sf).get("user_query")
+            if _uq and "user_query" not in params:
+                params["user_query"] = _uq
+                _needs_rewrite = True
+        except Exception:
+            pass
+        if _needs_rewrite and tmp_path:
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(params, f, ensure_ascii=False)
 
         # ── 调用 executor.py ──────────────────────────────────────
         rc, stdout_bytes, stderr_bytes = _run_executor(tool_name, param_arg)
@@ -649,7 +769,7 @@ def main():
         # scanDimensions 自动保存 JSON 到 output/ic_data/
         if tool_name == "scanDimensions" and rc == 0:
             stdout = _auto_save_scan_dimensions(stdout, params)
-        # readData last_column_full 布尔掩码：自动过滤零值，注入 matched_names
+        # readData last_column_full 布尔掩码：注入 matched_names
         if tool_name == "readData" and rc == 0:
             stdout = _auto_summarize_read_data(stdout, params)
         # ── 从响应中捕获 task_id，更新 session（服务端生成的UUID优先）──

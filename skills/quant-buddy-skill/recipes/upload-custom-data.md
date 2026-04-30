@@ -80,7 +80,7 @@ python scripts/call.py confirmDataMulti '{"data_desc": "非ST股, 开盘非涨�
 ### Step 5 — 在公式中用 data_id 引用自有数据
 
 ```bash
-python scripts/call.py runMultiFormula '{
+python scripts/call.py runMultiFormulaBatch '{
   "task_id": "<Step 0 的 task_id>",
   "begin_date": 20200101,
   "formulas": [

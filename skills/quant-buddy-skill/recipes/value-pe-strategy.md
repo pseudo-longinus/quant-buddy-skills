@@ -67,7 +67,7 @@ python scripts/call.py confirmDataMulti '{"data_desc": "A股市盈率, 非ST股,
 ### Step 4 — 执行公式
 
 ```bash
-python scripts/call.py runMultiFormula '{
+python scripts/call.py runMultiFormulaBatch '{
   "task_id": "<Step 0 的 task_id>",
   "begin_date": 20150101,
   "formulas": [

@@ -1,6 +1,6 @@
 # render_kline — 渲染 K 线图
 
-> 通过 ticker 直接渲染 K 线图（OHLCV），**无需提前 runMultiFormula**。只需传资产代码和起始日期，后端自动获取 OHLC 行情数据并渲染。支持叠加技术指标（MA / MACD / BOLL / RSI），自动处理指标预热期。
+> 通过 ticker 直接渲染 K 线图（OHLCV），**无需提前 runMultiFormulaBatch**。只需传资产代码和起始日期，后端自动获取 OHLC 行情数据并渲染。支持叠加技术指标（MA / MACD / BOLL / RSI），自动处理指标预热期。
 
 ## 端点
 
@@ -118,7 +118,7 @@ python scripts/call.py renderKLine '{"ticker": "SH000300", "begin_date": 2024070
 
 | | renderKLine | renderChart (candlestick) |
 |---|---|---|
-| 需要 runMultiFormula | ❌ 不需要 | ✅ 需要（先算出 4 个 data_id） |
+| 需要 runMultiFormulaBatch | ❌ 不需要 | ✅ 需要（先算出 4 个 data_id） |
 | 步骤数 | 1步 | 2步 |
 | 技术指标 | ✅ 内置 MA/MACD/BOLL/RSI | ❌ 需自行计算 |
 | 适用场景 | 直接查看某资产的行情 K 线、技术分析 | 用自定义公式处理后的数据画 K 线 |

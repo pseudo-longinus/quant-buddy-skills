@@ -35,6 +35,36 @@ from datetime import datetime
 # 使用空 ProxyHandler() 完全绕过系统代理，量化 API 是内网地址无需代理
 _NO_PROXY_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
+
+def _read_skill_version() -> str:
+    """从 SKILL.md frontmatter 读取 version 字段；读取失败时返回空字符串。"""
+    skill_md = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "SKILL.md")
+    try:
+        with open(skill_md, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("version:"):
+                    return line.split(":", 1)[1].strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _read_skill_channel() -> str:
+    """从 config.json 读取 _channel 字段（打包时注入）；读取失败时返回空字符串。"""
+    cfg = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config.json")
+    try:
+        import json as _json
+        with open(cfg, "r", encoding="utf-8") as f:
+            return _json.load(f).get("_channel", "")
+    except Exception:
+        pass
+    return ""
+
+
+SKILL_VERSION = _read_skill_version()
+SKILL_CHANNEL = _read_skill_channel()
+
 # ── Windows 下强制 stdout/stderr 使用 UTF-8，避免服务端返回 emoji 等字符时崩溃 ──
 # line_buffering=True：每次 print 立即 flush，避免 PowerShell 终端首次读到空输出。
 # 必须在任何 print 调用之前设置。
@@ -57,7 +87,8 @@ TOOL_ROUTES = {
     "getCardFormulas":       ("POST", "/skill/getCardFormulas"),
     "confirmDataMulti":      ("POST", "/skill/confirmDataMulti"),
     "confirmMultipleAssets": ("POST", "/skill/confirmMultipleAssets"),
-    "runMultiFormula":       ("POST", "/skill/runMultiFormula"),
+    "runMultiFormulaBatch":       ("POST", "/skill/runMultiFormulaBatch"),
+    "refreshSnapshotTime":   ("POST", "/skill/refreshSnapshotTime"),
     "readData":              ("POST", "/skill/readData"),
     "uploadData":            ("POST", "/skill/upload/preview"),   # 两阶段：先 preview
     "uploadConfirm":         ("POST", "/skill/upload/confirm"),   # 再 confirm
@@ -447,6 +478,8 @@ def call_multipart(endpoint, api_key, path, file_path, fields=None):
         headers={
             'Content-Type': f'multipart/form-data; boundary={boundary}',
             'Authorization': f'Bearer {api_key}',
+            'x-skill-version': SKILL_VERSION,
+            **({'x-skill-channel': SKILL_CHANNEL} if SKILL_CHANNEL else {}),
         },
         method='POST',
     )
@@ -461,6 +494,8 @@ def call_post(endpoint, api_key, path, params, accept_yaml=True, timeout=300):
     headers = {
         "Content-Type": "application/json; charset=utf-8",
         "Authorization": f"Bearer {api_key}",
+        "x-skill-version": SKILL_VERSION,
+        **({"x-skill-channel": SKILL_CHANNEL} if SKILL_CHANNEL else {}),
     }
     if accept_yaml:
         headers["Accept"] = "text/yaml"
@@ -490,7 +525,7 @@ def call_get(endpoint, api_key, path, params, timeout=60):
         url += "?" + "&".join(query_parts)
     req = urllib.request.Request(
         url,
-        headers={"Authorization": f"Bearer {api_key}", "Accept": "text/yaml"},
+        headers={"Authorization": f"Bearer {api_key}", "Accept": "text/yaml", "x-skill-version": SKILL_VERSION},
         method="GET",
     )
     with _NO_PROXY_OPENER.open(req, timeout=timeout) as resp:
@@ -643,7 +678,7 @@ def main():
                     val = params.pop(alias)
                     params["intentions"] = [val] if isinstance(val, str) else val
                     break
-    if tool_name == "runMultiFormula" and "formulas" in params:
+    if tool_name == "runMultiFormulaBatch" and "formulas" in params:
         fixed = []
         for item in params["formulas"]:
             if isinstance(item, str):

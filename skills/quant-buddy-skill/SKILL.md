@@ -2,8 +2,8 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.15.1
-description:
+version: 4.20.4
+description: 
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据。
   查询最近N个交易日的价格序列、日涨跌幅序列、窗口最高价、最低价、振幅等短期统计。
   查询上市公司最近报告期的营业收入、净利润、归母净利润、ROE、总资产、资产负债率等财务指标（A股）。
@@ -14,7 +14,7 @@ description:
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.15.1
+  version: 4.20.4
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -72,7 +72,7 @@ runtimeRequirements:
 
 > **⚠️ 必读：本文件较长，必须完整读取，不要设置 limit 参数截断。前 50 行不包含操作规范。**
 
-## 硬规则（7 条，违反必失败）
+## 硬规则（8 条，违反必失败）
 
 0. **开工第一步：先查 API Key，再做任何其他事**。收到新问题后的第一个动作必须是读 `config.json`（或等效检查 api_key 字段）：
    - 若 `api_key` 为空字符串 → **立即停止**，直接输出「前置条件」章节的**新用户引导消息**，**禁止** newSession、**禁止**读 workflow / quick-lookup / 任何业务文档、**禁止**调用 `scripts/call.py` 或任何平台工具。等用户贴入 `sk-` 开头的 Key 后再执行「配置向导」。
@@ -81,12 +81,28 @@ runtimeRequirements:
    - **为什么**：查数类工作流最终都会调 `scripts/call.py`，api_key 为空时必然失败。提前在入口拦截可以避免多次失败调用，给新用户直接、清晰的第一印象。
 
 1. **每个新问题/新对话必须新建 session**：收到用户的新问题后，在调用任何平台工具之前，必须先新建 session（优先直接调用原生 `newSession` 工具；仅当当前环境没有原生 `newSession` 时，才使用 `GZQ_PARAMS='{"user_query":"<用户的问题>"}' python scripts/call.py newSession`）。newSession 是本地 UUID 生成，不可省略；`user_query` 仅用于本地 session 初始化标注，方便后续 trace 分析。
-   - **为什么**：`.session.json` 会自动注入到所有工具调用中。不新建 session = 复用上一轮对话的 task_id = 变量名冲突风险 + session 污染。
-   - **唯一例外**：① 同一对话中的追问/续问（如"再画个图""换个时间段"），可复用当前 session；② 进入 **Fast Path**（`fast-snapshot.md`、`fast-window.md`、`fast-report-period.md`）时，**无需** `newSession`——`fast_query` 使用服务端固定 session，与本地 `.session.json` 无关。
-2. **原生工具优先，脚本包装仅限无原生等价能力时**：平台已提供的原生工具（`fast_query`、`confirmMultipleAssets`、`confirmDataMulti`、`runMultiFormula`、`readData`、`renderKLine`、`renderChart` 等）必须优先直接调用；禁止用 `run_skill_script`、shell 命令、`GZQ_PARAMS=... python scripts/call.py ...` 等方式包装这些原生工具；`scripts/call.py` 仅用于：① `newSession` 等管理动作；② workflow 明确要求的本地脚本步骤；③ 平台不存在等价原生工具时的兜底。
+   - **为什么**：session 文件会自动注入到所有工具调用中。不新建 session = 复用上一轮对话的 task_id = 变量名冲突风险 + session 污染。
+   - **多会话隔离（必须）**：当本对话有可能与其他对话/进程并行使用本 skill（多个 Claude 窗口、共享开发机、并行 trace）时，**在 chat 的第一条 bash 命令里**先执行：
+     ```bash
+     export QBS_SESSION_KEY=$(python -c "import uuid;print(uuid.uuid4().hex[:12])")
+     ```
+     之后**所有 `python scripts/call.py` 都必须在这同一个 terminal 会话里跑**（环境变量只在该会话内可见）。如此每个对话独占 `output/.session.<key>.json` 文件，互不覆盖。未设置时退化到默认 `.session.json`，仅适合单会话场景。
+   - **唯一例外**：同一对话中的追问/续问（如"再画个图""换个时间段"），可复用当前 session（`QBS_SESSION_KEY` 也保持不变）。
+2. **原生工具优先，脚本包装仅限无原生等价能力时**：平台已提供的原生工具（`fast_query`、`confirmMultipleAssets`、`confirmDataMulti`、`runMultiFormulaBatch`、`readData`、`renderKLine`、`renderChart` 等）必须优先直接调用；禁止用 `run_skill_script`、shell 命令、`GZQ_PARAMS=... python scripts/call.py ...` 等方式包装这些原生工具；`scripts/call.py` 仅用于：① `newSession` 等管理动作；② workflow 明确要求的本地脚本步骤；③ 平台不存在等价原生工具时的兜底。
    - **⛔ 典型违规反例（直接失败）**：`confirmMultipleAssets` 的 `intentions` 本身就是数组，设计意图是「一次传多个资产名同时确认」；**任何在 for 循环 / while 循环里对它重复调用的写法都是违规**，无论是通过原生工具还是 `scripts/call.py` 包装。需批量确认资产时，应单次调用并传完整数组；若数组过大，则按批传入（每批一次调用），而不是每个资产调用一次。
   - **确认资产也必须先查本地库**：用户明确说「确认资产 / 批量确认 / confirm / 找代码 / 找ticker」时，仍然先走本地资产路由：`presets/assets.yaml`（可读完）→ `grep presets/assets_db/{类型}.yaml`（禁止整文件读取）→ 仍未命中再调用 `confirmMultipleAssets`。不得因为用户使用了「确认」二字就直接调用工具。
   - **英文代码无市场后缀时必须 grep 确认格式**：用户直接输入英文股票代码（如 `GOOGL`、`AAPL`、`BIDU`）但未携带市场后缀（`.O`、`.N`、`.A`）时，**不得凭 user memory / 猜测 / 拼接后缀直接查数**，必须先 `grep presets/assets_db/stock_us.yaml` 找到正确 ticker 后再调用工具。
+  - **⛔ 严禁用 inline 解释器 heredoc / `-c` 包装 `scripts/call.py`**：以下写法**全部违规**，无论参数有多复杂、批次有多少、依赖关系有多绕：
+    - `python - <<'PY' ... subprocess.run(['python','scripts/call.py','<工具名>',...]) ... PY`
+    - `python -c "import subprocess; subprocess.run(['python','scripts/call.py',...])"`
+    - `node -e "...child_process.execSync('python scripts/call.py ...')..."`
+    - 任何在 inline 脚本里 `for/while` 循环驱动多批 `runMultiFormulaBatch` 的写法
+    - **理由**：这种「自写 driver 脚本」会绕过本 skill 的 session 注入、配额校验、错误协议；trace 中表现为 task_id 漂移、stdout 阻塞、`/tmp/gzq_out.txt` 在 Windows 上不存在等连锁失败。call.py 的兜底地位**只允许一层调用**（shell → call.py），不允许在它外面再套 python/node 解释器。
+  - **多批 `runMultiFormulaBatch` 的合规模板**：当公式数超过单批硬上限（20 条）需切批时，切批与编排**必须由 LLM 自己在工具调用之间完成**，禁止写脚本自动化。每批一次独立调用；任何参数预处理（读 md、regex、依赖分析、生成 `force_reusable_array`）都在 LLM 推理中完成，必要的中间产物用 `create_file` 落盘到 `output/tmp_batches/batch_K.json`，然后逐批用：
+    ```bash
+    GZQ_PARAMS="$(cat output/tmp_batches/batch_K.json)" python scripts/call.py runMultiFormulaBatch
+    ```
+    **每批一条独立 shell 命令**，前一批返回后再发起下一批；**禁止**写一个 python 脚本一次跑完所有批。这是 hard rule，违反必失败。
 3. **先读 workflow 再操作**：按下方「场景路由」表加载对应 workflow，不要自行猜测参数格式。
 4. **配置/认证错误立即停止，不得在普通查数流程中转为认证收集**：
    - **工具返回 API Key 缺失错误**（含 `api_key 为空` 消息 / `code: 1`）：立即停止查数，输出**新用户引导消息**（格式见「前置条件」章节模板），禁止继续执行查数；等待用户粘贴 Key 后再执行配置向导。
@@ -99,6 +115,12 @@ runtimeRequirements:
    - **事件口径扩大**（如"年报/半年报"禁止扩大为全部业绩披露类型）
    - **卡片附加条件继承**：命中知识卡片后，若卡片含用户未明确提出的"首次/非ST/封板/流动性门槛"等附加条件，必须先删除再执行，禁止默默继承进最终答案
 7. **任务含糊时先反问，禁止猜测开干**：若用户的指令有 **2 种以上合理解读**（如"批量确认X"不清楚是确认指数本身还是全部成分股、"分析一下Y"不清楚要哪个维度），**第一步必须向用户提问澄清，不得凭推测选择一种解读自行执行**。反问应简洁列出各种可能（例："您的意思是 ① … 还是 ② …？"），等用户确认后再继续。**唯一例外**：用户语义明确无歧义（如"给我贵州茅台今日收盘价"），无需反问。
+8. **工具返回 `SKILL_VERSION_MISMATCH` 时必须自愈，不得继续执行原任务**：当任何工具调用的输出中出现 `"error": "SKILL_VERSION_MISMATCH"` 时，说明当前对话上下文中的工具签名/参数格式已过时。此时必须执行以下自愈流程（每步不得省略）：
+   1. **立即停止**当前任务，不得再调用任何平台工具；
+   2. 调用 `newSession`（新建 session，获取新 task_id）；
+   3. **强制重读** `SKILL.md`（本文件）+ 当前场景对应的 workflow 文档 + 涉及的 tools/*.md；
+   4. 以**新读取**的工具签名和参数格式重新执行用户原始任务；
+   5. **禁止**询问用户"是否继续"或解释版本升级过程——直接静默完成自愈并返回结果。
 
 ## 最小充分原则（任何动作前自检）
 
@@ -116,7 +138,7 @@ runtimeRequirements:
 
 > 这条原则覆盖：要不要多读一个文档；readData 读哪个变量；要不要为某个字段调 confirmDataMulti；公式自己写还是查现成数据集；以及所有未来出现的同类决策。
 
-**工具层面落地**：调用 `confirmDataMulti` / `readData` / `runMultiFormula` 或加载额外文档前，必须先勾选 [`recipes/tool-call-checklist.md`](recipes/tool-call-checklist.md) 对应小节（每节 5–10 行）。顶层原则管"要不要做"，清单管"具体怎么做"。
+**工具层面落地**：调用 `confirmDataMulti` / `readData` / `runMultiFormulaBatch` 或加载额外文档前，必须先勾选 [`recipes/tool-call-checklist.md`](recipes/tool-call-checklist.md) 对应小节（每节 5–10 行）。顶层原则管"要不要做"，清单管"具体怎么做"。
 
 ## Skill 包根目录
 
@@ -156,7 +178,7 @@ SKILL_ROOT/
 │   ├── troubleshooting.md       故障排查
 │   └── ru-billing.md            RU 计费
 │
-├── tools/                   ← 12 个 API 工具的完整参数文档
+├── tools/                   ← API 工具的完整参数文档
 │   ├── run_multi_formula.md
 │   ├── read_data.md
 │   └── ...（正常链路无需提前阅读，遇到参数问题时查）
@@ -183,7 +205,7 @@ SKILL_ROOT/
 │   └── eval/                    评测脚本
 │
 └── output/                  ← 输出目录（自动创建）
-    ├── .session.json            当前 session task_id
+    ├── .session.<key>.json      当前 session task_id（按 QBS_SESSION_KEY 派生，多会话隔离）
     ├── ic_data/                 IC 扫描结果
     └── *.png / *.csv            图表和数据文件
 ```
@@ -237,6 +259,7 @@ SKILL_ROOT/
 | K线图（可视化） | K线图、画图、展示走势… | `global-rules.md` → `render-kline.md` |
 | 固定区间累计涨跌幅 | 从A到B、某年某月至某年某月、区间收益、累计涨跌幅、区间表现、多资产区间对比 | `global-rules-lite.md` → `period-return-compare.md` |
 | 量化选股 / 回测 / 因子 / 图表 / 上传下载 | 选股、回测、均线、PE选股、因子、净值、上传CSV、下载数据、画图… | `global-rules.md` → `quant-standard.md` |
+| 直接运行用户给定的公式链文件 | 「运行/跑一遍/执行这个文件里的全部公式」「公式链文件」「formula chain」「按这个 md/json 跑」 | `global-rules.md` → `run-formula-chain.md` |
 | 事件研究 | 复盘、历次、涨价、降息、加息、事件窗口、随后表现、超预期、不及预期、政策后表现…（给定事件或需先识别事件日） | `global-rules.md` → `event-study.md` |
 | 阈值区间统计 / 连续阶段 | 历次、每次、平均、回撤超过、从高点下跌超过、熊市区间、连续阶段、regime | `global-rules.md` → `regime-segmentation.md` |
 
@@ -296,7 +319,7 @@ SKILL_ROOT/
 禁止：
 - 优先调用 `scanDimensions`、`renderKLine`（除非用户明确要看图）
 - 先做分析性扩写，再补充结构化数值
-- **在读取对应 leaf workflow 之前**直接调用 `runMultiFormula` / `renderKLine` / `scanDimensions` / 输出"无法联网"或"无法获取实时数据"
+- **在读取对应 leaf workflow 之前**直接调用 `runMultiFormulaBatch` / `renderKLine` / `scanDimensions` / 输出"无法联网"或"无法获取实时数据"
 - 把卡片附加条件（首次/非ST/封板/流动性门槛等）默默继承进最终答案
 - 以 `description`、`samples`、预览行、截断大表作为**名单题**的完整结果直接收尾（必须提取完整名单或明确声明不完整）
 
@@ -390,7 +413,7 @@ SKILL_ROOT/
 1. 从用户消息中提取 `sk-` 开头的完整 Key 字符串
 2. 将 Key 写入 `config.json` 的 `api_key` 字段（用 `replace_string_in_file` 直接写入）
 3. **必须输出**：「✅ API Key 配置成功！」
-4. **自动重试**：若本对话中有被 api_key 缺失错误中断的查询（如之前用户问过行情），**立即重新执行该查询并给出数据结论**，不需要用户再次发起。
+4. **自动重试**：若本对话中有被 api_key 缺失错误中断的查询（如之前用户问过行情），**先调 `newSession`（以原始用户问题作为 `user_query`）新建 session**，再立即重新执行该查询并给出数据结论，不需要用户再次发起。
 
 **运行时 401/402** → 立即停止，提示用户 API Key 无效/过期/配额耗尽，请重新前往官网获取新的 Key 并重新配置。
 

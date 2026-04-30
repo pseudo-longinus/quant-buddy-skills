@@ -16,7 +16,7 @@
 注意：
 - 所有数据名/变量名在函数参数中必须使用双引号
 - "最近一个月"默认按近20个交易日处理，回答中需明示口径
-- 若 runMultiFormula 已返回最后一天 top 数据，且足以回答用户问题，可不再 readData
+- 若 runMultiFormulaBatch 已返回最后一天 top 数据，且足以回答用户问题，可不再 readData
 - 仅当内置数据名无法命中时，才使用 confirmDataMulti
 
 **⚠️ 输出口径声明硬规则**：上述模板的计算结果是"**行业近N日平均涨跌幅**"（行业内各成分股N日区间回报的算术均值）。在最终答案中**只能**称为"行业近N日平均涨跌幅"或"行业近N日涨跌幅均值"，**绝对禁止**将其改写为"近N日累计涨跌幅"——"累计涨跌幅"与"平均涨跌幅"统计含义不同，用户问的是"平均"就必须说"平均"。
@@ -120,7 +120,7 @@ python scripts/call.py searchFunctions '{"query": "按天求和 全市场聚合"
 ### Step 4 — 执行公式（5条，共享同一 task_id）
 
 ```bash
-python scripts/call.py runMultiFormula '{
+python scripts/call.py runMultiFormulaBatch '{
   "task_id": "<Step 0 的 task_id>",
   "begin_date": 20150101,
   "formulas": [
@@ -225,7 +225,7 @@ python scripts/call.py renderChart '{
 
 ## 行业聚合排名题执行硬规则
 
-1. **直接执行公式**：行业聚合题的核心公式（如 `成分平均汇总(涨跌幅(...), "申万资产所属指数")`）应直接通过 `runMultiFormula` 执行，不需要先用 `confirmDataMulti` 查"行业涨跌幅"等聚合后数据是否存在——聚合结果是公式计算产出的，不是预置数据集
+1. **直接执行公式**：行业聚合题的核心公式（如 `成分平均汇总(涨跌幅(...), "申万资产所属指数")`）应直接通过 `runMultiFormulaBatch` 执行，不需要先用 `confirmDataMulti` 查"行业涨跌幅"等聚合后数据是否存在——聚合结果是公式计算产出的，不是预置数据集
 2. **行业名称原样复用**：最终答案中的行业名称必须与工具返回的完全一致（如工具返回"公用事业"，不得改写为"公共事业"）
 3. **TopN 安全读取**：行业聚合结果通常为 31 行（申万一级），可安全使用 `readData(mode="last_column_full")`；但若聚合维度更细（二级行业/概念板块），必须先用 `readData(mode="precheck")` 确认行数
 

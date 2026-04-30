@@ -22,7 +22,7 @@
 2. confirmMultipleAssets 确认基准+目标资产                   ← 未完成则停止
    → 口径不一致？→ 必须向用户确认，禁止静默替代
 3. 冻结阈值条件 → write regime_spec.json                    ← 未完成则停止
-4. 取回基准序列 (runMultiFormula + readData)                ← 未完成则停止
+4. 取回基准序列 (runMultiFormulaBatch + readData)                ← 未完成则停止
 5. 在回答层识别连续区间 → write segment_table.json           ← 未完成则停止
 6. read segment_table.json 读回确认
 7. 计算每段区间统计（收益/超额）
@@ -121,7 +121,7 @@ Step 0  确认资产与阈值条件
 2. **确认目标资产**：用 `confirmMultipleAssets` 确认需要统计区间表现的目标资产（如"消费行业指数"）；若目标 = 基准，则只需确认一次
 3. **⛔ 口径确认门禁**：每个资产的确认结果必须满足以下之一，否则**禁止进入 Step 1**：
    - **严格命中**：返回名称与用户指定完全一致 → 可继续
-   - **近似命中**（同体系不同对象、跨体系近似、上下级行业）→ **必须向用户确认**，未确认前禁止 write regime_spec / runMultiFormula / readData
+   - **近似命中**（同体系不同对象、跨体系近似、上下级行业）→ **必须向用户确认**，未确认前禁止 write regime_spec / runMultiFormulaBatch / readData
    - **错配/歧义** → 直接告知用户平台无精确匹配，请用户指定替代
 
 ## 关键口径确认闸门（硬规则）
@@ -230,7 +230,7 @@ write_skill_file({
 ### Step 1：取回基准序列
 
 1. **确认数据项**：用 `confirmDataMulti` 确认所需的度量指标（如收盘价、PE(TTM) 等）
-2. **取回序列**：用 `runMultiFormula` 计算基准序列
+2. **取回序列**：用 `runMultiFormulaBatch` 计算基准序列
    - begin_date 需覆盖足够历史区间（通常 ≥ 15 年）
 3. **验证**：用 `readData(mode="smart_sample")` 检查 NaN 率和覆盖率（仅验证用，不得用 50 个采样点作为区间识别依据）
 4. **读取完整序列**：用 `readData(mode="last_column_full")` 读取完整时间序列
@@ -341,7 +341,7 @@ write_skill_file({
 
 对每段已识别区间，计算目标资产的区间表现：
 
-1. **取目标资产序列**：若目标 ≠ 基准，用 `runMultiFormula` + `readData` 取目标资产的收盘价序列
+1. **取目标资产序列**：若目标 ≠ 基准，用 `runMultiFormulaBatch` + `readData` 取目标资产的收盘价序列
 2. **计算区间收益**：对每段区间 `[start, end]`：
    - 区间收益 = 末日收盘价 / 首日收盘价 - 1
    - 若需超额收益：超额 = 目标区间收益 - 基准区间收益

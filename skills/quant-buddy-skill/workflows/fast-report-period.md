@@ -1,12 +1,14 @@
 # fast-report-period · 最近报告期财务
 
-适用：≤3 只 A 股；`fast_query` 单次调用，无需 newSession。港股/美股财务不支持，直接告知。
+适用：≤3 只 A 股；`fast_query` 单次调用。港股/美股财务不支持，直接告知。
 
 ## 执行（3 步）
 
 ```
-① 提取 assets + fields → ② fast_query(query_type="report") → ③ 取值输出
+① 提取 assets + fields → ② fast_query(query_type="report", user_query=<用户原始问题>) → ③ 取值输出
 ```
+
+> **`user_query` 必填**：调用 `fast_query` 时仍需在参数中携带用户原始问题，供服务端 trace 分析（不依赖 call.py 自动注入）。
 
 停止：`success: true` 且全部字段有 `value` + `date` → 立刻输出。
 
@@ -52,7 +54,7 @@
 ```
 ① 保留 fast_query 已成功字段的值（不重查）
 ② 仅对失败字段：confirmDataMulti 确认字段全名
-③ newSession → runMultiFormula（公式："字段全名"*取出(资产名)）
+③ newSession → runMultiFormulaBatch（公式："字段全名"*取出(资产名)）
 ④ readData → 合并①结果 → 输出
 ```
 

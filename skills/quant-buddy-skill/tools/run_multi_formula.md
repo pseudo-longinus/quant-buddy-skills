@@ -4,7 +4,8 @@
 
 ## 端点
 
-`POST /skill/runMultiFormula`
+`POST /skill/runMultiFormulaBatch`
+> - 计费规则与配额池与旧端点共享（`run_multi_formula` 池，7 RU / 公式）。
 
 ## 参数
 
@@ -17,19 +18,20 @@
 | `actions` | string[] | ❌ | 每条公式的阶段说明（与 formulas 等长） |
 | `include_description` | boolean | ❌ | 是否返回描述信息，默认 true。设为 false 可减少响应体积 |
 | `use_minute_data` | boolean | ❌ | 启用盘中刷新模式，**业务默认 true**（API 默认 false）。开启后 7 个日频行情数据名的最新列自动替换为「最后一分钟更新版」，历史数据不变。详见下方「盘中刷新模式」|
-| `refresh_snapshot_time` | boolean | ❌ | 仅 `use_minute_data=true` 时生效，默认 false。强制刷新数据截止时间到最新分钟。仅在同一会话内多次调用、需要推进截止时间时才传 true，单次提问不需要 |
+| `force_reusable_array` | string[] | ❌ | 需要保留、后续复用或查看的公式**左侧变量名**数组。传入后未列出的变量自动标记为不复用；不传时默认全部复用。详见下方「中间变量复用标记」 |
 
-## 单次公式数限制
+## 单次公式数限制（保守模板：所有 tier 一律 20 条）
 
-| 用户层级 (`_quota.tier`) | 单次最大公式数 |
-|:---:|:---:|
-| free | 20 |
-| plus | 30 |
-| pro | 40 |
-| ultra | 不限 |
+| 用户层级 (`_quota.tier`) | 后端原始上限 | **实际必须遵守** |
+|:---:|:---:|:---:|
+| free  | 20 | **20** |
+| plus  | 20 | **20** |
+| pro   | 20 | **20** |
+| ultra | 20 | **20** |
 
-> 超过上限的请求会被拒绝。若公式数接近上限，应拆分为多次调用（保持同一 `task_id`）。
-> 层级信息从任何工具返回的 `_quota.tier` 字段获取。
+> ⚠️ **硬规则**：自 v4.20.0 起，执行端点切到 `/skill/runMultiFormulaBatch`，**服务端对单次公式数有 20 条硬上限**（任何 tier 一致），超过即返回 `code=-1` 不进入计算流程、不扣费。本 skill 内部也按 20 条切批以匹配该上限。
+> 超过 20 条的请求必须拆分为多次调用（保持同一 `task_id`），并通过 `force_reusable_array` 列出前置批次需保留的变量名，复用缓存避免重复计算。
+> 层级信息（`_quota.tier`）仅用于配额池区分，不再影响切批阈值。
 
 ## 返回
 
@@ -115,7 +117,7 @@ HS300_RET=涨跌幅(收盘价(沪深300))
 
 ```bash
 # 均线策略（基础示例）
-python scripts/executor.py runMultiFormula '{
+python scripts/executor.py runMultiFormulaBatch '{
   "formulas": [
     "MA5=平均(\"全市场每日收盘价\", 5)",
     "MA20=平均(\"全市场每日收盘价\", 20)",
@@ -126,7 +128,7 @@ python scripts/executor.py runMultiFormula '{
 }'
 
 # 低市盈率选股
-python scripts/executor.py runMultiFormula '{
+python scripts/executor.py runMultiFormulaBatch '{
   "formulas": [
     "PE=取出(\"A股市盈率\")",
     "Signal=(\"PE\">0)*(\"PE\"<20)*板块(万得全A)*\"非ST\"",
@@ -136,12 +138,66 @@ python scripts/executor.py runMultiFormula '{
 }'
 
 # 指定起始日期
-python scripts/executor.py runMultiFormula '{
+python scripts/executor.py runMultiFormulaBatch '{
   "formulas": ["A=收盘价(贵州茅台)/平均(\"全市场每日收盘价\", 20)"],
   "task_id": "uuid-xxx",
   "begin_date": 20200101
 }'
 ```
+
+### 中间变量复用标记（多公式必填）
+
+`force_reusable_array` 用于告诉计算框架哪些公式结果需要保留、后续复用或被读取。它是公式**左侧变量名**的字符串数组——只把需要保活的变量名列进去即可，**未列出的变量自动视为中间量、不写入复用缓存**。
+
+**触发规则（硬要求）**：
+- 单公式（`formulas.length == 1`）→ 可不传
+- 多公式（`formulas.length ≥ 2`）→ **必须主动评估并显式传入**，不得直接省略让所有公式默认复用（会浪费计算配额、污染缓存）
+
+**判定方法（逐条公式问一句话）**：
+> 这条公式左侧的变量名，**会被 `readData` 或最终业务步骤读取吗？**
+> - 不会，仅被本批后续公式引用 → 不要写进 `force_reusable_array`
+> - 会被读取，或它就是最终输出 → 写进 `force_reusable_array`
+
+**典型可识别的「中间量」命名**：`*_中间`、`*_条件`、`*_掩码`、`*_排序值`、`*_因子矩阵`、`*_筛选`、`MA5` / `MA20` / `Signal` / 各种打分/分位中间步骤——几乎全部不该写进 `force_reusable_array`。
+
+**示例 1：均线金叉 TopN**
+
+```json
+{
+  "formulas": [
+    "MA5=平均(\"全市场每日收盘价\", 5)",
+    "MA20=平均(\"全市场每日收盘价\", 20)",
+    "Signal=(\"MA5\">\"MA20\")*板块(万得全A)",
+    "TOP10=取前(\"Signal\", 10, 从大到小)"
+  ],
+  "force_reusable_array": ["TOP10"]
+}
+```
+
+**示例 2：盘中振幅 + 换手率筛选（多中间量典型场景）**
+
+```json
+{
+  "formulas": [
+    "高点涨幅=(最大值(\"全市场每日最高价\", 1)/延迟(\"全市场每日收盘价\", 1) - 1)",
+    "低点涨幅=(最小值(\"全市场每日最低价\", 1)/延迟(\"全市场每日收盘价\", 1) - 1)",
+    "振幅=\"高点涨幅\" - \"低点涨幅\"",
+    "振幅条件=(\"振幅\" > 0.05)",
+    "换手率=取出(\"全市场每日换手率\")",
+    "TOP20=取前(\"换手率\" * \"振幅条件\" * 板块(万得全A) * 缺失填零(\"非ST股\"), 20, 返回数值)"
+  ],
+  "force_reusable_array": ["TOP20"]
+}
+```
+> 6 条公式中前 5 条全是中间量，仅 `TOP20` 需要 `readData` 读取——只把这 1 个变量名写进数组。
+
+**回填语义说明**：
+- 未出现在 `force_reusable_array` 的变量只表示「不写入复用缓存」，**不影响同批后续公式继续引用它**
+- 不传 `force_reusable_array` 时，所有变量默认全部复用（多公式场景请勿依赖此默认值）
+- 数组元素必须严格匹配 `formulas` 中某条公式的左侧变量名（前后空格自动忽略，大小写敏感）；不存在的变量名服务端会直接返回 `code: -1`
+- 多输出公式（如 `"净值, 持仓 = 回测(...)"`）任写其中一个变量名即可标记整条公式复用
+- 当前 `formulas` 不允许出现重复左值变量名，否则同样返回 `code: -1`
+- 最终要传给 `readData` 的变量必须出现在 `force_reusable_array` 中
 
 ## task_id 生命周期
 
@@ -162,7 +218,7 @@ python scripts/executor.py runMultiFormula '{
 
 ## 注意事项
 
-1. **`task_id` 绑定整批**：`runMultiFormula` 返回的 `task_id` 需传给后续 `readData` 的 `ids`（或用返回的 `data_id`）
+1. **`task_id` 绑定整批**：`runMultiFormulaBatch` 返回的 `task_id` 需传给后续 `readData` 的 `ids`（或用返回的 `data_id`）
 2. **`begin_date`**：Skill 路径默认 20150101，无 workflowChat 记录，如需指定请显式传入
 3. **回测公式**：`回测()` 第一参数必须是二维矩阵（信号掩码），不能是一维
 4. **大批量公式**：建议每批不超过 5 个公式，超时时减少数量分批执行
@@ -171,7 +227,7 @@ python scripts/executor.py runMultiFormula '{
 
 ## 盘中刷新模式
 
-> **所有 `runMultiFormula` 调用均应默认传 `use_minute_data: true`。**
+> **所有 `runMultiFormulaBatch` 调用均应默认传 `use_minute_data: true`。**
 >
 > 开启后，7 个日频行情数据名的**最新一列**会自动替换为"最后一分钟更新版"（盘中 = 实时价，收盘后 = 收盘价，与日频结果一致）。历史数据完全不变，公式写法不变。代价约等于零，好处是避免盘中查询落到上一交易日。
 
@@ -189,7 +245,7 @@ python scripts/executor.py runMultiFormula '{
 | 全市场每日成交额 | `69ca3df24f760ff70564dc15` |
 | 全市场每日收盘价（不复权） | `69ca3df24f760ff70564dc20` |
 
-2. **Snapshot Time 管理**：首次调用时自动获取分钟数据截止时间并缓存当天。同一天内多次执行默认复用缓存；传 `refresh_snapshot_time: true` 强制刷新（适用于盘中多次推进截止时间）。
+2. **Snapshot Time 管理**：首次调用时自动获取分钟数据截止时间并缓存当天。同一天内多次执行默认复用当天缓存。若确实需要强制刷新截止时间，先调用独立工具 `refreshSnapshotTime`，再执行 `runMultiFormulaBatch`。
 
 ### 调用示例
 
@@ -202,21 +258,11 @@ python scripts/executor.py runMultiFormula '{
 }
 ```
 
-```json
-// 盘中多次刷新截止时间
-{
-  "formulas": ["当前收盘=\"全市场每日收盘价\""],
-  "task_id": "uuid-xxx",
-  "use_minute_data": true,
-  "refresh_snapshot_time": true
-}
-```
-
 ### 注意
 
 - 公式中的数据名写法**不变**——仍写 `"全市场每日收盘价"`，映射由服务端透明完成
 - 非映射表内的数据（PE、换手率、财务指标等）不受影响，日频和分钟频可混合使用
 - `use_minute_data` 的 API 默认值是 false，但**业务侧应始终传 true**。无论用户是否说了"今天/盘中/实时"，都传 `use_minute_data: true`。盘中拿到实时价，收盘后拿到收盘价，不影响任何场景
-- `refresh_snapshot_time` 仅在同一会话内需要多次推进截止时间时才传 true，单次提问不需要
+- ⛔ **禁止向 `runMultiFormulaBatch` 传 `refresh_snapshot_time`**——该参数已移除；需要强制刷新时调用独立工具 `refreshSnapshotTime`
 - ⛔ **禁止在公式中使用原生分钟数据名**（如 `"全市场1分钟收盘价"`、`"全市场1分钟成交额"` 等）——这些是平台底层数据源，不在映射表中，使用会导致维度不匹配或 HTTP 500 错误
 - ⛔ **禁止使用 `变频到分钟()` 函数**——`use_minute_data` 模式下数据名映射由服务端完成，不需要手动变频

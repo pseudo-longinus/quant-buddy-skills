@@ -28,7 +28,7 @@
 
 ```
 Step 1 确认资产（硬门槛）
-→ Step 2 合并所有字段为一次 runMultiFormula
+→ Step 2 合并所有字段为一次 runMultiFormulaBatch
 → Step 3 从 description 判断是否可直接停止
 → Step 4 字段完备性检查
 → Step 5 按固定格式回答
@@ -36,7 +36,7 @@ Step 1 确认资产（硬门槛）
 
 ### Step 1：确认资产（强制，不得跳过）
 
-只要用户问题中出现了资产名称、简称、代码、名称+代码混合表达中的任一种，在首次 `runMultiFormula` 前都必须完成资产确认。跳过本步骤视为 workflow 违约。
+只要用户问题中出现了资产名称、简称、代码、名称+代码混合表达中的任一种，在首次 `runMultiFormulaBatch` 前都必须完成资产确认。跳过本步骤视为 workflow 违约。
 
 - 当用户以"名称（代码）""名称+代码""代码+名称"指向同一只股票时，必须先在脑内归一为**一个资产候选**。
 - 不得把同一资产的名称和代码拆成两个独立 intention 传给 `confirmMultipleAssets`。
@@ -44,7 +44,7 @@ Step 1 确认资产（硬门槛）
 - 禁止出现"同一资产确认 1/2 成功"这类可避免的部分失败。
 - 当资产数为 2~3 个时，必须先调用 `confirmMultipleAssets`。
 - 即使用户已提供 6 位代码，也不得跳过确认——最终公式中的资产对象必须使用确认后的标准资产。
-- 未完成资产确认前，不得直接对自然语言资产名执行 `runMultiFormula`。
+- 未完成资产确认前，不得直接对自然语言资产名执行 `runMultiFormulaBatch`。
 - 若存在歧义、近似匹配或跨体系匹配，必须先向用户澄清；不得继续查数。
 
 ### 命名锁定规则（Step 2 前置）
@@ -61,7 +61,7 @@ Step 1 确认资产（硬门槛）
 
 ### Step 2 命名规范（硬规则）
 
-`runMultiFormula` 中每个 leftName 必须使用"完整资产名 + 字段名"：
+`runMultiFormulaBatch` 中每个 leftName 必须使用"完整资产名 + 字段名"：
 - 比亚迪收盘
 - 长城汽车涨幅
 - 中兴通讯成交额
@@ -72,7 +72,7 @@ Step 1 确认资产（硬门槛）
 
 ### Step 2：模板选取与合并执行
 
-从下表选取全部所需字段，**合并进一次 `runMultiFormula` 并行取数**，不要分多次调用。
+从下表选取全部所需字段，**合并进一次 `runMultiFormulaBatch` 并行取数**，不要分多次调用。
 
 > 对下表中已列出的字段，**直接使用固定模板，无需先调用 `confirmDataMulti`**。仅当用户问到下表以外的字段时，才先 `confirmDataMulti` 确认数据集名称。
 
@@ -114,7 +114,7 @@ Step 1 确认资产（硬门槛）
 ], "begin_date": 20240101}
 ```
 
-**runMultiFormula 默认参数（本流程固定）**：
+**runMultiFormulaBatch 默认参数（本流程固定）**：
 ```json
 {
   "begin_date": 20240101,
@@ -134,10 +134,10 @@ Step 1 确认资产（硬门槛）
 对每个用户请求字段，按以下优先级提取"最新交易日值 + 该值日期"：
 
 **① 优先使用结构化末值/末日期**
-- 若 `runMultiFormula` 返回对象中存在可明确识别的末值、末日期字段，优先使用。
+- 若 `runMultiFormulaBatch` 返回对象中存在可明确识别的末值、末日期字段，优先使用。
 
 **② 受控解析 `description`**
-- 仅当 `runMultiFormula` 成功，且 `description` 中明确出现模式：
+- 仅当 `runMultiFormulaBatch` 成功，且 `description` 中明确出现模式：
   - `最后值: 数值(日期)` 或等效结构化文本
 - 才允许将该字段视为可答。
 
@@ -363,20 +363,20 @@ GZQ_PARAMS='{"intentions": ["贵州茅台"], "types": ["asset"]}' python scripts
 ### 确认 ≠ 结果（硬规则）
 
 `confirmMultipleAssets` / `confirmDataMulti` 是**确认类工具**，返回的是资产名称映射或数据集ID，**不包含任何行情数值**。
-- 拿到确认结果后，**必须再调用 `runMultiFormula`** 才能获取实际数据
+- 拿到确认结果后，**必须再调用 `runMultiFormulaBatch`** 才能获取实际数据
 - 禁止把确认类工具的返回结果当作最终数值直接回答用户
 
 ---
 
 ### 失败恢复规则（硬规则）
 
-**`runMultiFormula` 返回 `PARTIAL_SUCCESS`：**
+**`runMultiFormulaBatch` 返回 `PARTIAL_SUCCESS`：**
 - 保留已成功项，仅修失败项
 - 失败项属于数据名问题 → 先 `confirmDataMulti`
 - 失败项属于函数写法问题且字段**在本文档模板表中** → 直接重写为标准模板，跳过 `searchFunctions`
 - 同一结构失败后不得用同结构再次重试
 
-**`runMultiFormula` 返回 500 / Internal Server Error：**
+**`runMultiFormulaBatch` 返回 500 / Internal Server Error：**
 1. 检查是否使用了非标准模板或禁用写法
 2. 若是 → 重写为标准模板重试一次
 3. 仍失败 → fallback：取原始序列 → readData → 回答层计算

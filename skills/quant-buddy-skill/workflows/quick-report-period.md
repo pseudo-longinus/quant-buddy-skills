@@ -28,7 +28,7 @@
 
 ```
 Step 1 确认资产（见本文档末尾「自包含执行规则」）
-→ Step 2 合并所有财务字段为一次 runMultiFormula
+→ Step 2 合并所有财务字段为一次 runMultiFormulaBatch
 → Step 3 报告期对齐检查（本流程核心）
 → Step 4 回答层派生计算（如需）
 → Step 5 字段完备性检查
@@ -40,19 +40,19 @@ Step 1 确认资产（见本文档末尾「自包含执行规则」）
 财务字段的回答必须基于完整的正式取值链路：
 
 ```
-runMultiFormula 成功 → readData 读取最后有效值与日期 → 回答
+runMultiFormulaBatch 成功 → readData 读取最后有效值与日期 → 回答
 ```
 
 正式取值链路统一为：
 
-1. `runMultiFormula` 生成正式数据对象
+1. `runMultiFormulaBatch` 生成正式数据对象
 2. `readData` 读取最后有效值与最后有效日期
    - 默认优先：`mode="last_valid_per_asset"`
    - 若该模式不满足本题需要，再退回：`mode="last_n_rows", last_n_rows=1`
 3. 只有完成上述读取后，才能进入最终回答
 
 规则：
-- `runMultiFormula` 本身不视为最终取值完成
+- `runMultiFormulaBatch` 本身不视为最终取值完成
 - `description` 与 `confirmDataMulti` 只可用于字段确认与口径辅助，不可直接用于回答财务数值
 - 若未完成 `readData`，本流程视为未完成
 
@@ -60,8 +60,8 @@ runMultiFormula 成功 → readData 读取最后有效值与日期 → 回答
 
 | 来源 | 允许用途 | 禁止用途 |
 |------|----------|----------|
-| runMultiFormula 成功 + readData 读取 | 正式回答数值 + 报告期 | — |
-| runMultiFormula 的 description 文本 | 辅助确认字段名称、口径 | 直接作为最终答案数值 |
+| runMultiFormulaBatch 成功 + readData 读取 | 正式回答数值 + 报告期 | — |
+| runMultiFormulaBatch 的 description 文本 | 辅助确认字段名称、口径 | 直接作为最终答案数值 |
 | confirmDataMulti 的 description 文本 | 确认字段存在、日期范围、口径 | 直接作为最终答案数值 |
 
 **禁止捕捉 description 中的文本值作为最终答案。**财务字段的报告期语义比行情更复杂，description 中的 last_value 可能有口径偏差，必须通过 readData 确认报告期日期和实际值。
@@ -87,7 +87,7 @@ runMultiFormula 成功 → readData 读取最后有效值与日期 → 回答
 
 **仅当用户问的字段不在上表时**，才先 `confirmDataMulti` 确认数据集名称。
 
-> **重要命名规则**：`runMultiFormula` 中，最终单资产输出变量名必须加股票名前缀（`{股票名}_{指标名}`），与右侧引用的数据集名不得相同，否则触发循环依赖 500 错误。
+> **重要命名规则**：`runMultiFormulaBatch` 中，最终单资产输出变量名必须加股票名前缀（`{股票名}_{指标名}`），与右侧引用的数据集名不得相同，否则触发循环依赖 500 错误。
 
 **毛利率单季公式链（固定模板，不需 confirmDataMulti）：**
 
@@ -125,9 +125,9 @@ runMultiFormula 成功 → readData 读取最后有效值与日期 → 回答
 ], "begin_date": 20240101}
 ```
 
-> ⚠️ **财务查询严禁传 `use_minute_data: true`**：财务报告期数据（dimension=one-row）不支持分钟级刷新，强行传入会导致服务端 HTTP 500。本流程所有 `runMultiFormula` 调用均不得携带 `use_minute_data` 参数（或必须设为 `false`）。
+> ⚠️ **财务查询严禁传 `use_minute_data: true`**：财务报告期数据（dimension=one-row）不支持分钟级刷新，强行传入会导致服务端 HTTP 500。本流程所有 `runMultiFormulaBatch` 调用均不得携带 `use_minute_data` 参数（或必须设为 `false`）。
 
-**begin_date 默认参数说明**：对"最近一个已披露报告期"场景，runMultiFormula 的 begin_date 默认使用近两年起点即可（如 20240101），不鼓励无界历史。
+**begin_date 默认参数说明**：对"最近一个已披露报告期"场景，runMultiFormulaBatch 的 begin_date 默认使用近两年起点即可（如 20240101），不鼓励无界历史。
 
 ---
 
@@ -135,7 +135,7 @@ runMultiFormula 成功 → readData 读取最后有效值与日期 → 回答
 
 对"最近一个已披露报告期"的财务查询，默认按以下顺序执行：
 
-1. `runMultiFormula` 成功后
+1. `runMultiFormulaBatch` 成功后
 2. 优先使用 `readData(mode="last_valid_per_asset")` 读取每个字段的最后有效值与日期
 3. 若该模式不可用或返回不满足本题需要，再退回逐字段 `readData(mode="last_n_rows", last_n_rows=1)`
 
@@ -220,7 +220,7 @@ runMultiFormula 成功 → readData 读取最后有效值与日期 → 回答
 
 > **比率类指标优先级规则（硬规则）**：毛利率、净利率等比率类指标必须优先通过工具直接取数；仅当正式取数链路全部失败时，才允许在回答层派生；派生值必须标注"回答层计算"，不得表述为"查询值"或"披露值"。
 
-允许在回答层做以下派生，**不需要再调用 `runMultiFormula`**：
+允许在回答层做以下派生，**不需要再调用 `runMultiFormulaBatch`**：
 
 | 派生指标 | 固定口径 | 触发条件 |
 |----------|----------|----------|
@@ -231,13 +231,13 @@ runMultiFormula 成功 → readData 读取最后有效值与日期 → 回答
 
 **毛利率取值规则（固定公式链，不走 confirmDataMulti）：**
 1. **直接使用公式链**（见 Step 2 固定模板）：`单季_收入`/`单季_成本` 二维中间变量 → `毛利率_单季` → `{股票名}_毛利率 = "毛利率_单季" * 取出({股票名})`，流程结束
-2. **回答层派生**：仅当 Step 2 公式链 runMultiFormula 执行失败时，使用 `(营业收入 - 营业成本) / 营业收入` 在回答层计算；必须注明"该指标为回答层计算"
+2. **回答层派生**：仅当 Step 2 公式链 runMultiFormulaBatch 执行失败时，使用 `(营业收入 - 营业成本) / 营业收入` 在回答层计算；必须注明"该指标为回答层计算"
 
 > **禁止**：用 `confirmDataMulti` 查"毛利率"/"销售毛利率"后，把匹配到的数据集名称直接作为公式左侧变量名（即 `毛利率 = "毛利率" * 取出(...)` 是循环依赖，**100% 报 500 错误**）。
 
 **净利率取值规则（固定字段，不走 confirmDataMulti）：**
 1. **直接使用固定字段**（见 Step 2 固定模板）：`{股票名}_净利率 = "A股销售净利率：单季〔财务指标〕" * 取出({股票名})`，流程结束
-2. **回答层派生**：仅当上述字段 runMultiFormula 执行失败时，使用 `净利润 / 营业收入` 在回答层计算；必须注明"该指标为回答层计算"
+2. **回答层派生**：仅当上述字段 runMultiFormulaBatch 执行失败时，使用 `净利润 / 营业收入` 在回答层计算；必须注明"该指标为回答层计算"
 
 > **禁止**：用 `confirmDataMulti` 查"净利率"后，把匹配到的数据集名称直接作为公式左侧变量名。
 
@@ -354,7 +354,7 @@ runMultiFormula 成功 → readData 读取最后有效值与日期 → 回答
 - 禁止补充同比增速、行业对比、主观经营评价等未请求内容
 
 **公式失败受控恢复（本流程固定）**：
-runMultiFormula 500 错误时：
+runMultiFormulaBatch 500 错误时：
 1. 先检查 payload 结构（变量名 ≠ 数据集名、引号正确）
 2. 同口径重试一次
 3. 若仍失败，再切到本 workflow 明示的备选模板
@@ -408,7 +408,7 @@ GZQ_PARAMS='{"intentions": ["贵州茅台"], "types": ["asset"]}' python scripts
 ### 确认 ≠ 结果（硬规则）
 
 `confirmMultipleAssets` / `confirmDataMulti` 返回的是资产名称映射或数据集ID，**不包含任何财务数值**。
-拿到确认结果后，必须再调用 `runMultiFormula` 才能获取实际数据。
+拿到确认结果后，必须再调用 `runMultiFormulaBatch` 才能获取实际数据。
 
 ---
 
@@ -435,7 +435,7 @@ GZQ_PARAMS='{"intentions": ["贵州茅台"], "types": ["asset"]}' python scripts
 - `table_data`
 - 与本题无关的额外指标探索
 
-**`runMultiFormula` 返回 `PARTIAL_SUCCESS`：**
+**`runMultiFormulaBatch` 返回 `PARTIAL_SUCCESS`：**
 - 保留已成功项，仅修失败项
 - 失败项属于数据名问题 → 先 `confirmDataMulti`
 - 失败项属于函数写法问题且字段**在本文档模板表中** → 直接重写为标准模板，跳过 `searchFunctions`

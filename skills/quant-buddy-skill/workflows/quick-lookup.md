@@ -15,7 +15,7 @@
 
 ### 路由硬闸门（必须遵守）
 
-**在调用任何平台工具（confirmMultipleAssets / confirmDataMulti / runMultiFormula / readData）之前，必须先用 `read_skill_file` 读取对应的 leaf workflow 文档。**
+**在调用任何平台工具（confirmMultipleAssets / confirmDataMulti / runMultiFormulaBatch / readData）之前，必须先用 `read_skill_file` 读取对应的 leaf workflow 文档。**
 
 未读取 leaf workflow 就调用平台工具 = 违规。
 
@@ -26,7 +26,7 @@
 | 最近报告期财务指标（营收/净利润/总资产/ROE 等） | `workflows/quick-report-period.md` |
 | 用户明确要求看 K 线图（走势可视化） | `workflows/render-kline.md` |
 | 涉及选股/回测/因子/图表/行业排名 | `workflows/quant-standard.md` |
-| **个股综合分析 / 下跌归因 / 后期展望**（如"为什么今天跌""后期怎么看""分析一下这只股票"） | ⚠️ **当前无专用 workflow**。执行边界：① 数据部分按需组合 `quick-snapshot`（今日行情）+ `quick-window`（近期走势，最多 1 次 runMultiFormula）；② 归因仅输出可量化数据事实（如"跌幅超过沪深300同期X个百分点""成交量较前5日均值放大X倍"），**禁止**无工具证据的宏观/政策/行业定性归因；③ 对"后期怎么看""投资建议"类前瞻问题，**必须 safe-fail**：回复"本工具提供定量历史数据查询，不提供投资建议或价格预测"，不得为了回答而无限扩展公式调用。 |
+| **个股综合分析 / 下跌归因 / 后期展望**（如"为什么今天跌""后期怎么看""分析一下这只股票"） | ⚠️ **当前无专用 workflow**。执行边界：① 数据部分按需组合 `quick-snapshot`（今日行情）+ `quick-window`（近期走势，最多 1 次 runMultiFormulaBatch）；② 归因仅输出可量化数据事实（如"跌幅超过沪深300同期X个百分点""成交量较前5日均值放大X倍"），**禁止**无工具证据的宏观/政策/行业定性归因；③ 对"后期怎么看""投资建议"类前瞻问题，**必须 safe-fail**：回复"本工具提供定量历史数据查询，不提供投资建议或价格预测"，不得为了回答而无限扩展公式调用。 |
 
 **路由判断规则（优先级从高到低）：**
 1. 时间锚点是"最近 N 日窗口" → `quick-window`
@@ -84,7 +84,7 @@ GZQ_PARAMS='{"intentions": ["贵州茅台"], "types": ["asset"]}' python scripts
 
 ### 失败恢复规则（硬规则，所有子流程共用）
 
-#### A. `runMultiFormula` 返回 `PARTIAL_SUCCESS` 时
+#### A. `runMultiFormulaBatch` 返回 `PARTIAL_SUCCESS` 时
 - 记录并保留已成功项，不重跑成功项
 - 仅修失败项
 - 优先复用 `available_outputs`
@@ -93,7 +93,7 @@ GZQ_PARAMS='{"intentions": ["贵州茅台"], "types": ["asset"]}' python scripts
 - 若失败项属于函数写法问题：**若该字段在本子流程模板表中已列出（预设字段），跳过 `searchFunctions`，直接按 Rule B 路径重写为标准模板**；仅当字段完全不在任何模板表中时，才调用 `searchFunctions`
 - 同一结构失败后，不得用同结构再次重试
 
-#### B. `runMultiFormula` 返回 500 / Internal Server Error 时
+#### B. `runMultiFormulaBatch` 返回 500 / Internal Server Error 时
 按以下顺序处理：
 1. 先检查是否使用了非标准模板或禁用写法
 2. 若是，重写一次为标准模板

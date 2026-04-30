@@ -35,9 +35,9 @@
 | 问题现象 | 可能原因 | 处理方式 |
 |----------|----------|----------|
 | renderChart 图中无曲线 | 数据为二维，renderChart 仅支持一维 | 确保公式输出一维时序 |
-| `参数 lines 必须是非空数组` | 误用了 `variable_names` 参数 | 改为 `lines: [{id, name}]`，id 来自 runMultiFormula 的 `_id` |
+| `参数 lines 必须是非空数组` | 误用了 `variable_names` 参数 | 改为 `lines: [{id, name}]`，id 来自 runMultiFormulaBatch 的 `_id` |
 | K线图报 `必须包含 open_id/high_id/low_id/close_id` | candlestick 参数缺少必填字段 | 传入完整 4 个 ID；或改用 `renderKLine` |
-| K线图日期对不齐 / 数据缺失 | OHLC 4 个 data ID 来自不同 task_id | 确保在同一个 runMultiFormula 中计算 |
+| K线图日期对不齐 / 数据缺失 | OHLC 4 个 data ID 来自不同 task_id | 确保在同一个 runMultiFormulaBatch 中计算 |
 | renderKLine 报 ticker 不存在 | ticker 格式错误 | 使用 `SH`/`SZ` 前缀格式如 `SH600519` |
 | renderKLine indicators 无效 | 指标名拼写错误 | 参照 `tools/render_kline.md` 支持列表，全小写 |
 | 图表不知道在哪里 | 未找到输出文件 | `call.py` 已自动保存到 `output/` 并打开 |

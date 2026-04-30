@@ -28,13 +28,34 @@
   - 标量/小表（≤20 行）→ 直接读
   - 大表/全市场序列（>100 行 或 >5000 token） → **不读**，回去给公式加截断
 
-## runMultiFormula 调用前必勾选
+## runMultiFormulaBatch 调用前必勾选
 
 - [ ] 是否财务报告期查询（毛利率、ROE、营收、净利润、资产负债率等 one-row 数据）？
   - 是 → **严禁**传 `use_minute_data: true`，会导致 HTTP 500；直接省略该参数或设为 `false`
   - 否（行情选股、涨跌幅等二维矩阵数据）→ 可按需传 `use_minute_data: true`
+- [ ] 公式列表里是否有纯中间变量（只给后续公式引用，不会被 `readData` 或业务步骤读取）？
+  - **多公式（≥ 2 条）→ 必须主动评估，不得直接省略**
+  - 评估方法：逐条问「这个左侧变量会被 `readData` 或最终业务步骤读取吗？」
+    - 仅被本批后续公式引用 → 不要把变量名写进 `force_reusable_array`
+    - 会被 `readData` 读 / 是最终输出 / 会被后续 batch 引用 → 把变量名写进 `force_reusable_array`
+  - 命名带 `_中间`/`_条件`/`_掩码`/`_排序值`/`_因子矩阵`/`MA5`/`Signal` 等几乎都是中间量 → 不要写进数组
+  - 单公式（仅 1 条）→ 可不传
+- [ ] 是否想刷新同一 session 的分钟数据截止时间？
+  - 是 → **不要**给 `runMultiFormulaBatch` 传 `refresh_snapshot_time`；先调用独立 `refreshSnapshotTime`，再执行公式
+  - 否 → 正常执行公式
 
-## runMultiFormula 调用后必勾选
+## refreshSnapshotTime 调用前必勾选
+
+- [ ] 当前 session 是否已经跑过 `runMultiFormulaBatch`？
+  - 否 → **不要**调用；首次 `runMultiFormulaBatch` 会自动建立 snapshot
+  - 是 → 继续判断下一条
+- [ ] 是否真的需要把分钟数据推进到最新？
+  - 数据已是最新 / 只是常规追问 → **不要**调用，直接复用现有 snapshot
+  - 用户明确要求"刷新到最新"或盘中重算 → 调用 `refreshSnapshotTime(task_id)`，再继续 `runMultiFormulaBatch`
+- [ ] `task_id` 来自哪里？
+  - 必须是当前 session 的 task_id；禁止凭空构造或复用其他 session 的 task_id
+
+## runMultiFormulaBatch 调用后必勾选
 
 - [ ] 工具返回的 description / 完整序列 / 中间变量值，会被回填进下一轮 prompt 吗？
   - 只回填**当前问题需要的最终值**（如末值、Top10 列表）
