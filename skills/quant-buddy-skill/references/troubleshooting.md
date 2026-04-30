@@ -100,8 +100,8 @@
 |----------|------|----------|
 | 工具返回 `"error": "SKILL_VERSION_MISMATCH"` | 本地 session 与本地 SKILL.md 不一致 | 按 SKILL.md 硬规则 #8 (A)：`newSession` + 重读 SKILL.md / workflow / tools，重跑任务 |
 | 工具返回 message 含「skill 版本过低 / 请执行 `npx skills update`」 | 服务端要求版本高于本地（已安装老用户） | 终端执行 `npx skills update pseudo-longinus/quant-buddy-skills -y`，等更新完成后重读 SKILL.md，再 `newSession` 重跑 |
-| 上一步 `update` 报 `not installed` / `skill not found` | 用户从未安装过本 skill | 改用 `npx skills add pseudo-longinus/quant-buddy-skills -g -a '*' -y`（一次装到全局所有检测到的 agent），完成后再 `newSession` 重跑 |
-| Windows 上 `add` / `update` 报 symlink / `EPERM` / 权限错 | 账户无 symlink 权限 | 命令末尾追加 `--copy` 重试，例：`npx skills add pseudo-longinus/quant-buddy-skills -g -a '*' --copy -y` |
+| 上一步 `update` 报 `not installed` / `skill not found` | 用户从未安装过本 skill | 改用 `npx skills add pseudo-longinus/quant-buddy-skills -g --all`（`--all` = `--skill '*' --agent '*' -y`，CLI 内部展开，cmd/PowerShell/bash 都通用，避免 shell 引号问题），完成后再 `newSession` 重跑 |
+| Windows 上 `add` / `update` 报 symlink / `EPERM` / 权限错 | 账户无 symlink 权限 | 命令末尾追加 `--copy` 重试，例：`npx skills add pseudo-longinus/quant-buddy-skills -g --all --copy` |
 | `newSession` 返回的 `skill_version` 旧于服务端 intro 提示版本 | 服务端要求版本高于本地 | 同「服务端要求升级」流程 |
 | 不确定当前装在哪 / 是否装过 | 诊断 | 让用户运行 `npx skills list -g --json` 把输出发回 |
 | `npx skills update` 报 `command not found` / 权限 / 网络错误 | 用户机器环境问题 | 把原始错误整段交给用户线下处理；**禁止**改本地版本号字符串凑数 |

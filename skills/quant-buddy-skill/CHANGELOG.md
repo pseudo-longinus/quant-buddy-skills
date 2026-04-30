@@ -12,7 +12,7 @@
 
 - `SKILL.md`：硬规则 #8 重写——区分两类版本不匹配信号：
   - (A) 本地 session ↔ 本地 SKILL.md 版本不一致（`SKILL_VERSION_MISMATCH`）：保留原 `newSession` + 重读 + 重跑流程；
-  - (B) 服务端要求版本高于本地（响应文案提示 `npx skills update` / `skill 版本过低` 等）：默认 `npx skills update pseudo-longinus/quant-buddy-skills -y`；若 `update` 报 `not installed` 则回落到 `npx skills add pseudo-longinus/quant-buddy-skills -g -a '*' -y`（一次装到全局所有检测到的 agent，覆盖 .claude / .cursor 等差异）；Windows 上 symlink/`EPERM` 报错时末尾追加 `--copy` 重试；用户拿不准装在哪可让其执行 `npx skills list -g --json` 自检。
+  - (B) 服务端要求版本高于本地（响应文案提示 `npx skills update` / `skill 版本过低` 等）：默认 `npx skills update pseudo-longinus/quant-buddy-skills -y`；若 `update` 报 `not installed` 则回落到 `npx skills add pseudo-longinus/quant-buddy-skills -g --all`（`--all` = `--skill '*' --agent '*' -y`，CLI 内部展开，cmd/PowerShell/bash 都通用，规避 Windows cmd 把 `'*'` 当字面量传入而报 `Invalid agents: '*'` 的坑）；Windows 上 symlink/`EPERM` 报错时末尾追加 `--copy` 重试；用户拿不准装在哪可让其执行 `npx skills list -g --json` 自检。
   - 新增 **P0 红线**：禁止用 `replace_string_in_file` / `multi_replace_string_in_file` / 终端 `sed` / `echo >` 等任何方式，修改本地 `SKILL.md` / `config.json` / `scripts/*.py` / `CHANGELOG.md` 中的 `version` 字段，或改写 `.session.json` 的 `skill_version_at_creation`，企图蒙混版本校验——这种做法会让本地工具签名继续过时，后续调用必然继续失败，且服务端审计日志记录真实上报版本，伪造无效。
 - `references/troubleshooting.md`：「版本不匹配」表格扩展为 7 行，覆盖「老用户更新 / 新用户首装回落 / Windows --copy / 不确定装在哪自检 / npx 命令失败」全部分支。
 - `workflows/run-formula-chain.md`：失败处理表中新增服务端要求升级一行，明确指向硬规则 #8 (B)。

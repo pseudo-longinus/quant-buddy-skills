@@ -138,11 +138,11 @@ runtimeRequirements:
       ```
       若上一步退出码非 0、或输出含 `not installed` / `skill not found` 之类（说明用户从未安装过），回落到首装命令：
       ```bash
-      npx skills add pseudo-longinus/quant-buddy-skills -g -a '*' -y
+      npx skills add pseudo-longinus/quant-buddy-skills -g --all
       ```
       Windows 上若任一命令报 symlink / `EPERM` / 权限错，末尾追加 `--copy` 重试一次：
       ```bash
-      npx skills add pseudo-longinus/quant-buddy-skills -g -a '*' --copy -y
+      npx skills add pseudo-longinus/quant-buddy-skills -g --all --copy
       ```
       用户拿不准当前装在哪，可让其自检：`npx skills list -g --json`。
       （如服务端 `intro` 字段给出的命令与此不同，**以服务端返回的命令为准**，不要自作主张换包名/换源/换标志位。）
