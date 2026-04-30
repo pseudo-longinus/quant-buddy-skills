@@ -117,11 +117,12 @@ Step 1 确认资产（硬门槛）
 **runMultiFormulaBatch 默认参数（本流程固定）**：
 ```json
 {
-  "begin_date": 20240101,
+  "begin_date": "<T-90日>",
   "include_description": true,
   "use_minute_data": true
 }
 ```
+- `begin_date` 取「今天向前 90 个自然日」（例：今天 20260430 → `20260130`）。snapshot 场景只需最新列，不需要长历史；**禁止固定写 `20240101` 之类的远期锚点**
 - `use_minute_data: true` 是全局业务默认值，本流程同样遵守。开启后最新列自动使用"最后一分钟更新版"，收盘后与日频结果一致，无副作用
 - 若用户问题含名单/排名/选股/筛选/TopN/信号等横截面需求，应改走 `quant-standard` 的对应微流程，quick-snapshot 只处理单资产或少量资产的静态快照
 

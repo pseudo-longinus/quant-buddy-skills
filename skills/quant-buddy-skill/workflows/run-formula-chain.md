@@ -54,7 +54,7 @@ node -e "require('child_process').execSync('python scripts/call.py runMultiFormu
 
 ### Step 4：切批 + 落盘 batch JSON
 
-按服务端单批硬上限（当前 20 条）切分。用 `create_file` 把每批落盘到 `output/tmp_batches/batch_K.json`：
+按本 skill 的单批上限（**10 条/批**，服务端硬上限同为 10）切分。用 `create_file` 把每批落盘到 `output/tmp_batches/batch_K.json`：
 
 ```json
 {
@@ -100,7 +100,8 @@ cd <SKILL_ROOT> && GZQ_PARAMS='{"ids":["<_id>"],"mode":"last_column_full"}' pyth
 | `SKILL_VERSION_MISMATCH` | 按 SKILL.md 硬规则 #8 (A) 自愈（newSession + 重读文档 + 重跑） |
 | 服务端要求 skill 升级（响应里有 `npx skills update` 提示） | 按 SKILL.md 硬规则 #8 (B) 自愈（运行 `npx skills update pseudo-longinus/quant-buddy-skills -y` + 重读 + newSession + 重跑），**禁止改本地版本号字符串** |
 | 配额超限 | 按 SKILL.md 全局 429 处理表 |
-| stdout 截断 | 回读 `/tmp/gzq_out.txt`（仅 Linux/macOS）或用返回的 task_id 查询 |
+| stdout 截断 | Linux/macOS：`cat /tmp/gzq_out.txt`；Windows PowerShell：`Get-Content "$env:TEMP\gzq_out.txt" -Encoding UTF8`；或用返回的 task_id 查询 |
+| stdout 完全为空（exit code=0）| 先查 `%TEMP%\gzq_out.txt`（UTF-8）；再查 `quant-buddy-skill/logs/<task_id>.jsonl`；只要其中有 `code=0`、`success:true`、`index_info._id`，即可直接进入 `readData`，无需重跑 |
 | 某批**超时 / 报错被动拆分** | 不得沿用失败批次的 `force_reusable_array` 或全列兏底；必须重新对拆分后的每个子批逐条过三问法；特别注意：原批内的引用在拆分后变成跨批引用的变量，必须在对应子批重新写入数组 |
 
 ---

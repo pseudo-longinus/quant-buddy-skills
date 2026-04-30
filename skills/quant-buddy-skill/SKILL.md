@@ -2,7 +2,7 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.20.5
+version: 4.20.6
 description: 
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据。
   查询最近N个交易日的价格序列、日涨跌幅序列、窗口最高价、最低价、振幅等短期统计。
@@ -14,7 +14,7 @@ description:
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.20.5
+  version: 4.20.6
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -98,7 +98,7 @@ runtimeRequirements:
     - `node -e "...child_process.execSync('python scripts/call.py ...')..."`
     - 任何在 inline 脚本里 `for/while` 循环驱动多批 `runMultiFormulaBatch` 的写法
     - **理由**：这种「自写 driver 脚本」会绕过本 skill 的 session 注入、配额校验、错误协议；trace 中表现为 task_id 漂移、stdout 阻塞、`/tmp/gzq_out.txt` 在 Windows 上不存在等连锁失败。call.py 的兜底地位**只允许一层调用**（shell → call.py），不允许在它外面再套 python/node 解释器。
-  - **多批 `runMultiFormulaBatch` 的合规模板**：当公式数超过单批硬上限（20 条）需切批时，切批与编排**必须由 LLM 自己在工具调用之间完成**，禁止写脚本自动化。每批一次独立调用；任何参数预处理（读 md、regex、依赖分析、生成 `force_reusable_array`）都在 LLM 推理中完成，必要的中间产物用 `create_file` 落盘到 `output/tmp_batches/batch_K.json`，然后逐批用：
+  - **多批 `runMultiFormulaBatch` 的合规模板**：当公式数超过单批硬上限（**10 条/批**，本 skill 保守收紧）需切批时，切批与编排**必须由 LLM 自己在工具调用之间完成**，禁止写脚本自动化。每批一次独立调用；任何参数预处理（读 md、regex、依赖分析、生成 `force_reusable_array`）都在 LLM 推理中完成，必要的中间产物用 `create_file` 落盘到 `output/tmp_batches/batch_K.json`，然后逐批用：
     ```bash
     GZQ_PARAMS="$(cat output/tmp_batches/batch_K.json)" python scripts/call.py runMultiFormulaBatch
     ```
@@ -460,7 +460,9 @@ SKILL_ROOT/
 python scripts/call.py <工具名> '{"key":"value"}'
 ```
 
-结果直接从 stdout 获取。若 stdout 被截断，可回读 `/tmp/gzq_out.txt`。
+结果直接从 stdout 获取。若 stdout 被截断，可回读临时文件 `gzq_out.txt`：
+- Linux/macOS：`cat /tmp/gzq_out.txt`
+- Windows PowerShell：`Get-Content "$env:TEMP\gzq_out.txt" -Encoding UTF8`
 
 也可通过环境变量传参（适用于参数含特殊字符的场景）：
 

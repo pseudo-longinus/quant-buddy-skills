@@ -93,7 +93,7 @@
    - **日配额耗尽格式**（429 `DAILY_QUOTA_EXCEEDED`）：替代正常答案输出 `⚠️ 今日 RU 已用完（{daily.used}/{daily.limit}），次日 00:00 重置。`
    - **IC 扫描耗尽格式**（429 `DAILY_SCAN_EXCEEDED`）：替代正常答案输出 `⚠️ IC 扫描今日次数已满，次日 00:00 重置。`
    - `RATE_LIMIT_EXCEEDED` / `CONCURRENT_LIMIT` 静默重试，**不输出**配额行
-   - **tier 感知 + 统一 20 条保守模板**：`_quota.tier` 标识用户层级（`free`/`plus`/`pro`/`ultra`）。**无论何种 tier，单次 `runMultiFormulaBatch` 一律按 20 条切批**（保守模板，已与服务端确认）。后端虽对 plus=30/pro=40/ultra=不限，但前端必须保守在 20，以降低依赖回溯失败、超时与跨批保活复杂度
+   - **tier 感知 + 统一 10 条保守模板**：`_quota.tier` 标识用户层级（`free`/`plus`/`pro`/`ultra`）。**无论何种 tier，单次 `runMultiFormulaBatch` 一律按 10 条切批**（服务端硬上限 10 条，skill 与服务端对齐）。这能显著降低跨批保活复杂度、timeout 风险与重试成本
    - 若工具返回不含 `_quota` 字段，跳过此项
 
 ---
@@ -295,9 +295,18 @@ B 级证据中附带的任何数值（如 description 里的 last_value）不得
 
 ### runMultiFormulaBatch
 ```json
-{"formulas": ["..."], "begin_date": 20240101, "include_description": true, "use_minute_data": true, "force_reusable_array": ["最终输出变量名"]}
+{"formulas": ["..."], "begin_date": <按场景分档>, "include_description": true, "use_minute_data": true, "force_reusable_array": ["最终输出变量名"]}
 ```
-- `begin_date` **必须传**，默认 `20240101`；用户指定更早起点时按需调整
+- `begin_date` **必须传**，且按下表分档选择，禁止默认传 `20150101` / `20240101` 之类的“万能起点”：
+  | 场景 | 默认 begin_date | 判定 |
+  |------|------------------|------|
+  | 盘中/今日快照 | `T-90日` | 只取最新列，无历史依赖函数 |
+  | 近 N 日窗口 | `T-(1.5×N+30)日` | 公式含 `平均(…,N)` / `涨跌幅(…,N)` 且 N 已知 |
+  | 财务报告期 | `T-3 年` | ROE/营收/净利润/季度财务指标 |
+  | 短期回测/区间识别 | `20210101` | 含 `回测(`、`上行区间(`、`下行区间(`、`区间统计量(`、`累计最大(` |
+  | 标准回测/IC/事件研究 | `20160101` | 含 `IC评估`、`事件研究`，或跨周期回测 |
+  | 用户/卡片明确区间 | 用户给定 | 优先级最高，**禁止扩大** |
+  > 详细规则与冲突处理见 `tools/run_multi_formula.md` 「begin_date 分档方案」
 - `include_description` **必须传** `true`，确保返回 description 供后续判断
 - `use_minute_data` 默认传 `true`；财务报告期查询按 leaf workflow 规则省略或设为 `false`
 - **`force_reusable_array` 在 `formulas.length ≥ 2` 时必须主动评估并按需传递（硬规则）**：

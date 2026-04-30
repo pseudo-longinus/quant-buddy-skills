@@ -4,6 +4,27 @@
 
 ---
 
+## [4.20.6] — 2026-04-30
+
+**变更文件**：`scripts/call.py`、`SKILL.md`、`workflows/run-formula-chain.md`、`workflows/global-rules.md`、`tools/run_multi_formula.md`
+
+修复 Windows GBK 终端下终端打印失败的问题，以及 `runMultiFormulaBatch` 返回 `code=0` 但 `data.success=false` 时未能识别失败的问题（接 `r4alpha_qbs_runmultiformula_empty_stdout_repro_20260430` 复盘）；同步将服务端切批硬上限更新为 10 条/批。
+
+- `scripts/call.py`：
+  - 新增 `_configure_parent_stdio()`：`main()` 启动时把 `sys.stdout/stderr` 重设为 `UTF-8 + errors='replace'` 的 `TextIOWrapper`，从源头消除 GBK 终端打印 emoji/中文的编码异常。best-effort 实现，失败不抛。
+  - 新增 `_safe_print(text, *, is_stderr=False)`：三层兜底——① 正常 `print`；② 捕获 `UnicodeEncodeError` 后用 `buffer.write(... encode(replace))`；③ 仍失败时打印纯 ASCII 提示，告知结果已存入 `gzq_out.txt`。
+  - 主 executor 路径（`_run_executor` 后 stdout/stderr 打印）的 `except UnicodeEncodeError: pass` 改为 buffer 直写 + `errors='replace'`；原有行为是静默跳过，Agent 得到空 stdout 却无法感知需要回读 `gzq_out.txt`。
+  - 替换三处裸 `print()` 路径为 `_safe_print()`：`newSession` 结果、`webSearch / buildEventStudy` 结果、`SKILL_VERSION_MISMATCH` 错误信封（三处在主 executor 修复时被遗漏）。
+  - 新增 `_process_run_multi_formula_batch()` 后处理钩子，触发条件：`code=0` 且 `data.success=false`；在顶层注入 `success: false`；将 `data.errors[]` 提升至顶层并精简为 `formula / leftName / error / errorType` 四字段；注入区分「全部失败」/「部分成功」的可读 `message`；不篡改服务端 `code` 与进程退出码。
+  - `import io` 一同补入。
+- `SKILL.md`（工具调用方式章节）：`gzq_out.txt` 回读路径从硬写 `/tmp/` 改为跨平台说明——Linux/macOS 用 `cat /tmp/gzq_out.txt`，Windows PowerShell 用 `Get-Content "$env:TEMP\gzq_out.txt" -Encoding UTF8`。原文 `/tmp/` 在 Windows 上实际为 `%TEMP%`，路径错误导致回读彻底失效。
+- `workflows/run-formula-chain.md`（失败处理表）：
+  - 「stdout 截断」行：补充 Windows PowerShell 回读路径，与 SKILL.md 保持一致。
+  - 新增「stdout 完全为空（exit code=0）」行：明确指引 ① 先查 `%TEMP%\gzq_out.txt`；② 再查 `quant-buddy-skill/logs/<task_id>.jsonl`；只要其一含 `code=0`、`success:true`、`index_info._id`，可直接进入 `readData`，不必重跑公式。来自复盘文档 Section 12 实测结论：服务端结果已落盘，仅终端打印失败。
+- `tools/run_multi_formula.md` + `workflows/global-rules.md`（切批上限）：服务端对单次 `runMultiFormulaBatch` 的公式数硬上限由 20 调整为 **10**，本 skill 切批阈值与服务端对齐（原“保守收紧为 10”的说法同步去除，两者已一致）。限制表中各 tier 的服务端上限一列由 20 改为 10。
+
+---
+
 ## [4.20.5] — 2026-04-30
 
 **变更文件**：`SKILL.md`、`references/troubleshooting.md`、`workflows/run-formula-chain.md`
@@ -101,7 +122,7 @@
   - 端点行同步 `/skill/runMultiFormulaBatch`
   - 顶部新增"后端切换说明"段：解释新端点底层用 `task.process.batch_evaluate`，公式间共享 Worker 内存，整批超时 10 分钟；服务端对单次公式数有 20 条硬上限，超出即 `code=-1` 不扣费
   - 单次公式数限制表更新为"所有 tier 后端原始上限均为 20"，硬规则文案同步说明这是服务端强制
-- `SKILL.md`：版本升级 4.19.0 → 4.20.0
+> ⚠️ 注：服务端硬上限后于本版本在 4.20.6 调整为 10，参见 `[4.20.6]`。- `SKILL.md`：版本升级 4.19.0 → 4.20.0
 
 > 💡 **效果预期**：对依赖链密集的批次（如评分链、回测链），由于公式间在同一 Worker 内存中传递，相比旧端点的 N 次独立 fire-and-forget 应有更稳定的耗时和更低的跨任务超时风险（参考 r2 测试中 21-83 一次提交超时、同批次重跑 8s→43s 等问题）。
 

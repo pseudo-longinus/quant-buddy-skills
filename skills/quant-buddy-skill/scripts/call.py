@@ -26,6 +26,7 @@ renderChart 自动保存 PNG 并打开（无需额外调 saveChart）。
 """
 
 import base64
+import io
 import json
 import os
 import re
@@ -37,6 +38,61 @@ import uuid
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 SKILL_ROOT = os.path.dirname(SCRIPT_DIR)
 EXECUTOR = os.path.join(SCRIPT_DIR, "executor.py")
+
+
+def _configure_parent_stdio():
+    """启动时把 sys.stdout/stderr 尽量重配为 UTF-8 + replace 模式，
+    防止 Windows GBK 终端在遇到 emoji 等字符时直接抛 UnicodeEncodeError。
+    只做 best-effort；失败不影响主流程。
+    """
+    for attr in ("stdout", "stderr"):
+        stream = getattr(sys, attr)
+        if stream is None:
+            continue
+        try:
+            enc = getattr(stream, "encoding", None) or "utf-8"
+            # 已是 utf-8 + replace，不需要重设
+            if enc.lower().replace("-", "") == "utf8" and getattr(stream, "errors", None) == "replace":
+                continue
+            buf = getattr(stream, "buffer", None)
+            if buf is not None:
+                new_stream = io.TextIOWrapper(buf, encoding="utf-8", errors="replace", line_buffering=True)
+                setattr(sys, attr, new_stream)
+        except Exception:
+            pass
+
+
+def _safe_print(text: str, *, is_stderr: bool = False) -> None:
+    """安全打印：先尝试正常 print；若遇到 UnicodeEncodeError，
+    用当前终端编码的 replace 策略写入 buffer；
+    若仍失败，至少打印一条纯 ASCII 提示，告知结果已存入 gzq_out.txt。
+    """
+    target = sys.stderr if is_stderr else sys.stdout
+    try:
+        print(text, end="", file=target)
+        return
+    except UnicodeEncodeError:
+        pass
+    # 第二层：buffer 直写 + replace
+    try:
+        enc = getattr(target, "encoding", None) or "utf-8"
+        buf = getattr(target, "buffer", None)
+        if buf is not None:
+            buf.write(text.encode(enc, errors="replace"))
+            buf.flush()
+            return
+    except Exception:
+        pass
+    # 第三层：纯 ASCII 提示
+    out_file = os.path.join(tempfile.gettempdir(), "gzq_out.txt")
+    try:
+        print(
+            f"[call.py] Output contains unencodable characters; "
+            f"full result saved to {out_file}",
+            file=target,
+        )
+    except Exception:
+        pass
 
 
 def _resolve_session_file():
@@ -479,6 +535,67 @@ def _auto_summarize_read_data(stdout_str, params):
     return json.dumps(resp, indent=2, ensure_ascii=False)
 
 
+def _process_run_multi_formula_batch(stdout_str):
+    """runMultiFormulaBatch 后处理：data.success=false 时把失败摘要提升到顶层。
+
+    设计原则（方案 B）：
+    - 不篡改服务端 code（保持 0），避免与服务端协议（成功 0 / 业务错误 -1）冲突
+    - 不改进程 rc（HTTP 层确实成功）
+    - 在顶层注入 success / errors / message，调用方只需看顶层字段即可识别失败
+    - 区分「全部失败」和「部分成功」两种语义，避免部分成功结果被忽视
+    """
+    try:
+        resp = json.loads(stdout_str)
+    except (json.JSONDecodeError, ValueError):
+        return stdout_str
+
+    if resp.get("code") != 0:
+        return stdout_str
+
+    data = resp.get("data", {})
+    if not isinstance(data, dict):
+        return stdout_str
+
+    # 仅在 success=false 时介入；success=true 或缺失（旧版本）时原样透传
+    if data.get("success") is not False:
+        return stdout_str
+
+    errors = data.get("errors") or []
+    dep = data.get("dependency_analysis") or {}
+    total = data.get("total", len(errors))
+    error_count = data.get("errorCount", len(errors))
+    success_count = data.get("successCount", max(total - error_count, 0))
+
+    resp["success"] = False
+    resp["errors"] = [
+        {
+            "formula": e.get("formula"),
+            "leftName": e.get("leftName"),
+            "error": e.get("error"),
+            "errorType": e.get("errorType"),
+        }
+        for e in errors
+    ]
+
+    if success_count == 0:
+        resp["message"] = (
+            f"runMultiFormulaBatch 全部失败（{error_count}/{total} 条），详见 errors 数组。"
+        )
+    else:
+        resp["message"] = (
+            f"runMultiFormulaBatch 部分失败（成功 {success_count}/{total}，失败 {error_count}/{total}），"
+            f"成功结果仍在 data.data 中，失败详情见 errors。"
+        )
+
+    can_retry = dep.get("can_incremental_retry", False)
+    if can_retry:
+        resp["can_incremental_retry"] = True
+        if dep.get("incremental_retry_suggestion"):
+            resp["incremental_retry_suggestion"] = dep["incremental_retry_suggestion"]
+
+    return json.dumps(resp, indent=2, ensure_ascii=False)
+
+
 def _normalize_params(tool_name, params):
     """常见参数名错误自动修正，减少 LLM 调用失败率。"""
     if not isinstance(params, dict):
@@ -509,6 +626,8 @@ def _normalize_params(tool_name, params):
 
 
 def main():
+    _configure_parent_stdio()
+
     if len(sys.argv) < 2:
         print(__doc__)
         sys.exit(1)
@@ -609,7 +728,7 @@ def main():
         out_file = os.path.join(tempfile.gettempdir(), "gzq_out.txt")
         with open(out_file, "w", encoding="utf-8") as f:
             f.write(result)
-        print(result)
+        _safe_print(result)
         sys.exit(0)
 
     # ── 事件研究本地工具（不走 executor / 平台 API）───────────────
@@ -644,7 +763,7 @@ def main():
         out_file = os.path.join(tempfile.gettempdir(), "gzq_out.txt")
         with open(out_file, "w", encoding="utf-8") as _f:
             _f.write(_output)
-        print(_output)
+        _safe_print(_output)
         sys.exit(0)
 
     # ── 版本守卫：检测旧会话与当前 skill 版本是否匹配 ─────────────
@@ -668,7 +787,7 @@ def main():
                 out_file = os.path.join(tempfile.gettempdir(), "gzq_out.txt")
                 with open(out_file, "w", encoding="utf-8") as _of:
                     _of.write(_mismatch_result)
-                print(_mismatch_result)
+                _safe_print(_mismatch_result)
                 sys.exit(0)
         except FileNotFoundError:
             # 尚未创建过 session，不阻断（模型可能正要新建）
@@ -773,6 +892,9 @@ def main():
         # readData last_column_full 布尔掩码：注入 matched_names
         if tool_name == "readData" and rc == 0:
             stdout = _auto_summarize_read_data(stdout, params)
+        # runMultiFormulaBatch：code=0 但 data.success=false 时提升 errors
+        if tool_name == "runMultiFormulaBatch" and rc == 0:
+            stdout = _process_run_multi_formula_batch(stdout)
         # ── 从响应中捕获 task_id，更新 session（服务端生成的UUID优先）──
         if rc == 0:
             try:
@@ -798,8 +920,16 @@ def main():
             if stderr:
                 print(stderr, end="", file=sys.stderr)
         except UnicodeEncodeError:
-            # GBK 终端无法打印 emoji 等字符，忽略——结果已写入 gzq_out.txt
-            pass
+            # GBK 终端无法打印 emoji 等字符；改用 buffer 直写并以 ? 替换不可编码字符，
+            # 确保 Agent 始终能从 stdout 读到结果，不依赖回读 gzq_out.txt。
+            enc = getattr(sys.stdout, 'encoding', None) or 'utf-8'
+            if stdout:
+                sys.stdout.buffer.write(stdout.encode(enc, errors='replace'))
+                sys.stdout.buffer.flush()
+            enc_err = getattr(sys.stderr, 'encoding', None) or 'utf-8'
+            if stderr:
+                sys.stderr.buffer.write(stderr.encode(enc_err, errors='replace'))
+                sys.stderr.buffer.flush()
 
         sys.exit(rc)
 
