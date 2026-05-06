@@ -19,6 +19,24 @@ Official website: [https://www.quantbuddy.cn](https://www.quantbuddy.cn)
 - A-share quantitative research: stock screening, factor analysis, strategy backtesting, NAV comparison, and industry aggregation ranking.
 - Data and visualization: upload custom factor CSV files, download data, render NAV curves and market charts.
 
+## Compared with Third-party Data APIs
+
+quant-buddy is not just a data download API. It is an Agent-oriented quantitative research Skill that wraps market data, valuation data, financial data, screening, factor calculation, backtesting, NAV comparison, and chart rendering into structured tools that AI Agents can use directly.
+
+| Dimension | quant-buddy | Traditional third-party data APIs | quant-buddy Advantage |
+|----------|-------------|-----------------------------------|----------------------|
+| Usage model | Agents use structured tools and formula expressions to query data, screen stocks, backtest strategies, and render charts | Users or Agents usually need to write code to call APIs | Better suited for natural-language-driven research workflows |
+| Simple market queries | Supports stock and index price, price change, turnover, volume, and related metrics | Usually supported, with users responsible for organizing the query results | Wraps common market metrics into Agent-ready capabilities |
+| Multi-condition screening | Supports A-share universe screening with valuation, financial, market, and mask conditions | Usually requires manual data fetching, cleaning, joining, and ranking | Easier and more stable for complex screening tasks |
+| Factor analysis and backtesting | Supports factor calculation, signal construction, strategy backtesting, NAV curves, and benchmark comparison | Usually requires custom data processing and backtesting code | Platform-side computation reduces code complexity for Agents |
+| Industry and sector analysis | Supports industry aggregation, ranking, and sector-level screening | Depends on data coverage and user-written code | More suitable for direct industry comparison and aggregation |
+| Event studies | Supports event dates, trading-day offsets, and interval return analysis | Usually requires custom handling of event dates, trading calendars, and returns | Reduces implementation complexity for event-driven research |
+| Chart rendering | Supports NAV curves and market charts | Most data APIs only return raw data | Can directly produce visual outputs for reports or content |
+| Agent integration | Designed for Claude Code, Cursor, Copilot, Windsurf, and other Agent environments | Mostly developer APIs that require the Agent to manage code and state | Better fit for end-to-end conversational workflows |
+| Best suited for | Natural-language screening, strategy validation, event review, chart output, and research automation | Raw data access, data downloads, and fully custom code workflows | quant-buddy focuses on complete research workflows |
+
+> The core advantage of quant-buddy-skill is that it turns data queries, indicator calculation, condition-based screening, strategy backtesting, and chart output into a complete Agent-executable research workflow, making natural-language requests easier to convert into verifiable quantitative analysis results.
+
 ## Data Coverage
 
 | Market | Market Data | Valuation (PE/PB/Market Cap) | Financial Data | Screening / Backtesting |
