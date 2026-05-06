@@ -515,7 +515,7 @@ PE条件 = ("PE数据" < 20)
 python scripts/call.py newSession
 ```
 
-`call.py` 在本地生成 UUID 并写入 `output/.session.json`，此后所有工具调用自动注入 task_id，无需手动传。
+`call.py` 在本地生成 UUID 并写入 `output/.session.json` 或 `output/.session.<key>.json`（设置 `QBS_SESSION_KEY` 时），此后所有工具调用自动注入 task_id，无需手动传。
 
 > **用户要上传自有 CSV？** → 先读 `recipes/upload-custom-data.md`，按两阶段流程（preview → confirm）操作，完成后再继续后续步骤。
 

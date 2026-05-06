@@ -8,6 +8,7 @@
 
 - **版本要求**：Python 3.8+（推荐 3.11）
 - **核心功能**：仅依赖标准库，无需额外 `pip install`
+- **可选依赖**：`python-dateutil`（事件研究辅助）、`Pillow`（图表格式转换）、`requests`（事件新闻搜索）
 - **Windows 推荐启动方式**：所有涉及中文路径的脚本加 `-X utf8` 标志
 
 ```bash
@@ -18,14 +19,14 @@ python -X utf8 scripts/call.py <工具名>
 
 ## API Key 配置
 
-前往 https://www.quantbuddy.cn/login 登录/注册，在账户页面获取 API Key。获取后有两种方式写入：
+前往 https://www.quantbuddy.cn/login 登录/注册，在账户页面获取 API Key。获取后可通过以下方式配置：
 
 1. **手动编辑**：直接打开 skill 根目录下的 `config.json`，把 `api_key` 字段改为你的 Key。
-2. **贴给 AI 助手**：在对话中把 `sk-...` 开头的 Key 发给 AI，AI 会写入 `config.json`。
+2. **本地覆盖**：在 `config.local.json` 中配置 `api_key`，优先级高于 `config.json`。该文件仅供本地使用，不应打包或提交。
+3. **环境变量覆盖**：设置 `QUANT_BUDDY_API_KEY`，优先级高于 `config.local.json` 和 `config.json`。
+4. **贴给 AI 助手**：在对话中把 `sk-...` 开头的 Key 发给 AI，AI 会写入 `config.json`。
 
-若你需要保留私有配置或覆盖默认端点，请使用 `config.local.json`；该文件仅供本地使用，不应打包或提交。
-
-若出现 `401 Unauthorized` 或 `402 Quota`，请重新获取并更新 `config.json` 中的 `api_key`。
+若出现 `401 Unauthorized` 或 `402 Quota`，请重新获取并更新 API Key。
 
 ---
 
@@ -43,7 +44,7 @@ python -X utf8 scripts/call.py <工具名>
 
 ## 运行时输出目录
 
-- `output/.session.json`：当前 session 的 task_id
+- `output/.session.json` 或 `output/.session.<key>.json`：当前 session 的 task_id（设置 `QBS_SESSION_KEY` 时使用后者）
 - `output/ic_data/`：IC 扫描结果（若 workflow 触发相关能力）
 - 其他 `csv / png / json / html`：运行过程中的临时或交付产物
 

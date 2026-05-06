@@ -10,7 +10,7 @@
 |------|------|------|------|
 | `task_id` | string | ✅ | 当前 session 的 task_id |
 
-> **调用方注意**：通过 `scripts/call.py` 调用时，`task_id` 会从 `output/.session.json` **自动注入**，**LLM/调用方传 `{}` 即可**（与 `runMultiFormulaBatch` 等其他工具一致）。仅在脱离 call.py 直接打 HTTP 时才需手动带 task_id。
+> **调用方注意**：通过 `scripts/call.py` 调用时，`task_id` 会从 `output/.session.json` 或 `output/.session.<key>.json`（设置 `QBS_SESSION_KEY` 时）**自动注入**，**LLM/调用方传 `{}` 即可**（与 `runMultiFormulaBatch` 等其他工具一致）。仅在脱离 call.py 直接打 HTTP 时才需手动带 task_id。
 
 ## 调用场景
 

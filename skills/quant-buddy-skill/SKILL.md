@@ -4,7 +4,8 @@ slug: quant-buddy-skill
 author: guanzhao
 version: 4.20.7
 description: 
-  查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据。
+  查询A股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等行情与估值数据。
+  查询港股、美股股票及指数的收盘价、开盘价、涨跌幅、成交量、成交额等行情价格数据。
   查询最近N个交易日的价格序列、日涨跌幅序列、窗口最高价、最低价、振幅等短期统计。
   查询上市公司最近报告期的营业收入、净利润、归母净利润、ROE、总资产、资产负债率等财务指标（A股）。
   支持A股选股筛选、因子计算、策略回测、净值对比、行业聚合排名、上传自有因子CSV、渲染图表。
@@ -25,6 +26,7 @@ metadata:
   requiredConfigPaths:
     - config.json
   requiredEnvVars:
+    - QUANT_BUDDY_API_KEY (optional override)
     - BOCHA_API_KEY (optional)
   networkEndpoints:
     - https://www.quantbuddy.cn/skill
@@ -32,6 +34,7 @@ metadata:
   pythonPackages:
     - python-dateutil (optional)
     - Pillow (optional)
+    - requests (optional, Bocha event-news search)
 requiredCredentials:
   - name: quant-buddy API Key
     required: true
@@ -39,13 +42,18 @@ requiredCredentials:
     storage: config_file
     path: config.json
     field: api_key
-    description: quant-buddy 平台 API Key。存储位置：skill 目录下的 config.json 的 `api_key` 字段（本 skill 不读环境变量版本的该 Key）。使用时作为 HTTP `Authorization` 头仅发送给 `networkEndpoints` 中声明的 quantbuddy 域名用于鉴权，不会被写入日志或转发给第三方主机。
+    description: quant-buddy 平台 API Key。默认存储位置：skill 目录下的 config.json 的 `api_key` 字段；也可由 config.local.json 或环境变量 QUANT_BUDDY_API_KEY 覆盖。使用时作为 HTTP `Authorization` 头仅发送给 `networkEndpoints` 中声明的 quantbuddy 域名用于鉴权，不会被写入日志或转发给第三方主机。
     how_to_get: "https://www.quantbuddy.cn/login"
 requiredConfigPaths:
   - path: config.json
     required: true
-    description: Skill 目录下的 API Key 配置文件，仅包含 quant-buddy api_key 和两个公开端点配置，由 skill 本地脚本读取；api_key 仅作为 HTTP `Authorization` 头发给 `networkEndpoints` 中声明的 quantbuddy 域名，不发送给其他主机。
+    description: Skill 目录下的 API Key 配置文件，仅包含 quant-buddy api_key 和两个公开端点配置，由 skill 本地脚本读取；config.local.json 或环境变量 QUANT_BUDDY_API_KEY 可覆盖该 api_key；api_key 仅作为 HTTP `Authorization` 头发给 `networkEndpoints` 中声明的 quantbuddy 域名，不发送给其他主机。
 requiredEnvVars:
+  - name: QUANT_BUDDY_API_KEY
+    required: false
+    sensitive: true
+    description: 可选。作为 quant-buddy API Key 的运行时覆盖来源；优先级高于 config.local.json 和 config.json。使用时作为 HTTP `Authorization` 头仅发送给 `networkEndpoints` 中声明的 quantbuddy 域名。
+    how_to_get: "https://www.quantbuddy.cn/login"
   - name: BOCHA_API_KEY
     required: false
     sensitive: true
@@ -66,6 +74,10 @@ runtimeRequirements:
       version: ">=9.0"
       required: false
       description: Used by scripts/call.py saveChart command to convert chart images to JPEG. Falls back gracefully (writes raw bytes) if not installed; no credential exposure risk.
+    - name: requests
+      version: ">=2.0"
+      required: false
+      description: Used by scripts/event_study_local.py for the optional Bocha event-news search feature.
 ---
 
 # 观照量化投研
@@ -410,7 +422,7 @@ SKILL_ROOT/
 
 ## 前置条件（按需执行，不是简单查数的默认首步）
 
-> **凭据存储说明**：本 skill 的 quant-buddy API Key **只存放在 skill 目录下的 `config.json` 的 `api_key` 字段**，不使用环境变量（`QUANT_BUDDY_API_KEY` 等环境变量不会被读取）。仅可选的 `BOCHA_API_KEY`（事件新闻搜索）走环境变量。
+> **凭据存储说明**：本 skill 的 quant-buddy API Key 默认存放在 skill 目录下的 `config.json` 的 `api_key` 字段；`config.local.json` 或环境变量 `QUANT_BUDDY_API_KEY` 可作为本地覆盖来源。仅可选的 `BOCHA_API_KEY`（事件新闻搜索）走事件研究辅助功能。
 
 仅在以下情形下，才需要显式读取 `config.json` 检查 `api_key`：
 - 本轮实际需要调用本地脚本或平台工具，且当前环境尚未建立可用 session
