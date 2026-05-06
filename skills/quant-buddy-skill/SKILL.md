@@ -2,7 +2,7 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.20.6
+version: 4.20.7
 description: 
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据。
   查询最近N个交易日的价格序列、日涨跌幅序列、窗口最高价、最低价、振幅等短期统计。
@@ -14,7 +14,7 @@ description:
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.20.6
+  version: 4.20.7
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -129,29 +129,28 @@ runtimeRequirements:
    4. 以**新读取**的工具签名和参数格式重新执行用户原始任务；
    5. **禁止**询问用户"是否继续"或解释版本升级过程——直接静默完成自愈并返回结果。
 
-   **(B) 类：服务端要求版本高于本地 skill 版本**（信号：任何工具返回的 message / intro / error 中出现"skill 版本过低"、"请执行以下命令更新"、"npx skills update"、"skill_server_version"、`code: -1` 且文案提示更新等；或者 `newSession` 返回的 `skill_version` 与服务端最新版本不一致而服务端要求强制升级）：
+   **(B) 类：服务端要求版本高于本地 skill 版本**（信号：任何工具返回的 message / intro / error 中出现 `[QBS:SKILL_UPDATE_REQUIRED]`、"skill 版本过低"、"请执行以下命令更新"、"npx skills update"、"skill_server_version"、`code: -1` 且文案提示更新等；或者 `newSession` 返回的 `skill_version` 与服务端最新版本不一致而服务端要求强制升级）：
    1. **立即停止**当前任务，不得继续调用任何平台工具（再调也只会重复报错）；
-   2. **直接输出**给用户**一段明确的更新提示**，并通过 `run_in_terminal` 执行（用户已授权 skill 内置脚本路径下的更新命令）：
+   2. 若 message 顶部包含 `[QBS:SKILL_UPDATE_REQUIRED]` 协议块，先解析其中的 `required_version`、`update_cmd`、`add_cmd`、`python_zip_available`、`zip_url`、`zip_sha512`、`zip_root` / `github_zip_skill_path`；若缺少协议块，则使用下方默认命令；
+   3. **第一步先执行 update**（老用户更新路径）：
       ```bash
-      # 默认走更新（适用于已安装过的老用户，不挑当年装在 .claude / .cursor / 全局还是项目）
       npx skills update pseudo-longinus/quant-buddy-skills -y
       ```
-      若上一步退出码非 0、或输出含 `not installed` / `skill not found` 之类（说明用户从未安装过），回落到首装命令：
+      若协议块提供了 `update_cmd`，以协议块命令为准；
+   4. **update 明确提示未安装时才执行 add**（新用户首装路径）：
       ```bash
       npx skills add pseudo-longinus/quant-buddy-skills -g --all
       ```
-      Windows 上若任一命令报 symlink / `EPERM` / 权限错，末尾追加 `--copy` 重试一次：
-      ```bash
-      npx skills add pseudo-longinus/quant-buddy-skills -g --all --copy
-      ```
-      用户拿不准当前装在哪，可让其自检：`npx skills list -g --json`。
-      （如服务端 `intro` 字段给出的命令与此不同，**以服务端返回的命令为准**，不要自作主张换包名/换源/换标志位。）
-   3. 等待命令执行完毕（成功标志：退出码 0 且输出含 `installed` / `updated to x.y.z`）；若仍失败（`command not found` / `EACCES` / 网络/registry 不通等），把原始错误整段交给用户，让用户线下处理，**不要**自己尝试改文件凑数、不要换源、不要换包名；
-   4. 命令成功后，**强制重读** `SKILL.md`（确认 `version` 已是新版）+ 当前场景的 workflow + 相关 `tools/*.md`；
-   5. 调用 `newSession` 重建 session（让 `skill_version_at_creation` 更新为新版）；
-   6. 以新版工具签名重新执行用户原始任务。
+      若协议块提供了 `add_cmd`，以协议块命令为准；
+   5. **update / add 因 `command not found`、无 Node/npx、`EACCES`、`EPERM`、symlink 权限、网络/registry/GitHub 不通等原因失败时，进入 Python Zip Fallback**；仅当协议块声明 `python_zip_available=true` 且同时提供 `zip_url` 与 `zip_sha512` 时允许执行；
+   6. Python Zip Fallback 必须先下载官方 zip，再流式计算 SHA-512；若本地计算值与 `zip_sha512` 不一致，**放弃该 zip 包并把原始错误交给用户**，禁止解压或替换正式 skill 目录；
+   7. Python Zip Fallback 解压时必须使用 staging 临时目录，拒绝绝对路径 / `../` / Windows 盘符路径，确认 `SKILL.md` 版本等于 `required_version` 后再替换；更新过程中必须保留 `config.json` / `config.local.json`，不得覆盖用户 API Key；
+   8. update / add / Python Zip 任一路径成功后，**强制重读** `SKILL.md`（确认 `version` 已是新版）+ `CHANGELOG.md` 最新 5 个版本条目 + 当前场景的 workflow + 相关 `tools/*.md`；
+   9. 调用 `newSession` 重建 session（让 `skill_version_at_creation` 更新为新版）；
+   10. 以新版工具签名重新执行用户原始任务。
+   11. 若所有更新路径均失败，把原始错误整段交给用户，**不要**自行改文件凑数、不要换源、不要换包名、不要修改版本号或 session 文件伪装通过。
 
-   **判别提示**：分不清是 (A) 还是 (B) 时，**先按 (A) 跑一遍** newSession + 重读；如果重试仍立刻报版本错或服务端继续提示要更新，就转 (B) 跑 `npx skills update`（必要时回落 `add`）。**永远不要**反过来"先改本地版本号试试看"。
+   **判别提示**：分不清是 (A) 还是 (B) 时，**先按 (A) 跑一遍** newSession + 重读；如果重试仍立刻报版本错或服务端继续提示要更新，就转 (B) 按 `npx update` → `npx add` → `Python Zip` 顺序处理。**永远不要**反过来"先改本地版本号试试看"。
 
 ## 最小充分原则（任何动作前自检）
 

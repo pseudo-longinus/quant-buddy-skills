@@ -99,11 +99,14 @@
 | 问题现象 | 类型 | 处理方式 |
 |----------|------|----------|
 | 工具返回 `"error": "SKILL_VERSION_MISMATCH"` | 本地 session 与本地 SKILL.md 不一致 | 按 SKILL.md 硬规则 #8 (A)：`newSession` + 重读 SKILL.md / workflow / tools，重跑任务 |
-| 工具返回 message 含「skill 版本过低 / 请执行 `npx skills update`」 | 服务端要求版本高于本地（已安装老用户） | 终端执行 `npx skills update pseudo-longinus/quant-buddy-skills -y`，等更新完成后重读 SKILL.md，再 `newSession` 重跑 |
-| 上一步 `update` 报 `not installed` / `skill not found` | 用户从未安装过本 skill | 改用 `npx skills add pseudo-longinus/quant-buddy-skills -g --all`（`--all` = `--skill '*' --agent '*' -y`，CLI 内部展开，cmd/PowerShell/bash 都通用，避免 shell 引号问题），完成后再 `newSession` 重跑 |
-| Windows 上 `add` / `update` 报 symlink / `EPERM` / 权限错 | 账户无 symlink 权限 | 命令末尾追加 `--copy` 重试，例：`npx skills add pseudo-longinus/quant-buddy-skills -g --all --copy` |
-| `newSession` 返回的 `skill_version` 旧于服务端 intro 提示版本 | 服务端要求版本高于本地 | 同「服务端要求升级」流程 |
-| 不确定当前装在哪 / 是否装过 | 诊断 | 让用户运行 `npx skills list -g --json` 把输出发回 |
-| `npx skills update` 报 `command not found` / 权限 / 网络错误 | 用户机器环境问题 | 把原始错误整段交给用户线下处理；**禁止**改本地版本号字符串凑数 |
+| 工具返回 message 含 `[QBS:SKILL_UPDATE_REQUIRED]` / 「skill 版本过低」 | 服务端要求版本高于本地 | 按 `npx update` → `npx add` → `Python Zip` 顺序处理；成功后重读 SKILL.md / CHANGELOG 最新 5 条 / workflow / tools，再 `newSession` 重跑 |
+| `npx skills update` 成功 | 已安装老用户更新成功 | 重读 SKILL.md 确认版本，再 `newSession` 重跑 |
+| `update` 报 `not installed` / `skill not found` | 用户从未安装过本 skill | 改用 `npx skills add pseudo-longinus/quant-buddy-skills -g --all`，完成后重读 SKILL.md，再 `newSession` 重跑 |
+| `update` / `add` 报 `command not found` / 无 Node/npx | Node 工具链不可用 | 若 message 协议块含 `python_zip_available=true`、`zip_url`、`zip_sha512`，进入 Python Zip Fallback |
+| `update` / `add` 报 `EACCES` / `EPERM` / symlink 权限 / 网络错误 | npx 更新链路不可用 | 进入 Python Zip Fallback；不要继续追加 `--copy` 或反复重试 npx |
+| Python Zip 的 SHA-512 不一致 | 下载包损坏或非服务端记录版本 | 放弃该 zip 包并提示重试，禁止解压或替换正式 skill 目录 |
+| Python Zip 内 `SKILL.md` 版本不等于 `required_version` | 下载包版本错误 | 放弃该 zip 包并输出原始错误 |
+| `newSession` 返回的 `skill_version` 旧于服务端提示版本 | 服务端要求版本高于本地 | 同「服务端要求升级」流程 |
+| 所有更新路径均失败 | 用户环境问题 | 把原始错误整段交给用户；**禁止**改本地版本号字符串或 session 文件凑数 |
 
 > ⚠️ **P0 红线**：任何情况下都禁止用编辑工具修改 `SKILL.md` / `config.json` / `scripts/*.py` / `CHANGELOG.md` 中的 `version` 字段，或改写 `.session.json` 的 `skill_version_at_creation` 来"伪装版本一致"。这是欺骗式自愈，本地工具签名仍是旧的，下一次调用必然继续报错；服务端审计日志也会记录真实上报版本，伪造无效。

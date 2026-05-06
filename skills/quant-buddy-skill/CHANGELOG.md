@@ -4,6 +4,20 @@
 
 ---
 
+## [4.20.7] — 2026-05-06
+
+**变更文件**：`SKILL.md`、`scripts/self_update.py`、`references/troubleshooting.md`
+
+强化服务端强制版本拦截后的更新恢复链路，将单一 npx 更新路径扩展为 `npx update` → `npx add` → `Python Zip Fallback`，降低无 Node、无 npx、网络失败、Windows 权限失败场景下的用户卡死率。
+
+- `SKILL.md`：版本号从 `4.20.6` 升至 `4.20.7`；硬规则 #8 (B) 新增 `[QBS:SKILL_UPDATE_REQUIRED]` 协议块解析，支持读取 `required_version` / `update_cmd` / `add_cmd` / `python_zip_available` / `zip_url` / `zip_sha512` / `zip_root` / `github_zip_skill_path`。
+- `SKILL.md`：服务端要求升级时的处理顺序改为先 `npx skills update`，仅在明确未安装时执行 `npx skills add`；npx/node/权限/symlink/网络失败时进入 Python Zip Fallback，不再把 `add --copy` 作为默认分支。
+- `SKILL.md`：Python Zip Fallback 要求下载官方 zip 后先流式校验 SHA-512；不一致时放弃该 zip 包，禁止解压或替换正式 skill 目录；解压必须走 staging，拒绝路径穿越，并保留 `config.json` / `config.local.json`。
+- `scripts/self_update.py`：新增标准库自更新脚本，支持 `--url` / `--zip-path`、`--sha512`、`--version`、`--zip-skill-path`、`--dry-run`；执行下载、SHA-512 校验、安全解压、必要文件检查、版本校验、备份、保留配置和替换安装。
+- `references/troubleshooting.md`：版本不匹配表格同步新的三段更新链路，补充 Python Zip、SHA-512 不一致、包版本不匹配、全部路径失败等处理方式。
+
+---
+
 ## [4.20.6] — 2026-04-30
 
 **变更文件**：`scripts/call.py`、`SKILL.md`、`workflows/run-formula-chain.md`、`workflows/global-rules.md`、`tools/run_multi_formula.md`
