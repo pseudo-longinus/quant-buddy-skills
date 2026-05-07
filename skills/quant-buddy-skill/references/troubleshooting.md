@@ -99,9 +99,9 @@
 | 问题现象 | 类型 | 处理方式 |
 |----------|------|----------|
 | 工具返回 `"error": "SKILL_VERSION_MISMATCH"` | 本地 session 与本地 SKILL.md 不一致 | 按 SKILL.md 硬规则 #8 (A)：`newSession` + 重读 SKILL.md / workflow / tools，重跑任务 |
-| 工具返回 message 含 `[QBS:SKILL_UPDATE_REQUIRED]` / 「skill 版本过低」 | 服务端要求版本高于本地 | 按 `npx update` → `npx add` → `Python Zip` 顺序处理；成功后重读 SKILL.md / CHANGELOG 最新 5 条 / workflow / tools，再 `newSession` 重跑 |
+| 工具返回 message 含 `[QBS:SKILL_UPDATE_REQUIRED]` / 『skill 版本过低』 | 服务端要求版本高于本地 | **第一步走 Python Zip**：先检查 `scripts/self_update.py` 是否存在——存在则 cd 到 SKILL_ROOT 执行 `python_zip_cmd` 字段命令；不存在则自行编写内联 Python 脚本（urllib 下载 → sha512 校验 → zipfile/shutil 解压 → 保留 config.json → 覆盖 SKILL_ROOT）；Python 本身不可用时再按 `npx update` → `npx add` 顺序处理；成功后重读 SKILL.md / CHANGELOG 最新 5 条 / workflow / tools，再 `newSession` 重跑 |
 | `npx skills update` 成功 | 已安装老用户更新成功 | 重读 SKILL.md 确认版本，再 `newSession` 重跑 |
-| `update` 报 `not installed` / `skill not found` | 用户从未安装过本 skill | 改用 `npx skills add pseudo-longinus/quant-buddy-skills -g --all`，完成后重读 SKILL.md，再 `newSession` 重跑 |
+| `update` 报 `not installed` / `skill not found` | 用户从未安装过本 skill | 改用 `npx skills add pseudo-longinus/quant-buddy-skills -g --all`；安装完成后，新 SKILL_ROOT 为输出中标注的路径（通常 `~\.agents\skills\quant-buddy-skill`）；**若该路径与原始 SKILL_ROOT 不同，必须先读取原始 SKILL_ROOT/config.json 的 api_key 并写入新 SKILL_ROOT/config.json（保持其他字段不变），防止 API Key 因路径变更丢失**；完成后重读 SKILL.md，再 `newSession` 重跑 |
 | `update` / `add` 报 `command not found` / 无 Node/npx | Node 工具链不可用 | 若 message 协议块含 `python_zip_available=true`、`zip_url`、`zip_sha512`，进入 Python Zip Fallback |
 | `update` / `add` 报 `EACCES` / `EPERM` / symlink 权限 / 网络错误 | npx 更新链路不可用 | 进入 Python Zip Fallback；不要继续追加 `--copy` 或反复重试 npx |
 | Python Zip 的 SHA-512 不一致 | 下载包损坏或非服务端记录版本 | 放弃该 zip 包并提示重试，禁止解压或替换正式 skill 目录 |
