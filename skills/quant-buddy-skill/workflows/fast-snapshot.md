@@ -1,19 +1,19 @@
-# 快速执行 · 最新时点行情/估值快照
+# 快速执行 · 行情/估值快照与固定区间序列
 
-> **适用范围**：≤3 个资产，查询最新交易日的行情/估值字段（标量）。  
-> 本 workflow 使用 `fast_query` 单次调用完成（无需 confirmMultipleAssets / runMultiFormulaBatch / readData）。
+> **适用范围**：≤3 个资产，查询最新交易日的行情/估值字段（标量），或固定日期范围内的行情/估值最后有效值/完整序列。
+> 本 workflow 使用 `fast_query` 单次调用完成（无需 runMultiFormulaBatch / readData）。
 
 ---
 
 ## 执行步骤（3 步，严格顺序）
 
 ```
-① 从用户意图提取 assets 和 fields（参照下方字段映射表）
-→ ② 调用 fast_query（query_type="snapshot"）
-→ ③ 从 results[].fields[].value + date 提取结果，输出最终答案
+① 从用户意图提取 assets、fields 和可选日期范围（参照下方字段映射表）
+→ ② 调用 fast_query（query_type="snapshot"；区间序列时传 result_mode="series"）
+→ ③ 从 value/date 或 series[] 提取结果，输出最终答案
 ```
 
-**停止条件**：fast_query 返回 `success: true`，目标字段均有 `value` → 立刻停止，不得再调用任何工具。
+**停止条件**：fast_query 返回 `success: true`，且目标字段均有 `value`（value 模式）或 `series[]`（series 模式）→ 立刻停止，不得再调用任何工具。
 
 ---
 
@@ -46,6 +46,8 @@
 
 > **`user_query` 必填**：调用 `fast_query` 时仍需在参数中携带用户原始问题，供服务端 trace 分析（不依赖 call.py 自动注入）。
 
+最新值 / 区间最后有效值使用默认 `result_mode="value"`，可省略：
+
 ```json
 {
   "assets": ["贵州茅台", "比亚迪"],
@@ -55,16 +57,55 @@
 }
 ```
 
+固定区间最后有效值：
+
+```json
+{
+  "assets": ["贵州茅台"],
+  "query_type": "snapshot",
+  "fields": ["收盘价", "PE_TTM"],
+  "start_date": 20210101,
+  "end_date": 20211231,
+  "user_query": "<用户的原始问题>"
+}
+```
+
+固定区间完整序列：
+
+```json
+{
+  "assets": ["贵州茅台"],
+  "query_type": "snapshot",
+  "fields": ["收盘价"],
+  "start_date": 20210101,
+  "end_date": 20211231,
+  "result_mode": "series",
+  "user_query": "<用户的原始问题>"
+}
+```
+
 ---
 
 ## ③ 取值与输出规则
 
+### value 模式（默认）
+
 - 每字段取 `results[i].fields[j].value` 和 `fields[j].date`
 - `unit` 字段已给出单位，直接使用
 - **涨跌幅**：`value` 已是百分比数（如 `-2.74`），直接加 `%`，**不再乘 100**
-- `date` 为最新交易日；若 `date` 早于当前自然日，声明「以下为最后可得交易日 YYYY-MM-DD 的数据」
+- 未传日期范围时，`date` 为最新交易日；若 `date` 早于当前自然日，声明「以下为最后可得交易日 YYYY-MM-DD 的数据」
+- 传入日期范围时，`value/date` 表示该区间内最后一个有效值
 
 **输出首句格式**：`{资产名} 最新数据（{date}）：{字段1} {value1}{unit}，{字段2} {value2}{unit}…`
+
+固定区间最后有效值首句：`{资产名} 在 {start_date} 至 {end_date} 的最后可得数据（{date}）：{字段1} {value1}{unit}…`
+
+### series 模式
+
+- 每字段取 `results[i].fields[j].series`，结构为 `[{date, value}, ...]`
+- `series` 按日期升序，直接用于走势表或区间序列回答
+- **涨跌幅序列**：`series[*].value` 已是百分比数，直接加 `%`，**不再乘 100**
+- 若用户只要走势/序列，输出日期和值；若用户要区间统计，可基于 `series[*].value` 计算最高、最低、首末变化等简单统计
 
 ---
 
@@ -72,7 +113,8 @@
 
 | fast_query 返回 | 处理方式 |
 |---|---|
-| Layer 1（任何 code） | 退出 fast path → `global-rules.md` → `quick-snapshot.md` |
+| Layer 1（MISSING_START_DATE / INVALID_DATE_RANGE / INVALID_RESULT_MODE / DATE_RANGE_WINDOW_CONFLICT） | 退出 fast path → `global-rules.md` → `quick-snapshot.md` 或完整链路 |
+| Layer 1（任何其他 code） | 退出 fast path → `global-rules.md` → `quick-snapshot.md` |
 | Layer 2（ASSET_NOT_FOUND） | 告知用户该资产未识别；其余资产结果正常输出 |
 | Layer 3（FIELD_MARKET_MISMATCH） | 告知用户该字段仅支持 A 股 |
 | Layer 3（FIELD_UNRESOLVABLE） | 告知用户字段不在支持范围，其余字段正常输出 |

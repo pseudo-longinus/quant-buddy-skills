@@ -268,10 +268,6 @@ class QuantAPI:
         """按卡片 ID 批量获取公式。"""
         return self._call("getCardFormulas", {"card_ids": card_ids})
 
-    def confirm_multiple_assets(self, intentions: list) -> dict:
-        """确认资产名称和代码。intentions 是字符串数组，如 ["贵州茅台", "沪深300"]。"""
-        return self._call("confirmMultipleAssets", {"intentions": intentions})
-
     def confirm_data_multi(self, data_desc: str) -> dict:
         """确认平台数据项。data_desc 是逗号分隔字符串，如 "换手率,市盈率"。"""
         return self._call("confirmDataMulti", {"data_desc": data_desc})

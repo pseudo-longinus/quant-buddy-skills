@@ -601,14 +601,6 @@ def _normalize_params(tool_name, params):
     if not isinstance(params, dict):
         return params
 
-    # confirmMultipleAssets: assets/names/queries → intentions
-    if tool_name == "confirmMultipleAssets":
-        if "intentions" not in params or not params["intentions"]:
-            for alias in ("assets", "names", "queries", "items"):
-                if alias in params and params[alias]:
-                    params["intentions"] = params.pop(alias)
-                    break
-
     # runMultiFormulaBatch: formulas 元素必须是字符串，不能是对象
     if tool_name == "runMultiFormulaBatch" and "formulas" in params:
         fixed = []

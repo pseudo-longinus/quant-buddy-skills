@@ -19,7 +19,7 @@
 | `re_render_chart` | fixed | 1 | |
 | `read_data` | fixed | 2 | |
 | `search_similar_cases` | fixed | 5 | |
-| `confirm_multiple_assets` | deferred | 1～6 × 意图数 | DB 精确匹配 1 RU，LLM 路径 6 RU |
+| `assets_db` 本地资产库 | deferred | 1～6 × 意图数 | DB 精确匹配 1 RU，LLM 路径 6 RU |
 | `confirm_data_multi` | deferred | 1～26 × 意图数 | DB 精确匹配 1 RU，LLM 路径 26 RU |
 | `run_multi_formula` | dynamic | **7 × 公式数** | 单次最多 20/30/40 个（free/plus/pro） |
 | `scan_dimensions` | dynamic | **12 × 维度数** | 全维度(8) = 96 RU |

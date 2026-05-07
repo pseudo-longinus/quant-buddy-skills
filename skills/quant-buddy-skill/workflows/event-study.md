@@ -11,7 +11,7 @@
 1. **evidence-only**：最终答案只输出工具结果支持的数值/日期/排名/口径说明；**禁止**输出"新冠疫情冲击""市场环境""利好出尽""政策宽松预期""OPEC+减产谈判"等无工具证据的归因——即使你认为这些是"常识"也不行
 2. **去过程化**：禁止「已成功获取」「让我来」「按照流程」「Step 1/2/3」「数据已获取」等过程性话术；禁止泄露 `_working/` 路径/checkpoint/workflow 名
 3. **事件定义逐字冻结**：用户说"2015年12月、2022年3月、2022年5月三次"就只查这三次，不得泛化为"2015-2022年区间内所有加息"；用户说"过去10年"就严格按10年筛选，不得扩大到更早
-4. **资产口径冻结**：`confirmMultipleAssets` 返回与用户原口径不一致时，禁止静默替代
+4. **资产口径冻结**：`assets_db` 本地资产库 返回与用户原口径不一致时，禁止静默替代
 5. **输出前自检**：输出最终答案前，必须执行 global-rules 的 ⛔ 最终答案自检清单（删过程话术 → 删无证据归因 → 校验汇总数值 → 核对 Working State）
 
 ### 最小执行链（强制，不得跳过任何一步）
@@ -19,7 +19,7 @@
 ```
 1. read_skill_file("workflows/global-rules.md")        ← 未完成则停止
 2. 冻结 event_definition  → write event_definition.json ← 未完成则停止
-3. confirmMultipleAssets 确认资产                        ← 未完成则停止
+3. grep presets/assets_db/{类型}.yaml 确认资产                        ← 未完成则停止
 4. 确定事件日期 → write event_candidates.json            ← 未完成则停止
 5. read event_candidates.json 读回确认
 6. buildEventStudy
@@ -41,7 +41,7 @@
 
 | CP | 名称 | 已验证状态 | Acceptance Test |
 |----|------|-----------|-----------------|
-| E0 | 场景+模式冻结 | 模式(single/compare/threshold)、资产、窗口已确定 | 模式为三者之一；资产已通过 confirmMultipleAssets；窗口在映射表内 |
+| E0 | 场景+模式冻结 | 模式(single/compare/threshold)、资产、窗口已确定 | 模式为三者之一；资产已通过 presets/assets_db 唯一命中；窗口在映射表内 |
 | E1 | 事件日期冻结 | 事件日期列表已确定 | 至少 1 个有效 YYYYMMDD 日期；跨时区口径已校正 |
 | E2 | 公式生成冻结 | buildEventStudy 已返回 formulas | formulas 数组非空；warnings 已记录 |
 | E3 | 数据已取 | runMultiFormulaBatch + readData 完成 | 每个窗口至少有 1 个有效数值；无全 NaN 列 |
@@ -148,7 +148,7 @@ Step 0  阈值事件日识别（本模式独有）
 
 当阈值条件涉及可计算的数值指标（价格、指数点位、收益率、估值倍数等）时：
 
-1. **用 confirmMultipleAssets 确认资产**
+1. **用 grep presets/assets_db/{类型}.yaml 确认资产**
 2. **用 confirmDataMulti 确认度量指标**（如 `收盘价()`、`PE(TTM)` 等）
 3. **用 runMultiFormulaBatch 在公式层完成阈值筛选**（begin_date 需覆盖足够历史区间）——必须在公式中直接生成布尔掩码（如 `HIT=("月收益率"<-0.20)`），而不是取回完整序列后在回答层人工扫描
 4. **用 readData (`last_column_full`) 读取筛选结果（布尔掩码 / 命中月份）**——因为只有少数命中点为 1，输出不会被截断

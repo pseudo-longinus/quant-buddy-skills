@@ -2,10 +2,9 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.20.7
+version: 4.20.8
 description: 
-  查询A股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等行情与估值数据。
-  查询港股、美股股票及指数的收盘价、开盘价、涨跌幅、成交量、成交额等行情价格数据。
+  查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据。
   查询最近N个交易日的价格序列、日涨跌幅序列、窗口最高价、最低价、振幅等短期统计。
   查询上市公司最近报告期的营业收入、净利润、归母净利润、ROE、总资产、资产负债率等财务指标（A股）。
   支持A股选股筛选、因子计算、策略回测、净值对比、行业聚合排名、上传自有因子CSV、渲染图表。
@@ -15,7 +14,7 @@ description:
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.20.7
+  version: 4.20.8
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -26,7 +25,6 @@ metadata:
   requiredConfigPaths:
     - config.json
   requiredEnvVars:
-    - QUANT_BUDDY_API_KEY (optional override)
     - BOCHA_API_KEY (optional)
   networkEndpoints:
     - https://www.quantbuddy.cn/skill
@@ -34,7 +32,6 @@ metadata:
   pythonPackages:
     - python-dateutil (optional)
     - Pillow (optional)
-    - requests (optional, Bocha event-news search)
 requiredCredentials:
   - name: quant-buddy API Key
     required: true
@@ -42,18 +39,13 @@ requiredCredentials:
     storage: config_file
     path: config.json
     field: api_key
-    description: quant-buddy 平台 API Key。默认存储位置：skill 目录下的 config.json 的 `api_key` 字段；也可由 config.local.json 或环境变量 QUANT_BUDDY_API_KEY 覆盖。使用时作为 HTTP `Authorization` 头仅发送给 `networkEndpoints` 中声明的 quantbuddy 域名用于鉴权，不会被写入日志或转发给第三方主机。
+    description: quant-buddy 平台 API Key。存储位置：skill 目录下的 config.json 的 `api_key` 字段（本 skill 不读环境变量版本的该 Key）。使用时作为 HTTP `Authorization` 头仅发送给 `networkEndpoints` 中声明的 quantbuddy 域名用于鉴权，不会被写入日志或转发给第三方主机。
     how_to_get: "https://www.quantbuddy.cn/login"
 requiredConfigPaths:
   - path: config.json
     required: true
-    description: Skill 目录下的 API Key 配置文件，仅包含 quant-buddy api_key 和两个公开端点配置，由 skill 本地脚本读取；config.local.json 或环境变量 QUANT_BUDDY_API_KEY 可覆盖该 api_key；api_key 仅作为 HTTP `Authorization` 头发给 `networkEndpoints` 中声明的 quantbuddy 域名，不发送给其他主机。
+    description: Skill 目录下的 API Key 配置文件，仅包含 quant-buddy api_key 和两个公开端点配置，由 skill 本地脚本读取；api_key 仅作为 HTTP `Authorization` 头发给 `networkEndpoints` 中声明的 quantbuddy 域名，不发送给其他主机。
 requiredEnvVars:
-  - name: QUANT_BUDDY_API_KEY
-    required: false
-    sensitive: true
-    description: 可选。作为 quant-buddy API Key 的运行时覆盖来源；优先级高于 config.local.json 和 config.json。使用时作为 HTTP `Authorization` 头仅发送给 `networkEndpoints` 中声明的 quantbuddy 域名。
-    how_to_get: "https://www.quantbuddy.cn/login"
   - name: BOCHA_API_KEY
     required: false
     sensitive: true
@@ -74,10 +66,6 @@ runtimeRequirements:
       version: ">=9.0"
       required: false
       description: Used by scripts/call.py saveChart command to convert chart images to JPEG. Falls back gracefully (writes raw bytes) if not installed; no credential exposure risk.
-    - name: requests
-      version: ">=2.0"
-      required: false
-      description: Used by scripts/event_study_local.py for the optional Bocha event-news search feature.
 ---
 
 # 观照量化投研
@@ -100,9 +88,8 @@ runtimeRequirements:
      ```
      之后**所有 `python scripts/call.py` 都必须在这同一个 terminal 会话里跑**（环境变量只在该会话内可见）。如此每个对话独占 `output/.session.<key>.json` 文件，互不覆盖。未设置时退化到默认 `.session.json`，仅适合单会话场景。
    - **唯一例外**：同一对话中的追问/续问（如"再画个图""换个时间段"），可复用当前 session（`QBS_SESSION_KEY` 也保持不变）。
-2. **原生工具优先，脚本包装仅限无原生等价能力时**：平台已提供的原生工具（`fast_query`、`confirmMultipleAssets`、`confirmDataMulti`、`runMultiFormulaBatch`、`readData`、`renderKLine`、`renderChart` 等）必须优先直接调用；禁止用 `run_skill_script`、shell 命令、`GZQ_PARAMS=... python scripts/call.py ...` 等方式包装这些原生工具；`scripts/call.py` 仅用于：① `newSession` 等管理动作；② workflow 明确要求的本地脚本步骤；③ 平台不存在等价原生工具时的兜底。
-   - **⛔ 典型违规反例（直接失败）**：`confirmMultipleAssets` 的 `intentions` 本身就是数组，设计意图是「一次传多个资产名同时确认」；**任何在 for 循环 / while 循环里对它重复调用的写法都是违规**，无论是通过原生工具还是 `scripts/call.py` 包装。需批量确认资产时，应单次调用并传完整数组；若数组过大，则按批传入（每批一次调用），而不是每个资产调用一次。
-  - **确认资产也必须先查本地库**：用户明确说「确认资产 / 批量确认 / confirm / 找代码 / 找ticker」时，仍然先走本地资产路由：`presets/assets.yaml`（可读完）→ `grep presets/assets_db/{类型}.yaml`（禁止整文件读取）→ 仍未命中再调用 `confirmMultipleAssets`。不得因为用户使用了「确认」二字就直接调用工具。
+2. **原生工具优先，脚本包装仅限无原生等价能力时**：平台已提供的原生工具（`fast_query`、`confirmDataMulti`、`runMultiFormulaBatch`、`readData`、`renderKLine`、`renderChart` 等）必须优先直接调用；禁止用 `run_skill_script`、shell 命令、`GZQ_PARAMS=... python scripts/call.py ...` 等方式包装这些原生工具；`scripts/call.py` 仅用于：① `newSession` 等管理动作；② workflow 明确要求的本地脚本步骤；③ 平台不存在等价原生工具时的兜底。
+  - **确认资产也必须先查本地库**：用户明确说「确认资产 / 批量确认 / confirm / 找代码 / 找ticker」时，仍然先走本地资产路由：`grep presets/assets_db/{类型}.yaml`（禁止整文件读取）→ 未命中则停止并向用户澄清。不得因为用户使用了「确认」二字就直接调用远程工具。
   - **英文代码无市场后缀时必须 grep 确认格式**：用户直接输入英文股票代码（如 `GOOGL`、`AAPL`、`BIDU`）但未携带市场后缀（`.O`、`.N`、`.A`）时，**不得凭 user memory / 猜测 / 拼接后缀直接查数**，必须先 `grep presets/assets_db/stock_us.yaml` 找到正确 ticker 后再调用工具。
   - **⛔ 严禁用 inline 解释器 heredoc / `-c` 包装 `scripts/call.py`**：以下写法**全部违规**，无论参数有多复杂、批次有多少、依赖关系有多绕：
     - `python - <<'PY' ... subprocess.run(['python','scripts/call.py','<工具名>',...]) ... PY`
@@ -110,7 +97,7 @@ runtimeRequirements:
     - `node -e "...child_process.execSync('python scripts/call.py ...')..."`
     - 任何在 inline 脚本里 `for/while` 循环驱动多批 `runMultiFormulaBatch` 的写法
     - **理由**：这种「自写 driver 脚本」会绕过本 skill 的 session 注入、配额校验、错误协议；trace 中表现为 task_id 漂移、stdout 阻塞、`/tmp/gzq_out.txt` 在 Windows 上不存在等连锁失败。call.py 的兜底地位**只允许一层调用**（shell → call.py），不允许在它外面再套 python/node 解释器。
-  - **多批 `runMultiFormulaBatch` 的合规模板**：当公式数超过单批硬上限（**10 条/批**，本 skill 保守收紧）需切批时，切批与编排**必须由 LLM 自己在工具调用之间完成**，禁止写脚本自动化。每批一次独立调用；任何参数预处理（读 md、regex、依赖分析、生成 `force_reusable_array`）都在 LLM 推理中完成，必要的中间产物用 `create_file` 落盘到 `output/tmp_batches/batch_K.json`，然后逐批用：
+  - **多批 `runMultiFormulaBatch` 的合规模板**：当公式数超过单批硬上限（20 条）需切批时，切批与编排**必须由 LLM 自己在工具调用之间完成**，禁止写脚本自动化。每批一次独立调用；任何参数预处理（读 md、regex、依赖分析、生成 `force_reusable_flags`）都在 LLM 推理中完成，必要的中间产物用 `create_file` 落盘到 `output/tmp_batches/batch_K.json`，然后逐批用：
     ```bash
     GZQ_PARAMS="$(cat output/tmp_batches/batch_K.json)" python scripts/call.py runMultiFormulaBatch
     ```
@@ -127,42 +114,12 @@ runtimeRequirements:
    - **事件口径扩大**（如"年报/半年报"禁止扩大为全部业绩披露类型）
    - **卡片附加条件继承**：命中知识卡片后，若卡片含用户未明确提出的"首次/非ST/封板/流动性门槛"等附加条件，必须先删除再执行，禁止默默继承进最终答案
 7. **任务含糊时先反问，禁止猜测开干**：若用户的指令有 **2 种以上合理解读**（如"批量确认X"不清楚是确认指数本身还是全部成分股、"分析一下Y"不清楚要哪个维度），**第一步必须向用户提问澄清，不得凭推测选择一种解读自行执行**。反问应简洁列出各种可能（例："您的意思是 ① … 还是 ② …？"），等用户确认后再继续。**唯一例外**：用户语义明确无歧义（如"给我贵州茅台今日收盘价"），无需反问。
-8. **检测到版本不匹配时必须按规定流程自愈，禁止以任何方式伪造版本号**：版本不匹配信号有两类，必须分别处理。
-
-   **【P0 红线 — 任何情况下都不允许】**
-   - ❌ 禁止用 `replace_string_in_file` / `multi_replace_string_in_file` / `create_file` 覆盖 / 终端 `sed`、`echo >` 等任何手段，修改本地 `SKILL.md`、`config.json`、`scripts/*.py`、`CHANGELOG.md` 中任何 `version: x.y.z` / `metadata.version` / `_read_skill_version()` 相关字段，企图让本地版本号"对上"服务端。
-   - ❌ 禁止把 `.session.json` 的 `skill_version_at_creation` 改成新值绕过本地校验。
-   - ⚠️ 这种"改字符串骗过校验"是**欺骗式自愈**：本地工具签名/参数格式仍是旧版，下次调用必然继续失败或行为错乱，且会污染用户工作目录。一旦你**正在考虑**做这类编辑，立即停手并改走下面的 (A) / (B) 流程。
-
-   **(A) 类：本地 session 与本地 SKILL.md 版本不匹配**（信号：工具输出含 `"error": "SKILL_VERSION_MISMATCH"`，由本地 `scripts/call.py` 校验抛出，原因是当前 session 创建时记录的版本 ≠ 当前本地 SKILL.md 版本，通常是用户中途升级了 skill）：
+8. **工具返回 `SKILL_VERSION_MISMATCH` 时必须自愈，不得继续执行原任务**：当任何工具调用的输出中出现 `"error": "SKILL_VERSION_MISMATCH"` 时，说明当前对话上下文中的工具签名/参数格式已过时。此时必须执行以下自愈流程（每步不得省略）：
    1. **立即停止**当前任务，不得再调用任何平台工具；
-   2. 调用 `newSession`（新建 session，获取新 task_id，并写入新版本号）；
-   3. **强制重读** `SKILL.md`（本文件）+ 当前场景对应的 workflow 文档 + 涉及的 `tools/*.md`；
+   2. 调用 `newSession`（新建 session，获取新 task_id）；
+   3. **强制重读** `SKILL.md`（本文件）+ 当前场景对应的 workflow 文档 + 涉及的 tools/*.md；
    4. 以**新读取**的工具签名和参数格式重新执行用户原始任务；
    5. **禁止**询问用户"是否继续"或解释版本升级过程——直接静默完成自愈并返回结果。
-
-   **(B) 类：服务端要求版本高于本地 skill 版本**（信号：任何工具返回的 message / intro / error 中出现 `[QBS:SKILL_UPDATE_REQUIRED]`、"skill 版本过低"、"请执行以下命令更新"、"npx skills update"、"skill_server_version"、`code: -1` 且文案提示更新等；或者 `newSession` 返回的 `skill_version` 与服务端最新版本不一致而服务端要求强制升级）：
-   1. **立即停止**当前任务，不得继续调用任何平台工具（再调也只会重复报错）；
-   2. 若 message 顶部包含 `[QBS:SKILL_UPDATE_REQUIRED]` 协议块，先解析其中的 `required_version`、`update_cmd`、`add_cmd`、`python_zip_available`、`zip_url`、`zip_sha512`、`zip_root` / `github_zip_skill_path`；若缺少协议块，则使用下方默认命令；
-   3. **第一步先执行 update**（老用户更新路径）：
-      ```bash
-      npx skills update pseudo-longinus/quant-buddy-skills -y
-      ```
-      若协议块提供了 `update_cmd`，以协议块命令为准；
-   4. **update 明确提示未安装时才执行 add**（新用户首装路径）：
-      ```bash
-      npx skills add pseudo-longinus/quant-buddy-skills -g --all
-      ```
-      若协议块提供了 `add_cmd`，以协议块命令为准；
-   5. **update / add 因 `command not found`、无 Node/npx、`EACCES`、`EPERM`、symlink 权限、网络/registry/GitHub 不通等原因失败时，进入 Python Zip Fallback**；仅当协议块声明 `python_zip_available=true` 且同时提供 `zip_url` 与 `zip_sha512` 时允许执行；
-   6. Python Zip Fallback 必须先下载官方 zip，再流式计算 SHA-512；若本地计算值与 `zip_sha512` 不一致，**放弃该 zip 包并把原始错误交给用户**，禁止解压或替换正式 skill 目录；
-   7. Python Zip Fallback 解压时必须使用 staging 临时目录，拒绝绝对路径 / `../` / Windows 盘符路径，确认 `SKILL.md` 版本等于 `required_version` 后再替换；更新过程中必须保留 `config.json` / `config.local.json`，不得覆盖用户 API Key；
-   8. update / add / Python Zip 任一路径成功后，**强制重读** `SKILL.md`（确认 `version` 已是新版）+ `CHANGELOG.md` 最新 5 个版本条目 + 当前场景的 workflow + 相关 `tools/*.md`；
-   9. 调用 `newSession` 重建 session（让 `skill_version_at_creation` 更新为新版）；
-   10. 以新版工具签名重新执行用户原始任务。
-   11. 若所有更新路径均失败，把原始错误整段交给用户，**不要**自行改文件凑数、不要换源、不要换包名、不要修改版本号或 session 文件伪装通过。
-
-   **判别提示**：分不清是 (A) 还是 (B) 时，**先按 (A) 跑一遍** newSession + 重读；如果重试仍立刻报版本错或服务端继续提示要更新，就转 (B) 按 `npx update` → `npx add` → `Python Zip` 顺序处理。**永远不要**反过来"先改本地版本号试试看"。
 
 ## 最小充分原则（任何动作前自检）
 
@@ -394,7 +351,7 @@ SKILL_ROOT/
 
 | ✅ 支持 | ⚠️ 有条件支持 | ❌ 不支持（短期内不会支持） |
 |------|------|------|
-| A股个股（沪深主板/创业板/科创板/北交所） | ETF / LOF / 场外基金（先以 `confirmMultipleAssets` 结果为准，能确认则正常执行；确认失败才告知不支持） | 期货 / 期权 |
+| A股个股（沪深主板/创业板/科创板/北交所） | ETF / LOF / 场外基金（先 grep 本地资产库，能唯一命中则正常执行；未命中才告知不支持） | 期货 / 期权 |
 | 港股个股（HK + 代码，如 HK0001） | | 台股 / 韩股 / 日股 / 德股等其他境外市场 |
 | 美股个股（NASDAQ: 代码.N；NYSE: 代码.O；AMEX: 代码.A） | | |
 | 主要宽基指数（沪深300、中证500、万得全A等） | | |
@@ -422,7 +379,7 @@ SKILL_ROOT/
 
 ## 前置条件（按需执行，不是简单查数的默认首步）
 
-> **凭据存储说明**：本 skill 的 quant-buddy API Key 默认存放在 skill 目录下的 `config.json` 的 `api_key` 字段；`config.local.json` 或环境变量 `QUANT_BUDDY_API_KEY` 可作为本地覆盖来源。仅可选的 `BOCHA_API_KEY`（事件新闻搜索）走事件研究辅助功能。
+> **凭据存储说明**：本 skill 的 quant-buddy API Key **只存放在 skill 目录下的 `config.json` 的 `api_key` 字段**，不使用环境变量（`QUANT_BUDDY_API_KEY` 等环境变量不会被读取）。仅可选的 `BOCHA_API_KEY`（事件新闻搜索）走环境变量。
 
 仅在以下情形下，才需要显式读取 `config.json` 检查 `api_key`：
 - 本轮实际需要调用本地脚本或平台工具，且当前环境尚未建立可用 session
@@ -471,9 +428,7 @@ SKILL_ROOT/
 python scripts/call.py <工具名> '{"key":"value"}'
 ```
 
-结果直接从 stdout 获取。若 stdout 被截断，可回读临时文件 `gzq_out.txt`：
-- Linux/macOS：`cat /tmp/gzq_out.txt`
-- Windows PowerShell：`Get-Content "$env:TEMP\gzq_out.txt" -Encoding UTF8`
+结果直接从 stdout 获取。若 stdout 被截断，可回读 `/tmp/gzq_out.txt`。
 
 也可通过环境变量传参（适用于参数含特殊字符的场景）：
 

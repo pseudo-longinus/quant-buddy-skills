@@ -21,7 +21,7 @@
 
 ### 首选路径（默认必须先尝试）
 1. `runMultiFormulaBatch` 生成单资产一维时间序列
-2. `readData(mode="last_n_rows", last_n_rows=N)` 读取尾部 N 行
+2. `readData(mode="range_data", start_date=..., end_date=...)` 读取受限日期区间的连续数据，再在回答层取尾部 N 条有效记录
 
 ### Backward Recovery（失败时）
 
@@ -33,7 +33,7 @@
 | W3 统计结果不合理 | W2 | 实现路径（统计方式） | 引入窗口外数据 |
 
 ### 受控降级（仅 W2 失败时）
-- 仅当 `last_n_rows` 因工具能力限制明确不可用时，才允许进入受控降级
+- 仅当 `range_data` 因工具能力限制明确不可用时，才允许进入受控降级
 - 降级后必须只保留末尾 N 行与必要统计结果，不得继续保留全量历史文本
 - 降级最多 1 次，仍失败则进入安全失败模板
 
@@ -105,7 +105,7 @@ Step 1 确认资产（见本文档末尾「自包含执行规则」）
 
 **`begin_date` 上下文预算保护（硬规则，违反会导致 token 超限崩溃）：**
 
-> ⚠️ **此规则优先级高于任何默认值**。`last_column_full` 会返回 begin_date 以来的全部历史，若 begin_date 设得太早，返回数据会直接撑爆模型上下文。
+> ⚠️ **此规则优先级高于任何默认值**。`range_data` 会返回指定区间的完整连续数据，日期范围过宽会直接撑爆模型上下文。
 
 ## 参数合同：最近 N 个交易日（硬规则）
 
@@ -195,31 +195,31 @@ Step 1 确认资产（见本文档末尾「自包含执行规则」）
 
 仅当用户明确要看**逐日数据列表**时才走此路径。
 
-调用 `readData` 时只取末尾 N 条，禁止展开全量历史分析。
+调用 `readData` 时只读取覆盖尾部 N 条所需的受限日期区间，禁止展开全量历史分析。
 
 **readData 调用规则（必须逐条遵守）：**
 
 1. **每次只读一个 data_id**：即使有多个序列，也必须逐个调用。禁止一次传多个 id。
-2. 使用 `last_column_full` 模式。
-3. **必须传 `start_date`** 参数控制返回范围：设为 `当前日期 − 3×N 天`（自然日）。
-   - 示例：N=5，今天 20260331 → `start_date: 20260316`
-   - 示例：N=20，今天 20260331 → `start_date: 20260201`
+2. 使用 `range_data` 模式。
+3. **必须同时传 `start_date` 和 `end_date`**：`start_date` 设为 `当前日期 − 3×N 天`（自然日），`end_date` 设为当前日期或用户指定结束日。
+   - 示例：N=5，今天 20260331 → `start_date: 20260316, end_date: 20260331`
+   - 示例：N=20，今天 20260331 → `start_date: 20260201, end_date: 20260331`
 
 ```json
-{"ids": ["<单个_data_id>"], "mode": "last_column_full", "start_date": 20260201}
+{"ids": ["<单个_data_id>"], "mode": "range_data", "start_date": 20260201, "end_date": 20260331, "nan_handling": "keep"}
 ```
 
-> ⚠️ 平台限制：一维时间序列不支持 `table_data`、`last_n_rows` 等精确截断模式，
-> `last_column_full` 是**唯一**能返回带日期时间序列的模式。配合 `start_date` 限制返回范围。
-> **若 `start_date` 不生效**（返回仍含大量早期数据），立刻放弃 readData，改走路径 A 用公式内聚合。
+> `range_data` 返回完整连续区间数据，不采样；读取后从 `range_data.dates` / `range_data.values` 末尾取 N 条有效记录。
+> **若日期区间内有效记录不足 N 条**，必须前移 `start_date` 后最多重试 1 次；仍不足则说明可用交易日不足。
 
 - ⛔ 禁止 `smart_sample`（返回均匀采样，无法获取连续尾部数据）
 - ⛔ 禁止 `last_day_stats`（只有末日统计，无序列）
 - ⛔ 禁止 `table_data`（一维数据不支持，会返回错误）
+- ⛔ 禁止旧的 `full` / `last_n_rows` 模式
 - 最终只围绕用户指定的 N 日窗口展开，**不引用窗口外的数据点**
 
 **返回结果校验：**
-- 从返回的 `time_series` 末尾取 N 条，忽略其余
+- 从返回的 `range_data.dates` / `range_data.values` 末尾取 N 条有效记录，忽略其余
 - 确认尾部日期与最新交易日一致（若不一致可能停牌，需注明）
 - 每个数据点必须同时具备日期和数值，缺一不可
 
@@ -339,7 +339,7 @@ Step 1 确认资产（见本文档末尾「自包含执行规则」）
 
 | # | 检查项 | 通过标准 |
 |---|--------|---------|
-| 1 | 资产已确认 | 来自 `presets/assets.yaml` 或 `confirmMultipleAssets` 返回 |
+| 1 | 资产已确认 | 来自 `presets/assets_db/{类型}.yaml` 返回 |
 | 2 | 时间序列为一维 | `runMultiFormulaBatch` 返回的 data_id 对应单资产序列 |
 | 3 | 行数 = N | `readData` 返回行数 ≤ 用户要求的 N（不足需注明） |
 | 4 | 仅窗口内统计 | 所有计算仅基于读取到的 N 行，无窗口外数据 |
@@ -475,16 +475,14 @@ Step 1 确认资产（见本文档末尾「自包含执行规则」）
 ### 确认资产（Step 1 依据）
 
 **优先级规则（按序执行，满足即停）：**
-1. 先查 `presets/assets.yaml`，找到标准 `name` 则直接使用，跳过 `confirmMultipleAssets`
+1. 先 grep `presets/assets_db/{类型}.yaml`，唯一命中则直接使用标准 `name` / `ticker`
 2. 用户同时提供中文名称和6位代码：以中文名称为主，代码仅供辅助校验
 3. 裸代码（如 `000063`）未带交易所后缀，不能单独作为可靠主键
-4. 仅在名称不存在或有歧义时，调用 `confirmMultipleAssets`
+4. 名称不存在或有歧义时，停止并向用户说明/澄清，不再调用远程资产确认
 
 ```bash
-GZQ_PARAMS='{"intentions": ["贵州茅台"], "types": ["asset"]}' python scripts/call.py confirmMultipleAssets
+grep "资产名或代码" presets/assets_db/{类型}.yaml
 ```
-
-> ⚠️ 参数名只有 `intentions` 有效——不是 queries / query / names。`types` 必须传 `["asset"]`。
 
 **资产确认硬闸门（必须执行）：**
 - 只有明确获得 `asset_match`（或 presets 中已唯一映射到标准资产）才算确认成功
@@ -512,7 +510,7 @@ GZQ_PARAMS='{"intentions": ["贵州茅台"], "types": ["asset"]}' python scripts
 
 ### 确认 ≠ 结果（硬规则）
 
-`confirmMultipleAssets` / `confirmDataMulti` 返回的是资产名称映射或数据集ID，**不包含任何行情数值**。
+`confirmDataMulti` 返回的是资产名称映射或数据集ID，**不包含任何行情数值**。
 拿到确认结果后，必须再调用 `runMultiFormulaBatch` 才能获取实际数据。
 
 ---
@@ -535,7 +533,7 @@ GZQ_PARAMS='{"intentions": ["贵州茅台"], "types": ["asset"]}' python scripts
 **readData 调用预算：** 单题最多 **3 次**，超出后按「关键字段缺失」路径回答。
 
 **Token 预算意识（硬规则）：**
-- fallback 到 readData 后，必须使用 `last_n_rows` 模式，禁止 `last_column_full`
+- fallback 到 readData 后，必须使用 `range_data` 并限制 `start_date` / `end_date`，禁止 `last_column_full` 和旧的 `last_n_rows`
 - 单题总 token 软上限 50K；接近上限时优先精简读取范围，不继续扩展操作
 
 **上下文预算保护（硬规则）：**

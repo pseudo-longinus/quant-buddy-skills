@@ -26,7 +26,7 @@
 | `readData` 返回 400 | 参数名用了 `variable_names` | 改为 `ids` 数组 |
 | `match_quality=low` | searchSimilarCases 未找到好模板 | 调整 query 关键词，**最多重试 1 次** |
 | confirmDataMulti 返回 404 | 查询的是单资产价格，不是平台聚合数据 | 用 `收盘价(资产名)` 函数，无需 confirmDataMulti |
-| confirmMultipleAssets 30次超时 | intentions 用了前缀格式如 `CMX-铜` | **优先方案**：先 `grep "铜" presets/assets_db/future.yaml` 拿到规范 name（如 `CMX-铜` / `沪铜主力合约`）直接用；**兜底**：如确需调用 `confirmMultipleAssets`，传简洁中文品种名如 `铜`、`黄金` |
+| 本地资产库未命中 | intentions 用了前缀格式如 `CMX-铜` | **优先方案**：先 `grep "铜" presets/assets_db/future.yaml` 拿到规范 name（如 `CMX-铜` / `沪铜主力合约`）直接用；**处理**：未唯一命中时停止并说明需要更明确的资产名称或代码，不再远程兜底 |
 
 ---
 
@@ -88,7 +88,7 @@
 
 | 问题现象 | 可能原因 | 处理方式 |
 |----------|----------|----------|
-| downloadData 返回 403 | 计算结果 `provider=dunhe`，无权限 | 改用 `readData(mode=full)` |
+| downloadData 返回 403 | 计算结果 `provider=dunhe`，无权限 | 改用 `readData(mode="range_data", start_date=..., end_date=...)` |
 | 下载到全量历史几千行 | 未传 begin_date | 调用前先问用户要哪段时间 |
 | 上传数据 NaN 率高 | CSV 列标题缺少交易所后缀 | 改为 `600519.SH` 格式 |
 

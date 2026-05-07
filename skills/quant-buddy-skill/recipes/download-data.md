@@ -22,13 +22,13 @@ python scripts/call.py downloadData '{"data_id":"<data_id>","begin_date":<YYYYMM
 |------|------|
 | **可下载** | 持久化一维时序：上传数据 (`provider=mydata`) 或平台数据 (`provider=guanzhao`) |
 | **不可下载** | `runMultiFormulaBatch` 的计算结果 (`provider=dunhe`)，普通用户无 `access_dunhe` 权限 → 返回 403 |
-| **替代方案** | 计算结果用 `readData(mode=full)` 读取，再自行保存为 CSV |
+| **替代方案** | 计算结果用 `readData(mode="range_data", start_date=..., end_date=...)` 读取完整区间数据，再自行保存为 CSV |
 
 ---
 
 ## 必须确认时间范围
 
-数据通常从 2015 年起，直接下载可能几千行。**调用前先问用户**：
+数据通常从 2015 年起，直接下载或 `range_data` 读取可能返回几千行。**调用前先问用户**：
 
 > "您需要下载哪段时间的数据？（默认：最近一年）"
 

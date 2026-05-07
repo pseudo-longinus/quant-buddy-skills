@@ -1,1043 +1,1043 @@
 # ============================================================
 # 美股及境外 ETF（NASDAQ .N / NYSE .O / AMEX .A）
 # 来源：MongoDB tkrsInfo 集合（type=stock，ticker 以 .N/.O/.A 结尾）
-# 格式：stock | name | ticker | 备注
+# 格式：stock | name | ticker | 备注 | short_names
 # ⚠️ 仅支持行情价格数据（收盘/开盘/涨跌幅等），不支持估值/财务
 # ============================================================
 
-stock | 3M公司 | MMM.N | 
-stock | AAON_Inc | AAON.O | 
-stock | ADT_Inc | ADT.N | 
-stock | AGNC_Investment_Corp | AGNC.O | 
-stock | APA_Corporation | APA.O | 
-stock | APi_Group_Corporation | APG.N | 
-stock | AST_SpaceMobile_Inc | ASTS.O | 
-stock | ATI_Inc | ATI.N | 
-stock | AXIS_Capital_Holdings_Limited | AXS.N | 
-stock | Acadia_Healthcare_Company_Inc | ACHC.O | 
-stock | Acuity_Brands_Inc | AYI.N | 
-stock | Advanced_Drainage_Systems_Inc | WMS.N | 
-stock | Affiliated_Managers_Group_Inc | AMG.N | 
-stock | Affirm_Holdings_Inc | AFRM.O | 
-stock | Agree_Realty_Corporation | ADC.N | 
-stock | Air_Lease_Corporation | AL.N | 
-stock | Albertsons_Companies_Inc | ACI.N | 
-stock | Alexandria_Real_Estate_Equities_Inc | ARE.N | 
-stock | Allegion_plc | ALLE.N | 
-stock | Allegro_MicroSystems_Inc | ALGM.O | 
-stock | Alliant_Energy_Corporation | LNT.O | 
-stock | Ally_Financial_Inc | ALLY.N | 
-stock | Alnylam_Pharmaceuticals_Inc | ALNY.O | 
-stock | Amdocs_Limited | DOX.O | 
-stock | Amentum_Holdings_Inc | AMTM.N | 
-stock | American_Financial_Group_Inc | AFG.N | 
-stock | American_Homes_4_Rent | AMH.N | 
-stock | Americold_Realty_Trust_Inc | COLD.N | 
-stock | Annaly_Capital_Management_Inc | NLY.N | 
-stock | Antero_Midstream_Corporation | AM.N | 
-stock | Antero_Resources_Corporation | AR.N | 
-stock | Apellis_Pharmaceuticals_Inc | APLS.O | 
-stock | AppFolio_Inc | APPF.O | 
-stock | AppLovin_Corporation | APP.O | 
-stock | Applied_Industrial_Technologies_Inc | AIT.N | 
-stock | AptarGroup_Inc | ATR.N | 
-stock | Arch_Capital_Group_Ltd | ACGL.O | 
-stock | Ares_Management_Corporation | ARES.N | 
-stock | Arista_Networks_Inc | ANET.N | 
-stock | Arm_Holdings_plc_American_Depositary_Shares | ARM.O | 
-stock | Arthur_J_Gallagher__Co | AJG.N | 
-stock | Assurant_Inc | AIZ.N | 
-stock | Assured_Guaranty_Ltd | AGO.N | 
-stock | Astera_Labs_Inc_Common_Stock | ALAB.O | 
-stock | Atlassian_Corporation | TEAM.O | 
-stock | Atmos_Energy_Corporation | ATO.N | 
-stock | Aurora_Innovation_Inc | AUR.O | 
-stock | AutoNation_Inc | AN.N | 
-stock | AvalonBay_Communities_Inc | AVB.N | 
-stock | Avantor_Inc | AVTR.N | 
-stock | Axon_Enterprise_Inc | AXON.O | 
-stock | BJs_Wholesale_Club_Holdings_Inc | BJ.N | 
-stock | BOK_Financial_Corporation | BOKF.O | 
-stock | BWX_Technologies_Inc | BWXT.N | 
-stock | BXP_Inc | BXP.N | 
-stock | Bank_OZK | OZK.O | 
-stock | Bath__Body_Works_Inc | BBWI.N | 
-stock | BeOne_Medicines_Ltd | ONC.O | 
-stock | BellRing_Brands_Inc | BRBR.N | 
-stock | Billcom_Holdings_Inc | BILL.N | 
-stock | Bio-Techne_Corporation | TECH.O | 
-stock | BioMarin_Pharmaceutical_Inc | BMRN.O | 
-stock | Block_Inc | XYZ.N | 
-stock | Blue_Owl_Capital_Inc | OWL.N | 
-stock | Boyd_Gaming_Corporation | BYD.N | 
-stock | Bright_Horizons_Family_Solutions_Inc | BFAM.N | 
-stock | Brighthouse_Financial_Inc | BHF.O | 
-stock | Brixmor_Property_Group_Inc | BRX.N | 
-stock | Broadridge_Financial_Solutions_Inc | BR.N | 
-stock | Brown__Brown_Inc | BRO.N | 
-stock | Builders_FirstSource_Inc | BLDR.N | 
-stock | Bullish | BLSH.N | 
-stock | Burlington_Stores_Inc | BURL.N | 
-stock | CACI_International_Inc | CACI.N | 
-stock | CAVA_Group_Inc | CAVA.N | 
-stock | CCC_Intelligent_Solutions_Holdings_Inc | CCCS.O | 
-stock | CDW_Corporation | CDW.O | 
-stock | CF_Industries_Holdings_Inc | CF.N | 
-stock | CMS_Energy_Corporation | CMS.N | 
-stock | CNA_Financial_Corporation | CNA.N | 
-stock | CRH_plc | CRH.N | 
-stock | CSX_Corporation | CSX.O | 
-stock | Camden_Property_Trust | CPT.N | 
-stock | CarMax_Inc | KMX.N | 
-stock | Caris_Life_Sciences_Inc | CAI.O | 
-stock | Carlisle_Companies_Incorporated | CSL.N | 
-stock | Carpenter_Technology_Corporation | CRS.N | 
-stock | Carvana_Co | CVNA.N | 
-stock | Caseys_General_Stores_Inc | CASY.O | 
-stock | Celsius_Holdings_Inc | CELH.O | 
-stock | Cencora_Inc | COR.N | 
-stock | Centene_Corporation | CNC.N | 
-stock | CenterPoint_Energy_Inc | CNP.N | 
-stock | Certara_Inc | CERT.O | 
-stock | Charter_Communications_Inc | CHTR.O | 
-stock | Chemed_Corporation | CHE.N | 
-stock | Cheniere_Energy_Inc | LNG.N | 
-stock | Chewy_Inc | CHWY.N | 
-stock | Chipotle_Mexican_Grill_Inc | CMG.N | 
-stock | Chord_Energy_Corporation | CHRD.O | 
-stock | Church__Dwight_Co_Inc | CHD.N | 
-stock | Churchill_Downs_Incorporated | CHDN.O | 
-stock | Ciena_Corporation | CIEN.N | 
-stock | Cincinnati_Financial_Corporation | CINF.O | 
-stock | Circle_Internet_Group | CRCL.N | 
-stock | Cirrus_Logic_Inc | CRUS.O | 
-stock | Citizens_Financial_Group_Inc | CFG.N | 
-stock | Clean_Harbors_Inc | CLH.N | 
-stock | Clearway_Energy_Inc | CWEN-A.N | 
-stock | Clearway_Energy_Inc | CWEN.N | 
-stock | Cloudflare_Inc | NET.N | 
-stock | CoStar_Group_Inc | CSGP.O | 
-stock | Coca-Cola_Consolidated_Inc | COKE.O | 
-stock | Coinbase_Global_Inc | COIN.O | 
-stock | Columbia_Banking_System_Inc | COLB.O | 
-stock | Comfort_Systems_USA_Inc | FIX.N | 
-stock | Commerce_Bancshares_Inc | CBSH.O | 
-stock | Concentrix_Corporation | CNXC.O | 
-stock | Confluent_Inc | CFLT.O | 
-stock | Constellation_Energy_Corporation | CEG.O | 
-stock | Copart_Inc | CPRT.O | 
-stock | Corcept_Therapeutics_Incorporated | CORT.O | 
-stock | Core__Main_Inc | CNM.N | 
-stock | Corpay_Inc | CPAY.N | 
-stock | Coterra_Energy_Inc | CTRA.N | 
-stock | Cousins_Properties_Incorporated | CUZ.N | 
-stock | Crane_NXT_Co | CXT.N | 
-stock | Credit_Acceptance_Corporation | CACC.O | 
-stock | Credo_Technology_Group_Holding_Ltd | CRDO.O | 
-stock | CrowdStrike_Holdings_Inc | CRWD.O | 
-stock | CubeSmart | CUBE.N | 
-stock | CullenFrost_Bankers_Inc | CFR.N | 
-stock | DICKS_Sporting_Goods_Inc | DKS.N | 
-stock | DTE_Energy_Company | DTE.N | 
-stock | DT_Midstream_Inc | DTM.N | 
-stock | DXC_Technology_Company | DXC.N | 
-stock | Darling_Ingredients_Inc | DAR.N | 
-stock | Datadog_Inc | DDOG.O | 
-stock | Diamondback_Energy_Inc | FANG.O | 
-stock | Digital_Realty_Trust_Inc | DLR.N | 
-stock | Dillards_Inc | DDS.N | 
-stock | DocuSign_Inc | DOCU.O | 
-stock | DoorDash_Inc | DASH.O | 
-stock | DoubleVerify_Holdings_Inc | DV.N | 
-stock | Doximity_Inc | DOCS.N | 
-stock | DraftKings_Inc | DKNG.O | 
-stock | Dropbox_Inc | DBX.O | 
-stock | Dutch_Bros_Inc | BROS.N | 
-stock | Dynatrace_Inc | DT.N | 
-stock | EMCOR_Group_Inc | EME.N | 
-stock | EOG_Resources_Inc | EOG.N | 
-stock | EPAM_Systems_Inc | EPAM.N | 
-stock | EPR_Properties | EPR.N | 
-stock | EQT_Corporation | EQT.N | 
-stock | Eagle_Materials_Inc | EXP.N | 
-stock | EastGroup_Properties_Inc | EGP.N | 
-stock | Elastic_NV | ESTC.N | 
-stock | Element_Solutions_Inc | ESI.N | 
-stock | Elevance_Health_Inc | ELV.N | 
-stock | Encompass_Health_Corporation | EHC.N | 
-stock | Enphase_Energy_Inc | ENPH.O | 
-stock | Envista_Holdings_Corp | NVST.N | 
-stock | Equitable_Holdings_Inc | EQH.N | 
-stock | Equity_LifeStyle_Properties_Inc | ELS.N | 
-stock | Equity_Residential | EQR.N | 
-stock | Erie_Indemnity_Company | ERIE.O | 
-stock | Essential_Utilities_Inc | WTRG.N | 
-stock | Essex_Property_Trust_Inc | ESS.N | 
-stock | Etsy_Inc | ETSY.N | 
-stock | Euronet_Worldwide_Inc | EEFT.O | 
-stock | Evercore_Inc | EVR.N | 
-stock | Everest_Re_Group_Ltd | EG.N | 
-stock | Evergy_Inc | EVRG.O | 
-stock | Eversource_Energy | ES.N | 
-stock | Everus_Construction_Group_Inc | ECG.N | 
-stock | Exact_Sciences_Corporation | EXAS.O | 
-stock | Exelixis_Inc | EXEL.O | 
-stock | ExlService_Holdings_Inc | EXLS.O | 
-stock | Expand_Energy_Corporation | EXE.O | 
-stock | Extra_Space_Storage_Inc | EXR.N | 
-stock | F5_Inc | FFIV.O | 
-stock | FNB_Corporation | FNB.N | 
-stock | FTAI_Aviation_Ltd | FTAI.O | 
-stock | FTI_Consulting_Inc | FCN.N | 
-stock | FactSet_Research_Systems_Inc | FDS.N | 
-stock | Federal_Realty_Investment_Trust | FRT.N | 
-stock | Fermi_Inc_Common_Stock | FRMI.O | 
-stock | Ferrovial_SE | FER.O | 
-stock | Fidelity_National_Financial_Inc | FNF.N | 
-stock | Fidelity_National_Information_Services_Inc | FIS.N | 
-stock | Figure_Technology_Solutions_Inc_Class_A_Common_Stock | FIGR.O | 
-stock | First_American_Financial_Corporation | FAF.N | 
-stock | First_Citizens_BancShares_Inc | FCNCA.O | 
-stock | First_Hawaiian_Inc | FHB.O | 
-stock | First_Horizon_Corporation | FHN.N | 
-stock | First_Industrial_Realty_Trust_Inc | FR.N | 
-stock | Five_Below_Inc | FIVE.O | 
-stock | Floor__Decor_Holdings_Inc | FND.N | 
-stock | Flowers_Foods_Inc | FLO.N | 
-stock | Formula_One_Group | FWONA.O | 
-stock | Formula_One_Group | FWONK.O | 
-stock | Freedom_Holding_Corp | FRHC.O | 
-stock | Freshpet_Inc | FRPT.O | 
-stock | GCI_Liberty_Inc | GLIBA.O | 
-stock | GCI_Liberty_Inc | GLIBK.O | 
-stock | GE_Vernova_Inc | GEV.N | 
-stock | GXO_Logistics_Inc | GXO.N | 
-stock | GameStop_Corp | GME.N | 
-stock | Gaming_and_Leisure_Properties_Inc | GLPI.O | 
-stock | Gen_Digital_Inc | GEN.O | 
-stock | Generac_Holdings_Inc | GNRC.N | 
-stock | Genpact_Limited | G.N | 
-stock | GitLab_Inc | GTLB.O | 
-stock | Globant_SA | GLOB.N | 
-stock | Globe_Life_Inc | GL.N | 
-stock | Globus_Medical_Inc | GMED.N | 
-stock | GoDaddy_Inc | GDDY.N | 
-stock | Grand_Canyon_Education_Inc | LOPE.O | 
-stock | Graphic_Packaging_Holding_Company | GPK.N | 
-stock | Guidewire_Software_Inc | GWRE.N | 
-stock | HCA_Healthcare_Inc | HCA.N | 
-stock | HDFC银行 | HDB.N | 
-stock | HEICO_Corporation | HEI-A.N | 
-stock | HEICO_Corporation | HEI.N | 
-stock | HF_Sinclair_Corporation | DINO.N | 
-stock | HR_Block_Inc | HRB.N | 
-stock | Halozyme_Therapeutics_Inc | HALO.O | 
-stock | Hamilton_Lane_Incorporated | HLNE.O | 
-stock | Hayward_Holdings_Inc | HAYW.N | 
-stock | Healthcare_Realty_Trust_Incorporated | HR.N | 
-stock | Healthpeak_Properties_Inc | DOC.N | 
-stock | Highwoods_Properties_Inc | HIW.N | 
-stock | Host_Hotels__Resorts_Inc | HST.O | 
-stock | Houlihan_Lokey_Inc | HLI.N | 
-stock | Howard_Hughes_Holdings_Inc | HHH.N | 
-stock | HubSpot_Inc | HUBS.N | 
-stock | Huntington_Bancshares_Incorporated | HBAN.O | 
-stock | IAC_InterActive_Corp | IAC.O | 
-stock | ICICI银行 | IBN.N | 
-stock | IDACORP_Inc | IDA.N | 
-stock | IPG_Photonics_Corporation | IPGP.O | 
-stock | ITT_Inc | ITT.N | 
-stock | Incyte_Corporation | INCY.O | 
-stock | Insmed_Incorporated | INSM.O | 
-stock | Inspire_Medical_Systems_Inc | INSP.N | 
-stock | Instacart_Maplebear_Inc | CART.O | 
-stock | Insulet_Corporation | PODD.O | 
-stock | Invitation_Homes_Inc | INVH.N | 
-stock | Ionis_Pharmaceuticals_Inc | IONS.O | 
-stock | JB_Hunt_Transport_Services_Inc | JBHT.O | 
-stock | Jack_Henry__Associates_Inc | JKHY.O | 
-stock | Jazz_Pharmaceuticals_plc | JAZZ.N | 
-stock | KBR_Inc | KBR.N | 
-stock | KKR__Co_Inc | KKR.N | 
-stock | Karman_Holdings_Inc | KRMN.N | 
-stock | Kemper_Corporation | KMPR.N | 
-stock | KeyCorp | KEY.N | 
-stock | Kilroy_Realty_Corporation | KRC.N | 
-stock | Kimco_Realty_Corporation | KIM.N | 
-stock | Kinsale_Capital_Group_Inc | KNSL.N | 
-stock | Kirby_Corporation | KEX.N | 
-stock | Knight-Swift_Transportation_Holdings_Inc | KNX.N | 
-stock | Kyndryl_Holdings_Inc | KD.N | 
-stock | LKQ_Corporation | LKQ.O | 
-stock | LPL_Financial_Holdings_Inc | LPLA.O | 
-stock | Lamar_Advertising_Company | LAMR.O | 
-stock | Lamb_Weston_Holdings_Inc | LW.N | 
-stock | Landstar_System_Inc | LSTR.O | 
-stock | Leonardo_DRS_Inc | DRS.O | 
-stock | Liberty_Broadband_Corporation | LBRDA.O | 
-stock | Liberty_Broadband_Corporation | LBRDK.O | 
-stock | Liberty_Global_plc | LBTYA.O | 
-stock | Liberty_Global_plc | LBTYK.O | 
-stock | Liberty_Live_Group | LLYVA.O | 
-stock | Liberty_Live_Group | LLYVK.O | 
-stock | Lineage_Inc | LINE.O | 
-stock | Lithia_Motors_Inc | LAD.N | 
-stock | Live_Nation_Entertainment_Inc | LYV.N | 
-stock | Loar_Holdings_Inc | LOAR.N | 
-stock | Louisiana-Pacific_Corporation | LPX.N | 
-stock | Lucid_Group_Inc | LCID.O | 
-stock | Lumentum_Holdings_Inc | LITE.O | 
-stock | Lyft_Inc | LYFT.O | 
-stock | MACOM_Technology_Solutions_Holdings_Inc | MTSI.O | 
-stock | MDU_Resources_Group_Inc | MDU.N | 
-stock | MGIC_Investment_Corporation | MTG.N | 
-stock | MKS_Inc | MKSI.O | 
-stock | MP_Materials_Corp | MP.N | 
-stock | MSA_Safety_Incorporated | MSA.N | 
-stock | MSC_Industrial_Direct_Co_Inc | MSM.N | 
-stock | MT_Bank_Corporation | MTB.N | 
-stock | Madison_Square_Garden_Sports_Corp | MSGS.N | 
-stock | Manhattan_Associates_Inc | MANH.O | 
-stock | MarketAxess_Holdings_Inc | MKTX.O | 
-stock | Martin_Marietta_Materials_Inc | MLM.N | 
-stock | MasTec_Inc | MTZ.N | 
-stock | Matador_Resources_Company | MTDR.N | 
-stock | Match_Group_Inc | MTCH.O | 
-stock | Medical_Properties_Trust_Inc | MPT.N | 
-stock | Medpace_Holdings_Inc | MEDP.O | 
-stock | MercadoLibre_Inc | MELI.O | 
-stock | Mid-America_Apartment_Communities_Inc | MAA.N | 
-stock | Millicom_International_Cellular_SA | TIGO.O | 
-stock | Millrose_Properties_Inc | MRP.N | 
-stock | Molina_Healthcare_Inc | MOH.N | 
-stock | MongoDB_Inc | MDB.O | 
-stock | Mueller_Industries_Inc | MLI.N | 
-stock | Murphy_USA_Inc | MUSA.N | 
-stock | NIQ_Global_Intelligence_Plc | NIQ.N | 
-stock | NNN_REIT_Inc | NNN.N | 
-stock | NOV_Inc | NOV.N | 
-stock | NRG_Energy_Inc | NRG.N | 
-stock | NVR_Inc | NVR.N | 
-stock | Natera_Inc | NTRA.O | 
-stock | National_Fuel_Gas_Company | NFG.N | 
-stock | National_Storage_Affiliates_Trust | NSA.N | 
-stock | NetApp_Inc | NTAP.O | 
-stock | Neurocrine_Biosciences_Inc | NBIX.O | 
-stock | NewMarket_Corporation | NEU.N | 
-stock | Nexstar_Media_Group_Inc | NXST.O | 
-stock | NiSource_Inc | NI.N | 
-stock | Nu_Holdings_Ltd | NU.N | 
-stock | Nutanix_Inc | NTNX.O | 
-stock | OGE_Energy_Corp | OGE.N | 
-stock | ONEOK_Inc | OKE.N | 
-stock | OReilly_Automotive_Inc | ORLY.O | 
-stock | Okta_Inc | OKTA.O | 
-stock | Old_Dominion_Freight_Line_Inc | ODFL.O | 
-stock | Old_Republic_International_Corporation | ORI.N | 
-stock | Ollies_Bargain_Outlet_Holdings_Inc | OLLI.O | 
-stock | Omega_Healthcare_Investors_Inc | OHI.N | 
-stock | OneMain_Holdings_Inc | OMF.N | 
-stock | Onto_Innovation_Inc | ONTO.N | 
-stock | Ovintiv_Inc | OVV.N | 
-stock | PENN_Entertainment_Inc | PENN.O | 
-stock | PPG工业 | PPG.N | 
-stock | PPL_Corporation | PPL.N | 
-stock | PTC_Inc | PTC.O | 
-stock | PVH_Corp | PVH.N | 
-stock | Packaging_Corporation_of_America | PKG.N | 
-stock | Palantir_Technologies_Inc | PLTR.O | 
-stock | Paramount_Skydance_Corporation_Class_B_Common_Stock | PSKY.O | 
-stock | Park_Hotels__Resorts_Inc | PK.N | 
-stock | Parsons_Corporation | PSN.N | 
-stock | Paychex_Inc | PAYX.O | 
-stock | Paycom_Software_Inc | PAYC.N | 
-stock | Paylocity_Holding_Corporation | PCTY.O | 
-stock | Pegasystems_Inc | PEGA.O | 
-stock | Penske_Automotive_Group_Inc | PAG.N | 
-stock | Penumbra_Inc | PEN.N | 
-stock | Performance_Food_Group_Company | PFGC.N | 
-stock | Permian_Resources_Corporation | PR.N | 
-stock | Pilgrims_Pride_Corporation | PPC.O | 
-stock | Pinnacle_Financial_Partners_Inc | PNFP.O | 
-stock | Pinnacle_West_Capital_Corporation | PNW.N | 
-stock | Pinterest_Inc | PINS.N | 
-stock | Planet_Fitness_Inc | PLNT.N | 
-stock | Pool_Corporation | POOL.O | 
-stock | Popular_Inc | BPOP.O | 
-stock | Post_Holdings_Inc | POST.N | 
-stock | Primerica_Inc | PRI.N | 
-stock | Primo_Brands_Corporation | PRMB.N | 
-stock | Procore_Technologies_Inc | PCOR.N | 
-stock | Prosperity_Bancshares_Inc | PB.N | 
-stock | Public_Service_Enterprise_Group_Incorporated | PEG.N | 
-stock | Public_Storage | PSA.N | 
-stock | Pure_Storage_Inc | PSTG.N | 
-stock | QXO_Inc | QXO.N | 
-stock | Qnity_Electronics_Inc | Q.N | 
-stock | Qorvo_Inc | QRVO.O | 
-stock | QuantumScape_Corporation | QS.O | 
-stock | RBC_Bearings_Incorporated | RBC.N | 
-stock | RLI_Corp | RLI.N | 
-stock | RPM_International_Inc | RPM.N | 
-stock | Ralliant_Corp | RAL.N | 
-stock | Range_Resources_Corporation | RRC.N | 
-stock | Rayonier_Inc | RYN.N | 
-stock | Realty_Income_Corporation | O.N | 
-stock | Reddit_Inc | RDDT.N | 
-stock | Regal_Rexnord_Corporation | RRX.N | 
-stock | Regency_Centers_Corporation | REG.O | 
-stock | Regions_Financial_Corporation | RF.N | 
-stock | Reinsurance_Group_of_America_Incorporated | RGA.N | 
-stock | RenaissanceRe_Holdings_Ltd | RNR.N | 
-stock | Repligen_Corporation | RGEN.O | 
-stock | Revolution_Medicines_Inc | RVMD.O | 
-stock | Revvity_Inc | RVTY.N | 
-stock | Rexford_Industrial_Realty_Inc | REXR.N | 
-stock | Reynolds_Consumer_Products_Inc | REYN.O | 
-stock | Rh | RH.N | 
-stock | RingCentral_Inc | RNG.N | 
-stock | Rithm_Capital_Corp | RITM.N | 
-stock | Rivian_Automotive_Inc | RIVN.O | 
-stock | Robinhood_Markets_Inc | HOOD.O | 
-stock | Roblox_Corporation | RBLX.N | 
-stock | Rocket_Companies_Inc | RKT.N | 
-stock | Rocket_Lab_USA_Inc | RKLB.O | 
-stock | Roivant_Sciences_Ltd | ROIV.O | 
-stock | Roku_Inc | ROKU.O | 
-stock | Rollins_Inc | ROL.N | 
-stock | Ross_Stores_Inc | ROST.O | 
-stock | Royal_Gold_Inc | RGLD.O | 
-stock | Royalty_Pharma_plc | RPRX.O | 
-stock | Rubrik_Inc | RBRK.N | 
-stock | Ryan_Specialty_Holdings_Inc | RYAN.N | 
-stock | SAP_SE | SAP.N | 
-stock | SBA_Communications_Corporation | SBAC.O | 
-stock | SEI_Investments_Company | SEIC.O | 
-stock | SLM_Corporation | SLM.O | 
-stock | SSC_Technologies_Holdings_Inc | SSNC.O | 
-stock | STAG_Industrial_Inc | STAG.N | 
-stock | Saia_Inc | SAIA.O | 
-stock | SailPoint_Inc | SAIL.O | 
-stock | Samsara_Inc | IOT.N | 
-stock | Sarepta_Therapeutics_Inc | SRPT.O | 
-stock | Schneider_National_Inc | SNDR.N | 
-stock | Science_Applications_International_Corporation | SAIC.O | 
-stock | Seaboard_Corporation | SEB.A | 
-stock | SentinelOne_Inc | S.N | 
-stock | ServiceNow_Inc | NOW.N | 
-stock | Service_Corporation_International | SCI.N | 
-stock | SharkNinja_Inc | SN.N | 
-stock | Shift4_Payments_Inc | FOUR.N | 
-stock | Silgan_Holdings_Inc | SLGN.N | 
-stock | Simpson_Manufacturing_Co_Inc | SSD.N | 
-stock | Sirius_XM_Holdings_Inc | SIRI.O | 
-stock | SiteOne_Landscape_Supply_Inc | SITE.N | 
-stock | Smurfit_Westrock_Plc | SW.N | 
-stock | Snowflake_Inc | SNOW.N | 
-stock | SoFi_Technologies_Inc | SOFI.O | 
-stock | Solstice_Advanced_Materials_Inc | SOLS.O | 
-stock | Solventum_Corporation | SOLV.N | 
-stock | Somnigroup_International_Inc | SGI.N | 
-stock | SouthState_Corporation | SSB.N | 
-stock | Sprouts_Farmers_Market_Inc | SFM.O | 
-stock | StandardAero_Inc | SARO.N | 
-stock | Starwood_Property_Trust_Inc | STWD.N | 
-stock | Stifel_Financial_Corp | SF.N | 
-stock | Strategy_Inc | MSTR.O | 
-stock | Summit_Therapeutics_Inc | SMMT.O | 
-stock | Sun_Communities_Inc | SUI.N | 
-stock | Synchrony_Financial | SYF.N | 
-stock | T-Mobile_US_Inc | TMUS.O | 
-stock | TD_SYNNEX_Corporation | SNX.N | 
-stock | TFS_Financial_Corporation | TFSL.O | 
-stock | TKO_Group_Holdings_Inc | TKO.N | 
-stock | TPG_Inc | TPG.O | 
-stock | Take-Two_Interactive_Software_Inc | TTWO.O | 
-stock | Talen_Energy_Corporation | TLN.O | 
-stock | Targa_Resources_Corp | TRGP.N | 
-stock | TechnipFMC_plc | FTI.N | 
-stock | Tempus_AI_Inc | TEM.O | 
-stock | Tenet_Healthcare_Corporation | THC.N | 
-stock | Tetra_Tech_Inc | TTEK.O | 
-stock | Texas_Pacific_Land_Corporation | TPL.N | 
-stock | Texas_Roadhouse_Inc | TXRH.O | 
-stock | The_AES_Corporation | AES.N | 
-stock | The_Hanover_Insurance_Group_Inc | THG.N | 
-stock | The_Middleby_Corporation | MIDD.O | 
-stock | The_PNC_Financial_Services_Group_Inc | PNC.N | 
-stock | The_TJX_Companies_Inc | TJX.N | 
-stock | The_Trade_Desk_Inc | TTD.O | 
-stock | Thor_Industries_Inc | THO.N | 
-stock | Toast_Inc | TOST.N | 
-stock | TopBuild_Corp | BLD.N | 
-stock | Tractor_Supply_Company | TSCO.O | 
-stock | Tradeweb_Markets_Inc | TW.O | 
-stock | TransDigm_Group_Incorporated | TDG.N | 
-stock | Travel__Leisure_Co | TNL.N | 
-stock | Trex_Company_Inc | TREX.N | 
-stock | Truist_Financial_Corporation | TFC.N | 
-stock | Trump_Media__Technology_Group_Corp | DJT.O | 
-stock | Twilio_Inc | TWLO.N | 
-stock | Tyler_Technologies_Inc | TYL.N | 
-stock | U-Haul_Holding_Company | UHAL.N | 
-stock | UDR_Inc | UDR.N | 
-stock | UGI_Corporation | UGI.N | 
-stock | US_Foods_Holding_Corp | USFD.N | 
-stock | UWM_Holdings_Corporation | UWMC.N | 
-stock | Ubiquiti_Inc | UI.N | 
-stock | UiPath_Inc | PATH.N | 
-stock | Ulta_Beauty_Inc | ULTA.O | 
-stock | Ultragenyx_Pharmaceutical_Inc | RARE.O | 
-stock | United_Therapeutics_Corporation | UTHR.O | 
-stock | Unity_Software_Inc | U.N | 
-stock | Universal_Display_Corporation | OLED.O | 
-stock | Universal_Health_Services_Inc | UHS.N | 
-stock | Unum_Group | UNM.N | 
-stock | VICI_Properties_Inc | VICI.N | 
-stock | Valmont_Industries_Inc | VMI.N | 
-stock | Veeva_Systems_Inc | VEEV.N | 
-stock | Ventas_Inc | VTR.N | 
-stock | Veralto_Corporation | VLTO.N | 
-stock | Versant_Media_Group_Inc_Class_A_Common_Stock_When-Issued | VSNTV.O | 
-stock | Viking_Holdings_Ltd | VIK.N | 
-stock | Viking_Therapeutics_Inc | VKTX.O | 
-stock | Viper_Energy_Inc | VNOM.O | 
-stock | Virtu_Financial_Inc | VIRT.N | 
-stock | Vistra_Corp | VST.N | 
-stock | Vontier_Corporation | VNT.N | 
-stock | Vornado_Realty_Trust | VNO.N | 
-stock | Voya_Financial_Inc | VOYA.N | 
-stock | WEC_Energy_Group_Inc | WEC.N | 
-stock | WESCO_International_Inc | WCC.N | 
-stock | WEX_Inc | WEX.N | 
-stock | W_P_Carey_Inc | WPC.N | 
-stock | W_R_Berkley_Corporation | WRB.N | 
-stock | Watsco_Inc | WSO.N | 
-stock | Wayfair_Inc | W.N | 
-stock | Webster_Financial_Corporation | WBS.N | 
-stock | Welltower_Inc | WELL.N | 
-stock | Western_Alliance_Bancorporation | WAL.N | 
-stock | White_Mountains_Insurance_Group_Ltd | WTM.N | 
-stock | WillScot_Holdings_Corporation | WSC.O | 
-stock | Wingstop_Inc | WING.O | 
-stock | Wintrust_Financial_Corporation | WTFC.O | 
-stock | Workday_Inc | WDAY.O | 
-stock | XPO_Logistics_Inc | XPO.N | 
-stock | XP_Inc | XP.O | 
-stock | Xcel_Energy_Inc | XEL.O | 
-stock | YETI_Holdings_Inc | YETI.N | 
-stock | Zillow_Group_Inc_Class_A | ZG.O | 
-stock | Zillow_Group_Inc_Class_C | Z.O | 
-stock | Zions_Bancorporation_National_Association | ZION.O | 
-stock | Zoom_Communications_Inc | ZM.O | 
-stock | Zscaler_Inc | ZS.O | 
-stock | elf_Beauty_Inc | ELF.N | 
-stock | nCino_Inc | NCNO.O | 
-stock | nVent_Electric_plc | NVT.N | 
-stock | 万事达 | MA.N | 
-stock | 万宝盛华 | MAN.N | 
-stock | 万豪国际 | MAR.O | 
-stock | 三井住友金融集团 | SMFG.N | 
-stock | 三菱日联金融集团 | MUFG.N | 
-stock | 世邦魏理仕 | CBRE.N | 
-stock | 丘博 | CB.N | 
-stock | 丰田汽车 | TM.N | 
-stock | 丹纳赫 | DHR.N | 
-stock | 五三银行 | FITB.O | 
-stock | 亚什兰 | ASH.N | 
-stock | 亚德诺半导体 | ADI.O | 
-stock | 亚玛芬体育 | AS.N | 
-stock | 亚马逊 | AMZN.O | 
-stock | 亨利香恩 | HSIC.O | 
-stock | 亨廷顿英格尔斯 | HII.N | 
-stock | 亨斯迈 | HUN.N | 
-stock | 京东 | JD.O | 
-stock | 亿客行 | EXPE.O | 
-stock | 亿滋国际 | MDLZ.O | 
-stock | 仲量联行 | JLL.N | 
-stock | 伊利诺伊工具 | ITW.N | 
-stock | 伊塔乌联合银行 | ITUB.N | 
-stock | 伊士曼化工 | EMN.N | 
-stock | 伊萨 | ESAB.N | 
-stock | 伊顿 | ETN.N | 
-stock | 伍德沃德 | WWD.O | 
-stock | 优步 | UBER.N | 
-stock | 伟创力 | FLEX.O | 
-stock | 伯乐 | BIO.N | 
-stock | 伯克希尔哈撒韦 | BRK-B.N | 
-stock | 佳明 | GRMN.N | 
-stock | 保德信金融 | PRU.N | 
-stock | 信安金融 | PFG.O | 
-stock | 信实钢铁 | RS.N | 
-stock | 信诺 | CI.N | 
-stock | 信达思 | CTAS.O | 
-stock | 元平台 | META.O | 
-stock | 克兰 | CR.N | 
-stock | 克利夫兰克里夫斯 | CLF.N | 
-stock | 克罗格 | KR.N | 
-stock | 共和服务 | RSG.N | 
-stock | 再生元 | REGN.O | 
-stock | 冠城国际 | CCI.N | 
-stock | 凯悦酒店 | H.N | 
-stock | 凯撒娱乐 | CZR.O | 
-stock | 凯雷集团 | CG.O | 
-stock | 利安德巴塞尔 | LYB.N | 
-stock | 前进保险 | PGR.N | 
-stock | 力特 | LFUS.O | 
-stock | 劳氏 | LOW.N | 
-stock | 勃肯 | BIRK.N | 
-stock | 北方信托 | NTRS.O | 
-stock | 华丽七号ETF | MAGS.BAT | 
-stock | 华纳兄弟探索 | WBD.O | 
-stock | 华美银行 | EWBC.O | 
-stock | 南方公司 | SO.N | 
-stock | 南方铜业 | SCCO.N | 
-stock | 博思艾伦 | BAH.N | 
-stock | 博格华纳 | BWA.N | 
-stock | 博通 | AVGO.O | 
-stock | 卡夫亨氏 | KHC.O | 
-stock | 卡特彼勒 | CAT.N | 
-stock | 卡骆驰 | CROX.O | 
-stock | 印孚瑟斯 | INFY.N | 
-stock | 可口可乐 | KO.N | 
-stock | 可口可乐欧洲太平洋合伙 | CCEP.O | 
-stock | 台积电 | TSM.N | 
-stock | 史丹利百得 | SWK.N | 
-stock | 史密斯 | AOS.N | 
-stock | 史密斯菲尔德 | SFD.O | 
-stock | 史赛克 | STE.N | 
-stock | 史赛克 | SYK.N | 
-stock | 吉利德科学 | GILD.O | 
-stock | 味好美 | MKC.N | 
-stock | 哈勃 | HUBB.N | 
-stock | 哈特福德金融 | HIG.N | 
-stock | 哈里伯顿 | HAL.N | 
-stock | 哈里斯 | LHX.N | 
-stock | 哈门那 | HUM.N | 
-stock | 哈雷戴维森 | HOG.N | 
-stock | 哥伦比亚运动服装 | COLM.O | 
-stock | 唐纳森 | DCI.N | 
-stock | 嘉信理财 | SCHW.N | 
-stock | 嘉年华邮轮 | CCL.N | 
-stock | 因美纳 | ILMN.O | 
-stock | 固安捷 | GWW.N | 
-stock | 固瑞克 | GGG.N | 
-stock | 国际商业机器 | IBM.N | 
-stock | 国际纸业 | IP.N | 
-stock | 国际香料香精 | IFF.N | 
-stock | 埃克森美孚 | XOM.N | 
-stock | 埃森哲 | ACN.N | 
-stock | 塔吉特 | TGT.N | 
-stock | 塞拉尼斯 | CE.N | 
-stock | 多佛 | DOV.N | 
-stock | 多邻国 | DUOL.O | 
-stock | 大都会人寿 | MET.N | 
-stock | 天宝 | TRMB.O | 
-stock | 天睿 | TDC.N | 
-stock | 太平洋瓦电 | PCG.N | 
-stock | 奈飞 | NFLX.O | 
-stock | 奎斯特诊断 | DGX.N | 
-stock | 奥多比 | ADBE.O | 
-stock | 奥林 | OLN.N | 
-stock | 奥的斯 | OTIS.N | 
-stock | 奥驰亚 | MO.N | 
-stock | 好事达 | ALL.N | 
-stock | 好市多 | COST.O | 
-stock | 好时 | HSY.N | 
-stock | 威富 | VFC.N | 
-stock | 威廉姆斯 | WMB.N | 
-stock | 威廉姆斯索诺玛 | WSM.N | 
-stock | 威德福 | WFRD.O | 
-stock | 威瑞信 | VRSN.O | 
-stock | 威瑞森 | VZ.N | 
-stock | 威达信 | MMC.N | 
-stock | 威达信 | MRSH.N | 
-stock | 孩之宝 | HAS.O | 
-stock | 安姆科 | AMCR.N | 
-stock | 安富利 | AVT.O | 
-stock | 安德玛 | UA.N | 
-stock | 安德玛 | UAA.N | 
-stock | 安捷伦科技 | A.N | 
-stock | 安森美 | ON.O | 
-stock | 安波福 | APTV.N | 
-stock | 安特吉 | ETR.N | 
-stock | 安费诺 | APH.N | 
-stock | 安进 | AMGN.O | 
-stock | 安靠科技 | AMKR.O | 
-stock | 安飞士 | CAR.O | 
-stock | 宏盟集团 | OMC.N | 
-stock | 宜瑞安 | INGR.N | 
-stock | 宝洁 | PG.N | 
-stock | 实耐宝 | SNA.N | 
-stock | 家得宝 | HD.N | 
-stock | 宾利系统 | BSY.O | 
-stock | 宾士域 | BC.N | 
-stock | 富兰克林资源 | BEN.N | 
-stock | 富国银行 | WFC.N | 
-stock | 富美实 | FMC.N | 
-stock | 小鹏汽车 | XPEV.N | 
-stock | 布鲁克 | BRKR.O | 
-stock | 希尔顿 | HLT.N | 
-stock | 希悦尔 | SEE.N | 
-stock | 希捷科技 | STX.O | 
-stock | 帕卡 | PCAR.O | 
-stock | 广达服务 | PWR.N | 
-stock | 库珀 | COO.O | 
-stock | 应用材料 | AMAT.O | 
-stock | 废物管理 | WM.N | 
-stock | 康卡斯特 | CMCSA.O | 
-stock | 康宁 | GLW.N | 
-stock | 康尼格拉 | CAG.N | 
-stock | 康德乐 | CAH.N | 
-stock | 康捷空 | EXPD.N | 
-stock | 康明斯 | CMI.N | 
-stock | 康耐视 | CGNX.O | 
-stock | 康菲石油 | COP.N | 
-stock | 开利 | CARR.N | 
-stock | 弗格森 | FERG.N | 
-stock | 强生 | JNJ.N | 
-stock | 徕博科 | LH.N | 
-stock | 微芯科技 | MCHP.O | 
-stock | 微软 | MSFT.O | 
-stock | 德事隆 | TXT.N | 
-stock | 德克斯户外 | DECK.N | 
-stock | 德州仪器 | TXN.O | 
-stock | 德康医疗 | DXCM.O | 
-stock | 德文能源 | DVN.N | 
-stock | 必和必拓 | BHP.N | 
-stock | 快扣 | FAST.O | 
-stock | 思佳讯 | SWKS.O | 
-stock | 思科 | CSCO.O | 
-stock | 怡安 | AON.N | 
-stock | 怪兽饮料 | MNST.O | 
-stock | 恩智浦 | NXPI.O | 
-stock | 恩特格里斯 | ENTG.O | 
-stock | 惠好 | WY.N | 
-stock | 惠普 | HPQ.N | 
-stock | 惠而浦 | WHR.N | 
-stock | 意法半导体 | STM.N | 
-stock | 慧与 | HPE.N | 
-stock | 戴尔科技 | DELL.N | 
-stock | 托尔兄弟 | TOL.N | 
-stock | 托罗 | TTC.N | 
-stock | 拉夫劳伦 | RL.N | 
-stock | 拉扎德 | LAZ.N | 
-stock | 拼多多 | PDD.O | 
-stock | 挪威邮轮 | NCLH.N | 
-stock | 捷普 | JBL.N | 
-stock | 捷迈邦美 | ZBH.N | 
-stock | 携程 | TCOM.O | 
-stock | 摩托罗拉系统 | MSI.N | 
-stock | 摩根士丹利 | MS.N | 
-stock | 摩根大通 | JPM.N | 
-stock | 摩森康胜 | TAP.N | 
-stock | 斑马技术 | ZBRA.O | 
-stock | 斯伦贝谢 | SLB.N | 
-stock | 斯马克 | SJM.N | 
-stock | 新思科技 | SNPS.O | 
-stock | 新纪元能源 | NEE.N | 
-stock | 新闻集团 | NWS.O | 
-stock | 新闻集团 | NWSA.O | 
-stock | 旅行者保险 | TRV.N | 
-stock | 日月光投控 | ASX.N | 
-stock | 昂跑 | ONON.N | 
-stock | 明晟 | MSCI.N | 
-stock | 易昆尼克斯 | EQIX.O | 
-stock | 易贝 | EBAY.O | 
-stock | 星巴克 | SBUX.O | 
-stock | 星座品牌 | STZ.N | 
-stock | 是德科技 | KEYS.N | 
-stock | 晖致 | VTRS.O | 
-stock | 晨星 | MORN.O | 
-stock | 普信集团 | TROW.O | 
-stock | 普尔特房屋 | PHM.N | 
-stock | 普洛斯 | PLD.N | 
-stock | 景顺 | IVZ.N | 
-stock | 李尔 | LEA.N | 
-stock | 杜克能源 | DUK.N | 
-stock | 杜比实验室 | DLB.N | 
-stock | 杜邦 | DD.N | 
-stock | 杰富瑞 | JEF.N | 
-stock | 林德 | LIN.O | 
-stock | 林肯国民 | LNC.N | 
-stock | 林肯电气 | LECO.O | 
-stock | 查尔斯河实验室 | CRL.N | 
-stock | 柯蒂斯莱特 | CW.N | 
-stock | 标普全球 | SPGI.N | 
-stock | 标普北美科技软件ETF | IGV.BAT | 
-stock | 格芯 | GFS.O | 
-stock | 桑坦德银行 | SAN.N | 
-stock | 桑普拉能源 | SRE.N | 
-stock | 梅特勒托利多 | MTD.N | 
-stock | 梅西百货 | M.N | 
-stock | 森萨塔科技 | ST.N | 
-stock | 楷登电子 | CDNS.O | 
-stock | 欧加隆 | OGN.N | 
-stock | 欧文斯科宁 | OC.N | 
-stock | 欧特克 | ADSK.O | 
-stock | 永利度假村 | WYNN.O | 
-stock | 汇丰控股 | HSBC.N | 
-stock | 江森自控 | JCI.N | 
-stock | 汤森路透 | TRI.O | 
-stock | 汽车地带 | AZO.N | 
-stock | 沃尔玛 | WMT.O | 
-stock | 沃特世 | WAT.N | 
-stock | 泛林 | LRCX.O | 
-stock | 波士顿啤酒 | SAM.N | 
-stock | 波士顿科学 | BSX.N | 
-stock | 波尔 | BALL.N | 
-stock | 波音 | BA.N | 
-stock | 泰佩思琪 | TPR.N | 
-stock | 泰利福 | TFX.N | 
-stock | 泰利达 | TDY.N | 
-stock | 泰森食品 | TSN.N | 
-stock | 泰瑞达 | TER.O | 
-stock | 泰科电子 | TEL.N | 
-stock | 洛克希德马丁 | LMT.N | 
-stock | 洲际交易所 | ICE.N | 
-stock | 派克汉尼汾 | PH.N | 
-stock | 派拓网络 | PANW.O | 
-stock | 淡水河谷 | VALE.N | 
-stock | 渤健 | BIIB.O | 
-stock | 温德姆酒店 | WH.N | 
-stock | 温蒂 | WEN.O | 
-stock | 滨特尔 | PNR.N | 
-stock | 火神材料 | VMC.N | 
-stock | 爱克斯龙 | EXC.O | 
-stock | 爱彼迎 | ABNB.O | 
-stock | 爱德华生命科学 | EW.N | 
-stock | 爱德士 | IDXX.O | 
-stock | 爱玛客 | ARMK.N | 
-stock | 爱科 | AGCO.N | 
-stock | 爱迪生国际 | EIX.N | 
-stock | 爱齐科技 | ALGN.O | 
-stock | 特斯拉 | TSLA.O | 
-stock | 特灵科技 | TT.N | 
-stock | 环球支付 | GPN.N | 
-stock | 环联 | TRU.N | 
-stock | 理想汽车 | LI.O | 
-stock | 瑞思迈 | RMD.N | 
-stock | 瑞杰金融 | RJF.N | 
-stock | 瑞穗金融集团 | MFG.N | 
-stock | 瓦莱罗能源 | VLO.N | 
-stock | 甲骨文 | ORCL.N | 
-stock | 登士柏西诺德 | XRAY.O | 
-stock | 百事可乐 | PEP.O | 
-stock | 百富门 | BF-A.N | 
-stock | 百富门 | BF-B.N | 
-stock | 百度 | BIDU.O | 
-stock | 百思买 | BBY.N | 
-stock | 百时美施贵宝 | BMY.N | 
-stock | 百特国际 | BAX.N | 
-stock | 百胜餐饮 | YUM.N | 
-stock | 皇冠控股 | CCK.N | 
-stock | 皇家加勒比 | RCL.N | 
-stock | 盈透证券 | IBKR.O | 
-stock | 盖璞 | GAP.N | 
-stock | 盖茨工业 | GTES.N | 
-stock | 直觉外科 | ISRG.O | 
-stock | 真品零件 | GPC.N | 
-stock | 硕腾 | ZTS.N | 
-stock | 碧迪 | BDX.N | 
-stock | 礼来 | LLY.N | 
-stock | 礼蓝动保 | ELAN.N | 
-stock | 福克斯 | FOX.O | 
-stock | 福克斯 | FOXA.O | 
-stock | 福斯 | FLS.N | 
-stock | 福泰制药 | VRTX.O | 
-stock | 福特汽车 | F.N | 
-stock | 福迪威 | FTV.N | 
-stock | 科睿唯安 | CLVT.N | 
-stock | 科磊 | KLAC.O | 
-stock | 科蒂 | COTY.N | 
-stock | 科赴 | KVUE.N | 
-stock | 科迪华 | CTVA.N | 
-stock | 穆迪 | MCO.N | 
-stock | 空气化工产品 | APD.N | 
-stock | 第一太阳能 | FSLR.O | 
-stock | 第一能源 | FE.N | 
-stock | 第一资本 | COF.N | 
-stock | 精选国际酒店 | CHH.N | 
-stock | 索尼 | SONY.N | 
-stock | 索诺科 | SON.N | 
-stock | 纳斯达克 | NDAQ.O | 
-stock | 纽威品牌 | NWL.O | 
-stock | 纽柯 | NUE.N | 
-stock | 纽约时报 | NYT.N | 
-stock | 纽约梅隆银行 | BK.N | 
-stock | 纽蒙特 | NEM.N | 
-stock | 维尔度假村 | MTN.N | 
-stock | 维萨 | V.N | 
-stock | 维谛 | VRT.N | 
-stock | 绿山咖啡 | KDP.O | 
-stock | 缤客控股 | BKNG.O | 
-stock | 网易 | NTES.O | 
-stock | 罗克韦尔自动化 | ROK.N | 
-stock | 罗宾逊全球物流 | CHRW.O | 
-stock | 罗柏科技 | ROP.O | 
-stock | 罗氏 | L.N | 
-stock | 罗致恒富 | RHI.N | 
-stock | 美元将军 | DG.N | 
-stock | 美元树 | DLTR.O | 
-stock | 美光科技 | MU.O | 
-stock | 美国合众银行 | USB.N | 
-stock | 美国国际集团 | AIG.N | 
-stock | 美国家庭人寿保险 | AFL.N | 
-stock | 美国普信金融 | AMP.N | 
-stock | 美国水务 | AWK.N | 
-stock | 美国电力 | AEP.O | 
-stock | 美国电塔 | AMT.N | 
-stock | 美国电话电报 | T.N | 
-stock | 美国航空 | AAL.O | 
-stock | 美国运通 | AXP.N | 
-stock | 美国铝业 | AA.N | 
-stock | 美国银行 | BAC.N | 
-stock | 美敦力 | MDT.N | 
-stock | 美泰 | MAT.O | 
-stock | 美满电子 | MRVL.O | 
-stock | 美瑞科 | SMG.N | 
-stock | 美盛 | MOS.N | 
-stock | 美联航 | UAL.O | 
-stock | 美高梅 | MGM.N | 
-stock | 耐克 | NKE.N | 
-stock | 联合健康 | UNH.N | 
-stock | 联合利华 | UL.N | 
-stock | 联合包裹 | UPS.N | 
-stock | 联合太平洋 | UNP.N | 
-stock | 联合爱迪生 | ED.N | 
-stock | 联合租赁 | URI.N | 
-stock | 联电 | UMC.N | 
-stock | 联邦快递 | FDX.N | 
-stock | 胜牌 | VVV.N | 
-stock | 自动数据处理 | ADP.O | 
-stock | 自由港麦克莫兰 | FCX.N | 
-stock | 艺康 | ECL.N | 
-stock | 艺电 | EA.O | 
-stock | 艾伯维 | ABBV.N | 
-stock | 艾利丹尼森 | AVY.N | 
-stock | 艾可飞 | EFX.N | 
-stock | 艾奕康 | ACM.N | 
-stock | 艾昆纬 | IQV.N | 
-stock | 艾睿电子 | ARW.N | 
-stock | 艾迪科 | IEX.N | 
-stock | 艾里逊变速箱 | ALSN.N | 
-stock | 艾默生电气 | EMR.N | 
-stock | 芝加哥商品交易所 | CME.O | 
-stock | 芯源系统 | MPWR.O | 
-stock | 花旗集团 | C.N | 
-stock | 英伟达 | NVDA.O | 
-stock | 英格索兰 | IR.N | 
-stock | 英特尔 | INTC.O | 
-stock | 英迈 | INGM.N | 
-stock | 苹果公司 | AAPL.O | 
-stock | 荷美尔食品 | HRL.N | 
-stock | 莫德纳 | MRNA.O | 
-stock | 莫霍克工业 | MHK.N | 
-stock | 莱德 | R.N | 
-stock | 莱纳 | LEN-B.N | 
-stock | 莱纳 | LEN.N | 
-stock | 莱迪思半导体 | LSCC.O | 
-stock | 菲利普斯66 | PSX.N | 
-stock | 菲利普莫里斯 | PM.N | 
-stock | 西南航空 | LUV.N | 
-stock | 西屋制动 | WAB.N | 
-stock | 西斯科 | SYY.N | 
-stock | 西方石油 | OXY.N | 
-stock | 西氏医药 | WST.N | 
-stock | 西湖化学 | WLK.N | 
-stock | 西维斯健康 | CVS.N | 
-stock | 西联汇款 | WU.N | 
-stock | 西蒙地产 | SPG.N | 
-stock | 西部数据 | WDC.O | 
-stock | 詹姆斯哈迪 | JHX.N | 
-stock | 诺信 | NDSN.O | 
-stock | 诺华 | NVS.N | 
-stock | 诺和诺德 | NVO.N | 
-stock | 诺斯罗普格鲁曼 | NOC.N | 
-stock | 诺福克南方 | NSC.N | 
-stock | 谷歌 | GOOG.O | 
-stock | 谷歌 | GOOGL.O | 
-stock | 豪士科 | OSK.N | 
-stock | 豪洛捷 | HOLX.O | 
-stock | 豪迈航空 | HWM.N | 
-stock | 贝克休斯 | BKR.O | 
-stock | 贝壳 | BEKE.N | 
-stock | 贝宝 | PYPL.O | 
-stock | 贝莱德 | BLK.N | 
-stock | 财捷 | INTU.O | 
-stock | 贰陆 | COHR.N | 
-stock | 费哲金融 | FI.N | 
-stock | 费哲金融 | FISV.O | 
-stock | 费埃哲 | FICO.N | 
-stock | 赛富时 | CRM.N | 
-stock | 赛莱默 | XYL.N | 
-stock | 赛默飞世尔 | TMO.N | 
-stock | 赫氏 | HXL.N | 
-stock | 超威半导体 | AMD.O | 
-stock | 超微电脑 | SMCI.O | 
-stock | 辉瑞 | PFE.N | 
-stock | 达登餐饮 | DRI.N | 
-stock | 达维塔 | DVA.N | 
-stock | 达美乐 | DPZ.O | 
-stock | 达美航空 | DAL.N | 
-stock | 迈心诺 | MASI.O | 
-stock | 迪士尼 | DIS.N | 
-stock | 迪尔 | DE.N | 
-stock | 通用动力 | GD.N | 
-stock | 通用汽车 | GM.N | 
-stock | 通用电气医疗 | GEHC.O | 
-stock | 通用电气航空 | GE.N | 
-stock | 通用磨坊 | GIS.N | 
-stock | 道富 | STT.N | 
-stock | 道明尼能源 | D.N | 
-stock | 道达尔能源 | TTE.N | 
-stock | 邦吉 | BG.N | 
-stock | 酷澎 | CPNG.N | 
-stock | 金佰利 | KMB.O | 
-stock | 金宝汤 | CPB.O | 
-stock | 金德摩根 | KMI.N | 
-stock | 金沙集团 | LVS.N | 
-stock | 钢铁动力 | STLD.O | 
-stock | 铁姆肯 | TKR.N | 
-stock | 铁山 | IRM.N | 
-stock | 铱星通讯 | IRDM.O | 
-stock | 镜泰 | GNTX.O | 
-stock | 闪迪 | SNDK.O | 
-stock | 阿卡迈 | AKAM.O | 
-stock | 阿姆斯壮世界工业 | AWI.N | 
-stock | 阿彻丹尼尔斯米德兰 | ADM.N | 
-stock | 阿拉斯加航空 | ALK.N | 
-stock | 阿斯利康 | AZN.N | 
-stock | 阿斯麦 | ASML.O | 
-stock | 阿波罗全球管理 | APO.N | 
-stock | 阿美特克 | AME.N | 
-stock | 阿莫林 | AEE.N | 
-stock | 阿里巴巴 | BABA.N | 
-stock | 陶氏 | DOW.N | 
-stock | 雅保 | ALB.N | 
-stock | 雅各布斯 | J.N | 
-stock | 雅培 | ABT.N | 
-stock | 雅诗兰黛 | EL.N | 
-stock | 雪佛龙 | CVX.N | 
-stock | 雷多斯 | LDOS.N | 
-stock | 雷神技术 | RTX.N | 
-stock | 雷诺士 | LII.N | 
-stock | 霍尼韦尔 | HON.O | 
-stock | 霍顿房屋 | DHI.N | 
-stock | 露露柠檬 | LULU.O | 
-stock | 韦莱韬悦 | WTW.O | 
-stock | 韦里斯克 | VRSK.O | 
-stock | 飞塔 | FTNT.O | 
-stock | 马克尔 | MKL.N | 
-stock | 马拉松石油 | MPC.N | 
-stock | 马斯科 | MAS.N | 
-stock | 高乐氏 | CLX.N | 
-stock | 高德纳 | IT.N | 
-stock | 高盛 | GS.N | 
-stock | 高知特 | CTSH.O | 
-stock | 高通 | QCOM.O | 
-stock | 高露洁棕榄 | CL.N | 
-stock | 麦克森 | MCK.N | 
-stock | 麦当劳 | MCD.N | 
-stock | 黑石集团 | BX.N | 
-stock | 默克 | MRK.N | 
+stock | 3M公司 | MMM.N |  |
+stock | AAON_Inc | AAON.O |  |
+stock | ADT_Inc | ADT.N |  |
+stock | AGNC_Investment_Corp | AGNC.O |  |
+stock | APA_Corporation | APA.O |  |
+stock | APi_Group_Corporation | APG.N |  |
+stock | AST_SpaceMobile_Inc | ASTS.O |  |
+stock | ATI_Inc | ATI.N |  |
+stock | AXIS_Capital_Holdings_Limited | AXS.N |  |
+stock | Acadia_Healthcare_Company_Inc | ACHC.O |  |
+stock | Acuity_Brands_Inc | AYI.N |  |
+stock | Advanced_Drainage_Systems_Inc | WMS.N |  |
+stock | Affiliated_Managers_Group_Inc | AMG.N |  |
+stock | Affirm_Holdings_Inc | AFRM.O |  |
+stock | Agree_Realty_Corporation | ADC.N |  |
+stock | Air_Lease_Corporation | AL.N |  |
+stock | Albertsons_Companies_Inc | ACI.N |  |
+stock | Alexandria_Real_Estate_Equities_Inc | ARE.N |  |
+stock | Allegion_plc | ALLE.N |  |
+stock | Allegro_MicroSystems_Inc | ALGM.O |  |
+stock | Alliant_Energy_Corporation | LNT.O |  |
+stock | Ally_Financial_Inc | ALLY.N |  |
+stock | Alnylam_Pharmaceuticals_Inc | ALNY.O |  |
+stock | Amdocs_Limited | DOX.O |  |
+stock | Amentum_Holdings_Inc | AMTM.N |  |
+stock | American_Financial_Group_Inc | AFG.N |  |
+stock | American_Homes_4_Rent | AMH.N |  |
+stock | Americold_Realty_Trust_Inc | COLD.N |  |
+stock | Annaly_Capital_Management_Inc | NLY.N |  |
+stock | Antero_Midstream_Corporation | AM.N |  |
+stock | Antero_Resources_Corporation | AR.N |  |
+stock | Apellis_Pharmaceuticals_Inc | APLS.O |  |
+stock | AppFolio_Inc | APPF.O |  |
+stock | AppLovin_Corporation | APP.O |  |
+stock | Applied_Industrial_Technologies_Inc | AIT.N |  |
+stock | AptarGroup_Inc | ATR.N |  |
+stock | Arch_Capital_Group_Ltd | ACGL.O |  |
+stock | Ares_Management_Corporation | ARES.N |  |
+stock | Arista_Networks_Inc | ANET.N |  |
+stock | Arm_Holdings_plc_American_Depositary_Shares | ARM.O |  |
+stock | Arthur_J_Gallagher__Co | AJG.N |  |
+stock | Assurant_Inc | AIZ.N |  |
+stock | Assured_Guaranty_Ltd | AGO.N |  |
+stock | Astera_Labs_Inc_Common_Stock | ALAB.O |  |
+stock | Atlassian_Corporation | TEAM.O |  |
+stock | Atmos_Energy_Corporation | ATO.N |  |
+stock | Aurora_Innovation_Inc | AUR.O |  |
+stock | AutoNation_Inc | AN.N |  |
+stock | AvalonBay_Communities_Inc | AVB.N |  |
+stock | Avantor_Inc | AVTR.N |  |
+stock | Axon_Enterprise_Inc | AXON.O |  |
+stock | BJs_Wholesale_Club_Holdings_Inc | BJ.N |  |
+stock | BOK_Financial_Corporation | BOKF.O |  |
+stock | BWX_Technologies_Inc | BWXT.N |  |
+stock | BXP_Inc | BXP.N |  |
+stock | Bank_OZK | OZK.O |  |
+stock | Bath__Body_Works_Inc | BBWI.N |  |
+stock | BeOne_Medicines_Ltd | ONC.O |  |
+stock | BellRing_Brands_Inc | BRBR.N |  |
+stock | Billcom_Holdings_Inc | BILL.N |  |
+stock | Bio-Techne_Corporation | TECH.O |  |
+stock | BioMarin_Pharmaceutical_Inc | BMRN.O |  |
+stock | Block_Inc | XYZ.N |  |
+stock | Blue_Owl_Capital_Inc | OWL.N |  |
+stock | Boyd_Gaming_Corporation | BYD.N |  |
+stock | Bright_Horizons_Family_Solutions_Inc | BFAM.N |  |
+stock | Brighthouse_Financial_Inc | BHF.O |  |
+stock | Brixmor_Property_Group_Inc | BRX.N |  |
+stock | Broadridge_Financial_Solutions_Inc | BR.N |  |
+stock | Brown__Brown_Inc | BRO.N |  |
+stock | Builders_FirstSource_Inc | BLDR.N |  |
+stock | Bullish | BLSH.N |  |
+stock | Burlington_Stores_Inc | BURL.N |  |
+stock | CACI_International_Inc | CACI.N |  |
+stock | CAVA_Group_Inc | CAVA.N |  |
+stock | CCC_Intelligent_Solutions_Holdings_Inc | CCCS.O |  |
+stock | CDW_Corporation | CDW.O |  |
+stock | CF_Industries_Holdings_Inc | CF.N |  |
+stock | CMS_Energy_Corporation | CMS.N |  |
+stock | CNA_Financial_Corporation | CNA.N |  |
+stock | CRH_plc | CRH.N |  |
+stock | CSX_Corporation | CSX.O |  |
+stock | Camden_Property_Trust | CPT.N |  |
+stock | CarMax_Inc | KMX.N |  |
+stock | Caris_Life_Sciences_Inc | CAI.O |  |
+stock | Carlisle_Companies_Incorporated | CSL.N |  |
+stock | Carpenter_Technology_Corporation | CRS.N |  |
+stock | Carvana_Co | CVNA.N |  |
+stock | Caseys_General_Stores_Inc | CASY.O |  |
+stock | Celsius_Holdings_Inc | CELH.O |  |
+stock | Cencora_Inc | COR.N |  |
+stock | Centene_Corporation | CNC.N |  |
+stock | CenterPoint_Energy_Inc | CNP.N |  |
+stock | Certara_Inc | CERT.O |  |
+stock | Charter_Communications_Inc | CHTR.O |  |
+stock | Chemed_Corporation | CHE.N |  |
+stock | Cheniere_Energy_Inc | LNG.N |  |
+stock | Chewy_Inc | CHWY.N |  |
+stock | Chipotle_Mexican_Grill_Inc | CMG.N |  |
+stock | Chord_Energy_Corporation | CHRD.O |  |
+stock | Church__Dwight_Co_Inc | CHD.N |  |
+stock | Churchill_Downs_Incorporated | CHDN.O |  |
+stock | Ciena_Corporation | CIEN.N |  |
+stock | Cincinnati_Financial_Corporation | CINF.O |  |
+stock | Circle_Internet_Group | CRCL.N |  |
+stock | Cirrus_Logic_Inc | CRUS.O |  |
+stock | Citizens_Financial_Group_Inc | CFG.N |  |
+stock | Clean_Harbors_Inc | CLH.N |  |
+stock | Clearway_Energy_Inc | CWEN-A.N |  |
+stock | Clearway_Energy_Inc | CWEN.N |  |
+stock | Cloudflare_Inc | NET.N |  |
+stock | CoStar_Group_Inc | CSGP.O |  |
+stock | Coca-Cola_Consolidated_Inc | COKE.O |  |
+stock | Coinbase_Global_Inc | COIN.O |  |
+stock | Columbia_Banking_System_Inc | COLB.O |  |
+stock | Comfort_Systems_USA_Inc | FIX.N |  |
+stock | Commerce_Bancshares_Inc | CBSH.O |  |
+stock | Concentrix_Corporation | CNXC.O |  |
+stock | Confluent_Inc | CFLT.O |  |
+stock | Constellation_Energy_Corporation | CEG.O |  |
+stock | Copart_Inc | CPRT.O |  |
+stock | Corcept_Therapeutics_Incorporated | CORT.O |  |
+stock | Core__Main_Inc | CNM.N |  |
+stock | Corpay_Inc | CPAY.N |  |
+stock | Coterra_Energy_Inc | CTRA.N |  |
+stock | Cousins_Properties_Incorporated | CUZ.N |  |
+stock | Crane_NXT_Co | CXT.N |  |
+stock | Credit_Acceptance_Corporation | CACC.O |  |
+stock | Credo_Technology_Group_Holding_Ltd | CRDO.O |  |
+stock | CrowdStrike_Holdings_Inc | CRWD.O |  |
+stock | CubeSmart | CUBE.N |  |
+stock | CullenFrost_Bankers_Inc | CFR.N |  |
+stock | DICKS_Sporting_Goods_Inc | DKS.N |  |
+stock | DTE_Energy_Company | DTE.N |  |
+stock | DT_Midstream_Inc | DTM.N |  |
+stock | DXC_Technology_Company | DXC.N |  |
+stock | Darling_Ingredients_Inc | DAR.N |  |
+stock | Datadog_Inc | DDOG.O |  |
+stock | Diamondback_Energy_Inc | FANG.O |  |
+stock | Digital_Realty_Trust_Inc | DLR.N |  |
+stock | Dillards_Inc | DDS.N |  |
+stock | DocuSign_Inc | DOCU.O |  |
+stock | DoorDash_Inc | DASH.O |  |
+stock | DoubleVerify_Holdings_Inc | DV.N |  |
+stock | Doximity_Inc | DOCS.N |  |
+stock | DraftKings_Inc | DKNG.O |  |
+stock | Dropbox_Inc | DBX.O |  |
+stock | Dutch_Bros_Inc | BROS.N |  |
+stock | Dynatrace_Inc | DT.N |  |
+stock | EMCOR_Group_Inc | EME.N |  |
+stock | EOG_Resources_Inc | EOG.N |  |
+stock | EPAM_Systems_Inc | EPAM.N |  |
+stock | EPR_Properties | EPR.N |  |
+stock | EQT_Corporation | EQT.N |  |
+stock | Eagle_Materials_Inc | EXP.N |  |
+stock | EastGroup_Properties_Inc | EGP.N |  |
+stock | Elastic_NV | ESTC.N |  |
+stock | Element_Solutions_Inc | ESI.N |  |
+stock | Elevance_Health_Inc | ELV.N |  |
+stock | Encompass_Health_Corporation | EHC.N |  |
+stock | Enphase_Energy_Inc | ENPH.O |  |
+stock | Envista_Holdings_Corp | NVST.N |  |
+stock | Equitable_Holdings_Inc | EQH.N |  |
+stock | Equity_LifeStyle_Properties_Inc | ELS.N |  |
+stock | Equity_Residential | EQR.N |  |
+stock | Erie_Indemnity_Company | ERIE.O |  |
+stock | Essential_Utilities_Inc | WTRG.N |  |
+stock | Essex_Property_Trust_Inc | ESS.N |  |
+stock | Etsy_Inc | ETSY.N |  |
+stock | Euronet_Worldwide_Inc | EEFT.O |  |
+stock | Evercore_Inc | EVR.N |  |
+stock | Everest_Re_Group_Ltd | EG.N |  |
+stock | Evergy_Inc | EVRG.O |  |
+stock | Eversource_Energy | ES.N |  |
+stock | Everus_Construction_Group_Inc | ECG.N |  |
+stock | Exact_Sciences_Corporation | EXAS.O |  |
+stock | Exelixis_Inc | EXEL.O |  |
+stock | ExlService_Holdings_Inc | EXLS.O |  |
+stock | Expand_Energy_Corporation | EXE.O |  |
+stock | Extra_Space_Storage_Inc | EXR.N |  |
+stock | F5_Inc | FFIV.O |  |
+stock | FNB_Corporation | FNB.N |  |
+stock | FTAI_Aviation_Ltd | FTAI.O |  |
+stock | FTI_Consulting_Inc | FCN.N |  |
+stock | FactSet_Research_Systems_Inc | FDS.N |  |
+stock | Federal_Realty_Investment_Trust | FRT.N |  |
+stock | Fermi_Inc_Common_Stock | FRMI.O |  |
+stock | Ferrovial_SE | FER.O |  |
+stock | Fidelity_National_Financial_Inc | FNF.N |  |
+stock | Fidelity_National_Information_Services_Inc | FIS.N |  |
+stock | Figure_Technology_Solutions_Inc_Class_A_Common_Stock | FIGR.O |  |
+stock | First_American_Financial_Corporation | FAF.N |  |
+stock | First_Citizens_BancShares_Inc | FCNCA.O |  |
+stock | First_Hawaiian_Inc | FHB.O |  |
+stock | First_Horizon_Corporation | FHN.N |  |
+stock | First_Industrial_Realty_Trust_Inc | FR.N |  |
+stock | Five_Below_Inc | FIVE.O |  |
+stock | Floor__Decor_Holdings_Inc | FND.N |  |
+stock | Flowers_Foods_Inc | FLO.N |  |
+stock | Formula_One_Group | FWONA.O |  |
+stock | Formula_One_Group | FWONK.O |  |
+stock | Freedom_Holding_Corp | FRHC.O |  |
+stock | Freshpet_Inc | FRPT.O |  |
+stock | GCI_Liberty_Inc | GLIBA.O |  |
+stock | GCI_Liberty_Inc | GLIBK.O |  |
+stock | GE_Vernova_Inc | GEV.N |  |
+stock | GXO_Logistics_Inc | GXO.N |  |
+stock | GameStop_Corp | GME.N |  |
+stock | Gaming_and_Leisure_Properties_Inc | GLPI.O |  |
+stock | Gen_Digital_Inc | GEN.O |  |
+stock | Generac_Holdings_Inc | GNRC.N |  |
+stock | Genpact_Limited | G.N |  |
+stock | GitLab_Inc | GTLB.O |  |
+stock | Globant_SA | GLOB.N |  |
+stock | Globe_Life_Inc | GL.N |  |
+stock | Globus_Medical_Inc | GMED.N |  |
+stock | GoDaddy_Inc | GDDY.N |  |
+stock | Grand_Canyon_Education_Inc | LOPE.O |  |
+stock | Graphic_Packaging_Holding_Company | GPK.N |  |
+stock | Guidewire_Software_Inc | GWRE.N |  |
+stock | HCA_Healthcare_Inc | HCA.N |  |
+stock | HDFC银行 | HDB.N |  |
+stock | HEICO_Corporation | HEI-A.N |  |
+stock | HEICO_Corporation | HEI.N |  |
+stock | HF_Sinclair_Corporation | DINO.N |  |
+stock | HR_Block_Inc | HRB.N |  |
+stock | Halozyme_Therapeutics_Inc | HALO.O |  |
+stock | Hamilton_Lane_Incorporated | HLNE.O |  |
+stock | Hayward_Holdings_Inc | HAYW.N |  |
+stock | Healthcare_Realty_Trust_Incorporated | HR.N |  |
+stock | Healthpeak_Properties_Inc | DOC.N |  |
+stock | Highwoods_Properties_Inc | HIW.N |  |
+stock | Host_Hotels__Resorts_Inc | HST.O |  |
+stock | Houlihan_Lokey_Inc | HLI.N |  |
+stock | Howard_Hughes_Holdings_Inc | HHH.N |  |
+stock | HubSpot_Inc | HUBS.N |  |
+stock | Huntington_Bancshares_Incorporated | HBAN.O |  |
+stock | IAC_InterActive_Corp | IAC.O |  |
+stock | ICICI银行 | IBN.N |  |
+stock | IDACORP_Inc | IDA.N |  |
+stock | IPG_Photonics_Corporation | IPGP.O |  |
+stock | ITT_Inc | ITT.N |  |
+stock | Incyte_Corporation | INCY.O |  |
+stock | Insmed_Incorporated | INSM.O |  |
+stock | Inspire_Medical_Systems_Inc | INSP.N |  |
+stock | Instacart_Maplebear_Inc | CART.O |  |
+stock | Insulet_Corporation | PODD.O |  |
+stock | Invitation_Homes_Inc | INVH.N |  |
+stock | Ionis_Pharmaceuticals_Inc | IONS.O |  |
+stock | JB_Hunt_Transport_Services_Inc | JBHT.O |  |
+stock | Jack_Henry__Associates_Inc | JKHY.O |  |
+stock | Jazz_Pharmaceuticals_plc | JAZZ.N |  |
+stock | KBR_Inc | KBR.N |  |
+stock | KKR__Co_Inc | KKR.N |  |
+stock | Karman_Holdings_Inc | KRMN.N |  |
+stock | Kemper_Corporation | KMPR.N |  |
+stock | KeyCorp | KEY.N |  |
+stock | Kilroy_Realty_Corporation | KRC.N |  |
+stock | Kimco_Realty_Corporation | KIM.N |  |
+stock | Kinsale_Capital_Group_Inc | KNSL.N |  |
+stock | Kirby_Corporation | KEX.N |  |
+stock | Knight-Swift_Transportation_Holdings_Inc | KNX.N |  |
+stock | Kyndryl_Holdings_Inc | KD.N |  |
+stock | LKQ_Corporation | LKQ.O |  |
+stock | LPL_Financial_Holdings_Inc | LPLA.O |  |
+stock | Lamar_Advertising_Company | LAMR.O |  |
+stock | Lamb_Weston_Holdings_Inc | LW.N |  |
+stock | Landstar_System_Inc | LSTR.O |  |
+stock | Leonardo_DRS_Inc | DRS.O |  |
+stock | Liberty_Broadband_Corporation | LBRDA.O |  |
+stock | Liberty_Broadband_Corporation | LBRDK.O |  |
+stock | Liberty_Global_plc | LBTYA.O |  |
+stock | Liberty_Global_plc | LBTYK.O |  |
+stock | Liberty_Live_Group | LLYVA.O |  |
+stock | Liberty_Live_Group | LLYVK.O |  |
+stock | Lineage_Inc | LINE.O |  |
+stock | Lithia_Motors_Inc | LAD.N |  |
+stock | Live_Nation_Entertainment_Inc | LYV.N |  |
+stock | Loar_Holdings_Inc | LOAR.N |  |
+stock | Louisiana-Pacific_Corporation | LPX.N |  |
+stock | Lucid_Group_Inc | LCID.O |  |
+stock | Lumentum_Holdings_Inc | LITE.O |  |
+stock | Lyft_Inc | LYFT.O |  |
+stock | MACOM_Technology_Solutions_Holdings_Inc | MTSI.O |  |
+stock | MDU_Resources_Group_Inc | MDU.N |  |
+stock | MGIC_Investment_Corporation | MTG.N |  |
+stock | MKS_Inc | MKSI.O |  |
+stock | MP_Materials_Corp | MP.N |  |
+stock | MSA_Safety_Incorporated | MSA.N |  |
+stock | MSC_Industrial_Direct_Co_Inc | MSM.N |  |
+stock | MT_Bank_Corporation | MTB.N |  |
+stock | Madison_Square_Garden_Sports_Corp | MSGS.N |  |
+stock | Manhattan_Associates_Inc | MANH.O |  |
+stock | MarketAxess_Holdings_Inc | MKTX.O |  |
+stock | Martin_Marietta_Materials_Inc | MLM.N |  |
+stock | MasTec_Inc | MTZ.N |  |
+stock | Matador_Resources_Company | MTDR.N |  |
+stock | Match_Group_Inc | MTCH.O |  |
+stock | Medical_Properties_Trust_Inc | MPT.N |  |
+stock | Medpace_Holdings_Inc | MEDP.O |  |
+stock | MercadoLibre_Inc | MELI.O |  |
+stock | Mid-America_Apartment_Communities_Inc | MAA.N |  |
+stock | Millicom_International_Cellular_SA | TIGO.O |  |
+stock | Millrose_Properties_Inc | MRP.N |  |
+stock | Molina_Healthcare_Inc | MOH.N |  |
+stock | MongoDB_Inc | MDB.O |  |
+stock | Mueller_Industries_Inc | MLI.N |  |
+stock | Murphy_USA_Inc | MUSA.N |  |
+stock | NIQ_Global_Intelligence_Plc | NIQ.N |  |
+stock | NNN_REIT_Inc | NNN.N |  |
+stock | NOV_Inc | NOV.N |  |
+stock | NRG_Energy_Inc | NRG.N |  |
+stock | NVR_Inc | NVR.N |  |
+stock | Natera_Inc | NTRA.O |  |
+stock | National_Fuel_Gas_Company | NFG.N |  |
+stock | National_Storage_Affiliates_Trust | NSA.N |  |
+stock | NetApp_Inc | NTAP.O |  |
+stock | Neurocrine_Biosciences_Inc | NBIX.O |  |
+stock | NewMarket_Corporation | NEU.N |  |
+stock | Nexstar_Media_Group_Inc | NXST.O |  |
+stock | NiSource_Inc | NI.N |  |
+stock | Nu_Holdings_Ltd | NU.N |  |
+stock | Nutanix_Inc | NTNX.O |  |
+stock | OGE_Energy_Corp | OGE.N |  |
+stock | ONEOK_Inc | OKE.N |  |
+stock | OReilly_Automotive_Inc | ORLY.O |  |
+stock | Okta_Inc | OKTA.O |  |
+stock | Old_Dominion_Freight_Line_Inc | ODFL.O |  |
+stock | Old_Republic_International_Corporation | ORI.N |  |
+stock | Ollies_Bargain_Outlet_Holdings_Inc | OLLI.O |  |
+stock | Omega_Healthcare_Investors_Inc | OHI.N |  |
+stock | OneMain_Holdings_Inc | OMF.N |  |
+stock | Onto_Innovation_Inc | ONTO.N |  |
+stock | Ovintiv_Inc | OVV.N |  |
+stock | PENN_Entertainment_Inc | PENN.O |  |
+stock | PPG工业 | PPG.N |  |
+stock | PPL_Corporation | PPL.N |  |
+stock | PTC_Inc | PTC.O |  |
+stock | PVH_Corp | PVH.N |  |
+stock | Packaging_Corporation_of_America | PKG.N |  |
+stock | Palantir_Technologies_Inc | PLTR.O |  |
+stock | Paramount_Skydance_Corporation_Class_B_Common_Stock | PSKY.O |  |
+stock | Park_Hotels__Resorts_Inc | PK.N |  |
+stock | Parsons_Corporation | PSN.N |  |
+stock | Paychex_Inc | PAYX.O |  |
+stock | Paycom_Software_Inc | PAYC.N |  |
+stock | Paylocity_Holding_Corporation | PCTY.O |  |
+stock | Pegasystems_Inc | PEGA.O |  |
+stock | Penske_Automotive_Group_Inc | PAG.N |  |
+stock | Penumbra_Inc | PEN.N |  |
+stock | Performance_Food_Group_Company | PFGC.N |  |
+stock | Permian_Resources_Corporation | PR.N |  |
+stock | Pilgrims_Pride_Corporation | PPC.O |  |
+stock | Pinnacle_Financial_Partners_Inc | PNFP.O |  |
+stock | Pinnacle_West_Capital_Corporation | PNW.N |  |
+stock | Pinterest_Inc | PINS.N |  |
+stock | Planet_Fitness_Inc | PLNT.N |  |
+stock | Pool_Corporation | POOL.O |  |
+stock | Popular_Inc | BPOP.O |  |
+stock | Post_Holdings_Inc | POST.N |  |
+stock | Primerica_Inc | PRI.N |  |
+stock | Primo_Brands_Corporation | PRMB.N |  |
+stock | Procore_Technologies_Inc | PCOR.N |  |
+stock | Prosperity_Bancshares_Inc | PB.N |  |
+stock | Public_Service_Enterprise_Group_Incorporated | PEG.N |  |
+stock | Public_Storage | PSA.N |  |
+stock | Pure_Storage_Inc | PSTG.N |  |
+stock | QXO_Inc | QXO.N |  |
+stock | Qnity_Electronics_Inc | Q.N |  |
+stock | Qorvo_Inc | QRVO.O |  |
+stock | QuantumScape_Corporation | QS.O |  |
+stock | RBC_Bearings_Incorporated | RBC.N |  |
+stock | RLI_Corp | RLI.N |  |
+stock | RPM_International_Inc | RPM.N |  |
+stock | Ralliant_Corp | RAL.N |  |
+stock | Range_Resources_Corporation | RRC.N |  |
+stock | Rayonier_Inc | RYN.N |  |
+stock | Realty_Income_Corporation | O.N |  |
+stock | Reddit_Inc | RDDT.N |  |
+stock | Regal_Rexnord_Corporation | RRX.N |  |
+stock | Regency_Centers_Corporation | REG.O |  |
+stock | Regions_Financial_Corporation | RF.N |  |
+stock | Reinsurance_Group_of_America_Incorporated | RGA.N |  |
+stock | RenaissanceRe_Holdings_Ltd | RNR.N |  |
+stock | Repligen_Corporation | RGEN.O |  |
+stock | Revolution_Medicines_Inc | RVMD.O |  |
+stock | Revvity_Inc | RVTY.N |  |
+stock | Rexford_Industrial_Realty_Inc | REXR.N |  |
+stock | Reynolds_Consumer_Products_Inc | REYN.O |  |
+stock | Rh | RH.N |  |
+stock | RingCentral_Inc | RNG.N |  |
+stock | Rithm_Capital_Corp | RITM.N |  |
+stock | Rivian_Automotive_Inc | RIVN.O |  |
+stock | Robinhood_Markets_Inc | HOOD.O |  |
+stock | Roblox_Corporation | RBLX.N |  |
+stock | Rocket_Companies_Inc | RKT.N |  |
+stock | Rocket_Lab_USA_Inc | RKLB.O |  |
+stock | Roivant_Sciences_Ltd | ROIV.O |  |
+stock | Roku_Inc | ROKU.O |  |
+stock | Rollins_Inc | ROL.N |  |
+stock | Ross_Stores_Inc | ROST.O |  |
+stock | Royal_Gold_Inc | RGLD.O |  |
+stock | Royalty_Pharma_plc | RPRX.O |  |
+stock | Rubrik_Inc | RBRK.N |  |
+stock | Ryan_Specialty_Holdings_Inc | RYAN.N |  |
+stock | SAP_SE | SAP.N |  |
+stock | SBA_Communications_Corporation | SBAC.O |  |
+stock | SEI_Investments_Company | SEIC.O |  |
+stock | SLM_Corporation | SLM.O |  |
+stock | SSC_Technologies_Holdings_Inc | SSNC.O |  |
+stock | STAG_Industrial_Inc | STAG.N |  |
+stock | Saia_Inc | SAIA.O |  |
+stock | SailPoint_Inc | SAIL.O |  |
+stock | Samsara_Inc | IOT.N |  |
+stock | Sarepta_Therapeutics_Inc | SRPT.O |  |
+stock | Schneider_National_Inc | SNDR.N |  |
+stock | Science_Applications_International_Corporation | SAIC.O |  |
+stock | Seaboard_Corporation | SEB.A |  |
+stock | SentinelOne_Inc | S.N |  |
+stock | ServiceNow_Inc | NOW.N |  |
+stock | Service_Corporation_International | SCI.N |  |
+stock | SharkNinja_Inc | SN.N |  |
+stock | Shift4_Payments_Inc | FOUR.N |  |
+stock | Silgan_Holdings_Inc | SLGN.N |  |
+stock | Simpson_Manufacturing_Co_Inc | SSD.N |  |
+stock | Sirius_XM_Holdings_Inc | SIRI.O |  |
+stock | SiteOne_Landscape_Supply_Inc | SITE.N |  |
+stock | Smurfit_Westrock_Plc | SW.N |  |
+stock | Snowflake_Inc | SNOW.N |  |
+stock | SoFi_Technologies_Inc | SOFI.O |  |
+stock | Solstice_Advanced_Materials_Inc | SOLS.O |  |
+stock | Solventum_Corporation | SOLV.N |  |
+stock | Somnigroup_International_Inc | SGI.N |  |
+stock | SouthState_Corporation | SSB.N |  |
+stock | Sprouts_Farmers_Market_Inc | SFM.O |  |
+stock | StandardAero_Inc | SARO.N |  |
+stock | Starwood_Property_Trust_Inc | STWD.N |  |
+stock | Stifel_Financial_Corp | SF.N |  |
+stock | Strategy_Inc | MSTR.O |  |
+stock | Summit_Therapeutics_Inc | SMMT.O |  |
+stock | Sun_Communities_Inc | SUI.N |  |
+stock | Synchrony_Financial | SYF.N |  |
+stock | T-Mobile_US_Inc | TMUS.O |  |
+stock | TD_SYNNEX_Corporation | SNX.N |  |
+stock | TFS_Financial_Corporation | TFSL.O |  |
+stock | TKO_Group_Holdings_Inc | TKO.N |  |
+stock | TPG_Inc | TPG.O |  |
+stock | Take-Two_Interactive_Software_Inc | TTWO.O |  |
+stock | Talen_Energy_Corporation | TLN.O |  |
+stock | Targa_Resources_Corp | TRGP.N |  |
+stock | TechnipFMC_plc | FTI.N |  |
+stock | Tempus_AI_Inc | TEM.O |  |
+stock | Tenet_Healthcare_Corporation | THC.N |  |
+stock | Tetra_Tech_Inc | TTEK.O |  |
+stock | Texas_Pacific_Land_Corporation | TPL.N |  |
+stock | Texas_Roadhouse_Inc | TXRH.O |  |
+stock | The_AES_Corporation | AES.N |  |
+stock | The_Hanover_Insurance_Group_Inc | THG.N |  |
+stock | The_Middleby_Corporation | MIDD.O |  |
+stock | The_PNC_Financial_Services_Group_Inc | PNC.N |  |
+stock | The_TJX_Companies_Inc | TJX.N |  |
+stock | The_Trade_Desk_Inc | TTD.O |  |
+stock | Thor_Industries_Inc | THO.N |  |
+stock | Toast_Inc | TOST.N |  |
+stock | TopBuild_Corp | BLD.N |  |
+stock | Tractor_Supply_Company | TSCO.O |  |
+stock | Tradeweb_Markets_Inc | TW.O |  |
+stock | TransDigm_Group_Incorporated | TDG.N |  |
+stock | Travel__Leisure_Co | TNL.N |  |
+stock | Trex_Company_Inc | TREX.N |  |
+stock | Truist_Financial_Corporation | TFC.N |  |
+stock | Trump_Media__Technology_Group_Corp | DJT.O |  |
+stock | Twilio_Inc | TWLO.N |  |
+stock | Tyler_Technologies_Inc | TYL.N |  |
+stock | U-Haul_Holding_Company | UHAL.N |  |
+stock | UDR_Inc | UDR.N |  |
+stock | UGI_Corporation | UGI.N |  |
+stock | US_Foods_Holding_Corp | USFD.N |  |
+stock | UWM_Holdings_Corporation | UWMC.N |  |
+stock | Ubiquiti_Inc | UI.N |  |
+stock | UiPath_Inc | PATH.N |  |
+stock | Ulta_Beauty_Inc | ULTA.O |  |
+stock | Ultragenyx_Pharmaceutical_Inc | RARE.O |  |
+stock | United_Therapeutics_Corporation | UTHR.O |  |
+stock | Unity_Software_Inc | U.N |  |
+stock | Universal_Display_Corporation | OLED.O |  |
+stock | Universal_Health_Services_Inc | UHS.N |  |
+stock | Unum_Group | UNM.N |  |
+stock | VICI_Properties_Inc | VICI.N |  |
+stock | Valmont_Industries_Inc | VMI.N |  |
+stock | Veeva_Systems_Inc | VEEV.N |  |
+stock | Ventas_Inc | VTR.N |  |
+stock | Veralto_Corporation | VLTO.N |  |
+stock | Versant_Media_Group_Inc_Class_A_Common_Stock_When-Issued | VSNTV.O |  |
+stock | Viking_Holdings_Ltd | VIK.N |  |
+stock | Viking_Therapeutics_Inc | VKTX.O |  |
+stock | Viper_Energy_Inc | VNOM.O |  |
+stock | Virtu_Financial_Inc | VIRT.N |  |
+stock | Vistra_Corp | VST.N |  |
+stock | Vontier_Corporation | VNT.N |  |
+stock | Vornado_Realty_Trust | VNO.N |  |
+stock | Voya_Financial_Inc | VOYA.N |  |
+stock | WEC_Energy_Group_Inc | WEC.N |  |
+stock | WESCO_International_Inc | WCC.N |  |
+stock | WEX_Inc | WEX.N |  |
+stock | W_P_Carey_Inc | WPC.N |  |
+stock | W_R_Berkley_Corporation | WRB.N |  |
+stock | Watsco_Inc | WSO.N |  |
+stock | Wayfair_Inc | W.N |  |
+stock | Webster_Financial_Corporation | WBS.N |  |
+stock | Welltower_Inc | WELL.N |  |
+stock | Western_Alliance_Bancorporation | WAL.N |  |
+stock | White_Mountains_Insurance_Group_Ltd | WTM.N |  |
+stock | WillScot_Holdings_Corporation | WSC.O |  |
+stock | Wingstop_Inc | WING.O |  |
+stock | Wintrust_Financial_Corporation | WTFC.O |  |
+stock | Workday_Inc | WDAY.O |  |
+stock | XPO_Logistics_Inc | XPO.N |  |
+stock | XP_Inc | XP.O |  |
+stock | Xcel_Energy_Inc | XEL.O |  |
+stock | YETI_Holdings_Inc | YETI.N |  |
+stock | Zillow_Group_Inc_Class_A | ZG.O |  |
+stock | Zillow_Group_Inc_Class_C | Z.O |  |
+stock | Zions_Bancorporation_National_Association | ZION.O |  |
+stock | Zoom_Communications_Inc | ZM.O |  |
+stock | Zscaler_Inc | ZS.O |  |
+stock | elf_Beauty_Inc | ELF.N |  |
+stock | nCino_Inc | NCNO.O |  |
+stock | nVent_Electric_plc | NVT.N |  |
+stock | 万事达 | MA.N |  |
+stock | 万宝盛华 | MAN.N |  |
+stock | 万豪国际 | MAR.O |  |
+stock | 三井住友金融集团 | SMFG.N |  |
+stock | 三菱日联金融集团 | MUFG.N |  |
+stock | 世邦魏理仕 | CBRE.N |  |
+stock | 丘博 | CB.N |  |
+stock | 丰田汽车 | TM.N |  |
+stock | 丹纳赫 | DHR.N |  |
+stock | 五三银行 | FITB.O |  |
+stock | 亚什兰 | ASH.N |  |
+stock | 亚德诺半导体 | ADI.O |  |
+stock | 亚玛芬体育 | AS.N |  |
+stock | 亚马逊 | AMZN.O |  |
+stock | 亨利香恩 | HSIC.O |  |
+stock | 亨廷顿英格尔斯 | HII.N |  |
+stock | 亨斯迈 | HUN.N |  |
+stock | 京东 | JD.O |  |
+stock | 亿客行 | EXPE.O |  |
+stock | 亿滋国际 | MDLZ.O |  |
+stock | 仲量联行 | JLL.N |  |
+stock | 伊利诺伊工具 | ITW.N |  |
+stock | 伊塔乌联合银行 | ITUB.N |  |
+stock | 伊士曼化工 | EMN.N |  |
+stock | 伊萨 | ESAB.N |  |
+stock | 伊顿 | ETN.N |  |
+stock | 伍德沃德 | WWD.O |  |
+stock | 优步 | UBER.N |  |
+stock | 伟创力 | FLEX.O |  |
+stock | 伯乐 | BIO.N |  |
+stock | 伯克希尔哈撒韦 | BRK-B.N |  |
+stock | 佳明 | GRMN.N |  |
+stock | 保德信金融 | PRU.N |  |
+stock | 信安金融 | PFG.O |  |
+stock | 信实钢铁 | RS.N |  |
+stock | 信诺 | CI.N |  |
+stock | 信达思 | CTAS.O |  |
+stock | 元平台 | META.O |  |
+stock | 克兰 | CR.N |  |
+stock | 克利夫兰克里夫斯 | CLF.N |  |
+stock | 克罗格 | KR.N |  |
+stock | 共和服务 | RSG.N |  |
+stock | 再生元 | REGN.O |  |
+stock | 冠城国际 | CCI.N |  |
+stock | 凯悦酒店 | H.N |  |
+stock | 凯撒娱乐 | CZR.O |  |
+stock | 凯雷集团 | CG.O |  |
+stock | 利安德巴塞尔 | LYB.N |  |
+stock | 前进保险 | PGR.N |  |
+stock | 力特 | LFUS.O |  |
+stock | 劳氏 | LOW.N |  |
+stock | 勃肯 | BIRK.N |  |
+stock | 北方信托 | NTRS.O |  |
+stock | 华丽七号ETF | MAGS.BAT |  |
+stock | 华纳兄弟探索 | WBD.O |  |
+stock | 华美银行 | EWBC.O |  |
+stock | 南方公司 | SO.N |  |
+stock | 南方铜业 | SCCO.N |  |
+stock | 博思艾伦 | BAH.N |  |
+stock | 博格华纳 | BWA.N |  |
+stock | 博通 | AVGO.O |  |
+stock | 卡夫亨氏 | KHC.O |  |
+stock | 卡特彼勒 | CAT.N |  |
+stock | 卡骆驰 | CROX.O |  |
+stock | 印孚瑟斯 | INFY.N |  |
+stock | 可口可乐 | KO.N |  |
+stock | 可口可乐欧洲太平洋合伙 | CCEP.O |  |
+stock | 台积电 | TSM.N |  |
+stock | 史丹利百得 | SWK.N |  |
+stock | 史密斯 | AOS.N |  |
+stock | 史密斯菲尔德 | SFD.O |  |
+stock | 史赛克 | STE.N |  |
+stock | 史赛克 | SYK.N |  |
+stock | 吉利德科学 | GILD.O |  |
+stock | 味好美 | MKC.N |  |
+stock | 哈勃 | HUBB.N |  |
+stock | 哈特福德金融 | HIG.N |  |
+stock | 哈里伯顿 | HAL.N |  |
+stock | 哈里斯 | LHX.N |  |
+stock | 哈门那 | HUM.N |  |
+stock | 哈雷戴维森 | HOG.N |  |
+stock | 哥伦比亚运动服装 | COLM.O |  |
+stock | 唐纳森 | DCI.N |  |
+stock | 嘉信理财 | SCHW.N |  |
+stock | 嘉年华邮轮 | CCL.N |  |
+stock | 因美纳 | ILMN.O |  |
+stock | 固安捷 | GWW.N |  |
+stock | 固瑞克 | GGG.N |  |
+stock | 国际商业机器 | IBM.N |  |
+stock | 国际纸业 | IP.N |  |
+stock | 国际香料香精 | IFF.N |  |
+stock | 埃克森美孚 | XOM.N |  |
+stock | 埃森哲 | ACN.N |  |
+stock | 塔吉特 | TGT.N |  |
+stock | 塞拉尼斯 | CE.N |  |
+stock | 多佛 | DOV.N |  |
+stock | 多邻国 | DUOL.O |  |
+stock | 大都会人寿 | MET.N |  |
+stock | 天宝 | TRMB.O |  |
+stock | 天睿 | TDC.N |  |
+stock | 太平洋瓦电 | PCG.N |  |
+stock | 奈飞 | NFLX.O |  |
+stock | 奎斯特诊断 | DGX.N |  |
+stock | 奥多比 | ADBE.O |  |
+stock | 奥林 | OLN.N |  |
+stock | 奥的斯 | OTIS.N |  |
+stock | 奥驰亚 | MO.N |  |
+stock | 好事达 | ALL.N |  |
+stock | 好市多 | COST.O |  |
+stock | 好时 | HSY.N |  |
+stock | 威富 | VFC.N |  |
+stock | 威廉姆斯 | WMB.N |  |
+stock | 威廉姆斯索诺玛 | WSM.N |  |
+stock | 威德福 | WFRD.O |  |
+stock | 威瑞信 | VRSN.O |  |
+stock | 威瑞森 | VZ.N |  |
+stock | 威达信 | MMC.N |  |
+stock | 威达信 | MRSH.N |  |
+stock | 孩之宝 | HAS.O |  |
+stock | 安姆科 | AMCR.N |  |
+stock | 安富利 | AVT.O |  |
+stock | 安德玛 | UA.N |  |
+stock | 安德玛 | UAA.N |  |
+stock | 安捷伦科技 | A.N |  |
+stock | 安森美 | ON.O |  |
+stock | 安波福 | APTV.N |  |
+stock | 安特吉 | ETR.N |  |
+stock | 安费诺 | APH.N |  |
+stock | 安进 | AMGN.O |  |
+stock | 安靠科技 | AMKR.O |  |
+stock | 安飞士 | CAR.O |  |
+stock | 宏盟集团 | OMC.N |  |
+stock | 宜瑞安 | INGR.N |  |
+stock | 宝洁 | PG.N |  |
+stock | 实耐宝 | SNA.N |  |
+stock | 家得宝 | HD.N |  |
+stock | 宾利系统 | BSY.O |  |
+stock | 宾士域 | BC.N |  |
+stock | 富兰克林资源 | BEN.N |  |
+stock | 富国银行 | WFC.N |  |
+stock | 富美实 | FMC.N |  |
+stock | 小鹏汽车 | XPEV.N |  |
+stock | 布鲁克 | BRKR.O |  |
+stock | 希尔顿 | HLT.N |  |
+stock | 希悦尔 | SEE.N |  |
+stock | 希捷科技 | STX.O |  |
+stock | 帕卡 | PCAR.O |  |
+stock | 广达服务 | PWR.N |  |
+stock | 库珀 | COO.O |  |
+stock | 应用材料 | AMAT.O |  |
+stock | 废物管理 | WM.N |  |
+stock | 康卡斯特 | CMCSA.O |  |
+stock | 康宁 | GLW.N |  |
+stock | 康尼格拉 | CAG.N |  |
+stock | 康德乐 | CAH.N |  |
+stock | 康捷空 | EXPD.N |  |
+stock | 康明斯 | CMI.N |  |
+stock | 康耐视 | CGNX.O |  |
+stock | 康菲石油 | COP.N |  |
+stock | 开利 | CARR.N |  |
+stock | 弗格森 | FERG.N |  |
+stock | 强生 | JNJ.N |  |
+stock | 徕博科 | LH.N |  |
+stock | 微芯科技 | MCHP.O |  |
+stock | 微软 | MSFT.O |  |
+stock | 德事隆 | TXT.N |  |
+stock | 德克斯户外 | DECK.N |  |
+stock | 德州仪器 | TXN.O |  |
+stock | 德康医疗 | DXCM.O |  |
+stock | 德文能源 | DVN.N |  |
+stock | 必和必拓 | BHP.N |  |
+stock | 快扣 | FAST.O |  |
+stock | 思佳讯 | SWKS.O |  |
+stock | 思科 | CSCO.O |  |
+stock | 怡安 | AON.N |  |
+stock | 怪兽饮料 | MNST.O |  |
+stock | 恩智浦 | NXPI.O |  |
+stock | 恩特格里斯 | ENTG.O |  |
+stock | 惠好 | WY.N |  |
+stock | 惠普 | HPQ.N |  |
+stock | 惠而浦 | WHR.N |  |
+stock | 意法半导体 | STM.N |  |
+stock | 慧与 | HPE.N |  |
+stock | 戴尔科技 | DELL.N |  |
+stock | 托尔兄弟 | TOL.N |  |
+stock | 托罗 | TTC.N |  |
+stock | 拉夫劳伦 | RL.N |  |
+stock | 拉扎德 | LAZ.N |  |
+stock | 拼多多 | PDD.O |  |
+stock | 挪威邮轮 | NCLH.N |  |
+stock | 捷普 | JBL.N |  |
+stock | 捷迈邦美 | ZBH.N |  |
+stock | 携程 | TCOM.O |  |
+stock | 摩托罗拉系统 | MSI.N |  |
+stock | 摩根士丹利 | MS.N |  |
+stock | 摩根大通 | JPM.N |  |
+stock | 摩森康胜 | TAP.N |  |
+stock | 斑马技术 | ZBRA.O |  |
+stock | 斯伦贝谢 | SLB.N |  |
+stock | 斯马克 | SJM.N |  |
+stock | 新思科技 | SNPS.O |  |
+stock | 新纪元能源 | NEE.N |  |
+stock | 新闻集团 | NWS.O |  |
+stock | 新闻集团 | NWSA.O |  |
+stock | 旅行者保险 | TRV.N |  |
+stock | 日月光投控 | ASX.N |  |
+stock | 昂跑 | ONON.N |  |
+stock | 明晟 | MSCI.N |  |
+stock | 易昆尼克斯 | EQIX.O |  |
+stock | 易贝 | EBAY.O |  |
+stock | 星巴克 | SBUX.O |  |
+stock | 星座品牌 | STZ.N |  |
+stock | 是德科技 | KEYS.N |  |
+stock | 晖致 | VTRS.O |  |
+stock | 晨星 | MORN.O |  |
+stock | 普信集团 | TROW.O |  |
+stock | 普尔特房屋 | PHM.N |  |
+stock | 普洛斯 | PLD.N |  |
+stock | 景顺 | IVZ.N |  |
+stock | 李尔 | LEA.N |  |
+stock | 杜克能源 | DUK.N |  |
+stock | 杜比实验室 | DLB.N |  |
+stock | 杜邦 | DD.N |  |
+stock | 杰富瑞 | JEF.N |  |
+stock | 林德 | LIN.O |  |
+stock | 林肯国民 | LNC.N |  |
+stock | 林肯电气 | LECO.O |  |
+stock | 查尔斯河实验室 | CRL.N |  |
+stock | 柯蒂斯莱特 | CW.N |  |
+stock | 标普全球 | SPGI.N |  |
+stock | 标普北美科技软件ETF | IGV.BAT |  |
+stock | 格芯 | GFS.O |  |
+stock | 桑坦德银行 | SAN.N |  |
+stock | 桑普拉能源 | SRE.N |  |
+stock | 梅特勒托利多 | MTD.N |  |
+stock | 梅西百货 | M.N |  |
+stock | 森萨塔科技 | ST.N |  |
+stock | 楷登电子 | CDNS.O |  |
+stock | 欧加隆 | OGN.N |  |
+stock | 欧文斯科宁 | OC.N |  |
+stock | 欧特克 | ADSK.O |  |
+stock | 永利度假村 | WYNN.O |  |
+stock | 汇丰控股 | HSBC.N |  |
+stock | 江森自控 | JCI.N |  |
+stock | 汤森路透 | TRI.O |  |
+stock | 汽车地带 | AZO.N |  |
+stock | 沃尔玛 | WMT.O |  |
+stock | 沃特世 | WAT.N |  |
+stock | 泛林 | LRCX.O |  |
+stock | 波士顿啤酒 | SAM.N |  |
+stock | 波士顿科学 | BSX.N |  |
+stock | 波尔 | BALL.N |  |
+stock | 波音 | BA.N |  |
+stock | 泰佩思琪 | TPR.N |  |
+stock | 泰利福 | TFX.N |  |
+stock | 泰利达 | TDY.N |  |
+stock | 泰森食品 | TSN.N |  |
+stock | 泰瑞达 | TER.O |  |
+stock | 泰科电子 | TEL.N |  |
+stock | 洛克希德马丁 | LMT.N |  |
+stock | 洲际交易所 | ICE.N |  |
+stock | 派克汉尼汾 | PH.N |  |
+stock | 派拓网络 | PANW.O |  |
+stock | 淡水河谷 | VALE.N |  |
+stock | 渤健 | BIIB.O |  |
+stock | 温德姆酒店 | WH.N |  |
+stock | 温蒂 | WEN.O |  |
+stock | 滨特尔 | PNR.N |  |
+stock | 火神材料 | VMC.N |  |
+stock | 爱克斯龙 | EXC.O |  |
+stock | 爱彼迎 | ABNB.O |  |
+stock | 爱德华生命科学 | EW.N |  |
+stock | 爱德士 | IDXX.O |  |
+stock | 爱玛客 | ARMK.N |  |
+stock | 爱科 | AGCO.N |  |
+stock | 爱迪生国际 | EIX.N |  |
+stock | 爱齐科技 | ALGN.O |  |
+stock | 特斯拉 | TSLA.O |  |
+stock | 特灵科技 | TT.N |  |
+stock | 环球支付 | GPN.N |  |
+stock | 环联 | TRU.N |  |
+stock | 理想汽车 | LI.O |  |
+stock | 瑞思迈 | RMD.N |  |
+stock | 瑞杰金融 | RJF.N |  |
+stock | 瑞穗金融集团 | MFG.N |  |
+stock | 瓦莱罗能源 | VLO.N |  |
+stock | 甲骨文 | ORCL.N |  |
+stock | 登士柏西诺德 | XRAY.O |  |
+stock | 百事可乐 | PEP.O |  |
+stock | 百富门 | BF-A.N |  |
+stock | 百富门 | BF-B.N |  |
+stock | 百度 | BIDU.O |  |
+stock | 百思买 | BBY.N |  |
+stock | 百时美施贵宝 | BMY.N |  |
+stock | 百特国际 | BAX.N |  |
+stock | 百胜餐饮 | YUM.N |  |
+stock | 皇冠控股 | CCK.N |  |
+stock | 皇家加勒比 | RCL.N |  |
+stock | 盈透证券 | IBKR.O |  |
+stock | 盖璞 | GAP.N |  |
+stock | 盖茨工业 | GTES.N |  |
+stock | 直觉外科 | ISRG.O |  |
+stock | 真品零件 | GPC.N |  |
+stock | 硕腾 | ZTS.N |  |
+stock | 碧迪 | BDX.N |  |
+stock | 礼来 | LLY.N |  |
+stock | 礼蓝动保 | ELAN.N |  |
+stock | 福克斯 | FOX.O |  |
+stock | 福克斯 | FOXA.O |  |
+stock | 福斯 | FLS.N |  |
+stock | 福泰制药 | VRTX.O |  |
+stock | 福特汽车 | F.N |  |
+stock | 福迪威 | FTV.N |  |
+stock | 科睿唯安 | CLVT.N |  |
+stock | 科磊 | KLAC.O |  |
+stock | 科蒂 | COTY.N |  |
+stock | 科赴 | KVUE.N |  |
+stock | 科迪华 | CTVA.N |  |
+stock | 穆迪 | MCO.N |  |
+stock | 空气化工产品 | APD.N |  |
+stock | 第一太阳能 | FSLR.O |  |
+stock | 第一能源 | FE.N |  |
+stock | 第一资本 | COF.N |  |
+stock | 精选国际酒店 | CHH.N |  |
+stock | 索尼 | SONY.N |  |
+stock | 索诺科 | SON.N |  |
+stock | 纳斯达克 | NDAQ.O |  |
+stock | 纽威品牌 | NWL.O |  |
+stock | 纽柯 | NUE.N |  |
+stock | 纽约时报 | NYT.N |  |
+stock | 纽约梅隆银行 | BK.N |  |
+stock | 纽蒙特 | NEM.N |  |
+stock | 维尔度假村 | MTN.N |  |
+stock | 维萨 | V.N |  |
+stock | 维谛 | VRT.N |  |
+stock | 绿山咖啡 | KDP.O |  |
+stock | 缤客控股 | BKNG.O |  |
+stock | 网易 | NTES.O |  |
+stock | 罗克韦尔自动化 | ROK.N |  |
+stock | 罗宾逊全球物流 | CHRW.O |  |
+stock | 罗柏科技 | ROP.O |  |
+stock | 罗氏 | L.N |  |
+stock | 罗致恒富 | RHI.N |  |
+stock | 美元将军 | DG.N |  |
+stock | 美元树 | DLTR.O |  |
+stock | 美光科技 | MU.O |  |
+stock | 美国合众银行 | USB.N |  |
+stock | 美国国际集团 | AIG.N |  |
+stock | 美国家庭人寿保险 | AFL.N |  |
+stock | 美国普信金融 | AMP.N |  |
+stock | 美国水务 | AWK.N |  |
+stock | 美国电力 | AEP.O |  |
+stock | 美国电塔 | AMT.N |  |
+stock | 美国电话电报 | T.N |  |
+stock | 美国航空 | AAL.O |  |
+stock | 美国运通 | AXP.N |  |
+stock | 美国铝业 | AA.N |  |
+stock | 美国银行 | BAC.N |  |
+stock | 美敦力 | MDT.N |  |
+stock | 美泰 | MAT.O |  |
+stock | 美满电子 | MRVL.O |  |
+stock | 美瑞科 | SMG.N |  |
+stock | 美盛 | MOS.N |  |
+stock | 美联航 | UAL.O |  |
+stock | 美高梅 | MGM.N |  |
+stock | 耐克 | NKE.N |  |
+stock | 联合健康 | UNH.N |  |
+stock | 联合利华 | UL.N |  |
+stock | 联合包裹 | UPS.N |  |
+stock | 联合太平洋 | UNP.N |  |
+stock | 联合爱迪生 | ED.N |  |
+stock | 联合租赁 | URI.N |  |
+stock | 联电 | UMC.N |  |
+stock | 联邦快递 | FDX.N |  |
+stock | 胜牌 | VVV.N |  |
+stock | 自动数据处理 | ADP.O |  |
+stock | 自由港麦克莫兰 | FCX.N |  |
+stock | 艺康 | ECL.N |  |
+stock | 艺电 | EA.O |  |
+stock | 艾伯维 | ABBV.N |  |
+stock | 艾利丹尼森 | AVY.N |  |
+stock | 艾可飞 | EFX.N |  |
+stock | 艾奕康 | ACM.N |  |
+stock | 艾昆纬 | IQV.N |  |
+stock | 艾睿电子 | ARW.N |  |
+stock | 艾迪科 | IEX.N |  |
+stock | 艾里逊变速箱 | ALSN.N |  |
+stock | 艾默生电气 | EMR.N |  |
+stock | 芝加哥商品交易所 | CME.O |  |
+stock | 芯源系统 | MPWR.O |  |
+stock | 花旗集团 | C.N |  |
+stock | 英伟达 | NVDA.O |  |
+stock | 英格索兰 | IR.N |  |
+stock | 英特尔 | INTC.O |  |
+stock | 英迈 | INGM.N |  |
+stock | 苹果公司 | AAPL.O |  |
+stock | 荷美尔食品 | HRL.N |  |
+stock | 莫德纳 | MRNA.O |  |
+stock | 莫霍克工业 | MHK.N |  |
+stock | 莱德 | R.N |  |
+stock | 莱纳 | LEN-B.N |  |
+stock | 莱纳 | LEN.N |  |
+stock | 莱迪思半导体 | LSCC.O |  |
+stock | 菲利普斯66 | PSX.N |  |
+stock | 菲利普莫里斯 | PM.N |  |
+stock | 西南航空 | LUV.N |  |
+stock | 西屋制动 | WAB.N |  |
+stock | 西斯科 | SYY.N |  |
+stock | 西方石油 | OXY.N |  |
+stock | 西氏医药 | WST.N |  |
+stock | 西湖化学 | WLK.N |  |
+stock | 西维斯健康 | CVS.N |  |
+stock | 西联汇款 | WU.N |  |
+stock | 西蒙地产 | SPG.N |  |
+stock | 西部数据 | WDC.O |  |
+stock | 詹姆斯哈迪 | JHX.N |  |
+stock | 诺信 | NDSN.O |  |
+stock | 诺华 | NVS.N |  |
+stock | 诺和诺德 | NVO.N |  |
+stock | 诺斯罗普格鲁曼 | NOC.N |  |
+stock | 诺福克南方 | NSC.N |  |
+stock | 谷歌 | GOOG.O |  |
+stock | 谷歌 | GOOGL.O |  |
+stock | 豪士科 | OSK.N |  |
+stock | 豪洛捷 | HOLX.O |  |
+stock | 豪迈航空 | HWM.N |  |
+stock | 贝克休斯 | BKR.O |  |
+stock | 贝壳 | BEKE.N |  |
+stock | 贝宝 | PYPL.O |  |
+stock | 贝莱德 | BLK.N |  |
+stock | 财捷 | INTU.O |  |
+stock | 贰陆 | COHR.N |  |
+stock | 费哲金融 | FI.N |  |
+stock | 费哲金融 | FISV.O |  |
+stock | 费埃哲 | FICO.N |  |
+stock | 赛富时 | CRM.N |  |
+stock | 赛莱默 | XYL.N |  |
+stock | 赛默飞世尔 | TMO.N |  |
+stock | 赫氏 | HXL.N |  |
+stock | 超威半导体 | AMD.O |  |
+stock | 超微电脑 | SMCI.O |  |
+stock | 辉瑞 | PFE.N |  |
+stock | 达登餐饮 | DRI.N |  |
+stock | 达维塔 | DVA.N |  |
+stock | 达美乐 | DPZ.O |  |
+stock | 达美航空 | DAL.N |  |
+stock | 迈心诺 | MASI.O |  |
+stock | 迪士尼 | DIS.N |  |
+stock | 迪尔 | DE.N |  |
+stock | 通用动力 | GD.N |  |
+stock | 通用汽车 | GM.N |  |
+stock | 通用电气医疗 | GEHC.O |  |
+stock | 通用电气航空 | GE.N |  |
+stock | 通用磨坊 | GIS.N |  |
+stock | 道富 | STT.N |  |
+stock | 道明尼能源 | D.N |  |
+stock | 道达尔能源 | TTE.N |  |
+stock | 邦吉 | BG.N |  |
+stock | 酷澎 | CPNG.N |  |
+stock | 金佰利 | KMB.O |  |
+stock | 金宝汤 | CPB.O |  |
+stock | 金德摩根 | KMI.N |  |
+stock | 金沙集团 | LVS.N |  |
+stock | 钢铁动力 | STLD.O |  |
+stock | 铁姆肯 | TKR.N |  |
+stock | 铁山 | IRM.N |  |
+stock | 铱星通讯 | IRDM.O |  |
+stock | 镜泰 | GNTX.O |  |
+stock | 闪迪 | SNDK.O |  |
+stock | 阿卡迈 | AKAM.O |  |
+stock | 阿姆斯壮世界工业 | AWI.N |  |
+stock | 阿彻丹尼尔斯米德兰 | ADM.N |  |
+stock | 阿拉斯加航空 | ALK.N |  |
+stock | 阿斯利康 | AZN.N |  |
+stock | 阿斯麦 | ASML.O |  |
+stock | 阿波罗全球管理 | APO.N |  |
+stock | 阿美特克 | AME.N |  |
+stock | 阿莫林 | AEE.N |  |
+stock | 阿里巴巴 | BABA.N |  |
+stock | 陶氏 | DOW.N |  |
+stock | 雅保 | ALB.N |  |
+stock | 雅各布斯 | J.N |  |
+stock | 雅培 | ABT.N |  |
+stock | 雅诗兰黛 | EL.N |  |
+stock | 雪佛龙 | CVX.N |  |
+stock | 雷多斯 | LDOS.N |  |
+stock | 雷神技术 | RTX.N |  |
+stock | 雷诺士 | LII.N |  |
+stock | 霍尼韦尔 | HON.O |  |
+stock | 霍顿房屋 | DHI.N |  |
+stock | 露露柠檬 | LULU.O |  |
+stock | 韦莱韬悦 | WTW.O |  |
+stock | 韦里斯克 | VRSK.O |  |
+stock | 飞塔 | FTNT.O |  |
+stock | 马克尔 | MKL.N |  |
+stock | 马拉松石油 | MPC.N |  |
+stock | 马斯科 | MAS.N |  |
+stock | 高乐氏 | CLX.N |  |
+stock | 高德纳 | IT.N |  |
+stock | 高盛 | GS.N |  |
+stock | 高知特 | CTSH.O |  |
+stock | 高通 | QCOM.O |  |
+stock | 高露洁棕榄 | CL.N |  |
+stock | 麦克森 | MCK.N |  |
+stock | 麦当劳 | MCD.N |  |
+stock | 黑石集团 | BX.N |  |
+stock | 默克 | MRK.N |  |

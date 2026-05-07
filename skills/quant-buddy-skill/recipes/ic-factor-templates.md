@@ -8,7 +8,7 @@
 ## 基础数据（所有因子前置）
 
 ```python
-B_Close = 收盘价(X)         # X = 目标资产名（来自 confirmMultipleAssets 的 name）
+B_Close = 收盘价(X)         # X = 目标资产名（来自 presets/assets_db 的 name）
 B_Ind   = 收盘价(Ind)       # Ind = 行业指数名
 B_Mkt   = 收盘价(Mkt)       # Mkt = 大盘指数（如 万得全A 或 沪深300）
 ```

@@ -15,7 +15,7 @@
 
 ### 路由硬闸门（必须遵守）
 
-**在调用任何平台工具（confirmMultipleAssets / confirmDataMulti / runMultiFormulaBatch / readData）之前，必须先用 `read_skill_file` 读取对应的 leaf workflow 文档。**
+**在调用任何平台工具（confirmDataMulti / runMultiFormulaBatch / readData）之前，必须先用 `read_skill_file` 读取对应的 leaf workflow 文档。**
 
 未读取 leaf workflow 就调用平台工具 = 违规。
 
@@ -46,21 +46,19 @@
 
 **优先级规则（按序执行，满足即停）：**
 
-1. 先查 `presets/assets.yaml`，找到标准 `name` 则直接使用，跳过 `confirmMultipleAssets`
-2. 若预设已能唯一映射标准资产名，可直接使用；不要为了形式完整重复 `confirmMultipleAssets`
+1. 先 grep `presets/assets_db/{类型}.yaml`，唯一命中则直接使用标准 `name` / `ticker`
+2. 若预设已能唯一映射标准资产名，可直接使用；不要为了形式完整重复 `assets_db` 本地资产库
 3. 若用户同时提供了中文名称和6位代码：**以中文名称作为主确认意图**，代码仅作辅助校验
 4. 裸代码（如 `000063`）若未带交易所后缀（`.SZ`/`.SH`），**不能单独作为可靠主键**，不要把它作为独立 intention 传入
-5. 仅在名称不存在、或名称存在歧义时，才调用 `confirmMultipleAssets`
+5. 名称不存在或存在歧义时，停止并向用户说明/澄清，不再调用远程资产确认
 
 ```bash
-GZQ_PARAMS='{"intentions": ["贵州茅台"], "types": ["asset"]}' python scripts/call.py confirmMultipleAssets
+grep "资产名或代码" presets/assets_db/{类型}.yaml
 ```
-
-> ⚠️ 参数名 **只有 `intentions`** 有效——不是 queries / query / names。`types` 必须传 `["asset"]`。
 
 #### 资产确认熔断规则
 
-`confirmMultipleAssets` 匹配失败（返回空或报错）时：
+`assets_db` 本地资产库 匹配失败（返回空或报错）时：
 1. **重试 1 次**，用不同别名
 2. 仍失败 → **立即停止**，告知用户「该资产不在平台覆盖范围内，目前支持 A 股个股、港股个股、美股个股及主要宽基指数」
 3. **禁止**用相似资产替代（如用户问"红利ETF"不能替换为"中证红利指数"）
@@ -113,7 +111,7 @@ GZQ_PARAMS='{"intentions": ["贵州茅台"], "types": ["asset"]}' python scripts
 
 #### E. readData 调用预算
 - 单题 readData 总调用上限：**3 次**
-- 每次优先使用 `last_n_rows` 模式；无明确理由不得使用 `full` 模式
+- 每次优先使用能限制返回规模的读取模式；读取连续区间原始数据时使用 `range_data` 并明确传 `start_date` / `end_date`，不得使用旧的 `full` 模式
 - 超过上限后若仍有未获取字段，按"关键字段缺失"路径回答，不得继续读取
 
 ---
@@ -201,4 +199,4 @@ GZQ_PARAMS='{"ticker": "SH600519", "begin_date": 20240101}' python scripts/call.
 2. **变量名不能重复**：同一 session 内相同变量名会冲突，加后缀区分（`收盘2`）
 3. **财务数据按季度更新**：日期列是财报期（20240331=2024Q1），不是交易日
 4. **数据名必须精确**：模板中的引号内字符串已确认，不要修改
-5. **用户要求下载** → 先问时间范围，再 `downloadData`（或 `readData(mode=full)`）
+5. **用户要求下载** → 先问时间范围，再 `downloadData`（或 `readData(mode="range_data", start_date=..., end_date=...)`）

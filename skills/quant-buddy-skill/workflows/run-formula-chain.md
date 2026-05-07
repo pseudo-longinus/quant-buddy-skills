@@ -40,7 +40,7 @@ node -e "require('child_process').execSync('python scripts/call.py runMultiFormu
 
 > 文件可能不止"编号 + 公式"一种格式（也可能是 yaml/json 列表、或带注释的 markdown 块）。识别格式由 LLM 在推理中完成，不要为此写脚本。
 
-### Step 3：LLM 在推理中生成 `force_reusable_array`
+### Step 3：LLM 在推理中生成 `force_reusable_flags`
 
 按 SKILL.md 硬规则 #2 + `global-rules.md` §13 三问法判定每条：
 
@@ -48,23 +48,23 @@ node -e "require('child_process').execSync('python scripts/call.py runMultiFormu
 2. 是否会被**后续 batch / 后续 `runMultiFormulaBatch` 调用 / 用户后续追问**引用？
 3. 此刻是否能确定它"以后再不会被读"？
 
-任一答"会/不能确定" → 把变量名**写进** `force_reusable_array`；只有完全确定"仅本批后续公式用、再无人引用" → 不要写进数组。
+任一答"会/不能确定" → `true`；只有完全确定"仅本批后续公式用、再无人引用" → `false`。
 
-**末批内仅 readData 读取的最终输出变量必须写进数组**（通常是末条公式，如 `*_Top10`、`*_Result`、`*_Final`）；末批内的 `*_Score`、`*_Ratio` 等中间量仍按三问法判断，不因在末批而自动写入。**禁止全列**（列出本批全部变量名 = 规则退化，与未传等价）。
+**末批内仅 readData 读取的最终输出变量必须 `true`**（通常是末条公式，如 `*_Top10`、`*_Result`、`*_Final`）；末批内的 `*_Score`、`*_Ratio` 等中间量仍按三问法判断，不因在末批而自动 `true`。**禁止全 `true`**（all-true = 规则退化，与未传等价）。
 
 ### Step 4：切批 + 落盘 batch JSON
 
-按本 skill 的单批上限（**10 条/批**，服务端硬上限同为 10）切分。用 `create_file` 把每批落盘到 `output/tmp_batches/batch_K.json`：
+按服务端单批硬上限（当前 20 条）切分。用 `create_file` 把每批落盘到 `output/tmp_batches/batch_K.json`：
 
 ```json
 {
   "formulas": ["...", "..."],
-  "force_reusable_array": ["变量名1", "变量名2"],
+  "force_reusable_flags": [true, false, ...],
   "use_minute_data": true
 }
 ```
 
-跨批数组联动：组装第 K 批的 `force_reusable_array` 前，先扫描第 `K+1..N` 批的右侧引用，凡被后续引用的本批左侧变量必须写入。
+跨批 flag 联动：组装第 K 批的 `force_reusable_flags` 前，先扫描第 `K+1..N` 批的右侧引用，凡被后续引用的本批左侧变量必须 `true`。
 
 ### Step 5：逐批发起独立 shell 调用
 
@@ -97,12 +97,10 @@ cd <SKILL_ROOT> && GZQ_PARAMS='{"ids":["<_id>"],"mode":"last_column_full"}' pyth
 | 现象 | 处理 |
 |---|---|
 | 某批返回 `code=-1` | 读返回的 `errors` 数组，定位失败公式；不重试整批，先报告错误位置 |
-| `SKILL_VERSION_MISMATCH` | 按 SKILL.md 硬规则 #8 (A) 自愈（newSession + 重读文档 + 重跑） |
-| 服务端要求 skill 升级（响应里有 `npx skills update` 提示） | 按 SKILL.md 硬规则 #8 (B) 自愈（运行 `npx skills update pseudo-longinus/quant-buddy-skills -y` + 重读 + newSession + 重跑），**禁止改本地版本号字符串** |
+| `SKILL_VERSION_MISMATCH` | 按 SKILL.md 硬规则 #8 自愈（newSession + 重读文档 + 重跑） |
 | 配额超限 | 按 SKILL.md 全局 429 处理表 |
-| stdout 截断 | Linux/macOS：`cat /tmp/gzq_out.txt`；Windows PowerShell：`Get-Content "$env:TEMP\gzq_out.txt" -Encoding UTF8`；或用返回的 task_id 查询 |
-| stdout 完全为空（exit code=0）| 先查 `%TEMP%\gzq_out.txt`（UTF-8）；再查 `quant-buddy-skill/logs/<task_id>.jsonl`；只要其中有 `code=0`、`success:true`、`index_info._id`，即可直接进入 `readData`，无需重跑 |
-| 某批**超时 / 报错被动拆分** | 不得沿用失败批次的 `force_reusable_array` 或全列兏底；必须重新对拆分后的每个子批逐条过三问法；特别注意：原批内的引用在拆分后变成跨批引用的变量，必须在对应子批重新写入数组 |
+| stdout 截断 | 回读 `/tmp/gzq_out.txt`（仅 Linux/macOS）或用返回的 task_id 查询 |
+| 某批**超时 / 报错被动拆分** | 不得沿用失败批次的 `force_reusable_flags` 或全填 `true` 兜底；必须重新对拆分后的每个子批逐条过三问法；特别注意：原批内的引用在拆分后变成跨批引用的变量，必须在对应子批重新标 `true` |
 
 ---
 
@@ -111,10 +109,10 @@ cd <SKILL_ROOT> && GZQ_PARAMS='{"ids":["<_id>"],"mode":"last_column_full"}' pyth
 收到第 2 轮（或后续轮）追加公式时，在发起 `runMultiFormulaBatch` 之前执行以下检查：
 
 1. 扫描新公式的右侧，列出所有引用了前批左侧变量的依赖项；
-2. 对照历史 batch 的 `force_reusable_array`，查看这些依赖变量是否已列入；
-3. 若发现有依赖变量在历史 batch 中未列入：
+2. 对照历史 batch 的 `force_reusable_flags`，查看这些依赖变量是否已标 `true`；
+3. 若发现有依赖变量在历史 batch 中被标 `false`：
    - **有修正接口时**：先调 `markReusable` / `updateForceReusable`，再继续执行新公式；
-   - **无修正接口时**：在终态答案中**显式说明**「变量 X 在首批未保活，本次需重新计算前置链（#N1 ~ #N2）」，并先补跑这些前置公式（把这些变量名都写进 `force_reusable_array`），再跑新公式；**禁止默默依赖缓存兏底**。
+   - **无修正接口时**：在终态答案中**显式说明**「变量 X 在首批未保活，本次需重新计算前置链（#N1 ~ #N2）」，并先补跑这些前置公式（`force_reusable_flags` 全 `true`），再跑新公式；**禁止默默依赖缓存兜底**。
 
 ---
 

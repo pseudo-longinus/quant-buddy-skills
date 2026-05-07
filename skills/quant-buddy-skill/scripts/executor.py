@@ -86,7 +86,6 @@ TOOL_ROUTES = {
     "searchSimilarCases":    ("POST", "/skill/searchSimilarCases"),
     "getCardFormulas":       ("POST", "/skill/getCardFormulas"),
     "confirmDataMulti":      ("POST", "/skill/confirmDataMulti"),
-    "confirmMultipleAssets": ("POST", "/skill/confirmMultipleAssets"),
     "runMultiFormulaBatch":       ("POST", "/skill/runMultiFormulaBatch"),
     "refreshSnapshotTime":   ("POST", "/skill/refreshSnapshotTime"),
     "readData":              ("POST", "/skill/readData"),
@@ -157,25 +156,6 @@ def _parse_yaml_list_of_dicts(text):
     return items
 
 
-def _load_presets_assets():
-    """加载 presets/assets.yaml，返回 {name_lower: {name, code, type}} 映射"""
-    fpath = os.path.join(PRESETS_DIR, "assets.yaml")
-    if not os.path.exists(fpath):
-        return {}
-    try:
-        with open(fpath, 'r', encoding='utf-8') as f:
-            text = f.read()
-        items = _parse_yaml_list_of_dicts(text)
-        mapping = {}
-        for item in items:
-            name = item.get('name', '')
-            if name:
-                mapping[name.lower()] = item
-        return mapping
-    except Exception:
-        return {}
-
-
 def _load_presets_data_catalog():
     """加载 presets/data_catalog.yaml，返回 {index_title_lower: {index_title, dimension, is_bool}} 映射"""
     fpath = os.path.join(PRESETS_DIR, "data_catalog.yaml")
@@ -220,48 +200,11 @@ _presets_cache = {}
 def _get_presets(kind):
     """获取指定类型的 presets 数据（首次调用时加载）"""
     if kind not in _presets_cache:
-        if kind == 'assets':
-            _presets_cache[kind] = _load_presets_assets()
-        elif kind == 'data_catalog':
+        if kind == 'data_catalog':
             _presets_cache[kind] = _load_presets_data_catalog()
         elif kind == 'functions':
             _presets_cache[kind] = _load_presets_functions()
     return _presets_cache.get(kind, {})
-
-
-def _try_presets_confirm_assets(params):
-    """尝试从 presets 匹配 confirmMultipleAssets 请求。全部命中返回合成响应，否则 None。"""
-    intentions = params.get('intentions', [])
-    if not intentions:
-        return None
-    assets = _get_presets('assets')
-    if not assets:
-        return None
-
-    results = []
-    for intention in intentions:
-        key = intention.lower().strip()
-        hit = assets.get(key)
-        if not hit:
-            # 尝试模糊后缀匹配（如 "沪深300" 匹配 "沪深300"）
-            hit = None
-            for k, v in assets.items():
-                if key in k or k in key:
-                    hit = v
-                    break
-        if not hit:
-            return None  # 有一个没命中，放弃 presets，走网络
-        results.append({
-            "intention": intention,
-            "matched": True,
-            "type": hit.get('type', 'asset'),
-            "name": hit.get('name', intention),
-            "ticker": hit.get('code', ''),
-            "alternatives": [],
-            "_source": "presets"
-        })
-
-    return {"code": 0, "data": {"results": results}, "_presets": True}
 
 
 def _try_presets_confirm_data(params):
@@ -685,13 +628,6 @@ def main():
             sys.exit(1)
 
     # ── 参数规范化：自动修正常见参数名错误 ──────────────────────
-    if tool_name == "confirmMultipleAssets":
-        if "intentions" not in params or not params.get("intentions"):
-            for alias in ("assets", "names", "queries", "items", "asset", "name"):
-                if alias in params and params[alias]:
-                    val = params.pop(alias)
-                    params["intentions"] = [val] if isinstance(val, str) else val
-                    break
     if tool_name == "runMultiFormulaBatch" and "formulas" in params:
         fixed = []
         for item in params["formulas"]:
@@ -790,9 +726,7 @@ def main():
 
     # ── Presets 层：尝试本地匹配，避免网络调用 ──────────────────
     presets_result = None
-    if tool_name == "confirmMultipleAssets":
-        presets_result = _try_presets_confirm_assets(params)
-    elif tool_name == "confirmDataMulti":
+    if tool_name == "confirmDataMulti":
         presets_result = _try_presets_confirm_data(params)
     elif tool_name == "searchFunctions":
         presets_result = _try_presets_search_functions(params)

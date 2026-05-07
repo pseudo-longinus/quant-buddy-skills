@@ -4,9 +4,24 @@
 
 ---
 
+## [4.20.8] — 2026-05-06
+
+**变更文件**：`SKILL.md`、`agent/tools_schema.py`、`scripts/executor.py`、`scripts/call.py`、`scripts/quant_api.py`、`presets/assets_db/*.yaml`、`presets/sectors.yaml`、`presets/themes.yaml`、`tools/read_data.md`、`tools/download_data.md`、`workflows/*.md`、`recipes/download-data.md`、`references/troubleshooting.md`、`datasets/**/*.json`
+
+将资产确认默认路径切换为本地全量资产库 `presets/assets_db/`，移除旧的 `presets/assets.yaml` 与远程 `confirmMultipleAssets` 工具入口；资产未唯一命中时直接报错/澄清，不再远程兜底。
+
+- `presets/assets.yaml`：物理删除，所有有效 workflow 改为 grep `presets/assets_db/{类型}.yaml`。
+- `scripts/executor.py` / `scripts/call.py` / `scripts/quant_api.py` / `agent/tools_schema.py`：删除 `confirmMultipleAssets` 路由、参数归一化、Python wrapper 和工具 schema。
+- `SKILL.md` / `workflows/*.md` / `references/troubleshooting.md`：资产确认规则改为本地 `assets_db` 唯一命中；未命中或多命中时停止并说明/澄清。
+- `tools/read_data.md` / `agent/tools_schema.py`：按新版 `POST /skill/readData` 接口更新 mode 与参数说明，新增 `mode="range_data"` 及 `assets` / `max_cells` / `nan_handling` 参数。
+- `workflows/*.md` / `tools/download_data.md` / `recipes/download-data.md`：将连续区间原始数据、下载 403 替代路径和短窗序列读取切换为受限日期区间的 `readData(mode="range_data")`，移除旧 `full` / `last_n_rows` 指引。
+- `datasets/**/*.json`：从有效 `expected_tools` 中移除 `confirmMultipleAssets`。
+
+---
+
 ## [4.20.7] — 2026-05-06
 
-**变更文件**：`SKILL.md`、`scripts/self_update.py`、`references/troubleshooting.md`
+**变更文件**：`SKILL.md`、`scripts/self_update.py`、`references/troubleshooting.md`、`tools/fast_query.md`、`workflows/fast-snapshot.md`、`workflows/fast-window.md`、`workflows/fast-report-period.md`
 
 强化服务端强制版本拦截后的更新恢复链路，将单一 npx 更新路径扩展为 `npx update` → `npx add` → `Python Zip Fallback`，降低无 Node、无 npx、网络失败、Windows 权限失败场景下的用户卡死率。
 
@@ -15,6 +30,9 @@
 - `SKILL.md`：Python Zip Fallback 要求下载官方 zip 后先流式校验 SHA-512；不一致时放弃该 zip 包，禁止解压或替换正式 skill 目录；解压必须走 staging，拒绝路径穿越，并保留 `config.json` / `config.local.json`。
 - `scripts/self_update.py`：新增标准库自更新脚本，支持 `--url` / `--zip-path`、`--sha512`、`--version`、`--zip-skill-path`、`--dry-run`；执行下载、SHA-512 校验、安全解压、必要文件检查、版本校验、备份、保留配置和替换安装。
 - `references/troubleshooting.md`：版本不匹配表格同步新的三段更新链路，补充 Python Zip、SHA-512 不一致、包版本不匹配、全部路径失败等处理方式。
+- `tools/fast_query.md`：补充 `start_date`、`end_date`、`result_mode` 参数与返回结构，明确 `value` 默认返回最后有效值、`series` 返回完整序列，`window` 与固定日期范围互斥。
+- `workflows/fast-snapshot.md` / `workflows/fast-report-period.md`：支持固定日期范围下的最后有效值与完整序列取值规则，补充 `result_mode="series"` 示例。
+- `workflows/fast-window.md` + `SKILL.md`：明确 `fast-window.md` 只处理最近 N 日，不处理固定起止日期；固定日期范围行情/估值序列路由到 `fast-snapshot.md`，财务序列路由到 `fast-report-period.md`。
 
 ---
 

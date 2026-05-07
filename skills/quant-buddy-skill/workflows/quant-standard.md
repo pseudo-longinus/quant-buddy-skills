@@ -59,7 +59,7 @@
 
 补充：
 - 对行业聚合排名题，若 recipe 已提供行业归属字段（如 `申万资产所属指数`），默认直接走聚合公式；
-- 不要先对"申万一级行业"调用 `confirmMultipleAssets` 做实体确认。
+- 不要先对"申万一级行业"做远程实体确认；优先使用已确认的数据字段或本地板块/主题列表。
 
 ---
 
@@ -257,7 +257,7 @@
 1. **description 优先**：若 description 已包含 `effective_matches` / 筛选数量 和全部名称，且命中数 ≤ 20，则"名单问题"优先直接用 description 回答，不得默认再读布尔掩码全表
 2. **精确字段值按需读取**：若用户还要求精确字段值（涨幅、PE、成交额等），只能读取"目标展示值"或"目标排序值"，禁止对布尔掩码执行 `readData(last_column_full)` 作为默认步骤
 3. **排序证据要求**：若最终答案要输出"排序后的名单/表格"，必须已读取排序字段的结构化值；仅有布尔掩码或 description 名单时，不得声称"按X排序"
-4. **小名单定向提取**：对命中名单 ≤ 20 的场景，若需要精确数值，优先 `confirmMultipleAssets` → 逐只或定向提取目标字段，而不是全市场大表扫描
+4. **小名单定向提取**：对命中名单 ≤ 20 的场景，若需要精确数值，优先用 `presets/assets_db/{类型}.yaml` 唯一命中名单 → 逐只或定向提取目标字段，而不是全市场大表扫描
 5. **description 用途边界**：`runMultiFormulaBatch.description` 只能用于数量确认、名单确认（仅名单题）、最后有效日期确认，不得单独作为"完整表格 + 数值 + 排序"的唯一证据
 6. **零命中快速退出**：若目标掩码的 description 已显示 `effective_matches = 0`，直接回答"当前无符合条件的标的"，不再对该布尔掩码执行 `readData(last_column_full)`
 
@@ -315,7 +315,7 @@
 
 **遇到不完整表格时的处理流程**：
 1. 先检查公式是否正确（字段维度对齐？掩码正确？）
-2. 尝试补查缺失字段：对缺失行的个股，用 `confirmMultipleAssets` → 单资产 `runMultiFormulaBatch` 逐只取值
+2. 尝试补查缺失字段：对缺失行的个股，用 `presets/assets_db/{类型}.yaml` 唯一命中后 → 单资产 `runMultiFormulaBatch` 逐只取值
 3. 若补查后仍不齐，**必须**在答案中声明不完整性："以下 N 只中有 M 只的 XX 字段暂不可得"
 4. **禁止**将不完整表格包装为完整结论（如"以下为完整的Top10排名"但实际3只缺PE值）
 
@@ -448,7 +448,7 @@ PE条件 = ("PE数据" < 20)
 
 **强制 fallback：**
 - 当目标名单很少（如 ≤ 20）且最终答案需要精确字段时，优先：
-  - `confirmMultipleAssets`
+  - `presets/assets_db/{类型}.yaml` 本地检索
   - 逐只单资产 `runMultiFormulaBatch`
   - 再回答
 
@@ -497,8 +497,7 @@ PE条件 = ("PE数据" < 20)
 
 | 文件 | 内容 | 何时加载 |
 |------|------|----------|
-| `presets/assets.yaml` | 99 行精选常用资产 | 涉及已知资产时**先**查此文件，可一次读完；命中即用 |
-| `presets/assets_db/*.yaml` | 全量资产字典（A股/港股/美股/指数/期货分文件，共 1 万+ 条；**不含指数成分股映射**） | `assets.yaml` 未命中时**用 grep 检索对应文件**（如 `grep "中航重机" presets/assets_db/stock_a.yaml`），⚠️ **禁止 `read_file` 整文件**（5505 行会爆 context）；grep 仍未命中 → 调 `confirmMultipleAssets` 兜底。用户说「确认资产 / 批量确认 / 找ticker」也必须先查本地库，不得直接调用工具。若用户要「标普500全部成分股 / 沪深300成分股」这类指数成分名单，`assets_db` 只能确认指数本身，不能推出成分股列表。 |
+| `presets/assets_db/*.yaml` | 全量资产字典（A股/港股/美股/指数/期货分文件，共 1 万+ 条；**不含指数成分股映射**） | 涉及资产时**用 grep 检索对应文件**（如 `grep "中航重机" presets/assets_db/stock_a.yaml`），⚠️ **禁止 `read_file` 整文件**（5505 行会爆 context）；未命中或多命中 → 报错/澄清，不再远程兜底。用户说「确认资产 / 批量确认 / 找ticker」也必须先查本地库，不得直接远程确认。若用户要「标普500全部成分股 / 沪深300成分股」这类指数成分名单，`assets_db` 只能确认指数本身，不能推出成分股列表。 |
 | `presets/functions.yaml` | 常用函数的 `format`（公式写法） | 涉及常见函数时先查此文件；没有再调 `searchFunctions` |
 | `presets/data_catalog.yaml` | 全市场数据集的 `index_title` + 维度 | 需要全市场数据时先查此文件；没有再调 `confirmDataMulti` |
 | `presets/cases_index.yaml` | 111 张知识卡片目录（id \| name \| tags） | **任务开始时必先读**（一次读完），按 tags 匹配卡片 |
@@ -651,7 +650,7 @@ python scripts/call.py newSession
   - ❌ `原油收盘价=LOAD("布伦特原油收盘价")` — LOAD 不是合法函数，服务端会报格式校验失败
   - ❌ `布伦特原油收盘价=LOAD("布伦特原油收盘价")` — 变量名与数据集同名触发循环依赖
   - ❌ `布伦特原油收盘价=周期采样("布伦特原油收盘价",...)` — 同样循环依赖
-  - ✅ `BRENT_CLOSE=收盘价(IPE-布伦特原油)` — 用 `confirmMultipleAssets` 确认的资产名 + 函数
+  - ✅ `BRENT_CLOSE=收盘价(IPE-布伦特原油)` — 用 `presets/assets_db/{类型}.yaml` 唯一命中的资产名 + 函数
   - ✅ `BRENT_M=周期采样("布伦特原油收盘价","月末基准日期")` — 用 `confirmDataMulti` 确认的数据集名，变量名用缩写
 
 ### 3. 公式结构规范
@@ -757,7 +756,6 @@ PE数据="A股市盈率（PE, TTM）〔估值数据〕"
 | 1b | `getCardFormulas` | `{"card_ids": ["<id1>", "<id2>"]}` — 1-10 张 | 拉取卡片公式，理解结构和函数用法 | — |
 | 1c | `searchSimilarCases` | `{"query": "资产名+操作/机制"}` | **fallback**：1a→1b 未找到时才调 | — |
 | 2 | `searchFunctions` | `{"query": "函数关键词", "top_k": 3}` | 确认函数参数格式 | — |
-| 3 | `confirmMultipleAssets` | `{"intentions": ["黄金", "沪深300"]}` — **字符串数组** | 确认资产标准名称和代码 | — |
 | 4 | `confirmDataMulti` | `{"data_desc": "换手率,市盈率"}` — **逗号分隔字符串** | 确认平台数据项，获取 index_title | — |
 | 5 | `runMultiFormulaBatch` | `{"formulas": ["变量名=公式", ...]}` — **字符串数组**。begin_date **整数** YYYYMMDD。**始终传 `"use_minute_data": true`**。**多公式（≥ 2 条）必须同步评估并按需传 `force_reusable_array`**（字符串数组，元素是公式左侧变量名）：把会被 `readData` 读取或后续 batch 引用的变量名写进数组，纯中间变量不要写。⚠️ **每条公式必须独占数组的一个元素**，禁止用逗号把多条公式拼在同一个字符串中（如 `"A=X","B=Y"` 写成 `"A=X,B=Y"` 会导致 PARTIAL_SUCCESS） | 执行公式；同批必须同一 task_id | 公式语法报错 → `tools/run_multi_formula.md` |
 | 6 | `readData` | `{"ids": ["hex_id", ...], "mode": "smart_sample"}` — **hex data_id**，最多 10 个 | **不可跳过**：验证 NaN率、净值方向、覆盖率 | mode 不是 smart_sample → **必读 `tools/read_data.md`** |
@@ -800,7 +798,7 @@ PE数据="A股市盈率（PE, TTM）〔估值数据〕"
 
 **下载前必须向用户确认时间范围**——数据可能从 2015 年开始，几千行。先问：「您需要下载哪段时间的数据？（默认：最近一年）」
 
-`runMultiFormulaBatch` 计算结果 provider=dunhe，普通用户无权限下载（403），改用 `readData(mode=full)` 读取。
+`runMultiFormulaBatch` 计算结果 provider=dunhe，普通用户无权限下载（403），改用 `readData(mode="range_data", start_date=..., end_date=...)` 读取完整区间数据。
 
 > 下载权限限制和替代方案详情 → `recipes/download-data.md`
 
@@ -814,8 +812,8 @@ PE数据="A股市盈率（PE, TTM）〔估值数据〕"
 | 公式中出现了… | 必须先查 / 先调 | 怎么做 |
 |---------------|----------------|--------|
 | **函数名**（如 `取出`、`涨跌幅`、`成分平均汇总`） | `presets/functions.yaml` | 函数名 + 参数个数必须与 yaml 中一致；若 yaml 无此函数 → 调 `searchFunctions` 确认 |
-| **资产名**（如 `贵州茅台`、`沪深300`） | `presets/assets.yaml` → `presets/assets_db/{类型}.yaml`（grep） | ① 先查 `assets.yaml`（精选 99 条）；② 未命中则 **grep `assets_db/` 对应类型文件**（A股 → `stock_a.yaml`、港股 → `stock_hk.yaml`、美股 → `stock_us.yaml`、指数 → `index.yaml`、期货 → `future.yaml`），⚠️ 禁止 `read_file` 整文件；③ grep 仍未命中 → 调 `confirmMultipleAssets`。用户说「确认资产 / 批量确认 / 找ticker」同样适用此顺序。**name 字段必须精确匹配**；`assets_db` 不含指数成分股映射，不能用全量股票文件冒充某指数成分池。 |
-| **板块名 / 行业名**（如 `板块(芯片概念)`） | `presets/sectors.yaml` 或 `presets/themes.yaml` | 必须用 yaml 中的精确名称；若无 → 调 `confirmMultipleAssets` 确认 |
+| **资产名**（如 `贵州茅台`、`沪深300`） | `presets/assets_db/{类型}.yaml`（grep） | **grep `assets_db/` 对应类型文件**（A股 → `stock_a.yaml`、港股 → `stock_hk.yaml`、美股 → `stock_us.yaml`、指数 → `index.yaml`、期货 → `future.yaml`），⚠️ 禁止 `read_file` 整文件；唯一命中即用，未命中或多命中则报错/澄清。用户说「确认资产 / 批量确认 / 找ticker」同样适用此顺序。**name 字段必须精确匹配**；`assets_db` 不含指数成分股映射，不能用全量股票文件冒充某指数成分池。 |
+| **板块名 / 行业名**（如 `板块(芯片概念)`） | `presets/sectors.yaml` 或 `presets/themes.yaml` | 必须用 yaml 中的精确名称；若无 → 报错/澄清，不再远程确认 |
 | **全市场数据集名**（如 `"全市场每日收盘价"`） | `presets/data_catalog.yaml` | 必须用 `index_title`；若 yaml 无 → 调 `confirmDataMulti` 确认后补入 yaml |
 
 **示例（取出函数）**：

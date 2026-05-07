@@ -14,14 +14,14 @@
 
 | CP | 名称 | 已验证状态 | Acceptance Test |
 |----|------|-----------|-----------------|
-| K0 | 资产已确认 | ticker 代码已确定 | `confirmMultipleAssets` 或 `presets/assets.yaml` 返回明确资产 |
+| K0 | 资产已确认 | ticker 代码已确定 | `presets/assets_db/{类型}.yaml` 返回明确资产 |
 | K1 | 时间窗口已解析 | begin_date 已计算 | "最近 N 月"转为 YYYYMMDD；未指定时默认近 6 个月 |
 | **K1.5** | **日期锚点已获取** | **当前日期来自可靠来源** | 当前日期锚点来自**系统上下文 或 工具返回**（非模型猜测）；begin_date 基于该锚点计算得出。**未通过 K1.5 = 禁止调用 renderKLine** |
 | K2 | K 线图已渲染 | renderKLine 成功 | 返回 base64 图片，data_points > 0 |
 | K3 | 交付完成 | 图片已展示 + 简短说明 | 无多余文字，无目测数值 |
 
 ### 首选路径
-1. `confirmMultipleAssets`（或 `presets/assets.yaml`）→ 获得 ticker
+1. `presets/assets_db/{类型}.yaml`→ 获得 ticker
 2. 解析用户时间描述 → 计算 `begin_date`
 3. `renderKLine(ticker, begin_date, ...)` → 获得图片
 4. 展示图片 + 一句话说明
@@ -69,17 +69,17 @@ runMultiFormulaBatch（换公式重试）→ HTTP 500
 
 ### Step 1：确认资产
 
-1. 查 `presets/assets.yaml`，找到则直接获取 ticker 代码
-2. 未找到 → `confirmMultipleAssets`，从返回结果中提取 ticker
+1. grep `presets/assets_db/{类型}.yaml`，唯一命中则获取 ticker 代码
+2. 未命中或多命中 → 停止并向用户说明/澄清
 3. ticker 格式：`SH` / `SZ` 前缀 + 6 位代码（如 `SH600519`、`SZ000858`）
 
 > ⚠️ `renderKLine` 的 `ticker` 参数**只接受代码**，不接受中文名。
 
 **ticker 格式转换（必须执行）：**
-- `confirmMultipleAssets` 返回的 code 通常是后缀格式（如 `600519.SH`）
+- `assets_db` 本地资产库 返回的 code 通常是后缀格式（如 `600519.SH`）
 - `renderKLine` 要求前缀格式（如 `SH600519`）
 - 转换规则：`XXXXXX.SH` → `SHXXXXXX`，`XXXXXX.SZ` → `SZXXXXXX`
-- **禁止直接把 `confirmMultipleAssets` 返回的 code 传给 renderKLine**
+- **禁止直接把 `assets_db` 本地资产库 返回的 code 传给 renderKLine**
 
 ### Step 2：解析时间窗口（相对时间必须相对化）
 
@@ -195,8 +195,8 @@ K线图渲染默认走最小闭环：确认资产 → 解析时间 → renderKLi
 
 ## 参数传递规则
 
-- K 线图流程简短，参数通过 confirmMultipleAssets → renderKLine 工具链自然传递，不需要写入 Working State 文件
-- **K0 特别注意**：`asset` 必须是已转换为前缀格式的 ticker（如 `SH600519`），后续 renderKLine 调用必须使用此值，禁止从 confirmMultipleAssets 原始返回重新取值
+- K 线图流程简短，参数通过 presets/assets_db → renderKLine 工具链自然传递，不需要写入 Working State 文件
+- **K0 特别注意**：`asset` 必须是已转换为前缀格式的 ticker（如 `SH600519`），后续 renderKLine 调用必须使用此值，禁止从 presets/assets_db 命中结果重新取值
 
 ---
 

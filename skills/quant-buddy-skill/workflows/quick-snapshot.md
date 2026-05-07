@@ -39,10 +39,10 @@ Step 1 确认资产（硬门槛）
 只要用户问题中出现了资产名称、简称、代码、名称+代码混合表达中的任一种，在首次 `runMultiFormulaBatch` 前都必须完成资产确认。跳过本步骤视为 workflow 违约。
 
 - 当用户以"名称（代码）""名称+代码""代码+名称"指向同一只股票时，必须先在脑内归一为**一个资产候选**。
-- 不得把同一资产的名称和代码拆成两个独立 intention 传给 `confirmMultipleAssets`。
+- 不得把同一资产的名称和代码拆成两个独立 intention 传给 `assets_db` 本地资产库。
 - 名称已足够唯一时，优先只用名称确认；代码仅作交叉校验。
 - 禁止出现"同一资产确认 1/2 成功"这类可避免的部分失败。
-- 当资产数为 2~3 个时，必须先调用 `confirmMultipleAssets`。
+- 当资产数为 2~3 个时，必须先调用 `assets_db` 本地资产库。
 - 即使用户已提供 6 位代码，也不得跳过确认——最终公式中的资产对象必须使用确认后的标准资产。
 - 未完成资产确认前，不得直接对自然语言资产名执行 `runMultiFormulaBatch`。
 - 若存在歧义、近似匹配或跨体系匹配，必须先向用户澄清；不得继续查数。
@@ -143,7 +143,7 @@ Step 1 确认资产（硬门槛）
 - 才允许将该字段视为可答。
 
 **③ 若上面两者任一缺失**
-- 对该字段调用 `readData(mode="last_n_rows", last_n_rows=1)` 补取。
+- 对该字段调用 `readData(mode="last_valid_per_asset")` 补取最后有效值与日期。
 
 **④ 若仍无法明确得到最新值**
 - 标记为不可答，进入部分成功模板；不得补猜、不得默认填 0。
@@ -159,7 +159,7 @@ Step 1 确认资产（硬门槛）
 - 所有字段均不可答 → 安全失败，告知用户
 - quick-snapshot 成功后，默认不再调用 `readData(table_data)` 或任何全量模式
 
-仅在上述"③ 补取"情况时才调用 `readData`，且仅用 `last_n_rows: 1`，**禁止 `full` 或 `last_column_full` 模式**。
+仅在上述"③ 补取"情况时才调用 `readData`，且仅用 `last_valid_per_asset`，**禁止旧的 `full` / `last_n_rows` 或 `last_column_full` 模式**。
 
 **绝对禁止：**
 - 拿到最新值后继续读取历史均值/极值
@@ -330,7 +330,7 @@ Step 1 确认资产（硬门槛）
 ### 确认资产（Step 1 依据）
 
 **优先级规则（按序执行，满足即停）：**
-1. 先查 `presets/assets.yaml`，找到标准 `name` 则直接使用，跳过 `confirmMultipleAssets`
+1. 先 grep `presets/assets_db/{类型}.yaml`，唯一命中则直接使用标准 `name` / `ticker`
 2. 若用户同时提供中文名称和6位代码：以中文名称作为主确认意图，代码仅供辅助校验
 3. 裸代码（如 `000063`）未带交易所后缀（`.SZ`/`.SH`），不能单独作为可靠主键
 4. 若用户输入为"名称（代码）"或"名称 代码"混合串：
@@ -338,10 +338,10 @@ Step 1 确认资产（硬门槛）
    - 优先使用名称确认
    - 再用代码做交叉校验
    - 不直接把混合字符串作为唯一查询词
-5. 仅在名称不存在或有歧义时，调用 `confirmMultipleAssets`
+5. 名称不存在或有歧义时，停止并向用户说明/澄清，不再调用远程资产确认
 
 ```bash
-GZQ_PARAMS='{"intentions": ["贵州茅台"], "types": ["asset"]}' python scripts/call.py confirmMultipleAssets
+grep "资产名或代码" presets/assets_db/{类型}.yaml
 ```
 
 > ⚠️ 参数名只有 `intentions` 有效——不是 queries / query / names。`types` 必须传 `["asset"]`。
@@ -363,7 +363,7 @@ GZQ_PARAMS='{"intentions": ["贵州茅台"], "types": ["asset"]}' python scripts
 
 ### 确认 ≠ 结果（硬规则）
 
-`confirmMultipleAssets` / `confirmDataMulti` 是**确认类工具**，返回的是资产名称映射或数据集ID，**不包含任何行情数值**。
+`confirmDataMulti` 是**确认类工具**，返回的是资产名称映射或数据集ID，**不包含任何行情数值**。
 - 拿到确认结果后，**必须再调用 `runMultiFormulaBatch`** 才能获取实际数据
 - 禁止把确认类工具的返回结果当作最终数值直接回答用户
 
@@ -387,7 +387,7 @@ GZQ_PARAMS='{"intentions": ["贵州茅台"], "types": ["asset"]}' python scripts
 **readData 调用预算：** 单题最多 **3 次**，超出后按「关键字段缺失」路径回答。
 
 **Token 预算意识（硬规则）：**
-- fallback 到 readData 后，必须使用 `last_n_rows` 模式，禁止 `last_column_full`
+- fallback 到 readData 后，必须使用 `last_valid_per_asset` 模式，禁止 `last_column_full` 和旧的 `last_n_rows`
 - 单题总 token 软上限 50K；接近上限时优先精简读取范围，不继续扩展操作
 
 ---

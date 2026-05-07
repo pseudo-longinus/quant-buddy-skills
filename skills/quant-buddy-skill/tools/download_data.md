@@ -72,7 +72,7 @@ python scripts/call.py downloadData '{"id": "60a1b2c3d4e5f6a7b8c9d0e1", "format"
 ## 注意事项
 
 - 仅支持**一维时序数据**（dimension=one-row）。公式计算的二维矩阵结果（如选股信号）请用 `readData` 读取
-- `runMultiFormulaBatch` 的计算结果 provider 通常为 `dunhe`，普通 Skill 用户无 `access_dunhe` 权限，**会返回 403**；需下载公式计算结果请改用 `readData(mode=full)`
+- `runMultiFormulaBatch` 的计算结果 provider 通常为 `dunhe`，普通 Skill 用户无 `access_dunhe` 权限，**会返回 403**；需读取公式计算结果请改用 `readData(mode="range_data", start_date=..., end_date=...)`
 - `begin_date` / `end_date` 在服务端做裁剪，CSV 只含该区间的行
 - `call.py` 下载后自动保存到 `output/` 并打印摘要，无需手动处理 CSV 文本
 - 返回的 `labels` 为 YYYYMMDD 整数数组，`values` 为对应数值数组
