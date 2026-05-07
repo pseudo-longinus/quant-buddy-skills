@@ -6,10 +6,14 @@
 
 ---
 
-## 执行步骤（3 步，严格顺序）
+## 执行步骤（4 步，严格顺序）
 
 ```
 ① 从用户意图提取 assets、fields 和 window_days（1~60）
+→ ①.5 对每个 asset 执行 grep presets/assets_db/{类型}.yaml 查本地库：
+       命中唯一 → 用 ticker（如 SH600303）替换原始中文名传参
+       命中多条（歧义）→ 向用户澄清选哪个，禁止继续查数
+       未命中 → 保留原始名称，由服务端兜底解析
 → ② 调用 fast_query（query_type="window", window_days=N；不传 result_mode/start_date/end_date）
 → ③ 从 results[].fields[].series 提取数据，输出最终答案
 ```

@@ -2,7 +2,7 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.20.8
+version: 4.20.9
 description: 
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据。
   查询最近N个交易日的价格序列、日涨跌幅序列、窗口最高价、最低价、振幅等短期统计。
@@ -14,7 +14,7 @@ description:
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.20.8
+  version: 4.20.9
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -89,7 +89,7 @@ runtimeRequirements:
      之后**所有 `python scripts/call.py` 都必须在这同一个 terminal 会话里跑**（环境变量只在该会话内可见）。如此每个对话独占 `output/.session.<key>.json` 文件，互不覆盖。未设置时退化到默认 `.session.json`，仅适合单会话场景。
    - **唯一例外**：同一对话中的追问/续问（如"再画个图""换个时间段"），可复用当前 session（`QBS_SESSION_KEY` 也保持不变）。
 2. **原生工具优先，脚本包装仅限无原生等价能力时**：平台已提供的原生工具（`fast_query`、`confirmDataMulti`、`runMultiFormulaBatch`、`readData`、`renderKLine`、`renderChart` 等）必须优先直接调用；禁止用 `run_skill_script`、shell 命令、`GZQ_PARAMS=... python scripts/call.py ...` 等方式包装这些原生工具；`scripts/call.py` 仅用于：① `newSession` 等管理动作；② workflow 明确要求的本地脚本步骤；③ 平台不存在等价原生工具时的兜底。
-  - **确认资产也必须先查本地库**：用户明确说「确认资产 / 批量确认 / confirm / 找代码 / 找ticker」时，仍然先走本地资产路由：`grep presets/assets_db/{类型}.yaml`（禁止整文件读取）→ 未命中则停止并向用户澄清。不得因为用户使用了「确认」二字就直接调用远程工具。
+  - **任何涉及资产的操作都必须先查本地库**：凡是出现资产名称、简称或代码，无论什么场景（快速行情、财务查询、窗口序列、选股、还是用户明确说「确认资产 / 找代码 / 找ticker」），**在调用任何远程工具前都必须先** `grep presets/assets_db/{类型}.yaml`（禁止整文件读取）：命中唯一 → 用确认后的 ticker（如 `SH600303`）替换原始中文名传参；命中多条（歧义）→ 向用户澄清选哪个，禁止继续查数；未命中 → 保留原始名称，由服务端兜底解析。**禁止**绕过本地库直接把用户原始中文名传给任何远程工具调用。
   - **英文代码无市场后缀时必须 grep 确认格式**：用户直接输入英文股票代码（如 `GOOGL`、`AAPL`、`BIDU`）但未携带市场后缀（`.O`、`.N`、`.A`）时，**不得凭 user memory / 猜测 / 拼接后缀直接查数**，必须先 `grep presets/assets_db/stock_us.yaml` 找到正确 ticker 后再调用工具。
   - **⛔ 严禁用 inline 解释器 heredoc / `-c` 包装 `scripts/call.py`**：以下写法**全部违规**，无论参数有多复杂、批次有多少、依赖关系有多绕：
     - `python - <<'PY' ... subprocess.run(['python','scripts/call.py','<工具名>',...]) ... PY`

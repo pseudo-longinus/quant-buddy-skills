@@ -4,6 +4,20 @@
 
 ---
 
+## [4.20.9] — 2026-05-07
+
+**变更文件**：`SKILL.md`、`workflows/fast-snapshot.md`、`workflows/fast-window.md`、`workflows/fast-report-period.md`、`workflows/quick-snapshot.md`
+
+强制任何涉及资产的操作在调用远程工具前都先查本地资产库，消除服务端 `asset_resolve` 耗时并在歧义时主动澄清用户。
+
+- `SKILL.md`：硬规则 #2 中"确认资产也必须先查本地库"扩展为**任何场景**——不再局限于用户显式说「确认资产/找代码」的情况；凡是出现资产名称、简称或代码，均须先 `grep presets/assets_db/{类型}.yaml`；命中唯一则用 ticker 替换中文名传参，命中多条则向用户澄清，未命中才保留原始名由服务端兜底；禁止绕过本地库直接把中文名传给远程工具。
+- `workflows/fast-snapshot.md`：执行步骤 3→4，在 ① 和 ② 之间插入步骤 ①.5（本地 grep 资产确认）。
+- `workflows/fast-window.md`：执行步骤 3→4，在 ① 和 ② 之间插入步骤 ①.5（本地 grep 资产确认）。
+- `workflows/fast-report-period.md`：执行步骤 3→4，在 ① 和 ② 之间插入步骤 ①.5（本地 grep 资产确认）。
+- `workflows/quick-snapshot.md`：Step 1 资产确认范围由「2~3 个资产才查本地库」改为「**含单资产在内**均须先查本地库」。
+
+---
+
 ## [4.20.8] — 2026-05-06
 
 **变更文件**：`SKILL.md`、`agent/tools_schema.py`、`scripts/executor.py`、`scripts/call.py`、`scripts/quant_api.py`、`presets/assets_db/*.yaml`、`presets/sectors.yaml`、`presets/themes.yaml`、`tools/read_data.md`、`tools/download_data.md`、`workflows/*.md`、`recipes/download-data.md`、`references/troubleshooting.md`、`datasets/**/*.json`

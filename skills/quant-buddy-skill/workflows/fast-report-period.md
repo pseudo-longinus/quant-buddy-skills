@@ -2,10 +2,16 @@
 
 适用：≤3 只 A 股；查询最近报告期财务，或固定日期范围内的财务最后有效值/完整序列；`fast_query` 单次调用。港股/美股财务不支持，直接告知。
 
-## 执行（3 步）
+## 执行（4 步）
 
 ```
-① 提取 assets + fields + 可选日期范围 → ② fast_query(query_type="report", user_query=<用户原始问题>；区间序列时传 result_mode="series") → ③ 取值输出
+① 提取 assets + fields + 可选日期范围
+→ ①.5 对每个 asset 执行 grep presets/assets_db/{类型}.yaml 查本地库：
+       命中唯一 → 用 ticker（如 SH600303）替换原始中文名传参
+       命中多条（歧义）→ 向用户澄清选哪个，禁止继续查数
+       未命中 → 保留原始名称，由服务端兜底解析
+→ ② fast_query(query_type="report", user_query=<用户原始问题>；区间序列时传 result_mode="series")
+→ ③ 取值输出
 ```
 
 > **`user_query` 必填**：调用 `fast_query` 时仍需在参数中携带用户原始问题，供服务端 trace 分析（不依赖 call.py 自动注入）。
