@@ -44,6 +44,8 @@
 
 ## ② 调用示例
 
+> ⛔ **P0 红线**：调用 `fast_query` 前必须以本节示例为参数模板构造请求体，禁止自行推断参数结构；必传字段 `query_type`、`assets`、`fields` 缺一不可，不得用 `query` 等非标字段替代。
+
 > **`user_query` 必填**：调用 `fast_query` 时仍需在参数中携带用户原始问题，供服务端 trace 分析（不依赖 call.py 自动注入）。
 
 最新值 / 区间最后有效值使用默认 `result_mode="value"`，可省略：
