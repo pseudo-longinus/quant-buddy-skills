@@ -2,7 +2,7 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.20.9
+version: 4.20.12
 description: 
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据。
   查询最近N个交易日的价格序列、日涨跌幅序列、窗口最高价、最低价、振幅等短期统计。
@@ -14,7 +14,7 @@ description:
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.20.9
+  version: 4.20.12
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -72,7 +72,21 @@ runtimeRequirements:
 
 > **⚠️ 必读：本文件较长，必须完整读取，不要设置 limit 参数截断。前 50 行不包含操作规范。**
 
-## 硬规则（8 条，违反必失败）
+## 平台工具参数速查（高频踩坑，先看这一段）
+
+> 下表是 LLM 最容易写错的三个 schema。任何调用前先核对，不要凭"看起来合理"猜参数名。
+
+| 工具 | ✅ 正确参数 | ❌ 模型常见错误（已被 call.py 自动归一化或拦截，但仍应避免） |
+|------|------------|------------------------------------------------------------|
+| `confirmDataMulti` | `{"data_desc": "市盈率 TTM,股息率"}` — **逗号分隔字符串** | `{"queries": [...]}` / `{"query": "..."}` / `{"names": [...]}` |
+| `runMultiFormulaBatch` 公式中引用 session 中间变量 | 必须用**双引号**包裹：`排序值 = "A股股息率〔估值数据〕" * "条件合并"` | 裸变量名相乘：`"A股股息率…" * 条件合并` ← 平台直接报错 |
+| `readData` | `{"ids": ["69fe…<24位hex>"], "mode": "last_column_full"}` — **必须是 `runMultiFormulaBatch` 返回的 hex `_id`** | 传中文变量名 `{"ids": ["Top10股息"]}` / 用错参数名 `{"index_title": "..."}` / `{"variable_names": [...]}` |
+
+**口径转换（confirmDataMulti 查询词）**：用户写 `PE(TTM)` / `归母净利润` 等英文或缩写时，查询词应使用**中文规范名**（如 `市盈率 TTM` / `归母净利润`），而不是把用户原文照抄进 `data_desc`。详细规则见 `workflows/global-rules.md#指标口径精确匹配`。
+
+---
+
+## 硬规则（违反必失败）
 
 0. **开工第一步：先查 API Key，再做任何其他事**。收到新问题后的第一个动作必须是读 `config.json`（或等效检查 api_key 字段）：
    - 若 `api_key` 为空字符串 → **立即停止**，直接输出「前置条件」章节的**新用户引导消息**，**禁止** newSession、**禁止**读 workflow / quick-lookup / 任何业务文档、**禁止**调用 `scripts/call.py` 或任何平台工具。等用户贴入 `sk-` 开头的 Key 后再执行「配置向导」。
@@ -81,6 +95,8 @@ runtimeRequirements:
    - **为什么**：查数类工作流最终都会调 `scripts/call.py`，api_key 为空时必然失败。提前在入口拦截可以避免多次失败调用，给新用户直接、清晰的第一印象。
 
 1. **每个新问题/新对话必须新建 session**：收到用户的新问题后，在调用任何平台工具之前，必须先新建 session（优先直接调用原生 `newSession` 工具；仅当当前环境没有原生 `newSession` 时，才使用 `GZQ_PARAMS='{"user_query":"<用户的问题>"}' python scripts/call.py newSession`）。newSession 是本地 UUID 生成，不可省略；`user_query` 仅用于本地 session 初始化标注，方便后续 trace 分析。
+   - **平台工具调用红线**：只要下一步准备调用 `fast_query` / `confirmDataMulti` / `runMultiFormulaBatch` / `readData` / `renderKLine` / `renderChart` / `getCardFormulas` / `scanDimensions` / `downloadData` / `uploadData` 等任一平台工具，先检查本轮是否已经**显式调用** `newSession`；若没有，必须立刻先调用 `newSession`，禁止因为问题简单、已读 SKILL、已 grep 资产、或框架可能隐式建 session 而跳过。
+   - **标准前置顺序**：`Read SKILL.md` → `newSession` → 如涉及资产则 `grep presets/assets_db/{类型}.yaml` → 平台工具。资产 grep 可以在 `newSession` 之后执行；绝不允许 `grep` 后直接 `fast_query`。
    - **为什么**：session 文件会自动注入到所有工具调用中。不新建 session = 复用上一轮对话的 task_id = 变量名冲突风险 + session 污染。
    - **多会话隔离（必须）**：当本对话有可能与其他对话/进程并行使用本 skill（多个 Claude 窗口、共享开发机、并行 trace）时，**在 chat 的第一条 bash 命令里**先执行：
      ```bash
@@ -97,24 +113,33 @@ runtimeRequirements:
     - `node -e "...child_process.execSync('python scripts/call.py ...')..."`
     - 任何在 inline 脚本里 `for/while` 循环驱动多批 `runMultiFormulaBatch` 的写法
     - **理由**：这种「自写 driver 脚本」会绕过本 skill 的 session 注入、配额校验、错误协议；trace 中表现为 task_id 漂移、stdout 阻塞、`/tmp/gzq_out.txt` 在 Windows 上不存在等连锁失败。call.py 的兜底地位**只允许一层调用**（shell → call.py），不允许在它外面再套 python/node 解释器。
-  - **多批 `runMultiFormulaBatch` 的合规模板**：当公式数超过单批硬上限（20 条）需切批时，切批与编排**必须由 LLM 自己在工具调用之间完成**，禁止写脚本自动化。每批一次独立调用；任何参数预处理（读 md、regex、依赖分析、生成 `force_reusable_flags`）都在 LLM 推理中完成，必要的中间产物用 `create_file` 落盘到 `output/tmp_batches/batch_K.json`，然后逐批用：
+  - **多批 `runMultiFormulaBatch` 的合规模板**：当公式数超过单批硬上限（20 条）需切批时，切批与编排**必须由 LLM 自己在工具调用之间完成**，禁止写脚本自动化。每批一次独立调用；任何参数预处理（读 md、regex、依赖分析、生成 `force_reusable_array`）都在 LLM 推理中完成，必要的中间产物用 `create_file` 落盘到 `output/tmp_batches/batch_K.json`，然后逐批用：
     ```bash
     GZQ_PARAMS="$(cat output/tmp_batches/batch_K.json)" python scripts/call.py runMultiFormulaBatch
     ```
     **每批一条独立 shell 命令**，前一批返回后再发起下一批；**禁止**写一个 python 脚本一次跑完所有批。这是 hard rule，违反必失败。
-3. **先读 workflow 再操作**：按下方「场景路由」表加载对应 workflow，不要自行猜测参数格式。
-4. **配置/认证错误立即停止，不得在普通查数流程中转为认证收集**：
+3. **工具失败熔断：同类错误不得重复**
+   - **工具名无效（`未知工具`）**：收到该错误后，**禁止以任何名称变体再次调用同名工具**（包括 `runMultiFormula`、`run_multi_formula` 等历史名，唯一可用名为 `runMultiFormulaBatch`）。
+   - **同一工具 + 同类错误**：相同工具名、相同参数结构、相同错误类型出现第 2 次时，**立即停止重试**，必须执行以下之一：①切换 workflow 中明确给出的备用路径；②跳过该前置步骤继续主链路；③输出受控失败答复（见规则 4）。
+   - **禁止的行为**：无新信息、无新参数、无新工具名的情况下，连续重复同一失败调用；尝试用 shell/Python 包装绕过失败工具；读更多文档代替执行。
+4. **任何 workflow 失败退出时必须输出受控失败答复**：禁止以空白或纯过程日志结束对话。失败答复必须包含：
+   - ①用户的原始问题（一句话复述）
+   - ②失败卡在哪一步（工具名 + 错误摘要）
+   - ③给用户的一句话说明（"当前无法获取…，原因：…"）
+   - 可选④：用户可采取的下一步（如"稍后重试"或"换用完整链路"）
+5. **先读 workflow 再操作**：按下方「场景路由」表加载对应 workflow，不要自行猜测参数格式。
+6. **配置/认证错误立即停止，不得在普通查数流程中转为认证收集**：
    - **工具返回 API Key 缺失错误**（含 `api_key 为空` 消息 / `code: 1`）：立即停止查数，输出**新用户引导消息**（格式见「前置条件」章节模板），禁止继续执行查数；等待用户粘贴 Key 后再执行配置向导。
    - **其他工具报错**（网络、服务端错误等）：直接报告"内部工具异常"，不做认证相关引导。
-5. **最终答案首句必须是数据结论**：回答用户时，第一句话必须直接给出数据结论（如资产名+数值、表格、或"符合条件的共N只"），绝对禁止以"已成功获取""数据已获取""根据返回结果""让我来"等过程性陈述开头。违反此规则 = 必须删除过程话术后重新输出。
-6. **用户条件冻结，不得改写**：执行前必须逐字核对用户原始条件，以下改写行为均属违规（一旦发现必须回退并重新确认）：
+7. **最终答案首句必须是数据结论**：回答用户时，第一句话必须直接给出数据结论（如资产名+数值、表格、或"符合条件的共N只"），绝对禁止以"已成功获取""数据已获取""根据返回结果""让我来"等过程性陈述开头。违反此规则 = 必须删除过程话术后重新输出。
+8. **用户条件冻结，不得改写**：执行前必须逐字核对用户原始条件，以下改写行为均属违规（一旦发现必须回退并重新确认）：
    - **百分比↔小数互转**（如"股息率>3%"禁止改写为 `>0.03`）
    - **相对时间改为年份区间**（如"过去10年"禁止改写为"2015-2025"）
    - **资产宇宙替换**（如"普通股票"禁止改写为"万得全A成分股"或"非ST股"）
    - **事件口径扩大**（如"年报/半年报"禁止扩大为全部业绩披露类型）
    - **卡片附加条件继承**：命中知识卡片后，若卡片含用户未明确提出的"首次/非ST/封板/流动性门槛"等附加条件，必须先删除再执行，禁止默默继承进最终答案
-7. **任务含糊时先反问，禁止猜测开干**：若用户的指令有 **2 种以上合理解读**（如"批量确认X"不清楚是确认指数本身还是全部成分股、"分析一下Y"不清楚要哪个维度），**第一步必须向用户提问澄清，不得凭推测选择一种解读自行执行**。反问应简洁列出各种可能（例："您的意思是 ① … 还是 ② …？"），等用户确认后再继续。**唯一例外**：用户语义明确无歧义（如"给我贵州茅台今日收盘价"），无需反问。
-8. **工具返回 `SKILL_VERSION_MISMATCH` 时必须自愈，不得继续执行原任务**：当任何工具调用的输出中出现 `"error": "SKILL_VERSION_MISMATCH"` 时，说明当前对话上下文中的工具签名/参数格式已过时。此时必须执行以下自愈流程（每步不得省略）：
+9. **任务含糊时先反问，禁止猜测开干**：若用户的指令有 **2 种以上合理解读**（如"批量确认X"不清楚是确认指数本身还是全部成分股、"分析一下Y"不清楚要哪个维度），**第一步必须向用户提问澄清，不得凭推测选择一种解读自行执行**。反问应简洁列出各种可能（例："您的意思是 ① … 还是 ② …？"），等用户确认后再继续。**唯一例外**：用户语义明确无歧义（如"给我贵州茅台今日收盘价"），无需反问。
+10. **工具返回 `SKILL_VERSION_MISMATCH` 时必须自愈，不得继续执行原任务**：当任何工具调用的输出中出现 `"error": "SKILL_VERSION_MISMATCH"` 时，说明当前对话上下文中的工具签名/参数格式已过时。此时必须执行以下自愈流程（每步不得省略）：
    1. **立即停止**当前任务，不得再调用任何平台工具；
    2. 调用 `newSession`（新建 session，获取新 task_id）；
    3. **强制重读** `SKILL.md`（本文件）+ 当前场景对应的 workflow 文档 + 涉及的 tools/*.md；
@@ -137,7 +162,13 @@ runtimeRequirements:
 
 > 这条原则覆盖：要不要多读一个文档；readData 读哪个变量；要不要为某个字段调 confirmDataMulti；公式自己写还是查现成数据集；以及所有未来出现的同类决策。
 
-**工具层面落地**：调用 `confirmDataMulti` / `readData` / `runMultiFormulaBatch` 或加载额外文档前，必须先勾选 [`recipes/tool-call-checklist.md`](recipes/tool-call-checklist.md) 对应小节（每节 5–10 行）。顶层原则管"要不要做"，清单管"具体怎么做"。
+**工具层面落地**：调用 `confirmDataMulti` / `readData` / `runMultiFormulaBatch` 或加载额外文档前，必须在心里完成工具清单自检；**不要为执行清单而搜索、加载或读取 `recipes/tool-call-checklist.md`**。无论该文件是否已在上下文中，只在心里完成以下三条最小自检即可（这三条已是清单的浓缩版，不需要再去查原文）：
+
+1. 这次调用是否直接服务于用户当前问题？
+2. 是否有更窄的输出或更少的字段可读？
+3. 如果调用失败，下一步是否明确且只改一个维度？
+
+顶层原则管"要不要做"，清单管"具体怎么做"。
 
 ## Skill 包根目录
 
@@ -297,7 +328,8 @@ SKILL_ROOT/
 1. 时间锚点是"最近 N 日窗口/序列" → Fast Path 条件满足时读 `workflows/fast-window.md`，不满足则 `workflows/global-rules-lite.md` → `workflows/quick-window.md`
 2. 时间锚点是"最近报告期"且字段属于财务类 → Fast Path 条件满足时读 `workflows/fast-report-period.md`，不满足则 `workflows/global-rules.md` → `workflows/quick-report-period.md`
 3. 用户明确要"画图 / K线 / 带成交量走势" → 直接加载 `workflows/render-kline.md`
-4. 其余（明确是最近完成交易日的行情/估值/多资产对比，且**不含** 今天/今日/当日/当前/现在/实时/盘中/排名/筛选 语义）→ Fast Path 条件满足时读 `workflows/fast-snapshot.md`，不满足则 `workflows/global-rules.md` → `workflows/quick-snapshot.md`
+4. 其余（明确是最近完成交易日或当日的行情/估值/多资产对比，且**不含** 排名/筛选/全市场 语义）→ Fast Path 条件满足时读 `workflows/fast-snapshot.md`，不满足则 `workflows/global-rules.md` → `workflows/quick-snapshot.md`
+   > **说明**：含"今天/今日/当日/当前/现在/实时/盘中"但仅查单资产行情字段，属于日内刷新场景，`fast_query snapshot` 已自动启用盘中刷新（等效 `use_minute_data: true`），应直接走 Fast Path；上方"路由硬排除"已拦截"今天 + 全市场/板块 + 排名/筛选"，此处无需重复排除。
 
 > 上述路由不需要先读 `workflows/quick-lookup.md`。
 
@@ -328,7 +360,7 @@ SKILL_ROOT/
 
 **规则层级（从高到低）：**
 
-1. **SKILL.md**：路由 + 全局门禁（硬规则 4 条、路由硬排除）
+1. **SKILL.md**：路由 + 全局门禁（硬规则 10 条、路由硬排除）
 2. **global-rules.md**：所有 leaf 必须遵守的全局合同（执行合同、证据分级、简答模式、不补精度、方法限制说明、参数规范、数值精度、终答一致性检查）
 3. **leaf workflow**：当前任务的具体执行流程（checkpoint、模板、停止条件、格式化）
 

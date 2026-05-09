@@ -596,6 +596,14 @@ def _process_run_multi_formula_batch(stdout_str):
     return json.dumps(resp, indent=2, ensure_ascii=False)
 
 
+def _maybe_abort_on_client_validation(params):
+    """若 _normalize_params 注入了客户端校验错误，立即输出并退出，避免无效远程调用。"""
+    if isinstance(params, dict) and "__client_validation_error__" in params:
+        msg = params.pop("__client_validation_error__")
+        print(json.dumps({"code": 1, "message": msg}, ensure_ascii=False))
+        sys.exit(1)
+
+
 def _normalize_params(tool_name, params):
     """常见参数名错误自动修正，减少 LLM 调用失败率。"""
     if not isinstance(params, dict):
@@ -613,6 +621,42 @@ def _normalize_params(tool_name, params):
                 if f:
                     fixed.append(f)
         params["formulas"] = fixed
+
+    # confirmDataMulti: 把常见错误参数名归一化到 data_desc
+    # 错误形式：{"queries": ["A", "B"]} / {"query": "A"} / {"descriptions": [...]}
+    # 正确形式：{"data_desc": "A,B"}（字符串，逗号分隔）
+    if tool_name == "confirmDataMulti" and "data_desc" not in params:
+        for alias in ("queries", "query", "descriptions", "description", "names", "data_descs"):
+            if alias in params:
+                v = params.pop(alias)
+                if isinstance(v, list):
+                    params["data_desc"] = ",".join(str(x).strip() for x in v if str(x).strip())
+                else:
+                    params["data_desc"] = str(v)
+                break
+
+    # readData: 检测中文/变量名形式的 ids 误用，返回明确错误而非传到服务端
+    # 也把 variable_names / variable_name / index_title 这类常见错误参数名归一化
+    if tool_name == "readData":
+        for alias in ("variable_names", "variable_name", "index_title", "index_titles", "name", "names"):
+            if alias in params and "ids" not in params:
+                v = params.pop(alias)
+                if isinstance(v, list):
+                    params["ids"] = v
+                else:
+                    params["ids"] = [v]
+                break
+        # 进一步校验 ids 必须是 hex data_id（24 字符 16 进制），否则提前拦截
+        ids = params.get("ids")
+        if isinstance(ids, list) and ids:
+            import re as _re
+            bad = [x for x in ids if not (isinstance(x, str) and _re.fullmatch(r"[0-9a-fA-F]{24}", x))]
+            if bad:
+                # 直接把校验信息塞回参数，由 executor 后续上抛——不擅自调用，避免参数被 server 误吞
+                params["__client_validation_error__"] = (
+                    "readData 的 ids 必须是 runMultiFormulaBatch 返回的 24 位 hex data_id；"
+                    f"以下值不是合法 data_id：{bad}。如需读取本批某个变量，请先在 runMultiFormulaBatch 返回的 results 中找到该变量的 _id，再传入 ids。"
+                )
 
     return params
 
@@ -820,6 +864,7 @@ def main():
                 params = {}
             # 自动修正常见参数名错误
             params = _normalize_params(tool_name, params)
+            _maybe_abort_on_client_validation(params)
             # 如果参数被修正了，需要重写文件
             try:
                 with open(file_path, "w", encoding="utf-8") as f:
@@ -840,6 +885,7 @@ def main():
 
             # 自动修正常见参数名错误
             params = _normalize_params(tool_name, params)
+            _maybe_abort_on_client_validation(params)
 
             tmp_fd, tmp_path = tempfile.mkstemp(suffix=".json", prefix="gzq_")
             with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:

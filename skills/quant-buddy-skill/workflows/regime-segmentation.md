@@ -229,7 +229,7 @@ write_skill_file({
 
 ### Step 1：取回基准序列
 
-1. **确认数据项**：用 `confirmDataMulti` 确认所需的度量指标（如收盘价、PE(TTM) 等）
+1. **确认数据项**：用 `confirmDataMulti` 确认所需的度量指标（如收盘价；用户要 PE(TTM) 时按全局口径规则优先查询 `市盈率 TTM`，不得把 `PE(TTM)` 原样当查询词）
 2. **取回序列**：用 `runMultiFormulaBatch` 计算基准序列
    - begin_date 需覆盖足够历史区间（通常 ≥ 15 年）
 3. **验证**：用 `readData(mode="smart_sample")` 检查 NaN 率和覆盖率（仅验证用，不得用 50 个采样点作为区间识别依据）

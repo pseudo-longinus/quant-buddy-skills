@@ -68,7 +68,7 @@ python scripts/call.py newSession
 **1b.** 找到后调 `getCardFormulas` 拉取公式，理解 `成分平均汇总` 的参数用法：
 
 ```bash
-python scripts/call.py getCardFormulas '{"card_ids": ["<相关卡片id>"]}'
+python scripts/call.py getCardFormulas '{"card_names": ["<相关卡片名称>"]}'
 ```
 
 **1c.** 若目录中未找到合适卡片，fallback 到：

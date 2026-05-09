@@ -1,7 +1,8 @@
 # 快速执行 · 行情/估值快照与固定区间序列
 
-> **适用范围**：≤3 个资产，查询最新交易日的行情/估值字段（标量），或固定日期范围内的行情/估值最后有效值/完整序列。
+> **适用范围**：≤3 个资产，查询最新交易日的行情/估值字段（标量），或固定日期范围内的行情/估值最后有效值/完整序列。含"今天/今日/当日/当前/现在/实时/盘中"的单资产行情查询也属于本 workflow 适用范围。
 > 本 workflow 使用 `fast_query` 单次调用完成（无需 runMultiFormulaBatch / readData）。
+> **日内刷新**：`query_type="snapshot"` 且不传 `start_date` 时，服务端自动启用盘中刷新——盘中返回最后一分钟行情，收盘后返回收盘价。无需在参数中额外声明任何 `use_minute_data` 字段。
 
 ---
 
@@ -9,12 +10,13 @@
 
 ```
 ① 从用户意图提取 assets、fields 和可选日期范围（参照下方字段映射表）
-→ ①.5 对每个 asset 执行 grep presets/assets_db/{类型}.yaml 查本地库：
+→ ② 调用 newSession（若本轮尚未显式调用；调用 fast_query 前不可省略）
+→ ③ 对每个 asset 执行 grep presets/assets_db/{类型}.yaml 查本地库：
        命中唯一 → 用 ticker（如 SH600303）替换原始中文名传参
        命中多条（歧义）→ 向用户澄清选哪个，禁止继续查数
        未命中 → 保留原始名称，由服务端兜底解析
-→ ② 调用 fast_query（query_type="snapshot"；区间序列时传 result_mode="series"）
-→ ③ 从 value/date 或 series[] 提取结果，输出最终答案
+→ ④ 调用 fast_query（query_type="snapshot"；区间序列时传 result_mode="series"）
+→ ⑤ 从 value/date 或 series[] 提取结果，输出最终答案
 ```
 
 **停止条件**：fast_query 返回 `success: true`，且目标字段均有 `value`（value 模式）或 `series[]`（series 模式）→ 立刻停止，不得再调用任何工具。

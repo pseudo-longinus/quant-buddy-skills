@@ -1,8 +1,8 @@
-# getCardFormulas — 按卡片 ID 批量获取完整公式组
+# getCardFormulas — 按卡片名称批量获取完整公式组
 
 ## 用途
 
-根据 `presets/cases_index.yaml` 中找到的卡片 `id`，从平台数据库拉取一张或多张卡片的完整公式组。
+根据 `presets/cases_index.yaml` 中找到的卡片名称，从平台数据库拉取一张或多张卡片的完整公式组。
 
 支持批量拉取（1-10 张），方便对比多个参考卡片后选最贴合的公式骨架。
 
@@ -10,24 +10,31 @@
 
 **批量（推荐）**
 ```bash
-python scripts/call.py getCardFormulas '{"card_ids": ["691467e9acdb52784932c7a9", "691467fbacdb52784932c80e"]}'
+python scripts/call.py getCardFormulas '{"card_names": ["高波动率多因子筛选", "优质低估值选股"]}'
 ```
 
-**单张（向后兼容）**
+**单张**
 ```bash
-python scripts/call.py getCardFormulas '{"card_id": "691467e9acdb52784932c7a9"}'
+python scripts/call.py getCardFormulas '{"card_names": ["高波动率多因子筛选"]}'
 ```
 
 ## 参数
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `card_ids` | string[] | 二选一 | MongoDB ObjectId 数组，1-10 个，从 `presets/cases_index.yaml` 中查到 |
-| `card_id` | string | 二选一 | 单个 ObjectId（向后兼容），等同于 `card_ids: [card_id]` |
+| `card_names` | string[] | ✅ | 卡片名称数组，1-10 个，从 `presets/cases_index.yaml` 中找到的名称 |
+
+### 名称匹配规则（服务端）
+
+- **大小写不敏感**：`"roe分析"` 可匹配 `"ROE分析"`
+- **子串匹配**：`"ROE"` 可匹配 `"ROE分析"` 和 `"ROE杜邦拆解"`
+- **每个名称最多返回 2 张**匹配卡片
+- 多名称结果自动去重
+
+> ⚠️ 传入已知存在的卡片名称或其明确子串，不要传泛化关键词（如 `"分析"`、`"指标"` 等）。
 
 ## 返回
 
-**批量请求** (`card_ids`)：
 ```json
 {
   "code": 0,
@@ -42,11 +49,10 @@ python scripts/call.py getCardFormulas '{"card_id": "691467e9acdb52784932c7a9"}'
       "all_formulas": ["波动率_60日 = ...", "..."]
     },
     { "card_id": "691467fbacdb52784932c80e", "card_name": "优质低估值选股", "..." : "..." }
-  ]
+  ],
+  "warnings": ["名称 'xxx' 无匹配结果"]
 }
 ```
-
-**单张请求** (`card_id`)：返回同时包含 `data`（扁平）和 `cards`（数组），向后兼容。
 
 ## 字段说明
 
@@ -68,7 +74,7 @@ python scripts/call.py getCardFormulas '{"card_id": "691467e9acdb52784932c7a9"}'
 
 ```
 Step 1a：读 presets/cases_index.yaml（~105 行，一次读完），按 tags 找 1-3 张最相关卡片
-Step 1b：getCardFormulas(card_ids=["id1","id2"])
+Step 1b：getCardFormulas(card_names=["卡片名称1","卡片名称2"])
          → 对比多张卡片的 all_formulas，选最贴合的作为公式骨架
 Step 5： runMultiFormulaBatch(formulas=选定卡片的 all_formulas, task_id=...)
          → 替换资产名后执行
@@ -79,6 +85,5 @@ Step 5： runMultiFormulaBatch(formulas=选定卡片的 all_formulas, task_id=..
 | code | 含义 |
 |------|------|
 | 0 | 成功 |
-| 400 | card_id 参数缺失或格式错误 |
-| 404 | 卡片不存在（id 不在数据库中） |
+| -1 | 所有名称均无匹配结果 |
 | 401/402 | API Key 无效或过期 |

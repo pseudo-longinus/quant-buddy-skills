@@ -40,7 +40,7 @@ node -e "require('child_process').execSync('python scripts/call.py runMultiFormu
 
 > 文件可能不止"编号 + 公式"一种格式（也可能是 yaml/json 列表、或带注释的 markdown 块）。识别格式由 LLM 在推理中完成，不要为此写脚本。
 
-### Step 3：LLM 在推理中生成 `force_reusable_flags`
+### Step 3：LLM 在推理中生成 `force_reusable_array`
 
 按 SKILL.md 硬规则 #2 + `global-rules.md` §13 三问法判定每条：
 
@@ -48,9 +48,9 @@ node -e "require('child_process').execSync('python scripts/call.py runMultiFormu
 2. 是否会被**后续 batch / 后续 `runMultiFormulaBatch` 调用 / 用户后续追问**引用？
 3. 此刻是否能确定它"以后再不会被读"？
 
-任一答"会/不能确定" → `true`；只有完全确定"仅本批后续公式用、再无人引用" → `false`。
+任一答"会/不能确定" → **写入 `force_reusable_array`**；只有完全确定"仅本批后续公式用、再无人引用" → **不要写入数组**。
 
-**末批内仅 readData 读取的最终输出变量必须 `true`**（通常是末条公式，如 `*_Top10`、`*_Result`、`*_Final`）；末批内的 `*_Score`、`*_Ratio` 等中间量仍按三问法判断，不因在末批而自动 `true`。**禁止全 `true`**（all-true = 规则退化，与未传等价）。
+**末批内仅 readData 读取的最终输出变量必须写入数组**（通常是末条公式，如 `*_Top10`、`*_Result`、`*_Final`）；末批内的 `*_Score`、`*_Ratio` 等中间量仍按三问法判断，不因在末批而自动写入。**禁止全列**（全列 = 规则退化，与未传等价）。
 
 ### Step 4：切批 + 落盘 batch JSON
 
@@ -59,12 +59,12 @@ node -e "require('child_process').execSync('python scripts/call.py runMultiFormu
 ```json
 {
   "formulas": ["...", "..."],
-  "force_reusable_flags": [true, false, ...],
+  "force_reusable_array": ["需保活的变量名", "..."],
   "use_minute_data": true
 }
 ```
 
-跨批 flag 联动：组装第 K 批的 `force_reusable_flags` 前，先扫描第 `K+1..N` 批的右侧引用，凡被后续引用的本批左侧变量必须 `true`。
+跨批联动：组装第 K 批的 `force_reusable_array` 前，先扫描第 `K+1..N` 批的右侧引用，凡被后续引用的本批左侧变量必须写入数组。
 
 ### Step 5：逐批发起独立 shell 调用
 
@@ -100,7 +100,7 @@ cd <SKILL_ROOT> && GZQ_PARAMS='{"ids":["<_id>"],"mode":"last_column_full"}' pyth
 | `SKILL_VERSION_MISMATCH` | 按 SKILL.md 硬规则 #8 自愈（newSession + 重读文档 + 重跑） |
 | 配额超限 | 按 SKILL.md 全局 429 处理表 |
 | stdout 截断 | 回读 `/tmp/gzq_out.txt`（仅 Linux/macOS）或用返回的 task_id 查询 |
-| 某批**超时 / 报错被动拆分** | 不得沿用失败批次的 `force_reusable_flags` 或全填 `true` 兜底；必须重新对拆分后的每个子批逐条过三问法；特别注意：原批内的引用在拆分后变成跨批引用的变量，必须在对应子批重新标 `true` |
+| 某批**超时 / 报错被动拆分** | 不得沿用失败批次的 `force_reusable_array` 或把全部变量名都列入兜底；必须重新对拆分后的每个子批逐条过三问法；特别注意：原批内的引用在拆分后变成跨批引用的变量，必须在对应子批重新写入数组 |
 
 ---
 
@@ -109,10 +109,10 @@ cd <SKILL_ROOT> && GZQ_PARAMS='{"ids":["<_id>"],"mode":"last_column_full"}' pyth
 收到第 2 轮（或后续轮）追加公式时，在发起 `runMultiFormulaBatch` 之前执行以下检查：
 
 1. 扫描新公式的右侧，列出所有引用了前批左侧变量的依赖项；
-2. 对照历史 batch 的 `force_reusable_flags`，查看这些依赖变量是否已标 `true`；
-3. 若发现有依赖变量在历史 batch 中被标 `false`：
+2. 对照历史 batch 的 `force_reusable_array`，查看这些依赖变量是否已写入数组；
+3. 若发现有依赖变量在历史 batch 中未写入数组：
    - **有修正接口时**：先调 `markReusable` / `updateForceReusable`，再继续执行新公式；
-   - **无修正接口时**：在终态答案中**显式说明**「变量 X 在首批未保活，本次需重新计算前置链（#N1 ~ #N2）」，并先补跑这些前置公式（`force_reusable_flags` 全 `true`），再跑新公式；**禁止默默依赖缓存兜底**。
+   - **无修正接口时**：在终态答案中**显式说明**「变量 X 在首批未保活，本次需重新计算前置链（#N1 ~ #N2）」，并先补跑这些前置公式（`force_reusable_array` 列入全部前置变量名），再跑新公式；**禁止默默依赖缓存兜底**。
 
 ---
 

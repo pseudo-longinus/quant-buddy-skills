@@ -50,11 +50,11 @@
    | `SERVICE_OVERLOADED` | `retryAfter` | 建议等待秒数 |
 
    完整分类表见 `references/troubleshooting.md`「配额限流」段。
-13. **`runMultiFormulaBatch` 多公式必须评估 `force_reusable_flags`（硬规则）**：每次组装 `runMultiFormulaBatch` 的 `formulas` 数组时，若 `formulas.length ≥ 2`，**必须同步附上 `force_reusable_flags` 数组**；评估方法：对每条公式问三个问题——(a) 这个左侧变量会被 `readData` 或最终业务步骤读取吗？(b) 它会被**后续 batch / 后续 `runMultiFormulaBatch` 调用 / 用户后续追问**引用吗？(c) 我此刻是否能确定它"以后再不会被读"？三问任一答"会/不能确定" → `true`；只有完全确定"仅本批后续公式用、再无人引用" → `false`。命名含 `_中间`/`_条件`/`_掩码`/`_排序值`/`_因子`/`MA5`/`Signal` 等的变量基本是中间量。**末批内仅最终输出变量（readData 读取的那一条，通常命名为 `*_Top10`、`*_Result`、`*_Final` 等）必须 `true`；末批内的中间计算量（`*_Score`、`*_Ratio` 等只在本批后续公式引用的变量）仍按三问法正常判断，不因在末批而自动 `true`**——"末批全 true"等同于 all-true，是 P0 级规则退化。**禁止**对多公式调用直接省略该参数让所有公式默认 `true`；同时**禁止为"保险"一律全 `true`**——all-true 等同于规则退化，与未传等价。
-    > **缓存兜底 ≠ flag 标对**：服务端缓存层会替你兜底重算丢失的中间变量，所以即便 flag 标错，最终结果可能仍然能跑出来。但这不能算 `force_reusable_flags` 用对了，下次同 session 追问时一旦缓存失效就会暴露。
-   - **多批次扩展规则（跨批保活）**：当公式链拆分为多次 `runMultiFormulaBatch` 时，**被后续批次公式引用的变量，在当批中必须标 `true`**（即使本批不被 `readData` 读）。组装每个 batch 的 flags 前，先扫描后续 batch 公式的右侧引用，凡被引用到的左侧变量本批必须 `true`。**禁止**用 all-true 代替依赖分析——分批后某批 flags 全为 `true` 是规则退化的明显信号，应回退重新扫描跨批引用边后再标注。
-     - **链条未知时（场景 B：分轮追加公式）**：首批无法预见后续公式会引用什么。此时对本批的"汇总因子"级变量及其直接操作数一律标 `true`。判断标准：变量 RHS 组合了本批多个其他变量、语义是最终评分或基础综合因子、且非原子基础数据 → 该变量及其所有 RHS 直接引用的本批变量均标 `true`。（示例：`R31_BasicScore` = 汇总因子 → `true`；`R31_AmtRatio` 是 `R31_BasicScore` 的直接操作数 → 也标 `true`。）
-   - **被动拆批后必须重新推理 flags**：若某批因超时、服务端报错或 `task_id` 丢失而失败，被动重试或拆分时：① 不得沿用失败批次的 `force_reusable_flags` 或全填 `true` 兜底；② 必须重新对拆分后的每个子批逐条过三问法；③ 特别注意跨越拆分点的变量（原批内的引用在拆分后变成了跨批引用）必须在对应子批中重新判断并标 `true`。
+13. **`runMultiFormulaBatch` 多公式必须评估并按需传 `force_reusable_array`（硬规则）**：每次组装 `runMultiFormulaBatch` 的 `formulas` 数组时，若 `formulas.length ≥ 2`，**必须同步评估并按需传 `force_reusable_array`（字符串数组，元素为公式左侧变量名）**；评估方法：对每条公式问三个问题——(a) 这个左侧变量会被 `readData` 或最终业务步骤读取吗？(b) 它会被**后续 batch / 后续 `runMultiFormulaBatch` 调用 / 用户后续追问**引用吗？(c) 我此刻是否能确定它"以后再不会被读"？三问任一答"会/不能确定" → **写入 `force_reusable_array`**；只有完全确定"仅本批后续公式用、再无人引用" → **不要写入数组**。命名含 `_中间`/`_条件`/`_掩码`/`_排序值`/`_因子`/`MA5`/`Signal` 等的变量基本是中间量。**末批内仅最终输出变量（readData 读取的那一条，通常命名为 `*_Top10`、`*_Result`、`*_Final` 等）必须写入数组；末批内的中间计算量（`*_Score`、`*_Ratio` 等只在本批后续公式引用的变量）仍按三问法正常判断，不因在末批而自动写入**——"末批全列"等同于全列，是 P0 级规则退化。**禁止**对多公式调用不传 `force_reusable_array`（不传则全部复用，与全列等价）；同时**禁止为"保险"把本批所有变量名全部列入**——全列等同于规则退化，与未传等价。
+    > **缓存兜底 ≠ 数组标对**：服务端缓存层会替你兜底重算丢失的中间变量，所以即便数组填错，最终结果可能仍然能跑出来。但这不能算 `force_reusable_array` 用对了，下次同 session 追问时一旦缓存失效就会暴露。
+   - **多批次扩展规则（跨批保活）**：当公式链拆分为多次 `runMultiFormulaBatch` 时，**被后续批次公式引用的变量，在当批中必须写入 `force_reusable_array`**（即使本批不被 `readData` 读）。组装每个 batch 的数组前，先扫描后续 batch 公式的右侧引用，凡被引用到的左侧变量本批必须列入。**禁止**用全列代替依赖分析——分批后某批变量名全部列入是规则退化的明显信号，应回退重新扫描跨批引用边后再标注。
+     - **链条未知时（场景 B：分轮追加公式）**：首批无法预见后续公式会引用什么。此时对本批的"汇总因子"级变量及其直接操作数一律写入数组。判断标准：变量 RHS 组合了本批多个其他变量、语义是最终评分或基础综合因子、且非原子基础数据 → 该变量及其所有 RHS 直接引用的本批变量均写入数组。（示例：`R31_BasicScore` = 汇总因子 → 写入；`R31_AmtRatio` 是 `R31_BasicScore` 的直接操作数 → 也写入。）
+   - **被动拆批后必须重新推理**：若某批因超时、服务端报错或 `task_id` 丢失而失败，被动重试或拆分时：① 不得沿用失败批次的 `force_reusable_array` 或把全部变量名都列入兜底；② 必须重新对拆分后的每个子批逐条过三问法；③ 特别注意跨越拆分点的变量（原批内的引用在拆分后变成了跨批引用）必须在对应子批中重新判断并写入数组。
 14. **用户主动要求刷新盘中数据时必须先调 `refreshSnapshotTime`（硬规则）**：追问含"刷新/更新/推进/最新行情/重新算/再算一次"等刷新语义时，**必须先调 `refreshSnapshotTime '{}'`，再重跑 `runMultiFormulaBatch`**。不得跳过 `refreshSnapshotTime` 直接重跑公式。
    - `RATE_LIMIT_EXCEEDED` → 读 `error.retryAfter` 秒后**静默重试**，不计入 leaf Retry Budget，不向用户暴露
    - `CONCURRENT_LIMIT` → 读 `error.retryAfter` 秒后**静默重试**，不计入 leaf Retry Budget，不向用户暴露
@@ -243,19 +243,19 @@ B 级证据中附带的任何数值（如 description 里的 last_value）不得
 
 ## 指标口径精确匹配（所有查数 workflow 必须遵守）
 
-当用户指定了具体指标名称时（如 "PE(TTM)"、"归母净利润"、"ROE(加权)"），必须在 `confirmDataMulti` 中精确匹配该名称：
+当用户指定了具体指标名称时（如 "PE(TTM)"、"归母净利润"、"ROE(加权)"），必须保留用户要求的指标口径，但 `confirmDataMulti` 查询词应优先使用平台更容易命中的中文规范表达：
 
-1. **用户措辞即需求**：`confirmDataMulti` 的查询关键词必须包含用户的原始指标表达，不得用模型认为"等价"或"近似"的指标替代
-2. **确认结果回检**：`confirmDataMulti` 返回后，检查匹配到的字段名是否与用户要求一致——若返回的是 `PE(静态)` 而用户要的是 `PE(TTM)`，必须**重新查询**或**告知用户差异**，不得默认执行
-3. **冻结口径**：指标口径确认后冻结（如 `field: PE(TTM), data_id=xxx`），后续步骤只能使用已冻结的 data_id；复杂场景可写入 `_working/` 文件
-4. **禁止口径偷换**：执行了 A 指标却在回答中写成 B 指标（如执行 PE(静态) 回答写 PE(TTM)）属于严重错误
+1. **用户口径即需求，不等于查询词必须原样照抄**：用户说 `PE(TTM)` 时，首选 `confirmDataMulti("市盈率 TTM")`；用户说 `归母净利润` / `ROE(加权)` 时，首选对应中文规范名。禁止把用户英文、缩写或带括号表达无转换地直接传入，除非中文规范词查询失败后作为补充同义词重试。
+2. **确认结果回检**：`confirmDataMulti` 返回后，检查匹配到的字段名是否与用户要求一致——若返回的是 `PE(静态)` 而用户要的是 `PE(TTM)`，必须**重新查询**或**告知用户差异**，不得默认执行。
+3. **冻结口径**：指标口径确认后冻结（如 `field: PE(TTM), index_title=市盈率 TTM, data_id=xxx`），后续公式只能使用返回的 `index_title` / `data_id`；复杂场景可写入 `_working/` 文件。
+4. **禁止口径偷换**：执行了 A 指标却在回答中写成 B 指标（如执行 PE(静态) 回答写 PE(TTM)）属于严重错误。
 
 典型错误：
 | 用户要求 | 错误做法 | 正确做法 |
 |---------|---------|---------|
-| PE(TTM) | 执行 PE(静态)，回答写"PE(TTM)" | confirmDataMulti 精确查 "PE(TTM)"，取返回的 data_id |
-| 归母净利润 | 用 净利润 替代 | 精确查 "归母净利润" |
-| ROE(加权) | 用 ROE(摊薄) 替代 | 精确查 "ROE(加权)" |
+| PE(TTM) | 执行 PE(静态)，回答写"PE(TTM)"；或直接查 `"PE(TTM)"` 后失败 | 首选 confirmDataMulti 查 `"市盈率 TTM"`，再回检返回字段是否为 TTM 口径 |
+| 归母净利润 | 用 净利润 替代 | 用中文规范名精确查询，确认返回字段为归母口径 |
+| ROE(加权) | 用 ROE(摊薄) 替代 | 用中文规范名精确查询，确认返回字段为加权口径 |
 
 ---
 
@@ -287,17 +287,17 @@ B 级证据中附带的任何数值（如 description 里的 last_value）不得
 
 ### runMultiFormulaBatch
 ```json
-{"formulas": ["..."], "begin_date": 20240101, "include_description": true, "use_minute_data": true, "force_reusable_flags": [false, true]}
+{"formulas": ["..."], "begin_date": 20240101, "include_description": true, "use_minute_data": true, "force_reusable_array": ["变量名2"]}
 ```
 - `begin_date` **必须传**，默认 `20240101`；用户指定更早起点时按需调整
 - `include_description` **必须传** `true`，确保返回 description 供后续判断
 - `use_minute_data` 默认传 `true`；财务报告期查询按 leaf workflow 规则省略或设为 `false`
-- **`force_reusable_flags` 在 `formulas.length ≥ 2` 时必须主动评估并按需传递（硬规则）**：
+- **`force_reusable_array` 在 `formulas.length ≥ 2` 时必须主动评估并按需传递（硬规则）**：
   - 评估方法：对每条公式问一句「这个左侧变量名，会被本批后续公式引用，又会被 `readData` / 最终业务步骤读取吗？」
-    - 仅被本批后续公式引用、**不会**被 `readData` 读 → `false`
-    - 会被 `readData` 读，或是最终输出 → `true`（或省略）
+    - 仅被本批后续公式引用、**不会**被 `readData` 读 → 不要写入数组
+    - 会被 `readData` 读，或是最终输出 → 写入 `force_reusable_array`
   - 单公式（`formulas.length == 1`）可省略
-  - 形如 `..._中间`、`..._条件`、`..._掩码`、`..._筛选`、`..._排序值`、`..._因子矩阵`、`MA5`、`MA20`、`Signal` 这类命名的变量，几乎都是中间量，应主动标 `false`
+  - 形如 `..._中间`、`..._条件`、`..._掩码`、`..._筛选`、`..._排序值`、`..._因子矩阵`、`MA5`、`MA20`、`Signal` 这类命名的变量，几乎都是中间量，应主动不写入数组
   - 数组长度可短于 `formulas`，缺失位置默认 `true`；只接受布尔 `false`，`null` / 字符串 `"false"` 不生效
 - 禁止省略 `begin_date` 和 `include_description`
 - 禁止传 `refresh_snapshot_time`；需要强制刷新分钟数据截止时间时，先调用独立 `refreshSnapshotTime` 工具

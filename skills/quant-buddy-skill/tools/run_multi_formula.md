@@ -1,3 +1,5 @@
+> ⛔ **LLM 调用工具名必须是 `runMultiFormulaBatch`**，禁止使用 `runMultiFormula` 或 `run_multi_formula`（均为无效名，调用即报 `未知工具`）。收到 `未知工具` 错误后**禁止以任何名称变体重试**。
+
 # run_multi_formula — 执行公式批次
 
 > 核心工具。在全市场数据上执行一组公式，生成因子、选股信号、回测净值等。同一批公式**必须使用同一 `task_id`**，以保证变量可互相引用。

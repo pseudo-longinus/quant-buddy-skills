@@ -25,6 +25,15 @@
 - `window` 不能传 `start_date` / `end_date`，否则返回 `DATE_RANGE_WINDOW_CONFLICT`。
 - `result_mode="value"` 返回区间最后有效值；`result_mode="series"` 返回区间完整序列。
 
+## 日内刷新行为
+
+- **`snapshot` 模式（不传 `start_date`）**：行情字段（收盘价/涨跌幅/成交额等）自动启用日内刷新（等效后端 `use_minute_data: true`）。  
+  - 盘中：返回最后一分钟更新值（实时行情）  
+  - 收盘后：返回当日收盘价（与日线一致）  
+  - 历史数据不受影响
+- **`snapshot` + `start_date` 模式** / **`window` 模式**：不启用分钟刷新，只取日线数据。
+- 估值字段（PE/PB/市值等）及财务字段始终为日线口径，不受分钟刷新影响。
+
 ## fields 白名单（直接命中，零额外开销）
 
 **行情**（snapshot/window）：`收盘价` `开盘价` `最高价` `最低价` `收盘价（不复权）` `涨跌幅` `成交额` `成交量`  

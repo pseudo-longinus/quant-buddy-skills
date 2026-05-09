@@ -264,9 +264,9 @@ class QuantAPI:
         """向量搜索相似案例（fallback 用途）。"""
         return self._call("searchSimilarCases", {"query": query})
 
-    def get_card_formulas(self, card_ids: list) -> dict:
-        """按卡片 ID 批量获取公式。"""
-        return self._call("getCardFormulas", {"card_ids": card_ids})
+    def get_card_formulas(self, card_names: list) -> dict:
+        """按卡片名称批量获取公式。"""
+        return self._call("getCardFormulas", {"card_names": card_names})
 
     def confirm_data_multi(self, data_desc: str) -> dict:
         """确认平台数据项。data_desc 是逗号分隔字符串，如 "换手率,市盈率"。"""

@@ -4,6 +4,56 @@
 
 ---
 
+## [4.20.12] — 2026-05-09
+
+**变更文件**：`SKILL.md`、`scripts/call.py`
+
+针对 claude-sonnet-4.6 等不会主动加载 `tools/*.md` 的模型，加固执行端参数容错与入口处的 schema 显眼提示，避免同类 schema 错误重复消耗工具调用预算。
+
+- `scripts/call.py` `_normalize_params`：
+  - `confirmDataMulti`：自动把 `queries` / `query` / `descriptions` / `names` 等常见错误参数名归一化为 `data_desc`（list 自动逗号合并）。
+  - `readData`：自动把 `variable_names` / `variable_name` / `index_title` / `index_titles` 归一化为 `ids`；并新增 hex `_id` 客户端校验，传入中文变量名等非法 id 时立即返回结构化错误，**不再发出无效远程调用**。
+- `scripts/call.py` 新增 `_maybe_abort_on_client_validation`，让客户端校验错误在调用 executor 之前阻断。
+- `SKILL.md`：硬规则之前新增**「平台工具参数速查」**段，用 ✅/❌ 表格列出三个最高频的 schema 错误（`confirmDataMulti.data_desc` 字符串、session 中间变量必须双引号引用、`readData.ids` 必须是 hex `_id`）。前置位置确保即便模型不读 `tools/*.md` 也能命中。
+
+---
+
+## [4.20.11] — 2026-05-09
+
+**变更文件**：`SKILL.md`、`workflows/global-rules.md`、`workflows/quant-standard.md`、`workflows/event-study.md`、`workflows/regime-segmentation.md`
+
+修复 v4.20.10 中因规则过硬导致的过度工具调用问题：字段确认改为保留用户口径但优先使用平台中文规范查询词，TopN 数值读取不再强制 `precheck`，工具清单自检不再诱导 Agent 搜索或读取 checklist 文件。
+
+- `SKILL.md`：版本号升至 `4.20.11`；工具调用前清单改为三条心内自检，明确禁止为执行清单而搜索、加载或读取 `recipes/tool-call-checklist.md`。
+- `workflows/global-rules.md`：指标口径规则从“查询词必须包含用户原始表达”改为“用户口径即需求，不等于查询词原样照抄”；用户要 `PE(TTM)` 时首选 `confirmDataMulti("市盈率 TTM")` 并回检 TTM 口径。
+- `workflows/quant-standard.md`：当前截面 TopN 读取中，`precheck` 降级为大表保护；已通过 `取前(..., 返回数值)` 收敛的 TopN 展示值直接用 `readData(mode="last_column_full")`，且 `precheck` 不支持时禁止围绕它重试。
+- `workflows/event-study.md` / `workflows/regime-segmentation.md`：修正 `PE(TTM)` 作为 `confirmDataMulti` 示例时的说明，避免事件研究和区间识别路径继续把 `PE(TTM)` 原样当查询词。
+
+---
+
+## [4.20.10] — 2026-05-07
+
+**变更文件**：`SKILL.md`、`tools/fast_query.md`、`workflows/fast-snapshot.md`、`tools/get_card_formulas.md`、`presets/cases_index.yaml`、`workflows/quant-standard.md`、`tools/run_multi_formula.md`、`scripts/quant_api.py`、`recipes/value-pe-strategy.md`、`recipes/ma-crossover-backtest.md`、`recipes/industry-aggregation.md`
+
+修复 Fast Path 今日行情查询被错误排除、`getCardFormulas` 接口参数变更为名称搜索、全市场公式写法和 readData 参数两处高频错误；另修复工具名混淆导致的高频 `未知工具` 死循环，新增失败熔断与受控失败答复两条硬规则。
+
+- `SKILL.md` + `tools/fast_query.md` + `workflows/fast-snapshot.md`：Fast Path 条件 #4 去除对"今天/今日/当日/当前/实时/盘中"的过度排除，仅保留"排名/筛选/全市场"语义的拦截；新增"日内刷新行为"说明——`snapshot` 模式不传 `start_date` 时服务端自动启用盘中刷新（等效 `use_minute_data: true`），无需在参数中额外声明。
+- `tools/get_card_formulas.md`：接口参数由 `card_ids`（MongoDB ObjectId 数组）变更为 `card_names`（卡片名称数组），支持服务端大小写不敏感的子串模糊匹配；移除单张兼容写法 `card_id`；更新示例、错误码说明。
+- `presets/cases_index.yaml`：头部注释同步更新为 `getCardFormulas(card_names=["卡片名称"])`。
+- `workflows/quant-standard.md`：
+  - 资产宇宙收敛规则新增 ⚠️ 警告：`收盘价("万得全A")` 返回指数一维序列，**禁止**用于全市场筛选，必须改用 `"全市场每日收盘价" * 板块(万得全A)`；
+  - 公式引用预确认表"全市场数据集"示例区同步补充相同反例；
+  - 工具速查表 Step6 `readData` 行内新增提示：`ids` 必须是 hex `_id`，不能传中文变量名。
+- `tools/run_multi_formula.md`：文件顶部新增 `⛔` 警告框，明确 LLM 可调用的唯一工具名为 `runMultiFormulaBatch`，禁止使用 `runMultiFormula` 或 `run_multi_formula`（均为无效名），收到 `未知工具` 后禁止以任何名称变体重试。
+- `SKILL.md`（续）：原硬规则 3–8 整体后移为 5–10，插入两条新规则：
+  - 规则 3（**工具失败熔断**）：同一工具名 + 同类错误最多重试 1 次；`runMultiFormula`/`run_multi_formula` 是无效旧名，收到 `未知工具` 后禁止再次调用同名；第 2 次仍失败必须切换备用路径或输出受控失败答复。
+  - 规则 4（**受控失败答复**）：任何 workflow 失败退出时禁止空白结束，必须输出含"①问题复述 ②失败步骤 ③原因说明"的结构化答复。
+  - 文档层级说明中"硬规则 4 条"同步更新为"硬规则 10 条"。
+- `scripts/quant_api.py`：`get_card_formulas()` 函数签名及内部 payload 由 `card_ids` → `card_names`，与接口变更对齐。
+- `recipes/value-pe-strategy.md` / `recipes/ma-crossover-backtest.md` / `recipes/industry-aggregation.md`：bash 调用示例中 `'{"card_ids": ["<相关卡片id>"]}'` 统一改为 `'{"card_names": ["<相关卡片名称>"]}'`。
+
+---
+
 ## [4.20.9] — 2026-05-07
 
 **变更文件**：`SKILL.md`、`workflows/fast-snapshot.md`、`workflows/fast-window.md`、`workflows/fast-report-period.md`、`workflows/quick-snapshot.md`

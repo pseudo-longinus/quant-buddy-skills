@@ -6,12 +6,13 @@
 
 ```
 ① 提取 assets + fields + 可选日期范围
-→ ①.5 对每个 asset 执行 grep presets/assets_db/{类型}.yaml 查本地库：
+→ ② 调用 newSession（若本轮尚未显式调用；调用 fast_query 前不可省略）
+→ ③ 对每个 asset 执行 grep presets/assets_db/{类型}.yaml 查本地库：
        命中唯一 → 用 ticker（如 SH600303）替换原始中文名传参
        命中多条（歧义）→ 向用户澄清选哪个，禁止继续查数
        未命中 → 保留原始名称，由服务端兜底解析
-→ ② fast_query(query_type="report", user_query=<用户原始问题>；区间序列时传 result_mode="series")
-→ ③ 取值输出
+→ ④ fast_query(query_type="report", user_query=<用户原始问题>；区间序列时传 result_mode="series")
+→ ⑤ 取值输出
 ```
 
 > **`user_query` 必填**：调用 `fast_query` 时仍需在参数中携带用户原始问题，供服务端 trace 分析（不依赖 call.py 自动注入）。
