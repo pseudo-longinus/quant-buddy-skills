@@ -131,9 +131,22 @@ cp -r quant-buddy-skills/skills/quant-buddy-skill ~/.copilot/skills/
 ## 联系作者
 
 <p align="center">
-  <img src="assets/wechat_qr.jpg" width="180" alt="微信二维码" />
+  <table>
+    <tr>
+      <td align="center">
+        <img src="assets/wechat_qr.jpg" width="180" alt="个人微信二维码" />
+        <br/>
+        <sub>个人微信</sub>
+      </td>
+      <td align="center">
+        <img src="assets/wechat_group_qr.jpg" width="180" alt="微信群二维码" />
+        <br/>
+        <sub>微信群</sub>
+      </td>
+    </tr>
+  </table>
   <br/>
-  <sub>扫码添加微信，欢迎交流量化投研</sub>
+  <sub>扫码添加微信或加入交流群，欢迎交流量化投研</sub>
 </p>
 
 ## License
