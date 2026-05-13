@@ -81,28 +81,30 @@ SKILL_ROOT = os.path.dirname(SCRIPT_DIR)
 # 工具名 → HTTP 方法 + 路径 映射表
 # ────────────────────────────────────────────────
 TOOL_ROUTES = {
-    "fast_query":            ("POST", "/skill/fastQuery"),
-    "searchFunctions":       ("POST", "/skill/searchFunctions"),
-    "searchSimilarCases":    ("POST", "/skill/searchSimilarCases"),
-    "getCardFormulas":       ("POST", "/skill/getCardFormulas"),
-    "confirmDataMulti":      ("POST", "/skill/confirmDataMulti"),
-    "runMultiFormulaBatch":       ("POST", "/skill/runMultiFormulaBatch"),
-    "refreshSnapshotTime":   ("POST", "/skill/refreshSnapshotTime"),
-    "readData":              ("POST", "/skill/readData"),
-    "uploadData":            ("POST", "/skill/upload/preview"),   # 两阶段：先 preview
-    "uploadConfirm":         ("POST", "/skill/upload/confirm"),   # 再 confirm
-    "downloadData":          ("GET",  "/skill/data/{id}"),        # id 从 params 取
-    "renderChart":           ("POST", "/skill/renderChart"),
-    "renderKLine":           ("POST", "/skill/renderKLine"),
-    "getChartSpec":          ("GET",  "/skill/chartSpec/{task_id}"),
-    "reRenderChart":         ("POST", "/skill/reRenderChart"),
-    "scanDimensions":        ("POST", "/skill/scanDimensions"),
+    "fast_query":            ("POST", "/fastQuery"),
+    "searchFunctions":       ("POST", "/searchFunctions"),
+    "searchSimilarCases":    ("POST", "/searchSimilarCases"),
+    "getCardFormulas":       ("POST", "/getCardFormulas"),
+    "confirmDataMulti":      ("POST", "/confirmDataMulti"),
+    "runMultiFormulaBatchStream": ("POST", "/runMultiFormulaBatch"),  # 同步老接口（SSE fallback 用）
+    "refreshSnapshotTime":   ("POST", "/refreshSnapshotTime"),
+    "readData":              ("POST", "/readData"),
+    "uploadData":            ("POST", "/upload/preview"),   # 两阶段：先 preview
+    "uploadConfirm":         ("POST", "/upload/confirm"),   # 再 confirm
+    "downloadData":          ("GET",  "/data/{id}"),        # id 从 params 取
+    "renderChart":           ("POST", "/renderChart"),
+    "renderKLine":           ("POST", "/renderKLine"),
+    "getChartSpec":          ("GET",  "/chartSpec/{task_id}"),
+    "reRenderChart":         ("POST", "/reRenderChart"),
+    "scanDimensions":        ("POST", "/scanDimensions"),
+    "resumeJob":             ("GET",  "/runMultiFormulaBatch/stream"),  # deferred 任务续传
 }
 
 # 部分工具需要覆盖默认超时（单位：秒）
 # 未在此表的工具统一使用 call_post/call_get 的默认值（900s）
 TOOL_TIMEOUTS = {
-    "runMultiFormulaBatch": 900,
+    "runMultiFormulaBatchStream": 1800,   # SSE 主路径绕开网关 5min，整体上限 30min
+    "resumeJob":              1800,   # deferred 任务续传，同等超时
     "scanDimensions":       900,
     "downloadData":         900,   # call_get 默认仅 60s，大 CSV 下载需覆盖
     "uploadData":           900,   # call_multipart 原来硬编码 120s，大文件上传需覆盖
@@ -463,6 +465,332 @@ def call_post(endpoint, api_key, path, params, accept_yaml=True, timeout=900):
         return json.loads(raw)
 
 
+# ────────────────────────────────────────────────
+# runMultiFormulaBatch SSE 主路径
+# spec: docs/runMultiFormulaBatch-sse-spec.md
+# 对外契约：返回 dict 结构与同步版 /skill/runMultiFormulaBatch 完全一致；
+# trace_id 暂时保留在响应顶层，由 call.py 写入 session 后由打印层剥离。
+# ────────────────────────────────────────────────
+
+class _StreamUnsupportedError(Exception):
+    """SSE 端点未部署（404/405/406），允许调用方回退到同步老接口。"""
+    def __init__(self, code):
+        self.code = code
+        super().__init__(f"stream endpoint not supported: HTTP {code}")
+
+
+def _derive_idempotency_key(params):
+    """基于参数派生稳定的 Idempotency-Key，跨子进程重启仍一致。
+
+    入参 params 是 runMultiFormulaBatch 的请求体；只取影响业务结果的字段。
+    """
+    import hashlib
+    canonical = json.dumps({
+        "task_id": params.get("task_id", ""),
+        "formulas": params.get("formulas", []),
+        "begin_date": params.get("begin_date", ""),
+        "use_minute_data": params.get("use_minute_data", False),
+        "force_reusable_array": params.get("force_reusable_array"),
+        "execution_profile": params.get("execution_profile", "interactive_5m"),
+    }, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:32]
+
+
+def _consume_sse(url, method, body, headers, state, timeout, ignore_deferred=False):
+    """逐行读 SSE。返回 dict（done/fatal）；若连接异常断开返回 None 让上层走 resume。
+
+    state 由调用方维护，会在收到 ready 时被填上 task_id/trace_id；每收到一个有 id 的事件
+    会更新 state['last_event_id']，供 resume 时作为 since 参数。
+    """
+    req = urllib.request.Request(url, data=body, headers=headers, method=method)
+    try:
+        resp = _NO_PROXY_OPENER.open(req, timeout=timeout)
+    except urllib.error.HTTPError as e:
+        # 仅在主 POST 且尚未读到任何事件时允许回退到同步端点（spec §3.1）
+        if (
+            method == "POST"
+            and state.get("last_event_id") is None
+            and e.code in (404, 405, 406)
+        ):
+            raise _StreamUnsupportedError(e.code)
+        # 读出错误响应体，包成与同步版一致的 fatal dict
+        try:
+            body_txt = e.read().decode("utf-8", errors="replace")
+            err = json.loads(body_txt)
+        except Exception:
+            err = {"message": getattr(e, "reason", str(e))}
+        return {
+            "code": e.code,
+            "success": False,
+            "task_id": state.get("task_id"),
+            "trace_id": state.get("trace_id"),
+            "error": {
+                "code": err.get("error", {}).get("code") if isinstance(err.get("error"), dict) else err.get("code", "HTTP_ERROR"),
+                "message": err.get("message", str(e)),
+            },
+        }
+    except (urllib.error.URLError, TimeoutError, ConnectionError):
+        # 连接级异常：交给上层 resume
+        return None
+
+    event_type = None
+    data_buf = []
+    entry_id = None
+    try:
+        while True:
+            try:
+                raw_line = resp.readline()
+            except (TimeoutError, ConnectionError, OSError):
+                return None
+            if not raw_line:
+                # 连接被对端/中间设备关闭
+                return None
+            line = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
+
+            if line == "":
+                # 一个 SSE 事件分隔
+                if event_type and data_buf:
+                    payload_text = "\n".join(data_buf)
+                    try:
+                        payload = json.loads(payload_text)
+                    except json.JSONDecodeError:
+                        payload = {"raw": payload_text}
+                    if entry_id:
+                        state["last_event_id"] = entry_id
+                    if event_type == "ready":
+                        state["trace_id"] = payload.get("trace_id") or state.get("trace_id")
+                        state["task_id"] = payload.get("task_id") or state.get("task_id")
+                        # 新 spec：ready 携带 job_id / execution_profile / queue / stream_url
+                        for k in ("job_id", "execution_profile", "queue", "stream_url"):
+                            if payload.get(k) is not None:
+                                state[k] = payload[k]
+                    elif event_type == "deferred":
+                        # research_24h 模式：后台已入队，关闭连接、返回 job ack
+                        deferred_result = {
+                            "code": 0,
+                            "success": True,
+                            "status": "deferred",
+                            "task_id": payload.get("task_id") or state.get("task_id"),
+                            "trace_id": payload.get("trace_id") or state.get("trace_id"),
+                            "job_id": payload.get("job_id") or state.get("job_id"),
+                            "execution_profile": payload.get("execution_profile") or state.get("execution_profile") or "research_24h",
+                            "queue": payload.get("queue") or state.get("queue"),
+                            "stream_url": payload.get("stream_url") or state.get("stream_url"),
+                            "message": payload.get("message") or "研究任务已进入后台队列，可稍后恢复查看进度",
+                            "_deferred": True,
+                        }
+                        if ignore_deferred:
+                            # resumeJob 场景：忽略 deferred，继续读到 done
+                            continue
+                        return deferred_result
+                    elif event_type == "done":
+                        # done.data 即完整同步版响应；保留 trace_id 给 call.py
+                        return payload
+                    elif event_type == "fatal":
+                        return {
+                            "code": -1,
+                            "success": False,
+                            "task_id": payload.get("task_id") or state.get("task_id"),
+                            "trace_id": payload.get("trace_id") or state.get("trace_id"),
+                            "error": {
+                                "code": payload.get("code", "FATAL"),
+                                "message": payload.get("message", "stream fatal"),
+                            },
+                            "partial": payload.get("partial", {}),
+                            "last_event_id": state.get("last_event_id"),
+                        }
+                    # progress / result / formula_error：仅累积 last_event_id，最终从 done 取
+                    # 但把每条公式结果实时打印到 stderr，让用户在终端看到流式进度
+                    elif event_type == "result":
+                        # SSE result 事件通常不携带 leftName；按提交顺序从 state 取
+                        idx = state.get("_result_count", 0)
+                        names = state.get("_formula_names", [])
+                        left = (
+                            payload.get("leftName")
+                            or (names[idx] if idx < len(names) else None)
+                            or payload.get("expression_id", "?")
+                        )
+                        if isinstance(left, list):
+                            left = ", ".join(left)
+                        state["_result_count"] = idx + 1
+                        status = payload.get("status", "?")
+                        data_id = payload.get("indexinfo_id") or "—"
+                        symbol = "✓" if status == "success" else "✗"
+                        print(f"  {symbol} {left}  id={data_id}", file=sys.stderr, flush=True)
+                    elif event_type == "formula_error":
+                        idx = state.get("_result_count", 0)
+                        names = state.get("_formula_names", [])
+                        left = (
+                            payload.get("leftName")
+                            or (names[idx] if idx < len(names) else None)
+                            or payload.get("expression_id", "?")
+                        )
+                        state["_result_count"] = idx + 1
+                        msg = payload.get("message", "")
+                        print(f"  ✗ {left}  ERROR: {msg}", file=sys.stderr, flush=True)
+                event_type = None
+                data_buf = []
+                entry_id = None
+                continue
+
+            if line.startswith(":"):
+                # 注释（keepalive）
+                continue
+            if line.startswith("id:"):
+                entry_id = line[3:].strip()
+            elif line.startswith("event:"):
+                event_type = line[6:].strip()
+            elif line.startswith("data:"):
+                data_buf.append(line[5:].lstrip())
+            # 其他字段忽略
+    finally:
+        try:
+            resp.close()
+        except Exception:
+            pass
+
+
+def call_run_multi_formula_batch_stream(endpoint, api_key, params, timeout=1800):
+    """以 SSE 主路径调用 runMultiFormulaBatch。
+
+    返回 dict 与同步版 /skill/runMultiFormulaBatch 一致；trace_id 暂时保留在顶层，
+    由 call.py 写入 session 后剥离。断线最多 3 次重连，遵循 1s/3s/9s 退避。
+    若服务端尚未部署 SSE 端点（404/405/406），抛 _StreamUnsupportedError 由调用方回退。
+    """
+    idem_key = _derive_idempotency_key(params)
+    # 预建公式左侧名列表，供 _consume_sse 逐条打印进度时使用
+    _formula_names: list[str] = []
+    for _f in params.get("formulas", []):
+        _lhs = _f.split("=")[0].strip()          # "A,B=expr" → "A,B"
+        _formula_names.append(_lhs)
+    state = {
+        "task_id": params.get("task_id"),
+        "trace_id": None,
+        "last_event_id": None,
+        "_formula_names": _formula_names,        # 有序左侧名，供进度打印
+        "_result_count": 0,                      # 已收到的 result 事件计数
+    }
+    headers_post = {
+        "Content-Type": "application/json; charset=utf-8",
+        "Accept": "text/event-stream",
+        "Authorization": f"Bearer {api_key}",
+        "Idempotency-Key": idem_key,
+        "x-skill-version": SKILL_VERSION,
+        **({"x-skill-channel": SKILL_CHANNEL} if SKILL_CHANNEL else {}),
+    }
+    body = json.dumps(params, ensure_ascii=False).encode("utf-8")
+
+    final = _consume_sse(
+        url=f"{endpoint}/runMultiFormulaBatchStream",
+        method="POST",
+        body=body,
+        headers=headers_post,
+        state=state,
+        timeout=timeout,
+    )
+
+    # resume 循环：仅在已经拿到 trace_id 且未拿到 final 时进行
+    backoff = [1, 3, 9]
+    attempt = 0
+    while final is None and state.get("trace_id") and attempt < len(backoff):
+        time.sleep(backoff[attempt])
+        attempt += 1
+        url = (
+            f"{endpoint}/runMultiFormulaBatch/stream"
+            f"?task_id={state['task_id']}&trace_id={state['trace_id']}"
+        )
+        if state.get("last_event_id"):
+            url += f"&since={state['last_event_id']}"
+        headers_get = {
+            "Accept": "text/event-stream",
+            "Authorization": f"Bearer {api_key}",
+            "x-skill-version": SKILL_VERSION,
+            **({"x-skill-channel": SKILL_CHANNEL} if SKILL_CHANNEL else {}),
+        }
+        final = _consume_sse(
+            url=url, method="GET", body=None, headers=headers_get,
+            state=state, timeout=timeout,
+        )
+
+    if final is None:
+        # 流中断且续传无果
+        return {
+            "code": -1,
+            "success": False,
+            "task_id": state.get("task_id"),
+            "trace_id": state.get("trace_id"),
+            "error": {
+                "code": "STREAM_INTERRUPTED",
+                "message": "SSE 流中断，3 次续传仍失败；可用 task_id+trace_id 后续手工续传",
+            },
+            "partial": {"last_event_id": state.get("last_event_id")},
+        }
+    return final
+
+
+def call_resume_job(endpoint, api_key, params, timeout=1800):
+    """续传查询 deferred 任务进度，复用 _consume_sse。
+
+    params 须包含：
+      - task_id  (str)
+      - trace_id (str)
+      - since    (str, 可选) — 上次断开时的 last_event_id，默认 "0"
+    """
+    task_id = params.get("task_id") or ""
+    trace_id = params.get("trace_id") or ""
+    since = params.get("since", "0")
+    if not task_id or not trace_id:
+        return {
+            "code": -1,
+            "success": False,
+            "error": {"code": "MISSING_PARAMS", "message": "resumeJob 需要 task_id 和 trace_id"},
+        }
+    state = {
+        "task_id": task_id,
+        "trace_id": trace_id,
+        "last_event_id": since if since != "0" else None,
+        "_formula_names": [],
+        "_result_count": 0,
+    }
+    url = (
+        f"{endpoint}/runMultiFormulaBatch/stream"
+        f"?task_id={task_id}&trace_id={trace_id}&since={since}"
+    )
+    headers = {
+        "Accept": "text/event-stream",
+        "Authorization": f"Bearer {api_key}",
+        "x-skill-version": SKILL_VERSION,
+        **({"x-skill-channel": SKILL_CHANNEL} if SKILL_CHANNEL else {}),
+    }
+    backoff = [0, 3, 9]
+    final = None
+    for attempt, wait in enumerate(backoff):
+        if wait:
+            time.sleep(wait)
+        final = _consume_sse(url=url, method="GET", body=None, headers=headers, state=state, timeout=timeout, ignore_deferred=True)
+        if final is not None:
+            break
+        # 更新 since 以便断线续传
+        if state.get("last_event_id"):
+            url = (
+                f"{endpoint}/runMultiFormulaBatch/stream"
+                f"?task_id={task_id}&trace_id={trace_id}&since={state['last_event_id']}"
+            )
+    if final is None:
+        return {
+            "code": -1,
+            "success": False,
+            "task_id": task_id,
+            "trace_id": trace_id,
+            "error": {
+                "code": "STREAM_INTERRUPTED",
+                "message": "SSE 流中断，3 次续传仍失败",
+            },
+            "partial": {"last_event_id": state.get("last_event_id")},
+        }
+    return final
+
+
 def call_get(endpoint, api_key, path, params, timeout=900):
     """发送 GET 请求（downloadData / getChartSpec 等）"""
     # 用 params 中的值填充路径模板（支持 {id}、{task_id} 等）
@@ -628,7 +956,7 @@ def main():
             sys.exit(1)
 
     # ── 参数规范化：自动修正常见参数名错误 ──────────────────────
-    if tool_name == "runMultiFormulaBatch" and "formulas" in params:
+    if tool_name == "runMultiFormulaBatchStream" and "formulas" in params:
         fixed = []
         for item in params["formulas"]:
             if isinstance(item, str):
@@ -740,9 +1068,22 @@ def main():
         return
     # ── Presets miss → 走网络 ────────────────────────────────
 
+    # 日志记账用的工具名：默认与 LLM 看到的 tool_name 一致（即 runMultiFormulaBatchStream）；
+    # 仅在回退到同步老接口时改为 runMultiFormulaBatch，以区分两条路径（计费/审计统计需要）。
+    log_tool_name = tool_name
+
     try:
         _timeout = TOOL_TIMEOUTS.get(tool_name, 300)
-        if method == "GET":
+        if tool_name == "runMultiFormulaBatchStream":
+            # SSE 主路径；端点不存在时回退到同步老接口（spec §3.1：仅 404/405/406 可回退）
+            try:
+                result = call_run_multi_formula_batch_stream(endpoint, api_key, params, timeout=_timeout)
+            except _StreamUnsupportedError:
+                result = call_post(endpoint, api_key, path, params, timeout=_timeout)
+                log_tool_name = "runMultiFormulaBatch"  # 同步老接口，审计区分用
+        elif tool_name == "resumeJob":
+            result = call_resume_job(endpoint, api_key, params, timeout=_timeout)
+        elif method == "GET":
             result = call_get(endpoint, api_key, path, params, timeout=_timeout)
         else:
             result = call_post(endpoint, api_key, path, params, timeout=_timeout)
@@ -751,7 +1092,7 @@ def main():
         ct = e.headers.get("Content-Type", "") if hasattr(e, 'headers') else ""
         if "yaml" in ct:
             # 服务端返回了 YAML 格式的错误响应
-            _write_log(tool_name, params, body, int((time.time()-t0)*1000))
+            _write_log(log_tool_name, params, body, int((time.time()-t0)*1000))
             print(body, end="")
             sys.stdout.flush()
             sys.exit(1)
@@ -765,17 +1106,17 @@ def main():
             result["error"] = err["error"]
         if "success" in err:
             result["success"] = err["success"]
-        _write_log(tool_name, params, result, int((time.time()-t0)*1000))
+        _write_log(log_tool_name, params, result, int((time.time()-t0)*1000))
         print(json.dumps(result, indent=2, ensure_ascii=False))
         sys.exit(1)
     except urllib.error.URLError as e:
         result = {"code": 1, "message": f"连接失败: {e.reason}。请检查 endpoint 配置: {endpoint}"}
-        _write_log(tool_name, params, result, int((time.time()-t0)*1000))
+        _write_log(log_tool_name, params, result, int((time.time()-t0)*1000))
         print(json.dumps(result, indent=2, ensure_ascii=False))
         sys.exit(1)
     except Exception as e:
         result = {"code": 1, "message": str(e)}
-        _write_log(tool_name, params, result, int((time.time()-t0)*1000))
+        _write_log(log_tool_name, params, result, int((time.time()-t0)*1000))
         print(json.dumps(result, indent=2, ensure_ascii=False))
         sys.exit(1)
 
@@ -800,7 +1141,7 @@ def main():
         }, indent=2, ensure_ascii=False))
         sys.exit(1)
 
-    _write_log(tool_name, params, result, elapsed_ms)
+    _write_log(log_tool_name, params, result, elapsed_ms)
     if isinstance(result, str):
         # YAML 响应：直接输出原文
         print(result, end="")

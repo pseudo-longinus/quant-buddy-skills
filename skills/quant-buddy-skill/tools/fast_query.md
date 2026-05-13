@@ -1,4 +1,4 @@
-# fast_query — 快速查询（单次合并接口）
+﻿# fast_query — 快速查询（单次合并接口）
 
 一次调用完成资产解析 + 字段解析 + 公式执行 + 取值。  
 适用：≤3 资产，标准字段，行情/估值/财务标量、固定区间序列或短窗序列。
@@ -11,18 +11,18 @@
 | `assets` | ✅ | 1~3 个资产，中文名/代码均可 |
 | `query_type` | ✅ | `"snapshot"`最新行情 / `"window"`近N日序列 / `"report"`最近报告期财务（仅A股） |
 | `fields` | ✅ | 字段意图数组，见下方白名单 |
-| `window_days` | window必填 | 1~60 |
-| `start_date` | ❌ | 固定日期范围起始日，格式 `YYYYMMDD`；仅 `snapshot` / `report` 可用 |
-| `end_date` | ❌ | 固定日期范围结束日，格式 `YYYYMMDD`；传入时必须同时传 `start_date` |
+| `window_days` | ❌ | 1~60，`window` 模式可用；与 `start_date`/`end_date` 二选一（同时传时优先使用日期范围） |
+| `start_date` | ❌ | 固定日期范围起始日，格式 `YYYYMMDD` / `YYYY-MM-DD`；三种 `query_type` 均可用 |
+| `end_date` | ❌ | 固定日期范围结束日，同格式；不传时默认当天 |
 | `result_mode` | ❌ | `"value"` / `"series"`，默认 `"value"`；仅固定日期范围场景需要显式传 `"series"` |
 
 `options.partial_ok` 默认 true（部分失败仍返回其余结果）。
 
 日期范围规则：
-- `snapshot` / `report` 可传 `start_date` + `end_date`。
-- 只传 `end_date` 会返回 `MISSING_START_DATE`。
+- 三种 `query_type` 均可传 `start_date` + `end_date`；`window` 模式中与 `window_days` 二选一，同时传时优先使用日期范围。
+- `snapshot`/`report` 仅传 `end_date` 时自动补齐 `start_date = end_date`；`result_mode=series` 且未传 `start_date` 时报 `MISSING_START_DATE`。
 - `start_date > end_date` 会返回 `INVALID_DATE_RANGE`。
-- `window` 不能传 `start_date` / `end_date`，否则返回 `DATE_RANGE_WINDOW_CONFLICT`。
+- 日期早于系统最早数据日期 `20050104` 会返回 `DATE_BEFORE_SYSTEM_LIMIT`。
 - `result_mode="value"` 返回区间最后有效值；`result_mode="series"` 返回区间完整序列。
 
 ## 日内刷新行为
@@ -39,14 +39,15 @@
 **行情**（snapshot/window）：`收盘价` `开盘价` `最高价` `最低价` `收盘价（不复权）` `涨跌幅` `成交额` `成交量`  
 英文：`close` `open` `high` `low` `pct_change` `回报率` `amount` `volume`
 
-**估值**（仅A股，snapshot）：`PE` `PE_TTM` `市盈率TTM` `PB` `市净率` `PS_TTM` `市销率` `总市值` `流通市值` `换手率` `股息率`  
-英文：`market_cap` `turnover` `dividend_yield`
+**估值**（snapshot/window）：
+- 仅 A 股：`PE` `PE_TTM` `市盈率TTM` `PB` `市净率` `PS_TTM` `市销率` `股息率`（FMP 无对应 TTM 口径）
+- A/US/HK 均支持：`总市值`（英文：`market_cap`）
+- 仅 A 股：`流通市值` `换手率`（英文：`turnover`）
+- A/US/HK 均支持（港美股专用单季口径）：`PE_单季` `PB_单季` `PS_单季` `股息率_单季`（查港股/美股 PE/PB 时使用这组字段）
 
-**财务**（仅A股，report）：`营业收入` `净利润` `归母净利润` `营业成本` `总资产` `净资产` `ROE` `净利率`  
-现金流：`经营现金流`（别名：`operating_cashflow`）  
-　　　　`投资活动现金流`（别名：`investing_cashflow`）  
-　　　　`筹资活动现金流`（别名：`financing_cashflow`）  
-英文：`revenue` `net_profit` `cogs` `total_assets` `equity` `roe`
+**财务**（report）：
+- A/US/HK 均支持：`营业收入` `净利润` `归母净利润` `营业成本` `总资产` `净资产` `净利率`；现金流：`经营现金流`（`operating_cashflow`）`投资活动现金流`（`investing_cashflow`）`筹资活动现金流`（`financing_cashflow`）；英文：`revenue` `net_profit` `cogs` `total_assets` `equity`
+- 仅 A 股：`ROE`（`roe`）
 
 **派生**（服务端自动计算）：`资产负债率` `毛利率`（英文：`debt_ratio` `gross_margin`）
 
@@ -85,16 +86,16 @@ meta: query_time_ms / partial_ok
 | Layer | 触发 | 处理 |
 |---|---|---|
 | 1 | 参数不合法（整体拒绝） | 退出 fast path，走完整链路 |
-| 1 MISSING_START_DATE | 只传 `end_date` 未传 `start_date` | 退出 fast path，走完整链路 |
+| 1 MISSING_START_DATE | `result_mode=series`（非 window）且未传 `start_date` | 补传 `start_date` 或改用 `window` 模式 |
 | 1 INVALID_DATE_RANGE | `start_date > end_date` | 告知用户日期范围无效 |
-| 1 DATE_RANGE_WINDOW_CONFLICT | `window` 同时传日期范围 | 改用 `snapshot/report + result_mode="series"` 或走完整链路 |
+| 1 DATE_BEFORE_SYSTEM_LIMIT | 日期早于 `20050104` | 告知用户调整日期范围 |
 | 1 INVALID_RESULT_MODE | `result_mode` 非 `value/series` | 修正为合法值后再调用 |
 | 2 | 资产无法识别 | 告知，其余资产继续 |
 | 3 FIELD_UNRESOLVABLE | 字段不可解析 | 见下方恢复策略 |
-| 3 FIELD_MARKET_MISMATCH | 字段不支持该市场 | 告知，其余字段继续 |
-| 4 | 数据为空/公式失败 | 告知该字段暂无数据 |
+| 3 FIELD_MARKET_MISMATCH | 字段不支持该市场（如港/美股请求 PE_TTM/PB/PS_TTM/股息率 等仅 A 股字段） | 告知用户，建议改用 `PE_单季`/`PB_单季`/`PS_单季`/`股息率_单季`；其余字段继续 |
+| 4 | 数据为空/公式失败/派生字段计算失败（`DERIVED_COMPUTE_FAILED`） | 告知该字段暂无数据 |
 
-**FIELD_UNRESOLVABLE 恢复**（partial_ok: true）：保留已成功字段，仅对失败字段补 `confirmDataMulti` → `runMultiFormulaBatch`（公式：`"字段全名"*取出(资产名)`，**禁止 LAST() 语法**），不得重读任何 workflow .md。若 field_error 带 `fallback_hint`，按其操作。
+**FIELD_UNRESOLVABLE 恢复**（partial_ok: true）：保留已成功字段，仅对失败字段补 `confirmDataMulti` → `runMultiFormulaBatchStream`（公式：`"字段全名"*取出(资产名)`，**禁止 LAST() 语法**），不得重读任何 workflow .md。若 field_error 带 `fallback_hint`，按其操作。
 
 ## ⚠️ 注意
 

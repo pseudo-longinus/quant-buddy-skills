@@ -1,4 +1,4 @@
-# 示例二：低PE价值选股，对比沪深300基准
+﻿# 示例二：低PE价值选股，对比沪深300基准
 
 ## 用户意图
 
@@ -67,7 +67,7 @@ python scripts/call.py confirmDataMulti '{"data_desc": "A股市盈率, 非ST股,
 ### Step 4 — 执行公式
 
 ```bash
-python scripts/call.py runMultiFormulaBatch '{
+python scripts/call.py runMultiFormulaBatchStream '{
   "task_id": "<Step 0 的 task_id>",
   "begin_date": 20150101,
   "formulas": [

@@ -1,4 +1,4 @@
-# 示例四：生成多策略净值对比图
+﻿# 示例四：生成多策略净值对比图
 
 ## 用户意图
 
@@ -8,7 +8,7 @@
 
 ## 前置条件
 
-假设已通过 `runMultiFormulaBatch` 得到以下 `data_id`：
+假设已通过 `runMultiFormulaBatchStream` 得到以下 `data_id`：
 - 策略A净值：`nav_aaa111`
 - 策略B净值：`nav_bbb222`
 - 沪深300净值：`nav_ccc333`

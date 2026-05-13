@@ -1,4 +1,4 @@
-# upload_data — 上传自有因子数据
+﻿# upload_data — 上传自有因子数据
 
 > 将本地 CSV 格式的一维时序数据（如自研因子、宏观指标）上传到平台，上传后可在公式中直接引用。
 > `executor.py` 的 `uploadData` 工具自动处理两阶段（preview + confirm），无需手动调用两次。
@@ -80,7 +80,7 @@ python scripts/executor.py uploadData '{
 python scripts/executor.py confirmDataMulti '{"data_desc": "我的动量因子"}'
 
 # 在公式中引用（用 index_title）
-python scripts/executor.py runMultiFormulaBatch '{
+python scripts/executor.py runMultiFormulaBatchStream '{
   "formulas": [
     "MyFactor=\"我的动量因子.csv\"",
     "Signal=(\"MyFactor\">0)*板块(万得全A)*\"非ST\""

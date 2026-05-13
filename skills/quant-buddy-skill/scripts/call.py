@@ -114,6 +114,13 @@ def _resolve_session_file():
 
 SESSION_FILE = _resolve_session_file()
 
+# 部分工具需要比 900s 更长的 subprocess 超时（与 executor.TOOL_TIMEOUTS 对齐）
+# runMultiFormulaBatchStream 走 SSE 主路径，可能超过 5min，这里允许走完 30min
+_TOOL_SUBPROCESS_TIMEOUTS = {
+    "runMultiFormulaBatchStream": 1800,
+}
+_DEFAULT_SUBPROCESS_TIMEOUT = 900
+
 
 def _cleanup_stale_sessions(max_age_days: int = 7):
     """清理 output/ 下超过 max_age_days 的 .session.*.json，best-effort，失败不抛。"""
@@ -154,6 +161,38 @@ def _read_session():
         return None
 
 
+def _read_session_full():
+    """读取当前 session 的全量字段，不存在则返回空 dict。"""
+    try:
+        with open(SESSION_FILE, "r", encoding="utf-8") as f:
+            return json.load(f) or {}
+    except Exception:
+        return {}
+
+
+def _update_session_trace(task_id, trace_id):
+    """在不丢失现有字段的前提下，将 SSE 返回的 trace_id 追加到 session。仅当
+    task_id 与 session 中一致或 session 原本为空时才写，避免污染别的 session。"""
+    if not trace_id:
+        return
+    cur = _read_session_full()
+    if cur.get("task_id") and task_id and cur["task_id"] != task_id:
+        return
+    if cur.get("trace_id") == trace_id:
+        return
+    cur["trace_id"] = trace_id
+    if task_id and not cur.get("task_id"):
+        cur["task_id"] = task_id
+    if not cur.get("skill_version_at_creation"):
+        cur["skill_version_at_creation"] = _read_skill_version()
+    try:
+        os.makedirs(os.path.dirname(SESSION_FILE), exist_ok=True)
+        with open(SESSION_FILE, "w", encoding="utf-8") as f:
+            json.dump(cur, f, ensure_ascii=False)
+    except Exception:
+        pass
+
+
 def _write_session(task_id, user_query=None):
     """持久化 task_id（和可选的 user_query）到 .session.json，同时写入当前 skill 版本。"""
     os.makedirs(os.path.dirname(SESSION_FILE), exist_ok=True)
@@ -165,8 +204,13 @@ def _write_session(task_id, user_query=None):
 
 
 def _run_executor(tool_name, param_arg):
-    """调用 executor.py，返回 (returncode, stdout_bytes, stderr_bytes)。"""
+    """调用 executor.py，返回 (returncode, stdout_bytes, stderr_bytes)。
+
+    对 runMultiFormulaBatchStream 使用 Popen + 后台线程实时转发 stderr，
+    让用户在终端能逐条看到公式完成进度；其余工具仍走 capture_output=True。
+    """
     import signal as _signal
+    import threading
     # Windows: 将 executor.py 放到新进程组，防止 console Ctrl+C 广播干扰子进程
     extra_flags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
     # 在父进程中临时忽略 SIGINT，防止 communicate() 被残留信号中断
@@ -177,17 +221,60 @@ def _run_executor(tool_name, param_arg):
     try:
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"
+        sub_timeout = _TOOL_SUBPROCESS_TIMEOUTS.get(tool_name, _DEFAULT_SUBPROCESS_TIMEOUT)
+
+        # ── runMultiFormulaBatchStream：实时转发 stderr ──────────────
+        if tool_name == "runMultiFormulaBatchStream":
+            proc = subprocess.Popen(
+                [sys.executable, EXECUTOR, tool_name, param_arg],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                creationflags=extra_flags,
+                env=env,
+            )
+            stderr_chunks: list[bytes] = []
+
+            def _stream_stderr():
+                for raw in proc.stderr:
+                    stderr_chunks.append(raw)
+                    try:
+                        sys.stderr.write(raw.decode("utf-8", errors="replace"))
+                        sys.stderr.flush()
+                    except Exception:
+                        pass
+
+            t = threading.Thread(target=_stream_stderr, daemon=True)
+            t.start()
+            try:
+                stdout_bytes = proc.stdout.read()
+            except Exception:
+                stdout_bytes = b""
+            try:
+                proc.wait(timeout=sub_timeout)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                t.join(timeout=5)
+                msg = (
+                    f"[call.py] tool '{tool_name}' exceeded {sub_timeout}s timeout; "
+                    "subprocess killed. Consider splitting into smaller batches."
+                )
+                return 124, b"", msg.encode("utf-8")
+            t.join(timeout=10)
+            # stderr 已由线程实时打印到终端，这里返回空 bytes 避免 main() 二次输出
+            return proc.returncode, stdout_bytes, b""
+
+        # ── 其余工具：原有 capture_output 路径 ──────────────────────
         result = subprocess.run(
             [sys.executable, EXECUTOR, tool_name, param_arg],
-            capture_output=True, timeout=900,
+            capture_output=True, timeout=sub_timeout,
             creationflags=extra_flags,
             env=env,
         )
         return result.returncode, result.stdout, result.stderr
     except subprocess.TimeoutExpired:
-        # 子进程超时（900s），返回明确错误码与提示，避免向上抛出导致客户端崩溃
+        # 子进程超时，返回明确错误码与提示，避免向上抛出导致客户端崩溃
         msg = (
-            f"[call.py] tool '{tool_name}' exceeded 900s timeout; "
+            f"[call.py] tool '{tool_name}' exceeded {sub_timeout}s timeout; "
             "subprocess killed. Consider splitting into smaller batches."
         )
         return 124, b"", msg.encode("utf-8")
@@ -196,14 +283,14 @@ def _run_executor(tool_name, param_arg):
         try:
             result = subprocess.run(
                 [sys.executable, EXECUTOR, tool_name, param_arg],
-                capture_output=True, timeout=900,
+                capture_output=True, timeout=_TOOL_SUBPROCESS_TIMEOUTS.get(tool_name, _DEFAULT_SUBPROCESS_TIMEOUT),
                 creationflags=extra_flags,
                 env=env,
             )
             return result.returncode, result.stdout, result.stderr
         except subprocess.TimeoutExpired:
             msg = (
-                f"[call.py] tool '{tool_name}' exceeded 900s timeout on retry; "
+                f"[call.py] tool '{tool_name}' exceeded subprocess timeout on retry; "
                 "subprocess killed."
             )
             return 124, b"", msg.encode("utf-8")
@@ -536,7 +623,7 @@ def _auto_summarize_read_data(stdout_str, params):
 
 
 def _process_run_multi_formula_batch(stdout_str):
-    """runMultiFormulaBatch 后处理：data.success=false 时把失败摘要提升到顶层。
+    """runMultiFormulaBatchStream 后处理：data.success=false 时把失败摘要提升到顶层。
 
     设计原则（方案 B）：
     - 不篡改服务端 code（保持 0），避免与服务端协议（成功 0 / 业务错误 -1）冲突
@@ -579,11 +666,11 @@ def _process_run_multi_formula_batch(stdout_str):
 
     if success_count == 0:
         resp["message"] = (
-            f"runMultiFormulaBatch 全部失败（{error_count}/{total} 条），详见 errors 数组。"
+            f"runMultiFormulaBatchStream 全部失败（{error_count}/{total} 条），详见 errors 数组。"
         )
     else:
         resp["message"] = (
-            f"runMultiFormulaBatch 部分失败（成功 {success_count}/{total}，失败 {error_count}/{total}），"
+            f"runMultiFormulaBatchStream 部分失败（成功 {success_count}/{total}，失败 {error_count}/{total}），"
             f"成功结果仍在 data.data 中，失败详情见 errors。"
         )
 
@@ -609,8 +696,8 @@ def _normalize_params(tool_name, params):
     if not isinstance(params, dict):
         return params
 
-    # runMultiFormulaBatch: formulas 元素必须是字符串，不能是对象
-    if tool_name == "runMultiFormulaBatch" and "formulas" in params:
+    # runMultiFormulaBatchStream: formulas 元素必须是字符串，不能是对象
+    if tool_name == "runMultiFormulaBatchStream" and "formulas" in params:
         fixed = []
         for item in params["formulas"]:
             if isinstance(item, str):
@@ -654,8 +741,8 @@ def _normalize_params(tool_name, params):
             if bad:
                 # 直接把校验信息塞回参数，由 executor 后续上抛——不擅自调用，避免参数被 server 误吞
                 params["__client_validation_error__"] = (
-                    "readData 的 ids 必须是 runMultiFormulaBatch 返回的 24 位 hex data_id；"
-                    f"以下值不是合法 data_id：{bad}。如需读取本批某个变量，请先在 runMultiFormulaBatch 返回的 results 中找到该变量的 _id，再传入 ids。"
+                    "readData 的 ids 必须是 runMultiFormulaBatchStream 返回的 24 位 hex data_id；"
+                    f"以下值不是合法 data_id：{bad}。如需读取本批某个变量，请先在 runMultiFormulaBatchStream 返回的 results 中找到该变量的 _id，再传入 ids。"
                 )
 
     return params
@@ -930,8 +1017,8 @@ def main():
         # readData last_column_full 布尔掩码：注入 matched_names
         if tool_name == "readData" and rc == 0:
             stdout = _auto_summarize_read_data(stdout, params)
-        # runMultiFormulaBatch：code=0 但 data.success=false 时提升 errors
-        if tool_name == "runMultiFormulaBatch" and rc == 0:
+        # runMultiFormulaBatchStream：code=0 但 data.success=false 时提升 errors
+        if tool_name == "runMultiFormulaBatchStream" and rc == 0:
             stdout = _process_run_multi_formula_batch(stdout)
         # ── 从响应中捕获 task_id，更新 session（服务端生成的UUID优先）──
         if rc == 0:
@@ -940,6 +1027,26 @@ def main():
                 resp_task_id = resp.get("task_id") or (resp.get("data") or {}).get("task_id")
                 if resp_task_id and resp_task_id != _read_session():
                     _write_session(resp_task_id)
+                # runMultiFormulaBatchStream SSE 返回会在顶层/data 中携带 trace_id
+                # 持久化到 session 供后续手工续传/调试，然后从输出中剥离避免泄露给 LLM
+                # 例外：deferred 响应（research_24h）按 spec 必须把 trace_id / stream_url 暴露给 LLM
+                if tool_name == "runMultiFormulaBatchStream" and isinstance(resp, dict):
+                    sse_trace_id = resp.get("trace_id") or (
+                        resp.get("data", {}) if isinstance(resp.get("data"), dict) else {}
+                    ).get("trace_id")
+                    if sse_trace_id:
+                        _update_session_trace(
+                            resp_task_id or _read_session(),
+                            sse_trace_id,
+                        )
+                        if not resp.get("_deferred"):
+                            # 剥离 trace_id（成功路径不暴露给 LLM）
+                            resp.pop("trace_id", None)
+                            if isinstance(resp.get("data"), dict):
+                                resp["data"].pop("trace_id", None)
+                    # 内部标记不应外泄
+                    resp.pop("_deferred", None)
+                    stdout = json.dumps(resp, indent=2, ensure_ascii=False)
             except Exception:
                 pass
 

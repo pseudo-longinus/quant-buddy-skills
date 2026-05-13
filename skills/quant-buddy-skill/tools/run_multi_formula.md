@@ -1,4 +1,4 @@
-> ⛔ **LLM 调用工具名必须是 `runMultiFormulaBatch`**，禁止使用 `runMultiFormula` 或 `run_multi_formula`（均为无效名，调用即报 `未知工具`）。收到 `未知工具` 错误后**禁止以任何名称变体重试**。
+﻿> ⛔ **LLM 调用工具名必须是 `runMultiFormulaBatchStream`**。调用任何其他名称均报 `未知工具`；收到此错误后**禁止以任何名称变体重试**。
 
 # run_multi_formula — 执行公式批次
 
@@ -6,7 +6,7 @@
 
 ## 端点
 
-`POST /skill/runMultiFormulaBatch`
+`POST /skill/runMultiFormulaBatchStream`（SSE 主路径）；回退时自动走同步 `/skill/runMultiFormulaBatch`
 > - 计费规则与配额池与旧端点共享（`run_multi_formula` 池，7 RU / 公式）。
 
 ## 参数
@@ -67,6 +67,10 @@
 
 ## 返回
 
+> ⚠️ **`data_id` vs `expression_id`**：每条结果同时包含这两个字段，切勿混用。
+> - **`data_id`**（即 `indexinfo_id`）→ 传给 `readData` 的 `ids` 参数
+> - **`expression_id`** → 内部标识，**不能传给 `readData`**；若误传，接口返回 `"error": "IndexInfo {id}"`
+
 ```json
 {
   "code": 0,
@@ -75,6 +79,7 @@
       {
         "formula": "A=平均(\"全市场每日收盘价\", 20)",
         "variable_name": "A",
+        "expression_id": "60a1b2c3d4e5f6a7b8c9d0e0",
         "data_id": "60a1b2c3d4e5f6a7b8c9d0e1",
         "dimension": "two",
         "description": "20日均线，二维矩阵（资产×日期）",
@@ -83,6 +88,7 @@
       {
         "formula": "NAV=回测(\"Signal\")",
         "variable_name": "NAV",
+        "expression_id": "60a1b2c3d4e5f6a7b8c9d0e1",
         "data_id": "60a1b2c3d4e5f6a7b8c9d0e2",
         "dimension": "one-row",
         "description": "回测净值曲线",
@@ -93,6 +99,9 @@
   "task_id": "550e8400-e29b-41d4-a716-446655440000"
 }
 ```
+
+> `expression_id`（如 `...e0`）= 内部标识，**不传给 `readData`**。  
+> `data_id`（如 `...e1`）= 计算结果存储 ID，**传给 `readData` 的 `ids` 参数**。
 
 ## 公式语法规则（必须遵守）
 
@@ -149,7 +158,7 @@ HS300_RET=涨跌幅(收盘价(沪深300))
 
 ```bash
 # 均线策略（基础示例）
-python scripts/executor.py runMultiFormulaBatch '{
+python scripts/executor.py runMultiFormulaBatchStream '{
   "formulas": [
     "MA5=平均(\"全市场每日收盘价\", 5)",
     "MA20=平均(\"全市场每日收盘价\", 20)",
@@ -160,7 +169,7 @@ python scripts/executor.py runMultiFormulaBatch '{
 }'
 
 # 低市盈率选股
-python scripts/executor.py runMultiFormulaBatch '{
+python scripts/executor.py runMultiFormulaBatchStream '{
   "formulas": [
     "PE=取出(\"A股市盈率\")",
     "Signal=(\"PE\">0)*(\"PE\"<20)*板块(万得全A)*\"非ST\"",
@@ -170,7 +179,7 @@ python scripts/executor.py runMultiFormulaBatch '{
 }'
 
 # 指定起始日期
-python scripts/executor.py runMultiFormulaBatch '{
+python scripts/executor.py runMultiFormulaBatchStream '{
   "formulas": ["A=收盘价(贵州茅台)/平均(\"全市场每日收盘价\", 20)"],
   "task_id": "uuid-xxx",
   "begin_date": 20200101
@@ -250,7 +259,7 @@ python scripts/executor.py runMultiFormulaBatch '{
 
 ## 注意事项
 
-1. **`task_id` 绑定整批**：`runMultiFormulaBatch` 返回的 `task_id` 需传给后续 `readData` 的 `ids`（或用返回的 `data_id`）
+1. **`task_id` 绑定整批**：`runMultiFormulaBatchStream` 返回的 `task_id` 需传给后续 `readData` 的 `ids`（或用返回的 `data_id`）
 2. **`begin_date` 必传**：业务侧不再依赖服务端默认值；按上方「begin_date 分档方案」选择最小够用的起点，禁止默认 `20150101`
 3. **回测公式**：`回测()` 第一参数必须是二维矩阵（信号掩码），不能是一维
 4. **单批公式数**：硬上限 **10 条/批**，超时时减少数量分批执行
@@ -259,7 +268,7 @@ python scripts/executor.py runMultiFormulaBatch '{
 
 ## 盘中刷新模式
 
-> **所有 `runMultiFormulaBatch` 调用均应默认传 `use_minute_data: true`。**
+> **所有 `runMultiFormulaBatchStream` 调用均应默认传 `use_minute_data: true`。**
 >
 > 开启后，7 个日频行情数据名的**最新一列**会自动替换为"最后一分钟更新版"（盘中 = 实时价，收盘后 = 收盘价，与日频结果一致）。历史数据完全不变，公式写法不变。代价约等于零，好处是避免盘中查询落到上一交易日。
 
@@ -277,7 +286,7 @@ python scripts/executor.py runMultiFormulaBatch '{
 | 全市场每日成交额 | `69ca3df24f760ff70564dc15` |
 | 全市场每日收盘价（不复权） | `69ca3df24f760ff70564dc20` |
 
-2. **Snapshot Time 管理**：首次调用时自动获取分钟数据截止时间并缓存当天。同一天内多次执行默认复用当天缓存。若确实需要强制刷新截止时间，先调用独立工具 `refreshSnapshotTime`，再执行 `runMultiFormulaBatch`。
+2. **Snapshot Time 管理**：首次调用时自动获取分钟数据截止时间并缓存当天。同一天内多次执行默认复用当天缓存。若确实需要强制刷新截止时间，先调用独立工具 `refreshSnapshotTime`，再执行 `runMultiFormulaBatchStream`。
 
 ### 调用示例
 
@@ -295,6 +304,23 @@ python scripts/executor.py runMultiFormulaBatch '{
 - 公式中的数据名写法**不变**——仍写 `"全市场每日收盘价"`，映射由服务端透明完成
 - 非映射表内的数据（PE、换手率、财务指标等）不受影响，日频和分钟频可混合使用
 - `use_minute_data` 的 API 默认值是 false，但**业务侧应始终传 true**。无论用户是否说了"今天/盘中/实时"，都传 `use_minute_data: true`。盘中拿到实时价，收盘后拿到收盘价，不影响任何场景
-- ⛔ **禁止向 `runMultiFormulaBatch` 传 `refresh_snapshot_time`**——该参数已移除；需要强制刷新时调用独立工具 `refreshSnapshotTime`
+- ⛔ **禁止向 `runMultiFormulaBatchStream` 传 `refresh_snapshot_time`**——该参数已移除；需要强制刷新时调用独立工具 `refreshSnapshotTime`
 - ⛔ **禁止在公式中使用原生分钟数据名**（如 `"全市场1分钟收盘价"`、`"全市场1分钟成交额"` 等）——这些是平台底层数据源，不在映射表中，使用会导致维度不匹配或 HTTP 500 错误
 - ⛔ **禁止使用 `变频到分钟()` 函数**——`use_minute_data` 模式下数据名映射由服务端完成，不需要手动变频
+
+---
+
+### 实现说明（无需 LLM 关心）
+
+skill 内部从 v4.20.13 起优先走 SSE 主路径 `POST /skill/runMultiFormulaBatchStream`，
+中途断线时自动 `GET /skill/runMultiFormulaBatch/stream?task_id=...&trace_id=...&since=...` 续传（最多 3 次，1s/3s/9s 退避）。
+若服务端尚未部署 SSE 端点（HTTP 404/405/406），会自动回退到同步 `/skill/runMultiFormulaBatch`。
+
+对工具调用方完全透明：
+
+- LLM / Agent 侧工具名是 `runMultiFormulaBatchStream`；回退到同步老接口（`/skill/runMultiFormulaBatch`）时日志中记为 `runMultiFormulaBatchStream`，对外透明
+- `interactive_5m`（默认）模式：等 `done` 事件，返回结构与同步版完全一致；`trace_id` 仅在异常路径（`STREAM_INTERRUPTED` / `fatal`）暴露，便于排障
+- **本地终端进度输出**：`call.py` 在收到每条公式的 SSE `result` 事件时，会立即向 `stderr` 打印一行进度（`✓ 变量名  id=...` 或 `✗ 变量名  ERROR: ...`），方便用户在终端实时观察公式执行状态；LLM 从 `stdout` 拿到的最终 JSON 结构不受影响
+- `research_24h` 模式：可在 params 中传 `execution_profile: "research_24h"`（仅当用户明确要求长时间后台研究/批量回测时使用）。收到 `deferred` 事件后立即返回 `{code:0, success:true, status:"deferred", task_id, trace_id, job_id, stream_url, ...}` ack，LLM 可据此向用户报告任务已入队，稍后通过 `stream_url` 续传查看进度
+- 服务端会按公式数 / 意图关键词自动升级到 `research_24h`，无需 Agent 精确判断
+- SSE resume GET 不额外扣 RU；submit accepted 后断线**不退款**

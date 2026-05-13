@@ -1,6 +1,6 @@
-# read_data — 读取/验证计算结果
+﻿# read_data — 读取/验证计算结果
 
-> 读取 `runMultiFormulaBatch` 生成的数据（indexInfo / matrixInfo），用于签名检查、采样、统计、表格读取，或按日期区间读取完整连续数据。
+> 读取 `runMultiFormulaBatchStream` 生成的数据（indexInfo / matrixInfo），用于签名检查、采样、统计、表格读取，或按日期区间读取完整连续数据。
 
 ## 端点
 
@@ -166,7 +166,8 @@ python scripts/executor.py readData '{
 
 ## 注意事项
 
-- `ids` 使用 `runMultiFormulaBatch` 返回的 `data_id`，或 `confirmDataMulti` 返回的 `_id`。
+- `ids` 使用 `runMultiFormulaBatchStream` 返回的 **`data_id`**（非 `expression_id`），或 `confirmDataMulti` 返回的 `_id`。
+  > ⚠️ **高频错误**：`runMultiFormulaBatchStream` 每条结果同时含 `expression_id` 和 `data_id` 两个字段，两者相邻但含义不同。`ids` 必须传 **`data_id`**；若误传 `expression_id`，接口会返回 `"error": "IndexInfo {id}"` 并 `status: failed`，此时不要重试相同 id，应重新检查返回体取正确的 `data_id` 字段。
 - 仅验证结果是否合理时，优先用 `signature` / `smart_sample` / `precheck`，避免读取大体量完整数据。
 - 需要完整连续原始数据时，用 `range_data`，不要用采样结果做精确计算。
 - `range_data` 可能返回大数组；跨多年、全市场二维数据必须设置较窄日期区间、`assets` 子集或 `max_cells`。

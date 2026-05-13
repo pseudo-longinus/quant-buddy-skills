@@ -1,4 +1,4 @@
-# Leaf Workflow — 直接运行用户给定的公式链文件
+﻿# Leaf Workflow — 直接运行用户给定的公式链文件
 
 > **场景**：用户提供一个本地文件（`.md` / `.txt` / `.json`），里面已写好编号公式链，要求"直接运行 / 跑一遍 / 执行"文件里的全部公式，并按最末公式的语义给出最终结果。
 >
@@ -14,14 +14,14 @@
 # ❌ heredoc 包 subprocess 多批循环
 python - <<'PY'
 for start in range(0, len(formulas), 20):
-    subprocess.run(['python','scripts/call.py','runMultiFormulaBatch', ...])
+    subprocess.run(['python','scripts/call.py','runMultiFormulaBatchStream', ...])
 PY
 
 # ❌ python -c 包装
 python -c "import subprocess; [subprocess.run([...]) for b in batches]"
 
 # ❌ node -e + execSync
-node -e "require('child_process').execSync('python scripts/call.py runMultiFormulaBatch ...')"
+node -e "require('child_process').execSync('python scripts/call.py runMultiFormulaBatchStream ...')"
 ```
 
 **根本原因**：每多套一层解释器/subprocess，就多一处 session 漂移、stdout 阻塞、TMP 路径错乱、配额误算的可能。call.py 的兜底地位**只允许一层**：`shell → call.py`。
@@ -45,7 +45,7 @@ node -e "require('child_process').execSync('python scripts/call.py runMultiFormu
 按 SKILL.md 硬规则 #2 + `global-rules.md` §13 三问法判定每条：
 
 1. 左侧变量是否会被 `readData` 或最终业务步骤读取？
-2. 是否会被**后续 batch / 后续 `runMultiFormulaBatch` 调用 / 用户后续追问**引用？
+2. 是否会被**后续 batch / 后续 `runMultiFormulaBatchStream` 调用 / 用户后续追问**引用？
 3. 此刻是否能确定它"以后再不会被读"？
 
 任一答"会/不能确定" → **写入 `force_reusable_array`**；只有完全确定"仅本批后续公式用、再无人引用" → **不要写入数组**。
@@ -71,21 +71,24 @@ node -e "require('child_process').execSync('python scripts/call.py runMultiFormu
 **每批一条独立的 `run_in_terminal` 调用**，前一批返回后再发起下一批：
 
 ```bash
-cd <SKILL_ROOT> && GZQ_PARAMS="$(cat output/tmp_batches/batch_K.json)" python scripts/call.py runMultiFormulaBatch
+cd <SKILL_ROOT>
+GZQ_PARAMS="$(cat output/tmp_batches/batch_K.json)" python scripts/call.py runMultiFormulaBatchStream
 ```
 
 **禁止**：
-- 用 `&&` 把多批拼到一条命令里
+- 用 `&&` 把多批拼到一条命令里（含 `cd X && python ...` 形式）
 - 写 python/node 脚本一次跑完所有批
 - 用 `for` 循环（shell 或 inline 脚本）驱动多批
 - 上一批还没返回就发起下一批
+
+> ⚠️ `cd <SKILL_ROOT>` 与 `GZQ_PARAMS=... python ...` 必须分开为**两条独立命令**，或只在已在 SKILL_ROOT 目录时省略 cd。绝不允许用 `&&` 链接。
 
 ### Step 6：取最终输出
 
 末批返回后，从返回 JSON 的 `data.data[]` 里找到**用户最终关心变量**（通常是末条公式的左侧）的 `index_info._id`，再发起一次 `readData`：
 
 ```bash
-cd <SKILL_ROOT> && GZQ_PARAMS='{"ids":["<_id>"],"mode":"last_column_full"}' python scripts/call.py readData
+GZQ_PARAMS='{"ids":["<_id>"],"mode":"last_column_full"}' python scripts/call.py readData
 ```
 
 按用户问法解析返回（取前 N、阈值筛选、等等），输出数据结论。
@@ -106,7 +109,7 @@ cd <SKILL_ROOT> && GZQ_PARAMS='{"ids":["<_id>"],"mode":"last_column_full"}' pyth
 
 ## 多轮追加公式（场景 B）前置检查 SOP
 
-收到第 2 轮（或后续轮）追加公式时，在发起 `runMultiFormulaBatch` 之前执行以下检查：
+收到第 2 轮（或后续轮）追加公式时，在发起 `runMultiFormulaBatchStream` 之前执行以下检查：
 
 1. 扫描新公式的右侧，列出所有引用了前批左侧变量的依赖项；
 2. 对照历史 batch 的 `force_reusable_array`，查看这些依赖变量是否已写入数组；

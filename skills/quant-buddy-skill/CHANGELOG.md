@@ -4,6 +4,62 @@
 
 ---
 
+## [4.20.14] — 2026-05-13
+
+**变更文件**：`SKILL.md`、`tools/fast_query.md`、`workflows/fast-window.md`、`workflows/fast-snapshot.md`
+
+两类独立修改：① 认证体验改进；② 同步 `fastQuery` 接口最新规格（`window` 模式支持日期范围 + 估值/财务字段市场范围扩展）。
+
+### 认证体验改进
+
+- `SKILL.md` 硬规则 0：检查时机列表从 3 条扩展为 4 条，新增 ④**首次使用检测**——
+  - 在本对话中准备调用第一个平台工具**之前**，先检查 `output/` 下是否存在任何 `.session*.json` 文件。
+  - **不存在**（从未建立过 session）：主动读取 `config.json` 检查 `api_key`；为空则立即输出新用户引导消息并停止，非空则继续执行，后续不再重复检查。
+  - **存在**（已有 session 文件）：跳过此检查，走原有后验路径，行为与 4.20.13 完全一致。
+  - 说明：此条仅作为新用户体验保障（单次豁免），不影响正常使用路径；已有 Key 的老用户完全不受影响。
+
+### fastQuery 接口规格同步
+
+`window` 模式原生支持 `start_date`/`end_date`（此前只支持 `window_days`），估值/财务字段市场范围由"仅A股"扩展至 A/US/HK（部分字段仍仅A股）。
+
+- `tools/fast_query.md`：
+  - 参数表：`window_days` 改为可选，说明与 `start_date`/`end_date` 二选一；`start_date`/`end_date` 移除"仅 snapshot/report 可用"限制，三种 `query_type` 均可传。
+  - 日期规则：删除 `DATE_RANGE_WINDOW_CONFLICT`（已移除）；新增 `DATE_BEFORE_SYSTEM_LIMIT`（日期早于 `20050104`）；修正 `MISSING_START_DATE` 触发条件（仅 `result_mode=series` 且未传 `start_date` 时）。
+  - fields 白名单：估值字段 PE/PE_TTM/PB/PS_TTM/总市值/股息率 → A/US/HK 均支持；流通市值/换手率仍仅A股；财务字段除 ROE 外扩展至 A/US/HK。
+  - 错误表 Layer 4：新增 `DERIVED_COMPUTE_FAILED`。
+- `workflows/fast-window.md`：
+  - 标题/描述：改为"最近N日序列 / 固定区间序列"，移除"固定日期范围不属于本 workflow"限制。
+  - 执行步骤 ①④：允许传 `start_date`/`end_date`，删除日期范围禁止说明。
+  - 参数表：新增 `start_date`/`end_date` 行；删去"禁止参数"中"日期范围与 window 互斥"项。
+  - 调用示例：新增固定日期区间示例。
+  - 错误表：删 `DATE_RANGE_WINDOW_CONFLICT`；`MISSING_WINDOW_DAYS` → `MISSING_WINDOW_PARAMS`。
+- `workflows/fast-snapshot.md`：
+  - 字段映射表顶部警告改为精确说明：PE/PB/PS_TTM/总市值/股息率 → A/US/HK；流通市值/换手率 → 仅A股。
+  - 字段表中各估值行的"仅A股"备注同步更新。
+
+---
+
+## [4.20.13] — 2026-05-09
+
+**变更文件**：`scripts/executor.py`、`scripts/call.py`、`scripts/quant_api.py`、`tools/run_multi_formula.md`
+
+`runMultiFormulaBatch` 内部切换为 SSE 主路径（spec：`docs/runMultiFormulaBatch-sse-spec.md`）。LLM 可见工具名与返回结构**完全保持不变**，本次升级不需要清空旧 session。
+
+- `scripts/executor.py`：新增 `call_run_multi_formula_batch_stream()`，逐行解析 SSE（`ready` / `progress` / `result` / `formula_error` / `done` / `fatal` / `: keepalive`）；在 `main()` 主分发处为 `runMultiFormulaBatch` 特判走 SSE。
+  - **Idempotency-Key**：基于 `task_id+formulas+begin_date+use_minute_data+force_reusable_array` 哈希派生，跨子进程重调仍一致；避免重复扣费。
+  - **断线续传**：拿到 `trace_id` 后按 `task_id+trace_id+last_event_id` 重连，最多 3 次，退避 1s/3s/9s。
+  - **可控 fallback**：仅在首次 POST 且尚未读到任何事件且 HTTP 返回 404/405/406 时，才回退到同步老接口 `/skill/runMultiFormulaBatch`；中途断线一律走 resume，不重复提交。
+  - `TOOL_TIMEOUTS["runMultiFormulaBatch"]` 900s → 1800s，与服务端取消 5min 网关超时对齐。
+- `scripts/call.py`：subprocess 外层超时参数化，`runMultiFormulaBatch` 1800s，其余工具仍为 900s，避免与内层 SSE 超时互相打架；响应中的 `trace_id` 持久化到 `.session.json` 后从输出中剥离，不暴露给 LLM。
+- `scripts/quant_api.py`：同步特判 `runMultiFormulaBatch` 走 SSE，避免 Python API 划过 SSE 继续打同步。
+- `tools/run_multi_formula.md`：底部新增「实现说明（无需 LLM 关心）」一节，明确不允许 LLM 直调 `runMultiFormulaBatchStream`。
+- 后续按最新接口说明补齐 `research_24h` / `deferred` 行为：`ready` 事件额外记录 `job_id` / `execution_profile` / `queue` / `stream_url`；收到 `deferred` 时直接返回 job ack；`execution_profile` 纳入幂等键；deferred 响应保留 `trace_id` / `stream_url` 给后续 resume。
+- 日志名修订：走 SSE 主路径时 `logs/*.jsonl` 中 `tool` 字段记录为 `runMultiFormulaBatchStream`，仅在回退到同步老接口时才记 `runMultiFormulaBatch`，便于审计/计费区分两条路径。
+
+> 封面保证：工具名、参数、同步 JSON 返回与 v4.20.12 完全一致；公式上限、计费表未变。
+
+---
+
 ## [4.20.12] — 2026-05-09
 
 **变更文件**：`SKILL.md`、`scripts/call.py`

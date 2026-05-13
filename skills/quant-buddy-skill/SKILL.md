@@ -1,8 +1,8 @@
----
+﻿---
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.20.12
+version: 4.20.14
 description: 
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据。
   查询最近N个交易日的价格序列、日涨跌幅序列、窗口最高价、最低价、振幅等短期统计。
@@ -14,7 +14,7 @@ description:
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.20.12
+  version: 4.20.14
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -79,8 +79,8 @@ runtimeRequirements:
 | 工具 | ✅ 正确参数 | ❌ 模型常见错误（已被 call.py 自动归一化或拦截，但仍应避免） |
 |------|------------|------------------------------------------------------------|
 | `confirmDataMulti` | `{"data_desc": "市盈率 TTM,股息率"}` — **逗号分隔字符串** | `{"queries": [...]}` / `{"query": "..."}` / `{"names": [...]}` |
-| `runMultiFormulaBatch` 公式中引用 session 中间变量 | 必须用**双引号**包裹：`排序值 = "A股股息率〔估值数据〕" * "条件合并"` | 裸变量名相乘：`"A股股息率…" * 条件合并` ← 平台直接报错 |
-| `readData` | `{"ids": ["69fe…<24位hex>"], "mode": "last_column_full"}` — **必须是 `runMultiFormulaBatch` 返回的 hex `_id`** | 传中文变量名 `{"ids": ["Top10股息"]}` / 用错参数名 `{"index_title": "..."}` / `{"variable_names": [...]}` |
+| `runMultiFormulaBatchStream` 公式中引用 session 中间变量 | 必须用**双引号**包裹：`排序値 = "A股股息率〔估値数据〕" * "条件合并"` | 裸变量名相乘：`"A股股息率…" * 条件合并` ← 平台直接报错 |
+| `readData` | `{"ids": ["69fe…<24位hex>"], "mode": "last_column_full"}` — **必须是 `runMultiFormulaBatchStream` 返回的 `data_id` 字段（hex）** | 传中文变量名 `{"ids": ["Top10股息"]}` / 用错参数名 `{"index_title": "..."}` / `{"variable_names": [...]}` / **传 `expression_id` 而非 `data_id`**（两者相邻易混，传错会返回 `"error": "IndexInfo {id}"`）|
 
 **口径转换（confirmDataMulti 查询词）**：用户写 `PE(TTM)` / `归母净利润` 等英文或缩写时，查询词应使用**中文规范名**（如 `市盈率 TTM` / `归母净利润`），而不是把用户原文照抄进 `data_desc`。详细规则见 `workflows/global-rules.md#指标口径精确匹配`。
 
@@ -88,14 +88,15 @@ runtimeRequirements:
 
 ## 硬规则（违反必失败）
 
-0. **开工第一步：先查 API Key，再做任何其他事**。收到新问题后的第一个动作必须是读 `config.json`（或等效检查 api_key 字段）：
-   - 若 `api_key` 为空字符串 → **立即停止**，直接输出「前置条件」章节的**新用户引导消息**，**禁止** newSession、**禁止**读 workflow / quick-lookup / 任何业务文档、**禁止**调用 `scripts/call.py` 或任何平台工具。等用户贴入 `sk-` 开头的 Key 后再执行「配置向导」。
-   - 若 `api_key` 非空 → 继续第 1 条。
-   - **唯一例外**：用户本轮消息本身就是 `sk-` 开头的 Key（进入配置向导）或与查数无关的闲聊/元问题（如"你会做什么"）。
-   - **为什么**：查数类工作流最终都会调 `scripts/call.py`，api_key 为空时必然失败。提前在入口拦截可以避免多次失败调用，给新用户直接、清晰的第一印象。
+0. **认证后验拦截（不得前置 config 检查阻断正常题目）**：
+   - **不要**在收到查数类问题后的第一步读 `config.json`；优先按问题类型识别 leaf workflow 并执行。
+   - 仅在以下时机检查 `api_key`：①工具调用实际返回 `api_key 为空` / `code: 1` / 401/402 认证错误；②workflow 明确要求执行本地脚本链前；③用户本轮消息是 `sk-` 开头的 Key（进入配置向导）；④**首次使用检测**（见下）。
+   - **首次使用检测（唯一允许的主动 config 检查）**：在本对话中准备调用第一个平台工具**之前**，先检查 `output/` 目录下是否存在任何 `.session*.json` 文件（`ls output/.session*.json` 或等价）。若**不存在**（说明本环境从未使用过本 skill），则主动读取 `config.json` 检查 `api_key`：为空 → 立即输出新用户引导消息并停止；非空 → 继续执行，后续不再重复检查。若存在 session 文件则跳过此检查，走正常后验路径。
+   - 触发以上任一条件且 `api_key` 确实为空时：**立即停止**，输出「前置条件」章节的**新用户引导消息**，禁止继续调用任何平台工具。
+   - **为什么改为后验**：测试集显示前置拦截导致约 35% 的简单查数题在 api_key 非空时仍被错误拦截；后验方案在真实鉴权失败时同样能给出清晰提示，且不牺牲正常执行路径。首次使用检测是对新用户体验的单次豁免，不影响正常使用路径。
 
 1. **每个新问题/新对话必须新建 session**：收到用户的新问题后，在调用任何平台工具之前，必须先新建 session（优先直接调用原生 `newSession` 工具；仅当当前环境没有原生 `newSession` 时，才使用 `GZQ_PARAMS='{"user_query":"<用户的问题>"}' python scripts/call.py newSession`）。newSession 是本地 UUID 生成，不可省略；`user_query` 仅用于本地 session 初始化标注，方便后续 trace 分析。
-   - **平台工具调用红线**：只要下一步准备调用 `fast_query` / `confirmDataMulti` / `runMultiFormulaBatch` / `readData` / `renderKLine` / `renderChart` / `getCardFormulas` / `scanDimensions` / `downloadData` / `uploadData` 等任一平台工具，先检查本轮是否已经**显式调用** `newSession`；若没有，必须立刻先调用 `newSession`，禁止因为问题简单、已读 SKILL、已 grep 资产、或框架可能隐式建 session 而跳过。
+   - **平台工具调用红线**：只要下一步准备调用 `fast_query` / `confirmDataMulti` / `runMultiFormulaBatchStream` / `readData` / `renderKLine` / `renderChart` / `getCardFormulas` / `scanDimensions` / `downloadData` / `uploadData` 等任一平台工具，先检查本轮是否已经**显式调用** `newSession`；若没有，必须立刻先调用 `newSession`，禁止因为问题简单、已读 SKILL、已 grep 资产、或框架可能隐式建 session 而跳过。
    - **标准前置顺序**：`Read SKILL.md` → `newSession` → 如涉及资产则 `grep presets/assets_db/{类型}.yaml` → 平台工具。资产 grep 可以在 `newSession` 之后执行；绝不允许 `grep` 后直接 `fast_query`。
    - **为什么**：session 文件会自动注入到所有工具调用中。不新建 session = 复用上一轮对话的 task_id = 变量名冲突风险 + session 污染。
    - **多会话隔离（必须）**：当本对话有可能与其他对话/进程并行使用本 skill（多个 Claude 窗口、共享开发机、并行 trace）时，**在 chat 的第一条 bash 命令里**先执行：
@@ -104,22 +105,23 @@ runtimeRequirements:
      ```
      之后**所有 `python scripts/call.py` 都必须在这同一个 terminal 会话里跑**（环境变量只在该会话内可见）。如此每个对话独占 `output/.session.<key>.json` 文件，互不覆盖。未设置时退化到默认 `.session.json`，仅适合单会话场景。
    - **唯一例外**：同一对话中的追问/续问（如"再画个图""换个时间段"），可复用当前 session（`QBS_SESSION_KEY` 也保持不变）。
-2. **原生工具优先，脚本包装仅限无原生等价能力时**：平台已提供的原生工具（`fast_query`、`confirmDataMulti`、`runMultiFormulaBatch`、`readData`、`renderKLine`、`renderChart` 等）必须优先直接调用；禁止用 `run_skill_script`、shell 命令、`GZQ_PARAMS=... python scripts/call.py ...` 等方式包装这些原生工具；`scripts/call.py` 仅用于：① `newSession` 等管理动作；② workflow 明确要求的本地脚本步骤；③ 平台不存在等价原生工具时的兜底。
+2. **原生工具优先，脚本包装仅限无原生等价能力时**：平台已提供的原生工具（`fast_query`、`confirmDataMulti`、`runMultiFormulaBatchStream`、`readData`、`renderKLine`、`renderChart` 等）必须优先直接调用；禁止用 `run_skill_script`、shell 命令、`GZQ_PARAMS=... python scripts/call.py ...` 等方式包装这些原生工具；`scripts/call.py` 仅用于：① `newSession` 等管理动作；② workflow 明确要求的本地脚本步骤；③ 平台不存在等价原生工具时的兆底。
   - **任何涉及资产的操作都必须先查本地库**：凡是出现资产名称、简称或代码，无论什么场景（快速行情、财务查询、窗口序列、选股、还是用户明确说「确认资产 / 找代码 / 找ticker」），**在调用任何远程工具前都必须先** `grep presets/assets_db/{类型}.yaml`（禁止整文件读取）：命中唯一 → 用确认后的 ticker（如 `SH600303`）替换原始中文名传参；命中多条（歧义）→ 向用户澄清选哪个，禁止继续查数；未命中 → 保留原始名称，由服务端兜底解析。**禁止**绕过本地库直接把用户原始中文名传给任何远程工具调用。
   - **英文代码无市场后缀时必须 grep 确认格式**：用户直接输入英文股票代码（如 `GOOGL`、`AAPL`、`BIDU`）但未携带市场后缀（`.O`、`.N`、`.A`）时，**不得凭 user memory / 猜测 / 拼接后缀直接查数**，必须先 `grep presets/assets_db/stock_us.yaml` 找到正确 ticker 后再调用工具。
   - **⛔ 严禁用 inline 解释器 heredoc / `-c` 包装 `scripts/call.py`**：以下写法**全部违规**，无论参数有多复杂、批次有多少、依赖关系有多绕：
     - `python - <<'PY' ... subprocess.run(['python','scripts/call.py','<工具名>',...]) ... PY`
     - `python -c "import subprocess; subprocess.run(['python','scripts/call.py',...])"`
     - `node -e "...child_process.execSync('python scripts/call.py ...')..."`
-    - 任何在 inline 脚本里 `for/while` 循环驱动多批 `runMultiFormulaBatch` 的写法
+    - 任何在 inline 脚本里 `for/while` 循环驱动多批 `runMultiFormulaBatchStream` 的写法
     - **理由**：这种「自写 driver 脚本」会绕过本 skill 的 session 注入、配额校验、错误协议；trace 中表现为 task_id 漂移、stdout 阻塞、`/tmp/gzq_out.txt` 在 Windows 上不存在等连锁失败。call.py 的兜底地位**只允许一层调用**（shell → call.py），不允许在它外面再套 python/node 解释器。
-  - **多批 `runMultiFormulaBatch` 的合规模板**：当公式数超过单批硬上限（20 条）需切批时，切批与编排**必须由 LLM 自己在工具调用之间完成**，禁止写脚本自动化。每批一次独立调用；任何参数预处理（读 md、regex、依赖分析、生成 `force_reusable_array`）都在 LLM 推理中完成，必要的中间产物用 `create_file` 落盘到 `output/tmp_batches/batch_K.json`，然后逐批用：
+  - **⛔ 严禁用 `&&` 把目录切换和脚本调用拼成一行**：`cd <DIR> && GZQ_PARAMS=... python scripts/call.py ...` 是**违规写法**。正确做法是先单独执行 `cd <SKILL_ROOT>`，在已在目标目录后再单独执行 `GZQ_PARAMS=... python scripts/call.py ...`；或者直接用绝对路径 `python <SKILL_ROOT>/scripts/call.py ...`。这条规则对所有脚本调用均适用，不仅限于 `call.py`。
+  - **多批 `runMultiFormulaBatchStream` 的合规模板**：当公式数超过单批硬上限（20 条）需切批时，切批与编排**必须由 LLM 自己在工具调用之间完成**，禁止写脚本自动化。每批一次独立调用；任何参数预处理（读 md、regex、依赖分析、生成 `force_reusable_array`）都在 LLM 推理中完成，必要的中间产物用 `create_file` 落盘到 `output/tmp_batches/batch_K.json`，然后逐批用：
     ```bash
-    GZQ_PARAMS="$(cat output/tmp_batches/batch_K.json)" python scripts/call.py runMultiFormulaBatch
+    GZQ_PARAMS="$(cat output/tmp_batches/batch_K.json)" python scripts/call.py runMultiFormulaBatchStream
     ```
     **每批一条独立 shell 命令**，前一批返回后再发起下一批；**禁止**写一个 python 脚本一次跑完所有批。这是 hard rule，违反必失败。
 3. **工具失败熔断：同类错误不得重复**
-   - **工具名无效（`未知工具`）**：收到该错误后，**禁止以任何名称变体再次调用同名工具**（包括 `runMultiFormula`、`run_multi_formula` 等历史名，唯一可用名为 `runMultiFormulaBatch`）。
+   - **工具名无效（`未知工具`）**：收到该错误后，**禁止以任何名称变体再次调用同名工具**，唯一可用名为 `runMultiFormulaBatchStream`。
    - **同一工具 + 同类错误**：相同工具名、相同参数结构、相同错误类型出现第 2 次时，**立即停止重试**，必须执行以下之一：①切换 workflow 中明确给出的备用路径；②跳过该前置步骤继续主链路；③输出受控失败答复（见规则 4）。
    - **禁止的行为**：无新信息、无新参数、无新工具名的情况下，连续重复同一失败调用；尝试用 shell/Python 包装绕过失败工具；读更多文档代替执行。
 4. **任何 workflow 失败退出时必须输出受控失败答复**：禁止以空白或纯过程日志结束对话。失败答复必须包含：
@@ -162,7 +164,7 @@ runtimeRequirements:
 
 > 这条原则覆盖：要不要多读一个文档；readData 读哪个变量；要不要为某个字段调 confirmDataMulti；公式自己写还是查现成数据集；以及所有未来出现的同类决策。
 
-**工具层面落地**：调用 `confirmDataMulti` / `readData` / `runMultiFormulaBatch` 或加载额外文档前，必须在心里完成工具清单自检；**不要为执行清单而搜索、加载或读取 `recipes/tool-call-checklist.md`**。无论该文件是否已在上下文中，只在心里完成以下三条最小自检即可（这三条已是清单的浓缩版，不需要再去查原文）：
+**工具层面落地**：调用 `confirmDataMulti` / `readData` / `runMultiFormulaBatchStream` 或加载额外文档前，必须在心里完成工具清单自检；**不要为执行清单而搜索、加载或读取 `recipes/tool-call-checklist.md`**。无论该文件是否已在上下文中，只在心里完成以下三条最小自检即可（这三条已是清单的浓缩版，不需要再去查原文）：
 
 1. 这次调用是否直接服务于用户当前问题？
 2. 是否有更窄的输出或更少的字段可读？
@@ -208,10 +210,22 @@ SKILL_ROOT/
 │   ├── troubleshooting.md       故障排查
 │   └── ru-billing.md            RU 计费
 │
-├── tools/                   ← API 工具的完整参数文档
-│   ├── run_multi_formula.md
-│   ├── read_data.md
-│   └── ...（正常链路无需提前阅读，遇到参数问题时查）
+├── tools/                   ← API 工具完整参数文档（默认不读；workflow 标注「必读」或报错时再查）
+│   │                           ⚠️ 下表列出所有可用工具的**实际调用名**，调用时必须使用此名，不得变体
+│   ├── fast_query.md            → 工具名 `fast_query`          快速合并查询（行情/估值/财务，≤3资产快照）
+│   ├── confirm_data_multi.md    → 工具名 `confirmDataMulti`    批量确认数据项存在性与维度（写公式前必查）
+│   ├── run_multi_formula.md     → 工具名 `runMultiFormulaBatchStream`  执行公式批次（选股/回测/因子计算）
+│   ├── read_data.md             → 工具名 `readData`            读取公式计算结果（需传 data_id，非 expression_id）
+│   ├── render_kline.md          → 工具名 `renderKLine`         渲染 K 线图（直接传 ticker，无需提前跑公式）
+│   ├── render_chart.md          → 工具名 `renderChart`         渲染折线/柱状/面积图（需先有 data_id）
+│   ├── get_card_formulas.md     → 工具名 `getCardFormulas`     按卡片名拉取完整公式组（量化场景使用）
+│   ├── scan_dimensions.md       → 工具名 `scanDimensions`      九维度 IC 扫描（单股多维度预测力分析）
+│   ├── search_similar_cases.md  → 工具名 `searchSimilarCases`  向量检索相似案例（设计策略前的 fallback 查找）
+│   ├── search_functions.md      → 工具名 `searchFunctions`     检索平台函数名称与调用格式
+│   ├── download_data.md         → 工具名 `downloadData`        按 data_id 下载一维时序到 CSV/JSON
+│   ├── upload_data.md           → 工具名 `uploadData`          上传自有因子 CSV，上传后可在公式中引用
+│   ├── refresh_snapshot_time.md → 工具名 `refreshSnapshotTime` 强制刷新分钟数据截止时间（盘中实时场景）
+│   └── resume_job.md            → 工具名 `resumeJob`           续传 deferred 后台任务（配合 research_24h 使用）
 │
 ├── presets/                 ← 已验证的常用数据（按需加载）
 │   ├── cases_index.yaml         106 张案例卡片目录（量化标准场景必读，快速查数无需）
@@ -283,9 +297,9 @@ SKILL_ROOT/
 
 | 场景 | 触发词 | 目标 leaf workflow |
 |------|--------|----------|
-| 最新时点行情 / 估值（快照） | 最新价、今日收盘、最新涨跌幅、当前换手率、最新PE/PB/市值… | Fast Path → `fast-snapshot.md` / 完整链路 → `global-rules.md` → `quick-snapshot.md` |
-| 最近N日序列 / 窗口统计 | 最近5日、最近20日、近N个交易日、窗口最高/最低/振幅…（仅单资产、最近N日） | Fast Path → `fast-window.md` / 完整链路 → `global-rules-lite.md` → `quick-window.md` |
-| 最近报告期财务 | 营收、净利润、归母净利润、ROE、总资产、总负债、资产负债率… | Fast Path → `fast-report-period.md` / 完整链路 → `global-rules.md` → `quick-report-period.md` |
+| 最新时点行情 / 估值（快照） | 最新价、今日收盘、最新涨跌幅、当前换手率、最新PE/PB/市值… | Fast Path 条件满足 → 只读 `fast-snapshot.md`；不满足/无法查询 → `global-rules.md` → `quick-snapshot.md` |
+| 最近N日序列 / 窗口统计 | 最近5日、最近20日、近N个交易日、窗口最高/最低/振幅…（仅单资产、最近N日） | Fast Path 条件满足 → 只读 `fast-window.md`；不满足/无法查询 → `global-rules-lite.md` → `quick-window.md` |
+| 最近报告期财务 | 营收、净利润、归母净利润、ROE、总资产、总负债、资产负债率… | Fast Path 条件满足 → 只读 `fast-report-period.md`；不满足/无法查询 → `global-rules.md` → `quick-report-period.md` |
 | K线图（可视化） | K线图、画图、展示走势… | `global-rules.md` → `render-kline.md` |
 | 固定区间累计涨跌幅 | 从A到B、某年某月至某年某月、区间收益、累计涨跌幅、区间表现、多资产区间对比 | `global-rules-lite.md` → `period-return-compare.md` |
 | 量化选股 / 回测 / 因子 / 图表 / 上传下载 | 选股、回测、均线、PE选股、因子、净值、上传CSV、下载数据、画图… | `global-rules.md` → `quant-standard.md` |
@@ -321,11 +335,12 @@ SKILL_ROOT/
 
 - 资产数 ≤ 3
 - 所有目标字段属于 fast_query whitelist（价格/估值/财务/衍生字段，详见 `tools/fast_query.md`），不涉及自定义公式/选股/排名
+  > 字段白名单判断含自动替换：用户对 HK/US 股请求 `PE`/`PE_TTM`/`PB`/`PS_TTM`/`股息率` 时，自动替换为对应单季版（`PE_单季`/`PB_单季`/`PS_单季`/`股息率_单季`），替换后仍视为 whitelist 命中，不得因此降级为慢路径。
 - 非全市场横截面查询（不是"全市场排名/前N只"等场景）
 
 **快速查数路由（按优先级依次判断，首个匹配即停）：**
 
-1. 时间锚点是"最近 N 日窗口/序列" → Fast Path 条件满足时读 `workflows/fast-window.md`，不满足则 `workflows/global-rules-lite.md` → `workflows/quick-window.md`
+1. 时间锚点是"最近 N 日窗口/序列"，或用户明确给出起止日期要求返回区间序列（如"从X日到X日每日的…走势/序列/数据"）→ Fast Path 条件满足时读 `workflows/fast-window.md`，不满足则 `workflows/global-rules-lite.md` → `workflows/quick-window.md`
 2. 时间锚点是"最近报告期"且字段属于财务类 → Fast Path 条件满足时读 `workflows/fast-report-period.md`，不满足则 `workflows/global-rules.md` → `workflows/quick-report-period.md`
 3. 用户明确要"画图 / K线 / 带成交量走势" → 直接加载 `workflows/render-kline.md`
 4. 其余（明确是最近完成交易日或当日的行情/估值/多资产对比，且**不含** 排名/筛选/全市场 语义）→ Fast Path 条件满足时读 `workflows/fast-snapshot.md`，不满足则 `workflows/global-rules.md` → `workflows/quick-snapshot.md`
@@ -340,7 +355,7 @@ SKILL_ROOT/
 1. **事件定义冻结**：事件类型/范围必须**逐字匹配用户原始措辞**。用户说"年报/半年报"就只查年报和半年报，不得扩大到业绩预告/快报/季报；用户说"国务院或住建部"就只纳入该层级，不得扩大到央行/银保监会/地方政府。若认为用户定义可能遗漏，在回答末尾**建议**扩大，不得擅自扩大。
 2. **evidence-only 回答**：最终答案只输出本轮工具结果直接支持的数值、日期、排名、口径说明。未经工具验证，禁止默认输出宏观归因、政策归因、方向性判断（"通常""往往""偏正面"）。
 3. **去过程化交付**：禁止「已成功获取」「让我来」「按照流程」「Step 1/2/3」「根据 workflow」等过程性话术；禁止泄露 `_working/` 路径、checkpoint 名称、workflow 文件名。查到即答，不展示内部过程。
-4. **条件口径冻结**：用户条件必须原样执行，禁止任何改写（百分比↔小数、相对时间→年份区间、资产宇宙替换、卡片附加条件继承）。详见硬规则第 6 条。
+4. **条件口径冻结**：用户条件必须原样执行，禁止任何改写（百分比↔小数、相对时间→年份区间、资产宇宙替换、卡片附加条件继承）。详见硬规则第 8 条。
 
 触发词参考：
 - 最近交易日收盘 / 最新已披露PE / 最新市值（非盘中、非筛选） → `quick-snapshot`
@@ -350,7 +365,7 @@ SKILL_ROOT/
 禁止：
 - 优先调用 `scanDimensions`、`renderKLine`（除非用户明确要看图）
 - 先做分析性扩写，再补充结构化数值
-- **在读取对应 leaf workflow 之前**直接调用 `runMultiFormulaBatch` / `renderKLine` / `scanDimensions` / 输出"无法联网"或"无法获取实时数据"
+- **在读取对应 leaf workflow 之前**直接调用 `runMultiFormulaBatchStream` / `renderKLine` / `scanDimensions` / 输出“无法联网”或“无法获取实时数据”
 - 把卡片附加条件（首次/非ST/封板/流动性门槛等）默默继承进最终答案
 - 以 `description`、`samples`、预览行、截断大表作为**名单题**的完整结果直接收尾（必须提取完整名单或明确声明不完整）
 
@@ -388,7 +403,14 @@ SKILL_ROOT/
 | 美股个股（NASDAQ: 代码.N；NYSE: 代码.O；AMEX: 代码.A） | | |
 | 主要宽基指数（沪深300、中证500、万得全A等） | | |
 
-> **港股 / 美股数据范围限制**：港股和美股目前仅支持**行情价格类数据**（收盘价、开盘价、最高价、最低价、涨跌幅、成交量、成交额）。估值数据（PE/PB/市值等）和财务数据（营收/净利润/ROE等）暂不支持。查询港股/美股的估值或财务字段时，应主动告知用户当前不支持，而不是静默跳过。
+> **港股 / 美股数据范围限制**：
+> - **行情价格类**（收盘价、开盘价、最高价、最低价、涨跌幅、成交量、成交额）：A / HK / US 均支持。
+> - **估值类**：
+>   - 仅 A 股：`PE`/`PE_TTM`/`PB`/`PS_TTM`/`股息率`（FMP 无 TTM 口径）
+>   - A/US/HK：`总市值`；港美股查 PE/PB 请用 `PE_单季`/`PB_单季`/`PS_单季`/`股息率_单季`
+>   - 仅 A 股：`流通市值`/`换手率`
+> - **财务类**（营业收入/净利润/归母净利润等）：A / HK / US 均支持（通过 `fast_query` 接口）；**ROE 仅 A 股**。
+> - 查询港股/美股时若字段不在上述支持范围内，应主动告知用户，而不是静默跳过。
 
 ### 股票代码格式速查
 

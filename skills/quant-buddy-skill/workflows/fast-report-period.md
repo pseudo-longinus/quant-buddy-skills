@@ -1,4 +1,4 @@
-# fast-report-period · 财务报告期快照与固定区间序列
+﻿# fast-report-period · 财务报告期快照与固定区间序列
 
 适用：≤3 只 A 股；查询最近报告期财务，或固定日期范围内的财务最后有效值/完整序列；`fast_query` 单次调用。港股/美股财务不支持，直接告知。
 
@@ -115,7 +115,7 @@
 ```
 ① 保留 fast_query 已成功字段的值（不重查）
 ② 仅对失败字段：confirmDataMulti 确认字段全名
-③ newSession → runMultiFormulaBatch（公式："字段全名"*取出(资产名)）
+③ newSession → runMultiFormulaBatchStream（公式："字段全名"*取出(资产名)）
 ④ readData → 合并①结果 → 输出
 ```
 

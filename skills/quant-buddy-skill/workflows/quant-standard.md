@@ -1,4 +1,4 @@
-# 量化标准流程
+﻿# 量化标准流程
 
 > 本文档是量化选股/回测/因子/图表场景的完整流程规范——唯一权威来源。
 > 所有 workflow 文件中涉及量化公式执行的步骤，都遵循本文档的流程和规则。
@@ -153,7 +153,7 @@
    - 若 `precheck` 对当前结果类型返回“不支持”，不得围绕 `precheck` 重试；直接切换到已收敛的 TopN 数值结果并用 `last_column_full`。
    - **禁止直接对全市场二维数据集使用 `last_column_full`**——这会返回数千行资产数据，导致上下文爆炸
    - **description 优先 — readData 决策流程（硬规则，逐步执行）**：
-     1. **检查 description**：`runMultiFormulaBatch` 返回后，先检查每个结果的 `description` 字段
+     1. **检查 description**：`runMultiFormulaBatchStream` 返回后，先检查每个结果的 `description` 字段
      2. **名单判定**：若 description 包含 `全部名称:` 字段（如 `全部名称：中远海能(SH600026),小商品城(SH600415)`），且列出的资产数量 ≤ 20，则**这些名称即为最终名单**
      3. **是否需要数值？**
         - 用户只需名单（如"有哪些"）→ **不调 readData**，直接用 description 中的名单回答
@@ -177,13 +177,13 @@
 
 ### 公式引用字段预确认（TopN 选股必须执行，在组装公式之前）
 
-构建 `runMultiFormulaBatch` 之前，逐条核对将用到的所有二维数据集字段：
+构建 `runMultiFormulaBatchStream` 之前，逐条核对将用到的所有二维数据集字段：
 
 | 检查项 | 通过条件 | 失败处理 |
 |--------|---------|---------|
 | 字段名来自 `presets/data_catalog.yaml` | `index_title` 精确匹配 | → `confirmDataMulti` 确认 |
 | 字段名来自本文档固定模板表 | 直接使用，无需确认 | — |
-| `confirmDataMulti` 返回 `dimension` | 记录并在公式中区分一维/二维 | 一维 → 直接 readData；二维 → runMultiFormulaBatch + 取出 |
+| `confirmDataMulti` 返回 `dimension` | 记录并在公式中区分一维/二维 | 一维 → 直接 readData；二维 → runMultiFormulaBatchStream + 取出 |
 | 变量名 ≠ `index_title` | 左侧变量名与右侧数据集名不同名 | → 改名（`{股票}_{指标}`） |
 
 **硬规则**：
@@ -208,7 +208,7 @@
 
 若模型认为这些条件"常见但有帮助"，只能在最终答案后建议"如需加该过滤，我可以再筛一版"，不得先执行。
 
-**提交前自检**：在执行 `runMultiFormulaBatch` 前，必须内部逐项核对：
+**提交前自检**：在执行 `runMultiFormulaBatchStream` 前，必须内部逐项核对：
 - 用户原条件列表
 - 公式实际条件列表
 若公式条件比用户条件更严格或多出任一过滤，则不得执行，必须先改公式。
@@ -263,7 +263,7 @@
 2. **精确字段值按需读取**：若用户还要求精确字段值（涨幅、PE、成交额等），只能读取"目标展示值"或"目标排序值"，禁止对布尔掩码执行 `readData(last_column_full)` 作为默认步骤
 3. **排序证据要求**：若最终答案要输出"排序后的名单/表格"，必须已读取排序字段的结构化值；仅有布尔掩码或 description 名单时，不得声称"按X排序"
 4. **小名单定向提取**：对命中名单 ≤ 20 的场景，若需要精确数值，优先用 `presets/assets_db/{类型}.yaml` 唯一命中名单 → 逐只或定向提取目标字段，而不是全市场大表扫描
-5. **description 用途边界**：`runMultiFormulaBatch.description` 只能用于数量确认、名单确认（仅名单题）、最后有效日期确认，不得单独作为"完整表格 + 数值 + 排序"的唯一证据
+5. **description 用途边界**：`runMultiFormulaBatchStream.description` 只能用于数量确认、名单确认（仅名单题）、最后有效日期确认，不得单独作为"完整表格 + 数值 + 排序"的唯一证据
 6. **零命中快速退出**：若目标掩码的 description 已显示 `effective_matches = 0`，直接回答"当前无符合条件的标的"，不再对该布尔掩码执行 `readData(last_column_full)`
 
 ### 最终答案证据门禁（TopN 场景，硬规则）
@@ -320,7 +320,7 @@
 
 **遇到不完整表格时的处理流程**：
 1. 先检查公式是否正确（字段维度对齐？掩码正确？）
-2. 尝试补查缺失字段：对缺失行的个股，用 `presets/assets_db/{类型}.yaml` 唯一命中后 → 单资产 `runMultiFormulaBatch` 逐只取值
+2. 尝试补查缺失字段：对缺失行的个股，用 `presets/assets_db/{类型}.yaml` 唯一命中后 → 单资产 `runMultiFormulaBatchStream` 逐只取值
 3. 若补查后仍不齐，**必须**在答案中声明不完整性："以下 N 只中有 M 只的 XX 字段暂不可得"
 4. **禁止**将不完整表格包装为完整结论（如"以下为完整的Top10排名"但实际3只缺PE值）
 
@@ -405,7 +405,7 @@ PE条件 = ("PE数据" < 20)
 
 **强制运行参数**：
 - `use_minute_data: true`
-- `force_reusable_array`：**多公式（≥ 2 条）调用时必须主动评估**。`getCardFormulas` 返回多条公式时，逐条判定「是否会被 `readData` 或最终步骤读取 / 是否会被后续 batch / 后续 `runMultiFormulaBatch` 调用 / 用户后续追问引用」——会被读取或后续引用的变量名**写进 `force_reusable_array`**；只被本批后续公式引用、且**确定后续不会再被任何调用引用**的中间量**不要写进数组**。组装 payload 时同步附上这个字符串数组，不得遗漏。
+- `force_reusable_array`：**多公式（≥ 2 条）调用时必须主动评估**。`getCardFormulas` 返回多条公式时，逐条判定「是否会被 `readData` 或最终步骤读取 / 是否会被后续 batch / 后续 `runMultiFormulaBatchStream` 调用 / 用户后续追问引用」——会被读取或后续引用的变量名**写进 `force_reusable_array`**；只被本批后续公式引用、且**确定后续不会再被任何调用引用**的中间量**不要写进数组**。组装 payload 时同步附上这个字符串数组，不得遗漏。
   - **单批场景**：仅最终输出（被 `readData` 读取的变量）写进数组，其余全部省略。
   - **多批场景（跨批保活）**：除最终输出外，还须将「被后续批次公式引用」的变量也写入数组。组装每个 batch 的 `force_reusable_array` 前，先扫描后续 batch 的右侧引用，凡被引用到的左侧变量本批必须列入。**特别注意**：在最后一批中也要扫描"是否会有 Agent 自己稍后追加的补公式"——例如 TopN 掩码后还要再算一次 `*_TopN_Score` 时，对应评分变量必须列入。
   - **未来未知场景（首批保守 + 后续修正）**：当用户第一轮只给出部分链、明确说"后面还会加新需求"时，首批可以仅把"末输出 + 跨批引用"写入数组，其余省略（不要为保险把全部变量都列进去）；当后续轮次新公式回引到首批某个早期、当时未列入的变量时，**必须先调用修正接口**（如 `markReusable` / `updateForceReusable` / 同义接口）把目标变量加入复用集合，再继续后续 batch；切勿假设变量还在缓存里、也勿一次性把首批全列入。若当前后端**尚未提供修正接口**，应在最终答案中明确说明"此次需要重新计算前置变量"，而不是默默兜底。
@@ -413,7 +413,7 @@ PE条件 = ("PE数据" < 20)
   - **⚠️ 缓存兜底成功 ≠ 数组用对**：服务端缓存层会自动兜底，所以数组标错时最终结果也常常能跑出来。这是误导信号，必须独立检查每条公式的变量名是否按上述规则正确加入或省略，不能以"是否能拿到结果"作为评判标准。
   - **分批切点原则**：优先在依赖图弱耦合处切分（即切点跨过的引用边数最少）。一般而言，公式链的依赖层级从下到上是：基础行情/掩码层 → 中间因子/统计层 → 合成评分层 → 最终输出层；在层与层的边界处切批，可最小化跨批写入数组的变量数，降低服务端缓存压力。**单批不超过 10 条（所有 tier 一律 10，保守模板）**。
 
-`refresh_snapshot_time` 已从 `runMultiFormulaBatch` 移除，禁止传入。若 freshness guard 失败且需要推进同一 session 的分钟数据截止时间，先调用独立 `refreshSnapshotTime`，再重跑公式。
+`refresh_snapshot_time` 已从 `runMultiFormulaBatchStream` 移除，禁止传入。若 freshness guard 失败且需要推进同一 session 的分钟数据截止时间，先调用独立 `refreshSnapshotTime`，再重跑公式。
 
 **freshness guard（硬规则）**：
 - 若用户问题含"现在/当前/今天/今日/盘中/实时"，执行后必须检查结果日期是否为当前交易日
@@ -421,7 +421,7 @@ PE条件 = ("PE数据" < 20)
 - 未通过 freshness guard，不得表述为"盘中实时/今天/当前"
 
 **用户主动要求刷新（硬规则）**：
-- 追问中含"刷新/更新/推进/最新行情/重新算/再算一次"等明确刷新语义时，**必须先调 `refreshSnapshotTime '{}'`，再重跑 `runMultiFormulaBatch`**
+- 追问中含"刷新/更新/推进/最新行情/重新算/再算一次"等明确刷新语义时，**必须先调 `refreshSnapshotTime '{}'`，再重跑 `runMultiFormulaBatchStream`**
 - 禁止直接复用上次公式结果或跳过 `refreshSnapshotTime` 直接重跑
 
 **输出限制**：
@@ -454,7 +454,7 @@ PE条件 = ("PE数据" < 20)
 **强制 fallback：**
 - 当目标名单很少（如 ≤ 20）且最终答案需要精确字段时，优先：
   - `presets/assets_db/{类型}.yaml` 本地检索
-  - 逐只单资产 `runMultiFormulaBatch`
+  - 逐只单资产 `runMultiFormulaBatchStream`
   - 再回答
 
 ---
@@ -535,7 +535,7 @@ python scripts/call.py newSession
 | 昨日、日频、收盘后、复盘、历史 | 日频 `[freq:daily]` | 排除含 `[freq:minute]` 的卡片 |
 | 未明确说明 | 默认日频 | 按日频处理 |
 
-> ⚠️ **频率识别只影响卡片匹配**，不影响 `use_minute_data` 参数。`use_minute_data: true` 是全局业务默认值，**所有 `runMultiFormulaBatch` 调用都应传**，无论识别出什么频率。
+> ⚠️ **频率识别只影响卡片匹配**，不影响 `use_minute_data` 参数。`use_minute_data: true` 是全局业务默认值，**所有 `runMultiFormulaBatchStream` 调用都应传**，无论识别出什么频率。
 >
 > 频率识别的唯一作用是决定从 `cases_index.yaml` 里匹配日频卡片还是分钟频卡片（分钟频卡片使用原生分钟数据名，日频卡片使用日频数据名 + 服务端自动映射）。
 
@@ -623,14 +623,14 @@ python scripts/call.py newSession
 ## 参数传递与防漂移
 
 > quant-standard 流程步骤多、自由度高，是决策漂移的高发区。
-> 参数通过 confirmDataMulti → runMultiFormulaBatch → readData 工具链自然传递，不需要额外的状态文件。
+> 参数通过 confirmDataMulti → runMultiFormulaBatchStream → readData 工具链自然传递，不需要额外的状态文件。
 > 若筛选条件特别复杂（如多条件交叉筛选 + 自定义排名），可选择通过 `write_skill_file("output/_working/{task_id}/filter_spec.json", ...)` 冻结筛选规格。
 
 **关键防漂移规则**：
 - `confirmDataMulti` 返回的 `index_title` / `data_id` 是后续公式中唯一合法的数据名
 - 用户原始条件一旦在 Step 0 中确认，后续步骤不得增删任何条件
 - 百分比阈值口径（展示口径 3 vs 小数口径 0.03）一旦选定不得更改
-- `runMultiFormulaBatch` 返回的 result id 是 readData 的唯一合法输入
+- `runMultiFormulaBatchStream` 返回的 result id 是 readData 的唯一合法输入
 - `delivery_ready: false` 时禁止输出最终答案，必须回退排查
 - 百分数阈值归一（强制）：平台的涨跌幅/回报率数据统一为**小数口径**（0.05 = 5%，-0.03 = -3%）。用户说"超过5%"时，公式阈值必须写 `0.05`；用户说"跌幅超过3%"时，公式阈值必须写 `-0.03`。**禁止**直接使用整数百分数（如 5、-3）作为阈值——这会导致筛选条件永远为假或命中所有资产
 
@@ -638,7 +638,7 @@ python scripts/call.py newSession
 
 ## 公式语法强制规范（硬规则）
 
-`runMultiFormulaBatch` 的 `formulas` 数组中每条公式必须遵守以下语法规则，违反即报错：
+`runMultiFormulaBatchStream` 的 `formulas` 数组中每条公式必须遵守以下语法规则，违反即报错：
 
 ### 1. 双引号引用规则
 - **平台数据集**必须用双引号包裹：`"全市场每日回报率"`、`"A股市盈率（PE, TTM）〔估值数据〕"`
@@ -673,7 +673,7 @@ python scripts/call.py newSession
 
 **平台数据集名称可以直接内联写入公式右侧，不需要先赋值给一个中间变量再引用。**
 
-❌ **禁止（浪费一次 runMultiFormulaBatch 计算配额）**：
+❌ **禁止（浪费一次 runMultiFormulaBatchStream 计算配额）**：
 ```
 PE数据="A股市盈率（PE, TTM）〔估值数据〕"
 股息率数据="股息率"
@@ -712,8 +712,9 @@ PE数据="A股市盈率（PE, TTM）〔估值数据〕"
    - 均线/趋势策略 → `recipes/ma-crossover-backtest.md`
    - PE/估值选股 → `recipes/value-pe-strategy.md`
    - 行业聚合/排名 → `recipes/industry-aggregation.md`
-2. **presets/cases_index.yaml** → 找到相关卡片后 `getCardFormulas` 拉取远程公式，**用返回的 `all_formulas`（字符串数组）**作为公式骨架，理解做法后针对用户需求重写。**禁止将 `action_steps` 对象直接传给 `runMultiFormulaBatch`**
+2. **presets/cases_index.yaml** → 找到相关卡片后 `getCardFormulas` 拉取远程公式，**用返回的 `all_formulas`（字符串数组）**作为公式骨架，理解做法后针对用户需求重写。**禁止将 `action_steps` 对象直接传给 `runMultiFormulaBatchStream`**
    - **拿到 `all_formulas` 后必做：标注中间量**——逐条扫一遍，哪些左侧变量只在本批后续公式中被引用、不会被 `readData` 读？这些变量名**不要**写进 `force_reusable_array`。卡片骨架里 `*_条件` / `*_掩码` / `*_中间` / `MA*` / `Signal` / 各类阶段性打分变量基本都是中间量。最终输出（如 TopN 名单、回测净值）才需要写进 `force_reusable_array`。这一步与公式重写同步完成，不得跳过。
+   - **拿到 `all_formulas` 后还必须做：卡片条件对齐检查（硬规则）**——对比卡片公式中包含的筛选条件 vs 用户原始约束，若卡片带有用户未明确要求的附加过滤（如 `非ST股`、`仅主板`、`剔除北交所`、特定指数成分、市值门槛），**禁止直接作为最终执行公式**。只能：①去掉附加条件后再执行；②向用户说明"卡片带有附加限制口径：XXX，如需使用请确认"，等待用户确认。不得默认沿用附加条件并在最终答案末尾才披露。
 3. **searchSimilarCases** → 向量搜索 fallback（仅前两级都没找到时）。query 同时含**资产名+操作/机制词**
 
 ---
@@ -762,10 +763,10 @@ PE数据="A股市盈率（PE, TTM）〔估值数据〕"
 | 1c | `searchSimilarCases` | `{"query": "资产名+操作/机制"}` | **fallback**：1a→1b 未找到时才调 | — |
 | 2 | `searchFunctions` | `{"query": "函数关键词", "top_k": 3}` | 确认函数参数格式 | — |
 | 4 | `confirmDataMulti` | `{"data_desc": "换手率,市盈率"}` — **逗号分隔字符串** | 确认平台数据项，获取 index_title | — |
-| 5 | `runMultiFormulaBatch` | `{"formulas": ["变量名=公式", ...]}` — **字符串数组**。begin_date **整数** YYYYMMDD。**始终传 `"use_minute_data": true`**。**多公式（≥ 2 条）必须同步评估并按需传 `force_reusable_array`**（字符串数组，元素是公式左侧变量名）：把会被 `readData` 读取或后续 batch 引用的变量名写进数组，纯中间变量不要写。⚠️ **每条公式必须独占数组的一个元素**，禁止用逗号把多条公式拼在同一个字符串中（如 `"A=X","B=Y"` 写成 `"A=X,B=Y"` 会导致 PARTIAL_SUCCESS） | 执行公式；同批必须同一 task_id | 公式语法报错 → `tools/run_multi_formula.md` |
-| 6 | `readData` | `{"ids": ["hex_id", ...], "mode": "smart_sample"}` — **hex data_id**，最多 10 个 | **不可跳过**：验证 NaN率、净值方向、覆盖率。⚠️ `ids` 必须是 `runMultiFormulaBatch` 返回的 hex `_id`，**不能传中文变量名**（如 `"A股收盘价"`） | mode 不是 smart_sample → **必读 `tools/read_data.md`** |
+| 5 | `runMultiFormulaBatchStream` | `{"formulas": ["变量名=公式", ...]}` — **字符串数组**。begin_date **整数** YYYYMMDD。**始终传 `"use_minute_data": true`**。**多公式（≥ 2 条）必须同步评估并按需传 `force_reusable_array`**（字符串数组，元素是公式左侧变量名）：把会被 `readData` 读取或后续 batch 引用的变量名写进数组，纯中间变量不要写。⚠️ **每条公式必须独占数组的一个元素**，禁止用逗号把多条公式拼在同一个字符串中（如 `"A=X","B=Y"` 写成 `"A=X,B=Y"` 会导致 PARTIAL_SUCCESS） | 执行公式；同批必须同一 task_id | 公式语法报错 → `tools/run_multi_formula.md` |
+| 6 | `readData` | `{"ids": ["hex_id", ...], "mode": "smart_sample"}` — **hex data_id**，最多 10 个 | **不可跳过**：验证 NaN率、净值方向、覆盖率。⚠️ `ids` 必须是 `runMultiFormulaBatchStream` 返回的 hex `_id`，**不能传中文变量名**（如 `"A股收盘价"`） | mode 不是 smart_sample → **必读 `tools/read_data.md`** |
 | 7 | `renderChart` | `{"lines": [{"id":"hex_id","name":"图例名"}]}` — 双轴加 `"axis":"right"` | 渲染图表，自动保存 PNG 到 output/。**仅一维数据** | 画 K线/面积图/多轴 → **必读 `tools/render_chart.md`** |
-| 7b | `renderKLine` | `{"ticker": "SH600519", "begin_date": 20240101}` — **SH/SZ 前缀6位** | K线图快捷工具，无需 runMultiFormulaBatch | 叠加技术指标 → **必读 `tools/render_kline.md`** |
+| 7b | `renderKLine` | `{"ticker": "SH600519", "begin_date": 20240101}` — **SH/SZ 前缀6位** | K线图快捷工具，无需 runMultiFormulaBatchStream | 叠加技术指标 → **必读 `tools/render_kline.md`** |
 | 7c | `getChartSpec` | `{"task_id": "uuid"}` | 检索已保存图表 spec | — |
 | 7d | `reRenderChart` | `{"task_id": "uuid"}` 或 `{"spec_id": "mongo_id"}`，可选 `width/height/title` | 从已保存 spec 重新渲染 | — |
 | 8 | `downloadData` | `{"data_id": "id"}` — 可选 `begin_date`/`end_date`（YYYYMMDD）| 下载 CSV，自动保存到 output/。**先问用户时间范围** | 返回 403 → **必读 `tools/download_data.md`** |
@@ -803,7 +804,7 @@ PE数据="A股市盈率（PE, TTM）〔估值数据〕"
 
 **下载前必须向用户确认时间范围**——数据可能从 2015 年开始，几千行。先问：「您需要下载哪段时间的数据？（默认：最近一年）」
 
-`runMultiFormulaBatch` 计算结果 provider=dunhe，普通用户无权限下载（403），改用 `readData(mode="range_data", start_date=..., end_date=...)` 读取完整区间数据。
+`runMultiFormulaBatchStream` 计算结果 provider=dunhe，普通用户无权限下载（403），改用 `readData(mode="range_data", start_date=..., end_date=...)` 读取完整区间数据。
 
 > 下载权限限制和替代方案详情 → `recipes/download-data.md`
 
@@ -811,7 +812,7 @@ PE数据="A股市盈率（PE, TTM）〔估值数据〕"
 
 ## 写公式前的强制检查（不可跳过）
 
-> **在组装 `runMultiFormulaBatch` 的 formulas 数组之前**，必须逐项核对下表。
+> **在组装 `runMultiFormulaBatchStream` 的 formulas 数组之前**，必须逐项核对下表。
 > 跳过任何一项都可能导致"函数不存在""资产名不匹配""数据名不存在"等错误。
 
 | 公式中出现了… | 必须先查 / 先调 | 怎么做 |
@@ -927,7 +928,7 @@ PE数据="A股市盈率（PE, TTM）〔估值数据〕"
 
 ### ③-c 二维数据/中间结果引用规则（强制）
 
-对 `confirmDataMulti` 获取的数据集，以及 `runMultiFormulaBatch` 生成的中间结果：
+对 `confirmDataMulti` 获取的数据集，以及 `runMultiFormulaBatchStream` 生成的中间结果：
 - 在后续公式参数中统一使用双引号引用
 - 不要写裸变量参与运算
 
@@ -968,10 +969,10 @@ Top10PE = 取前("排序值", 10) * "PE数据"
 **Step C 规则**：
 - 排序字段（本例股息率）：用 `取前("排序值", N, 返回数值)` 一步得到带数值的矩阵
 - 附加展示字段（本例 PE）：用 `取前("排序值", N)` 得到 0/1 掩码，再 `"掩码" * "PE数据"` 提取数值
-- 两种写法可在同一批 `runMultiFormulaBatch` 中共存，无需分批
+- 两种写法可在同一批 `runMultiFormulaBatchStream` 中共存，无需分批
 
 **Step D 规则**：
-- `smart_sample`（验证）不可跳过——即使 `runMultiFormulaBatch` 返回 success，数据也可能全 NaN 或覆盖率异常
+- `smart_sample`（验证）不可跳过——即使 `runMultiFormulaBatchStream` 返回 success，数据也可能全 NaN 或覆盖率异常
 - 验证通过后，再用 `last_column_full` 获取最新截面用于回答
 - 若仅需最新截面数值且不需要历史趋势，两步可合并为 `last_column_full`（但仍需检查返回的覆盖率）
 
@@ -981,12 +982,12 @@ Top10PE = 取前("排序值", 10) * "PE数据"
 
 ### ⑤ 验证优先（不可跳过）
 
-每次 `runMultiFormulaBatch` 后必须 `readData` 确认结果合理，再进入最终回答。
+每次 `runMultiFormulaBatchStream` 后必须 `readData` 确认结果合理，再进入最终回答。
 
 **通用场景**：`readData(mode=smart_sample)` 检查 NaN 率、覆盖率、净值起止值。  
 **TopN 选股场景**：按四步模板 Step D 执行——先 `smart_sample` 验证，再 `last_column_full` 取最新截面。若验证发现 NaN 率过高或结果为空，先回查公式条件是否过于严格。
 
-### ⑥ `runMultiFormulaBatch` 返回 PARTIAL_SUCCESS 时的最小增量重试
+### ⑥ `runMultiFormulaBatchStream` 返回 PARTIAL_SUCCESS 时的最小增量重试
 
 - 先读取 `available_outputs`
 - 识别已成功的基础变量
@@ -997,14 +998,14 @@ Top10PE = 取前("排序值", 10) * "PE数据"
 
 ### ⑦ `confirmDataMulti` 命中平台数据项后的正确使用方式（禁止循环依赖）
 
-**根本原因**：`runMultiFormulaBatch` 的公式左侧变量名，若与右侧引用的任何 `index_title` 相同，平台即报 `循环依赖` 500 错误，且重试无效。
+**根本原因**：`runMultiFormulaBatchStream` 的公式左侧变量名，若与右侧引用的任何 `index_title` 相同，平台即报 `循环依赖` 500 错误，且重试无效。
 
 #### 按 `dimension` 字段决定后续操作
 
 | `dimension` 值 | 含义 | 正确操作 |
 |---|---|---|
-| `"one-row"` | 一维时间序列（已是单资产/宏观）| **直接 `readData(ids=[_id])`**，不得再用 `runMultiFormulaBatch` + `取出()`|
-| `"two"` | 二维全市场截面 | 用 `runMultiFormulaBatch` + `取出()` 提取单股，但**变量名必须与 `index_title` 不同** |
+| `"one-row"` | 一维时间序列（已是单资产/宏观）| **直接 `readData(ids=[_id])`**，不得再用 `runMultiFormulaBatchStream` + `取出()`|
+| `"two"` | 二维全市场截面 | 用 `runMultiFormulaBatchStream` + `取出()` 提取单股，但**变量名必须与 `index_title` 不同** |
 
 > `_id` 来自 `confirmDataMulti` 返回的 `index_info._id`（hex 字符串），直接传入 `readData` 的 `ids` 数组。
 

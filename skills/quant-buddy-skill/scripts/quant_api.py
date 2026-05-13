@@ -184,7 +184,15 @@ class QuantAPI:
         method, path = _ex.TOOL_ROUTES[tool_name]
 
         try:
-            if method == "GET":
+            if tool_name == "runMultiFormulaBatchStream":
+                # SSE 主路径；服务端未部署时回退同步老接口
+                try:
+                    raw = _ex.call_run_multi_formula_batch_stream(
+                        cfg["endpoint"], cfg["api_key"], params, timeout=self.timeout)
+                except _ex._StreamUnsupportedError:
+                    raw = _ex.call_post(cfg["endpoint"], cfg["api_key"], path, params,
+                                        timeout=self.timeout)
+            elif method == "GET":
                 raw = _ex.call_get(cfg["endpoint"], cfg["api_key"], path, params,
                                    timeout=self.timeout)
             else:
@@ -289,7 +297,7 @@ class QuantAPI:
         if begin_date:
             params["begin_date"] = begin_date
         params.update(kwargs)
-        return self._unwrap(self._call("runMultiFormulaBatch", params))
+        return self._unwrap(self._call("runMultiFormulaBatchStream", params))
 
     def refresh_snapshot_time(self, task_id: str = None) -> dict:
         """强制刷新指定 session 的分钟数据截止时间。"""

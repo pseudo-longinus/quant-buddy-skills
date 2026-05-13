@@ -1,4 +1,4 @@
-# 示例一：均线策略选股 + 回测
+﻿# 示例一：均线策略选股 + 回测
 
 ## 用户意图
 
@@ -53,7 +53,7 @@ python scripts/call.py confirmDataMulti '{"data_desc": "全市场每日收盘价
 ### Step 3 — 执行公式（生成信号 + 回测）
 
 ```bash
-python scripts/call.py runMultiFormulaBatch '{
+python scripts/call.py runMultiFormulaBatchStream '{
   "task_id": "<Step 0 的 task_id>",
   "begin_date": 20150101,
   "formulas": [
