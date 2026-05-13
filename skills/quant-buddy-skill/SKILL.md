@@ -1,9 +1,9 @@
-﻿---
+---
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
 version: 4.20.14
-description: 
+description: |
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据。
   查询最近N个交易日的价格序列、日涨跌幅序列、窗口最高价、最低价、振幅等短期统计。
   查询上市公司最近报告期的营业收入、净利润、归母净利润、ROE、总资产、资产负债率等财务指标（A股）。
