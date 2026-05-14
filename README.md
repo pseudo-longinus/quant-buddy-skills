@@ -143,6 +143,11 @@ cp -r quant-buddy-skills/skills/quant-buddy-skill ~/.copilot/skills/
         <br/>
         <sub>微信群</sub>
       </td>
+      <td align="center">
+        <img src="assets/feishu_group_qr.png" width="180" alt="飞书群二维码" />
+        <br/>
+        <sub>飞书群</sub>
+      </td>
     </tr>
   </table>
   <br/>
