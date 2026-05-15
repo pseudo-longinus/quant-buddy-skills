@@ -134,17 +134,17 @@ cp -r quant-buddy-skills/skills/quant-buddy-skill ~/.copilot/skills/
   <table>
     <tr>
       <td align="center">
-        <img src="assets/wechat_qr.jpg" width="180" alt="个人微信二维码" />
+        <img src="assets/wechat_qr2.jpg" width="180" alt="个人微信二维码" />
         <br/>
         <sub>个人微信</sub>
       </td>
       <td align="center">
-        <img src="assets/wechat_group_qr.jpg" width="180" alt="微信群二维码" />
+        <img src="assets/wechat_group_qr2.jpg" width="180" alt="微信群二维码" />
         <br/>
         <sub>微信群</sub>
       </td>
       <td align="center">
-        <img src="assets/feishu_group_qr.png" width="180" alt="飞书群二维码" />
+        <img src="assets/feishu_group_qr2.png" width="180" alt="飞书群二维码" />
         <br/>
         <sub>飞书群</sub>
       </td>

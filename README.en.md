@@ -134,17 +134,17 @@ See:
   <table>
     <tr>
       <td align="center">
-        <img src="assets/wechat_qr.jpg" width="180" alt="WeChat QR code" />
+        <img src="assets/wechat_qr2.jpg" width="180" alt="WeChat QR code" />
         <br/>
         <sub>WeChat</sub>
       </td>
       <td align="center">
-        <img src="assets/wechat_group_qr.jpg" width="180" alt="WeChat group QR code" />
+        <img src="assets/wechat_group_qr2.jpg" width="180" alt="WeChat group QR code" />
         <br/>
         <sub>WeChat Group</sub>
       </td>
       <td align="center">
-        <img src="assets/feishu_group_qr.png" width="180" alt="Feishu group QR code" />
+        <img src="assets/feishu_group_qr2.png" width="180" alt="Feishu group QR code" />
         <br/>
         <sub>Feishu Group</sub>
       </td>
