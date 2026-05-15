@@ -691,6 +691,33 @@ def _maybe_abort_on_client_validation(params):
         sys.exit(1)
 
 
+def _abort_on_run_multi_formula_missing_params(tool_name, params):
+    if tool_name != "runMultiFormulaBatchStream":
+        return
+    if not isinstance(params, dict):
+        print(json.dumps({"code": 1, "message": "runMultiFormulaBatchStream 参数必须是 JSON object。"}, ensure_ascii=False))
+        sys.exit(1)
+    if not params.get("task_id"):
+        print(json.dumps({
+            "code": 1,
+            "message": (
+                "task_id 必填。请先调用 newSession 获取 task_id；"
+                "若通过 call.py 调用，请确认 GZQ_PARAMS、@file 或命令行 JSON 中包含有效参数。"
+            ),
+        }, ensure_ascii=False))
+        sys.exit(1)
+    formulas = params.get("formulas")
+    if not isinstance(formulas, list) or not formulas:
+        print(json.dumps({
+            "code": 1,
+            "message": (
+                "formulas 必须是非空数组。"
+                "请检查 GZQ_PARAMS、@file 或命令行 JSON 中是否包含至少一条公式字符串。"
+            ),
+        }, ensure_ascii=False))
+        sys.exit(1)
+
+
 def _normalize_params(tool_name, params):
     """常见参数名错误自动修正，减少 LLM 调用失败率。"""
     if not isinstance(params, dict):
@@ -994,9 +1021,13 @@ def main():
                 _needs_rewrite = True
         except Exception:
             pass
-        if _needs_rewrite and tmp_path:
-            with open(tmp_path, "w", encoding="utf-8") as f:
-                json.dump(params, f, ensure_ascii=False)
+        if _needs_rewrite:
+            rewrite_path = tmp_path or (at_file[1:] if at_file else None)
+            if rewrite_path:
+                with open(rewrite_path, "w", encoding="utf-8") as f:
+                    json.dump(params, f, ensure_ascii=False)
+
+        _abort_on_run_multi_formula_missing_params(tool_name, params)
 
         # ── 调用 executor.py ──────────────────────────────────────
         rc, stdout_bytes, stderr_bytes = _run_executor(tool_name, param_arg)

@@ -44,8 +44,8 @@
 | CP | 名称 | 已验证状态 | Acceptance Test |
 |----|------|-----------|-----------------|
 | P0 | 资产与区间冻结 | 资产、起止日期已确认 | presets/assets_db 唯一命中；起止区间明确 |
-| P1 | 收盘价序列已取 | 每个资产的一维收盘价序列已生成 | runMultiFormulaBatchStream 成功 |
-| P2 | 区间首末值已取 | 区间内首末有效交易日价格已读取 | readData 返回可用序列 |
+| P1 | 收盘价序列已取 | 每个资产的一维收盘价序列已生成 | fast_query(window) 成功返回 series |
+| P2 | 区间首末值已取 | 区间内首末有效交易日价格已读取 | series 中存在可用首末值 |
 | P3 | 区间收益已算 | 每个资产区间收益可复核 | 仅基于区间首末值计算 |
 | P4 | 交付完成 | 结果表 + 简洁比较结论 | 无无证据归因 |
 
@@ -53,8 +53,8 @@
 
 | 失败位置 | 回退到 | 允许修改的唯一 slot | 禁止 |
 |---------|--------|-------------------|------|
-| P1 公式失败 | P0 | 数据对象 | 同时改资产和公式 |
-| P2 readData 失败 | P1 | 读取模式 | 同时改公式和模式 |
+| P1 fast_query 失败 | P0 | 资产代码或字段 | 改用公式链试错 |
+| P2 序列为空 | P1 | 日期范围 | 引入区间外数据 |
 | P3 收益异常 | P2 | 实现路径 | 引入区间外数据 |
 
 > ⚠️ 429 错误不受本节 Backward Recovery 约束——按 global-rules.md 第 12 条「429 前置拦截」规则处理。
@@ -71,33 +71,27 @@
 
 ### Step 2：取收盘价序列
 
-对 1~3 个已确认的股票/指数，默认优先使用单资产直接行情函数：
+对 1~3 个已确认的股票/指数，固定使用 `fast_query(window)` 的日期范围模式拉取区间收盘价序列：
 
 ```json
-{"formulas": [
-  "资产1_收盘 = 收盘价(资产名1)",
-  "资产2_收盘 = 收盘价(资产名2)"
-], "begin_date": {用户起止日期的 begin_date}, "include_description": true}
+{
+  "assets": ["资产1ticker", "资产2ticker"],
+  "query_type": "window",
+  "fields": ["收盘价"],
+  "start_date": {用户起始日期 YYYYMMDD},
+  "end_date": {用户结束日期 YYYYMMDD},
+  "user_query": "<用户原始问题>"
+}
 ```
 
-仅当 direct quote 路径失败时，才回退为：
+本流程禁止使用 `runMultiFormulaBatchStream`、`runMultiFormulaBatch`、`readData`、`force_reusable_array`、`force_reusable_flags`、`use_minute_data` 或 `getCardFormulas`。
 
-```json
-{"formulas": [
-  "资产1_收盘 = \"全市场每日收盘价\" * 取出(资产名1)",
-  "资产2_收盘 = \"全市场每日收盘价\" * 取出(资产名2)"
-], "begin_date": {用户起止日期的 begin_date}, "include_description": true}
-```
+### Step 3：从 fast_query series 定位区间首末值
 
-禁止默认优先使用更绕的矩阵筛选写法。
-
-### Step 3：读取区间数据
-
-用 `readData(mode="range_data", start_date={用户起始日期}, end_date={用户结束日期})` 读取完整连续区间序列，从中定位：
+从 `results[].fields[].series` 中按日期升序定位：
 - 区间内**首个有效交易日**收盘价
 - 区间内**最后一个有效交易日**收盘价
 
-读取后必须明确定位"区间内首个有效交易日"和"区间内最后一个有效交易日"。
 若不同资产区间内首末有效交易日不一致，最终对比前需明确标注，不得假装完全同日可比。
 
 ### Step 4：计算区间收益

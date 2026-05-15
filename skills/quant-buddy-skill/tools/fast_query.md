@@ -9,12 +9,12 @@
 | 参数 | 必填 | 说明 |
 |------|------|------|
 | `assets` | ✅ | 1~3 个资产，中文名/代码均可 |
-| `query_type` | ✅ | `"snapshot"`最新行情 / `"window"`近N日序列 / `"report"`最近报告期财务（仅A股） |
+| `query_type` | ✅ | `"snapshot"`最新行情 / `"window"`近N日或固定区间序列 / `"report"`最近报告期财务（A/US/HK 部分字段，以返回为准） |
 | `fields` | ✅ | 字段意图数组，见下方白名单 |
 | `window_days` | ❌ | 1~60，`window` 模式可用；与 `start_date`/`end_date` 二选一（同时传时优先使用日期范围） |
 | `start_date` | ❌ | 固定日期范围起始日，格式 `YYYYMMDD` / `YYYY-MM-DD`；三种 `query_type` 均可用 |
 | `end_date` | ❌ | 固定日期范围结束日，同格式；不传时默认当天 |
-| `result_mode` | ❌ | `"value"` / `"series"`，默认 `"value"`；仅固定日期范围场景需要显式传 `"series"` |
+| `result_mode` | ❌ | `"value"` / `"series"`，默认 `"value"`；`snapshot`/`report` 固定日期范围需要完整序列时传 `"series"`，`window` 固定返回序列无需传 |
 
 `options.partial_ok` 默认 true（部分失败仍返回其余结果）。
 
@@ -103,4 +103,4 @@ meta: query_time_ms / partial_ok
 - **涨跌幅**：返回值已是百分比数（如 `-2.74`），直接加 `%`，不再乘 100
 - **总市值/流通市值**：单位已是亿元
 - **result_mode**：默认 `value`；需要固定区间完整序列时才传 `result_mode="series"`
-- **window series**：已按日期升序，长度 = window_days；`window` 不传 `result_mode`，也不能传 `start_date/end_date`
+- **window series**：已按日期升序；`window` 可传 `window_days`，也可传 `start_date/end_date` 固定日期范围（二选一）。`window` 固定返回序列，不需要传 `result_mode`。

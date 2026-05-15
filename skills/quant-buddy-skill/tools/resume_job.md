@@ -53,8 +53,21 @@ GZQ_PARAMS='{"task_id":"<task_id>","trace_id":"<trace_id>"}' python scripts/call
 | 缺少 `task_id` 或 `trace_id` | `code:-1, error.code:"MISSING_PARAMS"` |
 | SSE 流中断且 3 次重连均失败 | `code:-1, error.code:"STREAM_INTERRUPTED"`，`partial.last_event_id` 可用于下次 `since` 参数 |
 
+### STREAM_INTERRUPTED 恢复（硬规则）
+
+收到 `STREAM_INTERRUPTED` **不等于任务失败**——服务端任务仍在运行，只是 SSE 连接断了。必须按以下步骤恢复：
+
+1. 从响应 `partial.last_event_id` 取出上次断点
+2. 以 `since` 参数**再次调用** `resumeJob`：
+   ```bash
+   GZQ_PARAMS='{"task_id":"<task_id>","trace_id":"<trace_id>","since":"<last_event_id>"}' python scripts/call.py resumeJob
+   ```
+3. 最多额外重试 2 次（合计 3 次 `resumeJob` 调用），仍 `STREAM_INTERRUPTED` 才可向用户报告连接异常
+4. **禁止**：直接放弃 → 跳到下一批 → 或向用户说"任务失败"
+
 ## 注意事项
 
 - `resumeJob` 不额外扣 RU；任务提交接受后断线不退款
 - 实时进度（每条公式完成）会打印到 stderr，与 `runMultiFormulaBatchStream` 体验一致
 - 如果任务已完成，SSE 流会从 `since=0` 重放所有历史事件并返回 `done` 结果
+- **多批任务中，必须每批 `deferred` 后都调 `resumeJob` 等到 `done`，才可提交下一批**——否则上一批变量未计算完，下一批引用会空跑。详见 `tools/run_multi_formula.md`「deferred 响应与 resumeJob 续传」

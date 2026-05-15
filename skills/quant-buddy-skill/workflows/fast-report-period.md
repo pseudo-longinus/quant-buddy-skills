@@ -1,8 +1,8 @@
 ﻿# fast-report-period · 财务报告期快照与固定区间序列
 
-适用：≤3 只 A 股；查询最近报告期财务，或固定日期范围内的财务最后有效值/完整序列；`fast_query` 单次调用。港股/美股财务不支持，直接告知。
+适用：≤3 只 A股/港股/美股；查询最近报告期财务，或固定日期范围内的财务最后有效值/完整序列；`fast_query` 单次调用。港股/美股财务不要静态拒答，应先尝试 `fast_query(query_type="report")`，按工具实际返回决定是否支持。
 
-## 执行（4 步）
+## 执行（5 步）
 
 ```
 ① 提取 assets + fields + 可选日期范围
@@ -100,13 +100,13 @@
 
 | fast_query 返回 | 处理 |
 |---|---|
-| Layer 1 MARKET_NOT_SUPPORTED | 告知仅支持 A 股，退出 |
+| Layer 1 MARKET_NOT_SUPPORTED | 按工具返回说明当前市场暂不支持该 report 查询，退出 |
 | Layer 1 INVALID_RESULT_MODE | 修正为 `value/series` 或退出 → `global-rules.md` → `quick-report-period.md` |
 | Layer 1 MISSING_START_DATE / INVALID_DATE_RANGE | 退出 → `global-rules.md` → `quick-report-period.md` 或完整链路 |
 | Layer 1 DATE_RANGE_WINDOW_CONFLICT | report 不应触发；若触发则退出 fast path |
 | Layer 1 其他 | 退出 → `global-rules.md` → `quick-report-period.md` |
 | Layer 2 ASSET_NOT_FOUND | 告知，其余资产继续 |
-| Layer 3 FIELD_MARKET_MISMATCH | 告知该字段仅 A 股 |
+| Layer 3 FIELD_MARKET_MISMATCH | 按工具返回说明该字段在当前市场不可用 |
 | Layer 3 FIELD_UNRESOLVABLE | 见下方恢复流程 |
 | Layer 4 其他 | 告知该字段暂无数据 |
 
@@ -115,7 +115,7 @@
 ```
 ① 保留 fast_query 已成功字段的值（不重查）
 ② 仅对失败字段：confirmDataMulti 确认字段全名
-③ newSession → runMultiFormulaBatchStream（公式："字段全名"*取出(资产名)）
+③ 若 confirmDataMulti 精确命中同一市场字段，再复用当前 session 调用 runMultiFormulaBatchStream（公式："字段全名"*取出(资产名)）；若只命中其他市场字段，直接告知字段不可用
 ④ readData → 合并①结果 → 输出
 ```
 

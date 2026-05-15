@@ -60,11 +60,14 @@ node -e "require('child_process').execSync('python scripts/call.py runMultiFormu
 {
   "formulas": ["...", "..."],
   "force_reusable_array": ["需保活的变量名", "..."],
-  "use_minute_data": true
+  "use_minute_data": true,
+  "execution_profile": "research_24h",
+  "user_query": "用户原始问题"
 }
 ```
 
-跨批联动：组装第 K 批的 `force_reusable_array` 前，先扫描第 `K+1..N` 批的右侧引用，凡被后续引用的本批左侧变量必须写入数组。
+- `execution_profile` + `user_query`：按 global-rules 规则 15 判定 `is_research_job`，若为 true 则**每批**都带这两个字段
+- 跨批联动：组装第 K 批的 `force_reusable_array` 前，先扫描第 `K+1..N` 批的右侧引用，凡被后续引用的本批左侧变量必须写入数组
 
 ### Step 5：逐批发起独立 shell 调用
 
@@ -82,6 +85,8 @@ GZQ_PARAMS="$(cat output/tmp_batches/batch_K.json)" python scripts/call.py runMu
 - 上一批还没返回就发起下一批
 
 > ⚠️ `cd <SKILL_ROOT>` 与 `GZQ_PARAMS=... python ...` 必须分开为**两条独立命令**，或只在已在 SKILL_ROOT 目录时省略 cd。绝不允许用 `&&` 链接。
+
+**deferred 处理**：若返回 `status:"deferred"`，必须立即用 `resumeJob` 续传到 `done` 后才可发起下一批（global-rules 规则 16）。
 
 ### Step 6：取最终输出
 
@@ -103,6 +108,7 @@ GZQ_PARAMS='{"ids":["<_id>"],"mode":"last_column_full"}' python scripts/call.py 
 | `SKILL_VERSION_MISMATCH` | 按 SKILL.md 硬规则 #8 自愈（newSession + 重读文档 + 重跑） |
 | 配额超限 | 按 SKILL.md 全局 429 处理表 |
 | stdout 截断 | 回读 `/tmp/gzq_out.txt`（仅 Linux/macOS）或用返回的 task_id 查询 |
+| `STREAM_INTERRUPTED` | 用 `partial.last_event_id` 作 `since` 参数再调 `resumeJob`，最多额外重试 2 次（详见 `tools/resume_job.md`） |
 | 某批**超时 / 报错被动拆分** | 不得沿用失败批次的 `force_reusable_array` 或把全部变量名都列入兜底；必须重新对拆分后的每个子批逐条过三问法；特别注意：原批内的引用在拆分后变成跨批引用的变量，必须在对应子批重新写入数组 |
 
 ---

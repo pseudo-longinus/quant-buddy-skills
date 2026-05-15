@@ -5,6 +5,8 @@
 
 ## 关键规则速查（6 条最高优先级红线）
 
+0. **工具名与错误恢复红线**：公式执行唯一可调用工具名是 `runMultiFormulaBatchStream`；`runMultiFormulaBatch` / `runMultiFormula` / `run_multi_formula` 均为旧名/错名。收到 `未知工具` / `Unknown tool` / `tool not found` 后，同名工具 0 次重试，不尝试名称变体；已有足够结果时必须直接收敛回答。
+
 1. **事件定义冻结**：事件类型/范围必须逐字匹配用户原始措辞，不得扩大（年报/半年报 ≠ 业绩预告；国务院/住建部 ≠ 央行/银保监会）。**筛选条件同样冻结**：对条件选股/排名题，最终筛选条件必须逐字对应用户原始约束，禁止默认新增过滤条件（非ST、仅主板、剔除北交所等），除非用户明确要求。"股票/个股"一词允许收敛到股票资产宇宙（排除指数/基金/期货），但这属于资产类型对齐，不等于新增投资筛选条件
 2. **evidence-only**：最终答案只输出工具结果支持的数值/日期/排名/口径说明；无工具证据不得归因。最终答案默认禁止输出：未被工具直接支持的报告类别推断（如仅凭 2025-09-30 写成"三季报"）、未被工具支持的数据点数量/时间跨度细化/行业分布/市场热度/涨停制度解释、将布尔掩码/0值/description 摘要直接翻译为更强的业务事实
 3. **去过程化（文本级硬禁令）**：最终答案禁止出现以下文本模式（命中任一项，必须整段重写后再输出）：
@@ -56,24 +58,14 @@
      - **链条未知时（场景 B：分轮追加公式）**：首批无法预见后续公式会引用什么。此时对本批的"汇总因子"级变量及其直接操作数一律写入数组。判断标准：变量 RHS 组合了本批多个其他变量、语义是最终评分或基础综合因子、且非原子基础数据 → 该变量及其所有 RHS 直接引用的本批变量均写入数组。（示例：`R31_BasicScore` = 汇总因子 → 写入；`R31_AmtRatio` 是 `R31_BasicScore` 的直接操作数 → 也写入。）
    - **被动拆批后必须重新推理**：若某批因超时、服务端报错或 `task_id` 丢失而失败，被动重试或拆分时：① 不得沿用失败批次的 `force_reusable_array` 或把全部变量名都列入兜底；② 必须重新对拆分后的每个子批逐条过三问法；③ 特别注意跨越拆分点的变量（原批内的引用在拆分后变成了跨批引用）必须在对应子批中重新判断并写入数组。
 14. **用户主动要求刷新盘中数据时必须先调 `refreshSnapshotTime`（硬规则）**：追问含"刷新/更新/推进/最新行情/重新算/再算一次"等刷新语义时，**必须先调 `refreshSnapshotTime '{}'`，再重跑 `runMultiFormulaBatchStream`**。不得跳过 `refreshSnapshotTime` 直接重跑公式。
-   - `RATE_LIMIT_EXCEEDED` → 读 `error.retryAfter` 秒后**静默重试**，不计入 leaf Retry Budget，不向用户暴露
-   - `CONCURRENT_LIMIT` → 读 `error.retryAfter` 秒后**静默重试**，不计入 leaf Retry Budget，不向用户暴露
-   - `WINDOW_QUOTA_EXCEEDED` → **立即停止**，读 `error.nextResetIn` 秒，按第 9 条窗口耗尽格式输出
-   - `DAILY_QUOTA_EXCEEDED` → **立即停止**，读 `error.resetIn` 秒，按第 9 条日配额耗尽格式输出
-   - `DAILY_SCAN_EXCEEDED` → **立即停止**，读 `error.resetIn` 秒，按第 9 条 IC 扫描耗尽格式输出
-   - `SERVICE_OVERLOADED`（503）→ 读 `error.retryAfter` 秒后静默重试 1 次，仍失败则告知用户"系统繁忙，请稍后重试"
-
-   **恢复时间字段速查**：
-   | error.code | 时间字段 | 含义 |
-   |---|---|---|
-   | `WINDOW_QUOTA_EXCEEDED` | `nextResetIn` / `nextResetAt` | 最早一批 RU 恢复秒数/时间点 |
-   | `DAILY_QUOTA_EXCEEDED` | `resetIn` / `resetAt` | 距次日 00:00 秒数/时间点 |
-   | `DAILY_SCAN_EXCEEDED` | `resetIn` / `resetAt` | 距次日 00:00 秒数/时间点 |
-   | `RATE_LIMIT_EXCEEDED` | `retryAfter` | 建议等待秒数 |
-   | `CONCURRENT_LIMIT` | `retryAfter` | 建议等待秒数 |
-   | `SERVICE_OVERLOADED` | `retryAfter` | 建议等待秒数 |
-
-   完整分类表见 `references/troubleshooting.md`「配额限流」段。
+15. **任务级 `execution_profile: "research_24h"` 传播（硬规则，多批策略/回测/PnL 任务必读）**：在把一个用户请求拆成多次 `runMultiFormulaBatchStream` 之前，**必须先做一次性"任务级判定"**：命中以下任一条即视为长程研究任务（`is_research_job = true`）——
+    1. `user_query` / 用户最新一轮指令含 `回测` / `策略` / `PnL` / `净值` / `超额收益` / `重算` / `批量` / `研究`（中英文同义）；
+    2. 拆批前**完整**公式计划中任一条含 `回测(`；
+    3. 全部批次累计 `formulas` > 20 条；
+    4. 拆批后 `runMultiFormulaBatchStream` 调用次数 ≥ 3。
+    
+    判定为长程研究任务后，**该 task_id 下所有相关批次**——包括只含 `平均/取出/板块` 等"看起来短"的前置数据准备批、以及 FIX/重试批——调用 `runMultiFormulaBatchStream` 时都**必须显式带** `execution_profile: "research_24h"` 和 `user_query`（保留原文）。详见 `tools/run_multi_formula.md`「任务级 research_24h 传播规则」。
+16. **deferred 响应必须 `resumeJob` 续传（硬规则）**：`runMultiFormulaBatchStream` 返回 `status:"deferred"` 时，**不得视为该批已完成**——这只是入队确认。必须立即用 `resumeJob`（传同 `task_id` + `trace_id`）续传，阻塞等到 `done`/`fatal` 拿到完整结果后，才可进入下一批或向用户报告结论。若 `resumeJob` 返回 `STREAM_INTERRUPTED`，读取 `partial.last_event_id` 用 `since` 参数再次调用，最多额外重试 2 次。**禁止**：① 收到 `deferred` 就向用户说"已完成"；② 跳过续传直接提交下一批（上一批变量未算完，下一批引用会空跑）；③ `STREAM_INTERRUPTED` 后放弃（任务在服务端仍在运行）。详见 `tools/run_multi_formula.md`「deferred 响应与 resumeJob 续传」+ `tools/resume_job.md`。限流错误（429）按第 12 条处理。
 
 ### ⛔ 最终答案自检清单（输出前逐项执行，任一不过 = 修改后再输出）
 
@@ -287,9 +279,14 @@ B 级证据中附带的任何数值（如 description 里的 last_value）不得
 
 ### runMultiFormulaBatchStream
 ```json
-{"formulas": ["..."], "begin_date": 20240101, "include_description": true, "use_minute_data": true, "force_reusable_array": ["变量名2"]}
+{"formulas": ["..."], "begin_date": "<T-N>", "include_description": true, "use_minute_data": true, "force_reusable_array": ["变量名2"]}
 ```
-- `begin_date` **必须传**，默认 `20240101`；用户指定更早起点时按需调整
+- `begin_date` **必须传**——begin_date 越晚返回越快。原则：取最小够用的起点。
+  - 公式含滚动窗口 N（`平均(…,N)` / `涨跌幅(…,N)` / `最大/最小/标准差(…,N)` / `EMA(…,N)` / `MACD` 默认 N=35 / `同比` N=365 等）→ `T - N 自然日`
+  - 公式属于"需要长历史"场景（`回测`/`IC评估`/`事件研究`/`区间统计量`/`累计最大`/`从头平均`/`年度累计` 以及多报告期财务查询）→ `20160101 / 20210101 / T-N年` 等档位
+  - 用户明确指定区间 → 直接用
+  - 无法判定 N / 单点快照 / 仅取最新值 → 直接 `T`（今日）
+  - 详细分档见 `tools/run_multi_formula.md` § begin_date 分档方案
 - `include_description` **必须传** `true`，确保返回 description 供后续判断
 - `use_minute_data` 默认传 `true`；财务报告期查询按 leaf workflow 规则省略或设为 `false`
 - **`force_reusable_array` 在 `formulas.length ≥ 2` 时必须主动评估并按需传递（硬规则）**：

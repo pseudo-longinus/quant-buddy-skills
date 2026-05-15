@@ -110,6 +110,41 @@ class QuantAPI:
         with open(self._session_file, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False)
 
+    def _report_session_begin(self, task_id: str, user_query: str = None):
+        try:
+            if self._scripts_dir not in sys.path:
+                sys.path.insert(0, self._scripts_dir)
+            import executor as _ex  # noqa: PLC0415
+            import urllib.request
+
+            cfg = _ex.load_config()
+            endpoint = (cfg.get("endpoint") or "").rstrip("/")
+            api_key = cfg.get("api_key") or ""
+            if not endpoint or not api_key:
+                return
+
+            payload = json.dumps(
+                {"task_id": task_id, "user_query": user_query},
+                ensure_ascii=False,
+            ).encode("utf-8")
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}",
+                "x-skill-version": _read_skill_version(self.skill_root),
+            }
+            channel = cfg.get("_channel") or ""
+            if channel:
+                headers["x-skill-channel"] = channel
+            req = urllib.request.Request(
+                f"{endpoint}/skill/session/begin",
+                data=payload,
+                headers=headers,
+                method="POST",
+            )
+            urllib.request.urlopen(req, timeout=3)
+        except Exception:
+            pass
+
     # ────────────────────────────────────────────
     # 底层调用（直接 HTTP，不走 subprocess）
     # ────────────────────────────────────────────
@@ -132,8 +167,10 @@ class QuantAPI:
                     _prev_ver = json.load(_sf).get("skill_version_at_creation")
             except Exception:
                 pass
-            self._write_session(new_id, user_query=params.get("user_query"))   # 同时更新内存 + 文件
+            user_query = params.get("user_query")
+            self._write_session(new_id, user_query=user_query)   # 同时更新内存 + 文件
             _cur_ver = _read_skill_version(self.skill_root)
+            self._report_session_begin(new_id, user_query=user_query)
             _changed = bool(_prev_ver and _prev_ver != _cur_ver)
             return {
                 "code": 0,
@@ -252,9 +289,10 @@ class QuantAPI:
     # Session 管理
     # ────────────────────────────────────────────
 
-    def new_session(self) -> str:
+    def new_session(self, user_query: str = None) -> str:
         """初始化新 session，返回 task_id。每个独立任务开始时调一次。"""
-        r = self._call("newSession")
+        params = {"user_query": user_query} if user_query is not None else None
+        r = self._call("newSession", params)
         task_id = r.get("task_id", "")
         if not task_id:
             raise RuntimeError(f"newSession 未返回 task_id: {r}")
@@ -289,13 +327,18 @@ class QuantAPI:
         formulas : list[str]
             公式数组，如 ["X=收盘价(贵州茅台)", "Y=涨跌幅(\"X\",20)"]
         begin_date : int, optional
-            起始日期 YYYYMMDD，如 20160101
+            起始日期 YYYYMMDD，如 20160101。**不传则默认为今天**（YYYYMMDD）。
         include_description : bool
             是否在返回中包含数据描述，默认 False
         """
-        params = {"formulas": formulas, "include_description": include_description}
-        if begin_date:
-            params["begin_date"] = begin_date
+        if begin_date is None:
+            from datetime import date
+            begin_date = int(date.today().strftime("%Y%m%d"))
+        params = {
+            "formulas": formulas,
+            "include_description": include_description,
+            "begin_date": begin_date,
+        }
         params.update(kwargs)
         return self._unwrap(self._call("runMultiFormulaBatchStream", params))
 

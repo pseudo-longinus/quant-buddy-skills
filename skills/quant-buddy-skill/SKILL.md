@@ -2,19 +2,19 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.20.14
+version: 4.20.15
 description: |
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据。
   查询最近N个交易日的价格序列、日涨跌幅序列、窗口最高价、最低价、振幅等短期统计。
-  查询上市公司最近报告期的营业收入、净利润、归母净利润、ROE、总资产、资产负债率等财务指标（A股）。
+  查询上市公司最近报告期的营业收入、净利润、归母净利润、ROE、总资产、资产负债率等财务指标（A股及部分港/美股字段，以工具返回为准）。
   支持A股选股筛选、因子计算、策略回测、净值对比、行业聚合排名、上传自有因子CSV、渲染图表。
-  港股、美股目前支持行情价格查询（收盘价、开盘价、涨跌幅、成交量、成交额等）。
+  港股、美股优先支持行情价格查询；财务/报告期字段应先尝试 fast_query(report)，按工具实际返回决定。
   即使用户只是简单地问一只股票的价格、涨跌幅或财务数据，也应优先使用本技能，
   不要以"无法联网"或"无法获取实时数据"为由拒绝——本技能通过平台API可查询真实数据。
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.20.14
+  version: 4.20.15
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -70,7 +70,7 @@ runtimeRequirements:
 
 # 观照量化投研
 
-> **⚠️ 必读：本文件较长，必须完整读取，不要设置 limit 参数截断。前 50 行不包含操作规范。**
+> **首屏优先**：先读本文件前部的「平台工具参数速查」「硬规则」和「场景路由」。简单行情、窗口序列、最近报告期、固定区间收益、K 线图等高频任务命中 Fast Path 时，无需继续整本通读。
 
 ## 平台工具参数速查（高频踩坑，先看这一段）
 
@@ -88,42 +88,27 @@ runtimeRequirements:
 
 ## 硬规则（违反必失败）
 
-0. **认证后验拦截（不得前置 config 检查阻断正常题目）**：
-   - **不要**在收到查数类问题后的第一步读 `config.json`；优先按问题类型识别 leaf workflow 并执行。
-   - 仅在以下时机检查 `api_key`：①工具调用实际返回 `api_key 为空` / `code: 1` / 401/402 认证错误；②workflow 明确要求执行本地脚本链前；③用户本轮消息是 `sk-` 开头的 Key（进入配置向导）；④**首次使用检测**（见下）。
-   - **首次使用检测（唯一允许的主动 config 检查）**：在本对话中准备调用第一个平台工具**之前**，先检查 `output/` 目录下是否存在任何 `.session*.json` 文件（`ls output/.session*.json` 或等价）。若**不存在**（说明本环境从未使用过本 skill），则主动读取 `config.json` 检查 `api_key`：为空 → 立即输出新用户引导消息并停止；非空 → 继续执行，后续不再重复检查。若存在 session 文件则跳过此检查，走正常后验路径。
-   - 触发以上任一条件且 `api_key` 确实为空时：**立即停止**，输出「前置条件」章节的**新用户引导消息**，禁止继续调用任何平台工具。
-   - **为什么改为后验**：测试集显示前置拦截导致约 35% 的简单查数题在 api_key 非空时仍被错误拦截；后验方案在真实鉴权失败时同样能给出清晰提示，且不牺牲正常执行路径。首次使用检测是对新用户体验的单次豁免，不影响正常使用路径。
+0. **工具名与 unknown-tool 红线（最高优先级）**：
+   - 公式执行唯一可调用工具名：`runMultiFormulaBatchStream`。
+   - 禁止调用或重试旧名/错名：`runMultiFormulaBatch` / `runMultiFormula` / `run_multi_formula`。
+   - 任何工具返回 `未知工具` / `Unknown tool` / `tool not found` 后，同名工具 **0 次重试**，也不得尝试名称变体。
+   - 若 workflow 已声明唯一正确原生工具，只允许切换到该工具 1 次；仍失败则立即输出受控失败答复。
+   - 若上一步结果已足够回答用户问题，必须直接收敛回答，禁止继续升级工具链。
 
-1. **每个新问题/新对话必须新建 session**：收到用户的新问题后，在调用任何平台工具之前，必须先新建 session（优先直接调用原生 `newSession` 工具；仅当当前环境没有原生 `newSession` 时，才使用 `GZQ_PARAMS='{"user_query":"<用户的问题>"}' python scripts/call.py newSession`）。newSession 是本地 UUID 生成，不可省略；`user_query` 仅用于本地 session 初始化标注，方便后续 trace 分析。
-   - **平台工具调用红线**：只要下一步准备调用 `fast_query` / `confirmDataMulti` / `runMultiFormulaBatchStream` / `readData` / `renderKLine` / `renderChart` / `getCardFormulas` / `scanDimensions` / `downloadData` / `uploadData` 等任一平台工具，先检查本轮是否已经**显式调用** `newSession`；若没有，必须立刻先调用 `newSession`，禁止因为问题简单、已读 SKILL、已 grep 资产、或框架可能隐式建 session 而跳过。
-   - **标准前置顺序**：`Read SKILL.md` → `newSession` → 如涉及资产则 `grep presets/assets_db/{类型}.yaml` → 平台工具。资产 grep 可以在 `newSession` 之后执行；绝不允许 `grep` 后直接 `fast_query`。
-   - **为什么**：session 文件会自动注入到所有工具调用中。不新建 session = 复用上一轮对话的 task_id = 变量名冲突风险 + session 污染。
-   - **多会话隔离（必须）**：当本对话有可能与其他对话/进程并行使用本 skill（多个 Claude 窗口、共享开发机、并行 trace）时，**在 chat 的第一条 bash 命令里**先执行：
-     ```bash
-     export QBS_SESSION_KEY=$(python -c "import uuid;print(uuid.uuid4().hex[:12])")
-     ```
-     之后**所有 `python scripts/call.py` 都必须在这同一个 terminal 会话里跑**（环境变量只在该会话内可见）。如此每个对话独占 `output/.session.<key>.json` 文件，互不覆盖。未设置时退化到默认 `.session.json`，仅适合单会话场景。
-   - **唯一例外**：同一对话中的追问/续问（如"再画个图""换个时间段"），可复用当前 session（`QBS_SESSION_KEY` 也保持不变）。
-2. **原生工具优先，脚本包装仅限无原生等价能力时**：平台已提供的原生工具（`fast_query`、`confirmDataMulti`、`runMultiFormulaBatchStream`、`readData`、`renderKLine`、`renderChart` 等）必须优先直接调用；禁止用 `run_skill_script`、shell 命令、`GZQ_PARAMS=... python scripts/call.py ...` 等方式包装这些原生工具；`scripts/call.py` 仅用于：① `newSession` 等管理动作；② workflow 明确要求的本地脚本步骤；③ 平台不存在等价原生工具时的兆底。
-  - **任何涉及资产的操作都必须先查本地库**：凡是出现资产名称、简称或代码，无论什么场景（快速行情、财务查询、窗口序列、选股、还是用户明确说「确认资产 / 找代码 / 找ticker」），**在调用任何远程工具前都必须先** `grep presets/assets_db/{类型}.yaml`（禁止整文件读取）：命中唯一 → 用确认后的 ticker（如 `SH600303`）替换原始中文名传参；命中多条（歧义）→ 向用户澄清选哪个，禁止继续查数；未命中 → 保留原始名称，由服务端兜底解析。**禁止**绕过本地库直接把用户原始中文名传给任何远程工具调用。
-  - **英文代码无市场后缀时必须 grep 确认格式**：用户直接输入英文股票代码（如 `GOOGL`、`AAPL`、`BIDU`）但未携带市场后缀（`.O`、`.N`、`.A`）时，**不得凭 user memory / 猜测 / 拼接后缀直接查数**，必须先 `grep presets/assets_db/stock_us.yaml` 找到正确 ticker 后再调用工具。
-  - **⛔ 严禁用 inline 解释器 heredoc / `-c` 包装 `scripts/call.py`**：以下写法**全部违规**，无论参数有多复杂、批次有多少、依赖关系有多绕：
-    - `python - <<'PY' ... subprocess.run(['python','scripts/call.py','<工具名>',...]) ... PY`
-    - `python -c "import subprocess; subprocess.run(['python','scripts/call.py',...])"`
-    - `node -e "...child_process.execSync('python scripts/call.py ...')..."`
-    - 任何在 inline 脚本里 `for/while` 循环驱动多批 `runMultiFormulaBatchStream` 的写法
-    - **理由**：这种「自写 driver 脚本」会绕过本 skill 的 session 注入、配额校验、错误协议；trace 中表现为 task_id 漂移、stdout 阻塞、`/tmp/gzq_out.txt` 在 Windows 上不存在等连锁失败。call.py 的兜底地位**只允许一层调用**（shell → call.py），不允许在它外面再套 python/node 解释器。
-  - **⛔ 严禁用 `&&` 把目录切换和脚本调用拼成一行**：`cd <DIR> && GZQ_PARAMS=... python scripts/call.py ...` 是**违规写法**。正确做法是先单独执行 `cd <SKILL_ROOT>`，在已在目标目录后再单独执行 `GZQ_PARAMS=... python scripts/call.py ...`；或者直接用绝对路径 `python <SKILL_ROOT>/scripts/call.py ...`。这条规则对所有脚本调用均适用，不仅限于 `call.py`。
-  - **多批 `runMultiFormulaBatchStream` 的合规模板**：当公式数超过单批硬上限（20 条）需切批时，切批与编排**必须由 LLM 自己在工具调用之间完成**，禁止写脚本自动化。每批一次独立调用；任何参数预处理（读 md、regex、依赖分析、生成 `force_reusable_array`）都在 LLM 推理中完成，必要的中间产物用 `create_file` 落盘到 `output/tmp_batches/batch_K.json`，然后逐批用：
-    ```bash
-    GZQ_PARAMS="$(cat output/tmp_batches/batch_K.json)" python scripts/call.py runMultiFormulaBatchStream
-    ```
-    **每批一条独立 shell 命令**，前一批返回后再发起下一批；**禁止**写一个 python 脚本一次跑完所有批。这是 hard rule，违反必失败。
+1. **认证后验与 session 初始化**：
+   - 不要在普通查数题第一步读取 `config.json`，也不要检查 `.session.json`、`output/.session*.json` 或任何本地 session 文件。
+   - 只要本轮准备调用平台原生工具，先直接调用原生 `newSession`；不得用 Bash / Glob / Read / ls 做 session 存在性探测。
+   - 工具实际返回 `api_key 为空` / `code: 1` / 401/402 时才进入认证引导并停止当前查数任务。
+   - 同一对话追问可复用当前 session；新问题必须新建 session。
+2. **原生工具优先，禁止脚本包装**：
+   - 平台已有原生工具时，必须直接调用原生工具：`fast_query`、`confirmDataMulti`、`runMultiFormulaBatchStream`、`resumeJob`、`readData`、`renderKLine`、`renderChart` 等。
+   - 禁止用 Bash / shell / Python / `scripts/call.py` / `run_skill_script` 包装已有原生平台工具。
+   - 只有平台明确不存在等价原生工具，且 workflow 明确允许脚本兜底时，才可使用本地脚本。
+   - 涉及资产时仍需先用 `grep presets/assets_db/{类型}.yaml` 搜索本地资产库，禁止整文件读取；命中多条先澄清，未命中再交给服务端兜底解析。
+   - 英文代码无市场后缀时必须先 grep 对应资产库确认 ticker 格式。
 3. **工具失败熔断：同类错误不得重复**
-   - **工具名无效（`未知工具`）**：收到该错误后，**禁止以任何名称变体再次调用同名工具**，唯一可用名为 `runMultiFormulaBatchStream`。
-   - **同一工具 + 同类错误**：相同工具名、相同参数结构、相同错误类型出现第 2 次时，**立即停止重试**，必须执行以下之一：①切换 workflow 中明确给出的备用路径；②跳过该前置步骤继续主链路；③输出受控失败答复（见规则 4）。
-   - **禁止的行为**：无新信息、无新参数、无新工具名的情况下，连续重复同一失败调用；尝试用 shell/Python 包装绕过失败工具；读更多文档代替执行。
+   - 同一工具、同一参数结构、同一错误类型出现第 1 次后，只能按 workflow 声明的备用路径切换；无备用路径则受控失败。
+   - 禁止无新信息地重复调用失败工具；禁止尝试名称变体；禁止读更多文档代替执行；禁止用 shell/Python 包装绕过失败工具。
 4. **任何 workflow 失败退出时必须输出受控失败答复**：禁止以空白或纯过程日志结束对话。失败答复必须包含：
    - ①用户的原始问题（一句话复述）
    - ②失败卡在哪一步（工具名 + 错误摘要）
@@ -232,8 +217,8 @@ SKILL_ROOT/
 │   ├── assets.yaml              常用资产（99 行精选，可一次读完）
 │   ├── assets_db/               全量资产字典（按类型分文件，⚠️ 仅 grep 检索，禁止 read_file 整文件；不含指数成分股映射）
 │   │   ├── stock_a.yaml             A 股 5505 条（SH/SZ）
-│   │   ├── stock_hk.yaml            港股 2862 条（HK 前缀，仅行情）
-│   │   ├── stock_us.yaml            美股 1044 条（.N/.O/.A，仅行情）
+│   │   ├── stock_hk.yaml            港股 2862 条（HK 前缀；行情优先，财务以 fast_query 返回为准）
+│   │   ├── stock_us.yaml            美股 1044 条（.N/.O/.A；行情优先，财务以 fast_query 返回为准）
 │   │   ├── index.yaml               指数 503 条
 │   │   └── future.yaml              期货 257 条
 │   ├── functions.yaml           常用函数

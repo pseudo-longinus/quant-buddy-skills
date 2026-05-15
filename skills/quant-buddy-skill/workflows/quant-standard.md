@@ -74,6 +74,15 @@
 
 ---
 
+## 公式流式执行与续传约束（强制）
+
+- 公式执行只允许使用 `runMultiFormulaBatchStream`，禁止旧名 `runMultiFormulaBatch` / `run_multi_formula`。
+- `runMultiFormulaBatchStream` 返回 deferred、trace_id 或流中断后，续传只允许使用会注入 `Accept: text/event-stream` 的 `resumeJob` 工具路径，或 `python scripts/executor.py resumeJob @params.json` / `python scripts/call.py resumeJob ...`。
+- 禁止手动拼 `/runMultiFormulaBatch/stream` 裸 GET 请求；缺少 SSE header 会被服务端拒绝并消耗无效 RU。
+- `resumeJob` 必须同时包含 `task_id` 与 `trace_id`；缺任一字段时先停止并说明缺少续传参数，不要试探调用。
+
+---
+
 ## 字段确认的口径保真（强制）
 
 当用户显式写出以下限定词时，`confirmDataMulti` 确认数据不得静默降级：
@@ -700,7 +709,7 @@ PE数据="A股市盈率（PE, TTM）〔估值数据〕"
 # ✓ 正确：直接内联
 条件=("A股市盈率（PE, TTM）〔估值数据〕"<15)*("股息率">0.03)
 ```
-这一错误在 kimi-k2.5 和 gpt-5.4 两个模型上均有出现，导致公式条数无谓增加 2 条，浪费计算配额。
+这一错误在 Kimi 和 gpt-5.4 两类模型上均有出现，导致公式条数无谓增加 2 条，浪费计算配额。
 
 ---
 
@@ -763,7 +772,7 @@ PE数据="A股市盈率（PE, TTM）〔估值数据〕"
 | 1c | `searchSimilarCases` | `{"query": "资产名+操作/机制"}` | **fallback**：1a→1b 未找到时才调 | — |
 | 2 | `searchFunctions` | `{"query": "函数关键词", "top_k": 3}` | 确认函数参数格式 | — |
 | 4 | `confirmDataMulti` | `{"data_desc": "换手率,市盈率"}` — **逗号分隔字符串** | 确认平台数据项，获取 index_title | — |
-| 5 | `runMultiFormulaBatchStream` | `{"formulas": ["变量名=公式", ...]}` — **字符串数组**。begin_date **整数** YYYYMMDD。**始终传 `"use_minute_data": true`**。**多公式（≥ 2 条）必须同步评估并按需传 `force_reusable_array`**（字符串数组，元素是公式左侧变量名）：把会被 `readData` 读取或后续 batch 引用的变量名写进数组，纯中间变量不要写。⚠️ **每条公式必须独占数组的一个元素**，禁止用逗号把多条公式拼在同一个字符串中（如 `"A=X","B=Y"` 写成 `"A=X,B=Y"` 会导致 PARTIAL_SUCCESS） | 执行公式；同批必须同一 task_id | 公式语法报错 → `tools/run_multi_formula.md` |
+| 5 | `runMultiFormulaBatchStream` | `{"formulas": ["变量名=公式", ...]}` — **字符串数组**。begin_date **整数** YYYYMMDD。**始终传 `"use_minute_data": true`**。**多公式（≥ 2 条）必须同步评估并按需传 `force_reusable_array`**（字符串数组，元素是公式左侧变量名）：把会被 `readData` 读取或后续 batch 引用的变量名写进数组，纯中间变量不要写。⚠️ **每条公式必须独占数组的一个元素**，禁止用逗号把多条公式拼在同一个字符串中（如 `"A=X","B=Y"` 写成 `"A=X,B=Y"` 会导致 PARTIAL_SUCCESS）。多批回测/策略任务须按 global-rules 规则 15 每批带 `execution_profile`+`user_query`，收到 `deferred` 须 `resumeJob` 续传（规则 16） | 执行公式；同批必须同一 task_id | 公式语法报错 → `tools/run_multi_formula.md` |
 | 6 | `readData` | `{"ids": ["hex_id", ...], "mode": "smart_sample"}` — **hex data_id**，最多 10 个 | **不可跳过**：验证 NaN率、净值方向、覆盖率。⚠️ `ids` 必须是 `runMultiFormulaBatchStream` 返回的 hex `_id`，**不能传中文变量名**（如 `"A股收盘价"`） | mode 不是 smart_sample → **必读 `tools/read_data.md`** |
 | 7 | `renderChart` | `{"lines": [{"id":"hex_id","name":"图例名"}]}` — 双轴加 `"axis":"right"` | 渲染图表，自动保存 PNG 到 output/。**仅一维数据** | 画 K线/面积图/多轴 → **必读 `tools/render_chart.md`** |
 | 7b | `renderKLine` | `{"ticker": "SH600519", "begin_date": 20240101}` — **SH/SZ 前缀6位** | K线图快捷工具，无需 runMultiFormulaBatchStream | 叠加技术指标 → **必读 `tools/render_kline.md`** |

@@ -22,6 +22,8 @@
 
 **停止条件**：fast_query 返回 `success: true`，目标序列已到手 → 立刻停止。
 
+**report_period 稀疏序列收敛规则**：当 `fast_query(window)` 成功返回 `date_type="report_period"`，或目标字段是港/美股单季估值、财报/报告期口径字段时，`series` 稀疏不是失败。若用户只要求区间走势、最高/最低值、有效日期或序列展示，应直接基于已返回的 `series` 回答，并说明该字段按报告期更新、不是逐交易日连续数据；禁止仅因序列稀疏升级到 `confirmDataMulti` / `runMultiFormulaBatchStream` / `readData` 链路。
+
 ---
 
 ## ① 参数提取规则

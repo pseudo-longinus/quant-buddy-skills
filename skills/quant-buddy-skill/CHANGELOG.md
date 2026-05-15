@@ -4,6 +4,26 @@
 
 ---
 
+## [4.20.15] — 2026-05-15
+
+**变更文件**：`SKILL.md`、`tools/fast_query.md`、`workflows/global-rules.md`、`workflows/period-return-compare.md`、`workflows/event-study.md`、`workflows/fast-window.md`、`workflows/fast-report-period.md`、`workflows/quick-report-period.md`、`workflows/quant-standard.md`、`scripts/executor.py`、`scripts/call.py`、`scripts/quant_api.py`、测试台 `agent/*.py`
+
+收敛公式执行工具契约与高频 fast path：统一使用 `runMultiFormulaBatchStream`，减少 fixed-window / 单事件窗口 / 港美股财务查询误入公式链或静态拒答的问题；同时保留 5/14 的 SSE 必填参数与 session 上报修复。
+
+- `SKILL.md`：版本号升至 `4.20.15`；首屏改为短路径优先，新增工具名与 unknown-tool 红线，明确公式执行唯一工具名为 `runMultiFormulaBatchStream`，旧名 `runMultiFormulaBatch` / `runMultiFormula` / `run_multi_formula` 0 次重试；移除普通查数前的 `.session` 本地探测，禁止 Bash / shell / Python / `scripts/call.py` 包装已有原生工具。
+- `tools/fast_query.md`：同步说明 `window` 支持 `window_days` 或 `start_date`/`end_date`，固定返回序列且无需传 `result_mode`；`report` 财务字段说明改为 A/US/HK 部分字段以工具返回为准。
+- `workflows/global-rules.md`：在关键规则速查顶部新增工具名与错误恢复红线，防止 unknown tool 后重复试错。
+- `workflows/period-return-compare.md`：固定区间累计涨跌幅对比改为 `fast_query(query_type="window")` 日期范围模式，禁止再走公式链、`readData`、`force_reusable_*` 或分钟频参数。
+- `workflows/event-study.md`：新增单事件单资产窗口收益 Fast Path，一次 `fast_query(window)` 拉取事件日后序列，再在返回 `series` 内定位 T+N/T+M；固定起止区间收益改路由至 `period-return-compare.md`。
+- `workflows/fast-window.md`：新增 `report_period` 稀疏序列收敛规则；报告期/单季口径字段返回稀疏 series 时可直接回答，不因稀疏升级到公式链。
+- `workflows/fast-report-period.md` / `workflows/quick-report-period.md`：港股/美股财务不再静态拒答，先尝试 `fast_query(query_type="report")`，仅按工具返回说明不支持或字段缺失；FIELD_UNRESOLVABLE fallback 复用当前 session。
+- `scripts/executor.py`：在网络调用前新增 `runMultiFormulaBatchStream` 必填参数校验；缺 `task_id` 或 `formulas` 时本地返回结构化错误并退出，不再向服务端发送空 body 或不完整请求。
+- `scripts/call.py`：在包装层增加同类前置校验，避免无 `GZQ_PARAMS` / 空参数时静默使用 `{}`；同时修正 `@file` 模式下自动注入 session 后未回写参数文件的问题。
+- `scripts/quant_api.py` + `agent/test_agent.py`：直连 `QuantAPI` 创建 `newSession` 时，同步向 `/skill/session/begin` fire-and-forget 上报 `task_id` 与当前题目 `user_query`；上报失败不阻断本地 session 创建。
+- 测试台 `agent/tools_schema.py`、`agent/tool_contracts.py`、`agent/trace_audit.py`、`agent/local_tools.py`、`agent/check_force_reusable_full.py`：同步可见工具、契约校验与审计口径为 `runMultiFormulaBatchStream`，将旧名纳入 deprecated 识别；补齐 `resumeJob` 工具定义。
+
+---
+
 ## [4.20.14] — 2026-05-13
 
 **变更文件**：`SKILL.md`、`tools/fast_query.md`、`workflows/fast-window.md`、`workflows/fast-snapshot.md`

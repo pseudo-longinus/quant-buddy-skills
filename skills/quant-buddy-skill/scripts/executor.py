@@ -955,6 +955,30 @@ def main():
             }, ensure_ascii=False))
             sys.exit(1)
 
+    # ── 客户端必填参数前置校验（在网络调用前拦截，避免浪费 RU 配额）──────
+    if tool_name == "runMultiFormulaBatchStream":
+        if not params.get("task_id"):
+            result = {
+                "code": 1,
+                "message": (
+                    "task_id 必填。请先调用 newSession 获取 task_id，"
+                    "再将其作为参数传入 runMultiFormulaBatchStream。"
+                    "若通过 call.py 调用，请确认 GZQ_PARAMS 环境变量已正确设置且包含 task_id 字段。"
+                ),
+            }
+            print(json.dumps(result, ensure_ascii=False))
+            sys.exit(1)
+        if not params.get("formulas"):
+            result = {
+                "code": 1,
+                "message": (
+                    "formulas 必须是非空数组。"
+                    "请检查 GZQ_PARAMS 中是否包含 formulas 字段，且数组中至少有一条公式字符串。"
+                ),
+            }
+            print(json.dumps(result, ensure_ascii=False))
+            sys.exit(1)
+
     # ── 参数规范化：自动修正常见参数名错误 ──────────────────────
     if tool_name == "runMultiFormulaBatchStream" and "formulas" in params:
         fixed = []
@@ -966,8 +990,13 @@ def main():
                 if f:
                     fixed.append(f)
         # 防御性修复：模型有时对公式中的引号做双重转义（ \" → "）
-        # 例如 kimi-k2.5 会生成 \\\"A股营业收入\\\" 导致 HTTP 500
+        # 例如 Kimi 模型可能生成 \\\"A股营业收入\\\" 导致 HTTP 500
         params["formulas"] = [f.replace('\\"', '"') for f in fixed]
+
+        # begin_date 缺失/空值时默认取今天（YYYYMMDD 整数）
+        if not params.get("begin_date"):
+            from datetime import date as _date
+            params["begin_date"] = int(_date.today().strftime("%Y%m%d"))
 
     # ── buildEventStudy 参数校验 ──────────────────────────────
     if tool_name == "buildEventStudy":
