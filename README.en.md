@@ -1,6 +1,6 @@
 # quant-buddy-skills
 
-[中文](README.growth.md) | [English](README.growth.en.md)
+[中文](README.md) | [English](README.en.md)
 
 > Data + computation + LLM infrastructure for financial agents.
 
