@@ -355,6 +355,34 @@ npx skills list -g --json
 - 想少写数据清洗和回测代码的开发者。
 - 想在 Claude Code（编程智能代理）、Cursor（智能编辑器）、Copilot（编程助手）、Windsurf（智能编辑器）等环境中直接完成投研任务的用户。
 
+## 联系作者
+
+想看更多策略案例、接入问题、更新路线和真实投研工作流，欢迎添加微信或加入交流群。
+
+<p align="center">
+  <table>
+    <tr>
+      <td align="center">
+        <img src="assets/wechat_qr2.jpg" width="180" alt="个人微信二维码" />
+        <br/>
+        <sub>个人微信</sub>
+      </td>
+      <td align="center">
+        <img src="assets/wechat_group_qr2.jpg" width="180" alt="微信群二维码" />
+        <br/>
+        <sub>微信群</sub>
+      </td>
+      <td align="center">
+        <img src="assets/feishu_group_qr2.png" width="180" alt="飞书群二维码" />
+        <br/>
+        <sub>飞书群</sub>
+      </td>
+    </tr>
+  </table>
+  <br/>
+  <sub>扫码添加微信或加入交流群，欢迎交流量化投研、Agent（智能代理）工作流和策略验证案例。</sub>
+</p>
+
 ## License（开源许可证）
 
 MIT（麻省理工开源许可证）
