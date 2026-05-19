@@ -145,6 +145,45 @@ class QuantAPI:
         except Exception:
             pass
 
+    def _check_skill_version(self) -> dict:
+        """主动调用服务端 GET /skill/version/check，返回结构化升级元信息。
+
+        无配置/异常时返回空 dict。返回字段对齐服务端响应：
+        update_required / latest_version / package / self_update / try_order / reload_files / message
+        """
+        try:
+            if self._scripts_dir not in sys.path:
+                sys.path.insert(0, self._scripts_dir)
+            import executor as _ex  # noqa: PLC0415
+            import urllib.request
+
+            cfg = _ex.load_config()
+            endpoint = (cfg.get("endpoint") or "").rstrip("/")
+            api_key = cfg.get("api_key") or ""
+            if not endpoint or not api_key:
+                return {}
+
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "x-skill-version": _read_skill_version(self.skill_root),
+            }
+            channel = cfg.get("_channel") or ""
+            if channel:
+                headers["x-skill-channel"] = channel
+            req = urllib.request.Request(
+                f"{endpoint}/skill/version/check",
+                headers=headers,
+                method="GET",
+            )
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                body = resp.read().decode("utf-8")
+                data = json.loads(body)
+                if data.get("code") == 0 and data.get("success"):
+                    return data
+                return {}
+        except Exception:
+            return {}
+
     # ────────────────────────────────────────────
     # 底层调用（直接 HTTP，不走 subprocess）
     # ────────────────────────────────────────────
@@ -172,7 +211,10 @@ class QuantAPI:
             _cur_ver = _read_skill_version(self.skill_root)
             self._report_session_begin(new_id, user_query=user_query)
             _changed = bool(_prev_ver and _prev_ver != _cur_ver)
-            return {
+
+            # 主动查询服务端版本，便于上层 Agent 在 newSession 时立即知道是否需要升级
+            _ver_info = self._check_skill_version()
+            _resp = {
                 "code": 0,
                 "task_id": new_id,
                 "skill_version": _cur_ver,
@@ -186,6 +228,15 @@ class QuantAPI:
                        "task_id 已保存到 .session.json。")
                 ),
             }
+            if _ver_info.get("update_required"):
+                _resp["update_required"] = True
+                _resp["latest_version"] = _ver_info.get("latest_version")
+                _resp["package"] = _ver_info.get("package")
+                _resp["self_update"] = _ver_info.get("self_update")
+                _resp["try_order"] = _ver_info.get("try_order")
+                _resp["reload_files"] = _ver_info.get("reload_files")
+                _resp["update_message"] = _ver_info.get("message")
+            return _resp
 
         # ── 版本守卫：检测旧会话与当前 skill 版本是否匹配 ─────────────
         _cur_ver = _read_skill_version(self.skill_root)

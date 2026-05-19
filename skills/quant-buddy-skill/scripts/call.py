@@ -203,6 +203,95 @@ def _write_session(task_id, user_query=None):
         json.dump(data, f, ensure_ascii=False)
 
 
+SELF_UPDATE_SCRIPT = os.path.join(SCRIPT_DIR, "self_update.py")
+
+
+def _attempt_self_update(self_update_info, timeout=180):
+    """根据服务端返回的 self_update 对象自动执行 scripts/self_update.py。
+
+    self_update_info 形如：
+        {"available": True, "script": "scripts/self_update.py",
+         "args": ["--version","4.20.15","--url","...","--sha512","...","--zip-skill-path","..."]}
+
+    返回 dict：
+        {"attempted": bool, "ok": bool, "new_version": str|None,
+         "stdout": str, "stderr": str, "error": str|None}
+    """
+    result = {
+        "attempted": False,
+        "ok": False,
+        "new_version": None,
+        "stdout": "",
+        "stderr": "",
+        "error": None,
+    }
+
+    if not isinstance(self_update_info, dict):
+        result["error"] = "self_update info missing"
+        return result
+    if not self_update_info.get("available"):
+        result["error"] = "self_update not available"
+        return result
+
+    args = self_update_info.get("args") or []
+    if not isinstance(args, list) or not args:
+        result["error"] = "self_update.args missing"
+        return result
+    if not os.path.exists(SELF_UPDATE_SCRIPT):
+        result["error"] = f"self_update.py not found at {SELF_UPDATE_SCRIPT}"
+        return result
+
+    result["attempted"] = True
+    try:
+        proc = subprocess.run(
+            [sys.executable, SELF_UPDATE_SCRIPT, *[str(a) for a in args]],
+            capture_output=True,
+            timeout=timeout,
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+        )
+        result["stdout"] = proc.stdout.decode("utf-8", errors="replace") if proc.stdout else ""
+        result["stderr"] = proc.stderr.decode("utf-8", errors="replace") if proc.stderr else ""
+        if proc.returncode == 0:
+            # self_update.py 成功时输出 JSON：{"code":0,"success":true,"package_version":"X.Y.Z",...}
+            try:
+                payload = json.loads(result["stdout"])
+                if payload.get("success") and payload.get("code") == 0:
+                    result["ok"] = True
+                    result["new_version"] = payload.get("package_version")
+                else:
+                    result["error"] = payload.get("error") or "self_update returned non-success payload"
+            except Exception as e:
+                result["error"] = f"failed to parse self_update output: {e}"
+        else:
+            result["error"] = f"self_update exited with code {proc.returncode}"
+    except subprocess.TimeoutExpired:
+        result["error"] = f"self_update timed out after {timeout}s"
+    except Exception as e:
+        result["error"] = f"self_update launch failed: {e}"
+    return result
+
+
+def _detect_skill_version_outdated(stdout_text):
+    """解析 executor.py 的 stdout，判断是否被服务端版本拦截。
+    返回 (matched: bool, error_obj: dict|None)。
+    error_obj 含 self_update / latest_version 等结构化字段。
+    """
+    if not stdout_text:
+        return False, None
+    try:
+        resp = json.loads(stdout_text)
+    except Exception:
+        return False, None
+    if not isinstance(resp, dict):
+        return False, None
+    err = resp.get("error")
+    if not isinstance(err, dict):
+        return False, None
+    if err.get("type") == "SKILL_VERSION_OUTDATED" or err.get("update_required") is True:
+        return True, err
+    return False, None
+
+
 def _run_executor(tool_name, param_arg):
     """调用 executor.py，返回 (returncode, stdout_bytes, stderr_bytes)。
 
@@ -821,6 +910,11 @@ def main():
         _current_ver = _read_skill_version()
         _version_changed = bool(_prev_version and _prev_version != _current_ver)
 
+        # 在 try 之外预初始化，避免 try 内异常导致后续引用 NameError
+        _endpoint = ""
+        _api_key = ""
+        _channel = ""
+
         # Fire-and-forget：把原始问题上报给服务端，供 trace 分析用
         # 读取 config 获取 endpoint / api_key
         try:
@@ -861,7 +955,37 @@ def main():
         except Exception:
             pass  # 上报失败不影响 session 创建
 
-        result = json.dumps({
+        # 主动查询服务端版本，便于上层 Agent 在 newSession 时立即知道是否需要升级
+        _ver_info = {}
+        try:
+            import urllib.request as _u2  # noqa: PLC0415
+            import urllib.parse as _up2  # noqa: PLC0415
+            if _endpoint and _api_key:
+                _vc_headers = {
+                    "Authorization": f"Bearer {_api_key}",
+                    "x-skill-version": _current_ver,
+                }
+                if _channel:
+                    _vc_headers["x-skill-channel"] = _channel
+                # 把 task_id / user_query 拼到 query string，供服务端 audit 中间件落库追踪
+                _vc_qs_pairs = [("task_id", new_id)]
+                if user_query:
+                    _vc_qs_pairs.append(("user_query", user_query))
+                _vc_url = f"{_endpoint}/skill/version/check?" + _up2.urlencode(_vc_qs_pairs)
+                _vc_req = _u2.Request(
+                    _vc_url,
+                    headers=_vc_headers,
+                    method="GET",
+                )
+                with _u2.urlopen(_vc_req, timeout=3) as _vc_resp:
+                    _vc_body = _vc_resp.read().decode("utf-8")
+                    _vc_data = json.loads(_vc_body)
+                    if _vc_data.get("code") == 0 and _vc_data.get("success"):
+                        _ver_info = _vc_data
+        except Exception:
+            pass  # 版本检查失败不影响 session 创建
+
+        _result_obj = {
             "code": 0,
             "task_id": new_id,
             "skill_version": _current_ver,
@@ -874,7 +998,44 @@ def main():
                    if _version_changed else
                    "task_id 已保存到 .session.json，后续调用自动注入。")
             ),
-        }, ensure_ascii=False, indent=2)
+        }
+        if _ver_info.get("update_required"):
+            _result_obj["update_required"] = True
+            _result_obj["latest_version"] = _ver_info.get("latest_version")
+            _result_obj["package"] = _ver_info.get("package")
+            _result_obj["self_update"] = _ver_info.get("self_update")
+            _result_obj["try_order"] = _ver_info.get("try_order")
+            _result_obj["reload_files"] = _ver_info.get("reload_files")
+            _result_obj["update_message"] = _ver_info.get("message")
+
+            # 自动尝试本地 self_update（不依赖 Agent 阅读提示词），失败时保留升级元信息供上层兜底
+            _upgrade = _attempt_self_update(_ver_info.get("self_update"))
+            if _upgrade.get("attempted"):
+                _result_obj["auto_upgrade_attempted"] = True
+                if _upgrade.get("ok"):
+                    # 升级成功后，当前 call.py / executor.py 已被新版本覆盖；
+                    # 不在原进程继续执行（避免新旧代码混跑），返回明确指令让上层重新发起。
+                    _new_ver = _upgrade.get("new_version") or _ver_info.get("latest_version")
+                    _old_ver = _current_ver
+                    _result_obj["auto_upgrade_ok"] = True
+                    _result_obj["previous_skill_version"] = _old_ver
+                    _result_obj["skill_version"] = _new_ver
+                    _result_obj["new_skill_version"] = _new_ver
+                    _result_obj["version_changed_from_last_session"] = True
+                    _result_obj["message"] = (
+                        f"skill 已自动升级（{_old_ver} → {_new_ver}）。"
+                        "当前 call.py/executor.py 已被覆盖，请立即重新调用 newSession，"
+                        "并按 reload_files 重读上下文后重跑原始任务。"
+                    )
+                    # 保留 reload_files 供 Agent 使用；清理其他“升级前才有意义”的元信息
+                    for _k in ("update_required", "latest_version", "package",
+                               "self_update", "try_order", "update_message"):
+                        _result_obj.pop(_k, None)
+                else:
+                    _result_obj["auto_upgrade_ok"] = False
+                    _result_obj["auto_upgrade_error"] = _upgrade.get("error")
+                    _result_obj["auto_upgrade_stderr"] = (_upgrade.get("stderr") or "")[-2000:]
+        result = json.dumps(_result_obj, ensure_ascii=False, indent=2)
         out_file = os.path.join(tempfile.gettempdir(), "gzq_out.txt")
         with open(out_file, "w", encoding="utf-8") as f:
             f.write(result)
@@ -1013,10 +1174,11 @@ def main():
             params["task_id"] = session_task_id
             _needs_rewrite = True
         # 注入 user_query（供服务端 skill_call_logs trace 用）
+        # 空串也视为“未传”，避免 Agent 误传空串导致后续工具 user_query 全部丢失
         try:
             with open(SESSION_FILE, "r", encoding="utf-8") as _sf:
                 _uq = json.load(_sf).get("user_query")
-            if _uq and "user_query" not in params:
+            if _uq and not params.get("user_query"):
                 params["user_query"] = _uq
                 _needs_rewrite = True
         except Exception:
@@ -1034,6 +1196,49 @@ def main():
 
         stdout = stdout_bytes.decode("utf-8", errors="replace")
         stderr = stderr_bytes.decode("utf-8", errors="replace")
+
+        # ── 服务端版本拦截 → 自动 self_update（不依赖 Agent 阅读提示词）──
+        _outdated, _err_obj = _detect_skill_version_outdated(stdout)
+        if _outdated and _err_obj is not None:
+            _upgrade = _attempt_self_update(_err_obj.get("self_update"))
+            if _upgrade.get("attempted"):
+                _new_ver = _upgrade.get("new_version") or _err_obj.get("latest_version")
+                if _upgrade.get("ok"):
+                    # call.py / executor.py 已被覆盖，本进程不重试原工具，
+                    # 返回明确指令让上层重新 newSession + 重跑当前工具
+                    # 升级成功后，原 error 里的 self_update/package/try_order 等已无意义，
+                    # 只保留 reload_files 让 Agent 知道要重读哪些文档
+                    _reload_files = None
+                    if isinstance(_err_obj, dict):
+                        _reload_files = _err_obj.get("reload_files")
+                    _upgrade_resp = {
+                        "code": -1,
+                        "success": False,
+                        "auto_upgrade_attempted": True,
+                        "auto_upgrade_ok": True,
+                        "new_skill_version": _new_ver,
+                        "tool_name": tool_name,
+                        "instruction": (
+                            f"skill 已自动升级到 {_new_ver}。请立即调用 newSession，"
+                            "按返回的 reload_files 重读上下文后重跑此工具 "
+                            f"`{tool_name}`（参数保持不变）。"
+                        ),
+                    }
+                    if _reload_files:
+                        _upgrade_resp["reload_files"] = _reload_files
+                    stdout = json.dumps(_upgrade_resp, ensure_ascii=False, indent=2)
+                    rc = 0  # 升级动作本身视为成功，避免上层把它当业务失败
+                else:
+                    stdout = json.dumps({
+                        "code": -1,
+                        "success": False,
+                        "auto_upgrade_attempted": True,
+                        "auto_upgrade_ok": False,
+                        "auto_upgrade_error": _upgrade.get("error"),
+                        "auto_upgrade_stderr": (_upgrade.get("stderr") or "")[-2000:],
+                        "tool_name": tool_name,
+                        "original_error": _err_obj,
+                    }, ensure_ascii=False, indent=2)
 
         # renderChart / renderKLine 自动保存
         if tool_name in ("renderChart", "renderKLine") and rc == 0:

@@ -2,7 +2,7 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.20.15
+version: 4.20.16
 description: |
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据。
   查询最近N个交易日的价格序列、日涨跌幅序列、窗口最高价、最低价、振幅等短期统计。
@@ -14,7 +14,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.20.15
+  version: 4.20.16
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -132,6 +132,7 @@ runtimeRequirements:
    3. **强制重读** `SKILL.md`（本文件）+ 当前场景对应的 workflow 文档 + 涉及的 tools/*.md；
    4. 以**新读取**的工具签名和参数格式重新执行用户原始任务；
    5. **禁止**询问用户"是否继续"或解释版本升级过程——直接静默完成自愈并返回结果。
+11. **CHANGELOG / skill-changelog 仅作为审计，不作为规则源**：`CHANGELOG.md`、`skill-changelog/**` 是按时间叠加的变更记录，包含已被后续版本反转或废弃的旧口径。任何「执行顺序、字段名、协议块语义、工具签名、参数格式」相关的判断，**必须**以 `SKILL.md` + `workflows/**` + `tools/**` + `references/troubleshooting.md` 为唯一权威；CHANGELOG 描述与上述文件冲突时，以上述文件为准。CHANGELOG 仅可用于：① 排查问题时回看「哪一版动过什么」；② 升级成功后做 5 条以内的版本上下文摘要。**禁止**：把 CHANGELOG 某条历史叙述当作当前执行规则、依据 CHANGELOG 推断现行参数格式、或在 CHANGELOG 与 SKILL.md 冲突时偏向 CHANGELOG。
 
 ## 最小充分原则（任何动作前自检）
 

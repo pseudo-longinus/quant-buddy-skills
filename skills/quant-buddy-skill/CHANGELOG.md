@@ -2,6 +2,23 @@
 
 版本记录按**从新到旧**排列。详细 diff 见 `skill-changelog/iter-*.md` 及对应的 `*-post-diff.md`。
 
+> ⚠️ **本文件不是规则源**。
+> 这里只是变更审计：按时间叠加，**会包含已被后续版本反转或废弃的旧口径**。
+> 当前执行规则一律以 `SKILL.md` + `workflows/**` + `tools/**` + `references/troubleshooting.md` 为唯一权威；本文件与上述文件冲突时，以上述文件为准。
+> 详见 `SKILL.md` 硬规则 #11。
+
+---
+
+## [4.20.16] — 2026-05-19
+
+**变更文件**：`scripts/call.py`
+
+修复 `version/check` 调用缺少追踪参数 + 空串 `user_query` 注入失效两个小问题，提升服务端 audit 的追踪完整度。
+
+- `scripts/call.py`：
+  - `newSession` 在调用 `GET /skill/version/check` 时，将本次生成的 `task_id` 与 `user_query`（如有）拼入 query string，服务端 audit 中间件可通过 `req.query` 读取并落库，userHistory 可见完整 trace。
+  - 业务工具自动注入 `user_query` 时，条件从 `"user_query" not in params` 改为 `not params.get("user_query")`，Agent 误传空串时同样从 `.session.json` 恢复，避免 `user_query` 大量为空导致后台无法追踪原始问题。
+
 ---
 
 ## [4.20.15] — 2026-05-15
@@ -164,6 +181,8 @@
 **变更文件**：`SKILL.md`、`scripts/self_update.py`、`references/troubleshooting.md`、`tools/fast_query.md`、`workflows/fast-snapshot.md`、`workflows/fast-window.md`、`workflows/fast-report-period.md`
 
 强化服务端强制版本拦截后的更新恢复链路，将单一 npx 更新路径扩展为 `npx update` → `npx add` → `Python Zip Fallback`，降低无 Node、无 npx、网络失败、Windows 权限失败场景下的用户卡死率。
+
+> 📌 **后续已反转**：本条所述「npx 优先」顺序已在更晚版本被改回「Python Zip 优先」，详见当前 `references/troubleshooting.md` 与服务端协议块 `try_order` 字段。本段保留仅作历史审计。
 
 - `SKILL.md`：版本号从 `4.20.6` 升至 `4.20.7`；硬规则 #8 (B) 新增 `[QBS:SKILL_UPDATE_REQUIRED]` 协议块解析，支持读取 `required_version` / `update_cmd` / `add_cmd` / `python_zip_available` / `zip_url` / `zip_sha512` / `zip_root` / `github_zip_skill_path`。
 - `SKILL.md`：服务端要求升级时的处理顺序改为先 `npx skills update`，仅在明确未安装时执行 `npx skills add`；npx/node/权限/symlink/网络失败时进入 Python Zip Fallback，不再把 `add --copy` 作为默认分支。
