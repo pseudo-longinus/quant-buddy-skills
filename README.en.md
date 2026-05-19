@@ -12,8 +12,11 @@ Traditional data APIs only get raw data out. quant-buddy-skills helps an AI agen
 Official site: https://www.quantbuddy.cn
 
 ```bash
-npx skills add pseudo-longinus/quant-buddy-skills -g --all
+# For Claude Code users
+npx skills add pseudo-longinus/quant-buddy-skills -g -a claude-code -s quant-buddy-skill -y
 ```
+
+Cursor, OpenClaw, and other AI agent users should see the Installation section below.
 
 > This project is for financial data analysis, quantitative research, strategy validation, and educational use only. It is not investment advice, trading advice, a return guarantee, or an automated trading service.
 
@@ -264,20 +267,44 @@ The difference is that computation is not improvised inside the LLM context with
 
 ### npx Recommended
 
+New users should install the skill only into the AI agent they actually use. Avoid using `--all` by default: it installs all skills into all supported agents and may create multiple directories or symlinks on the machine.
+
+| Agent you use | Recommended command |
+|---|---|
+| Claude Code | `npx skills add pseudo-longinus/quant-buddy-skills -g -a claude-code -s quant-buddy-skill -y` |
+| Cursor | `npx skills add pseudo-longinus/quant-buddy-skills -g -a cursor -s quant-buddy-skill -y` |
+| OpenClaw | `npx skills add pseudo-longinus/quant-buddy-skills -g -a openclaw -s quant-buddy-skill -y` |
+
+If you use another supported agent, replace the value after `-a` with that agent id. Do not omit `-a`, otherwise the CLI may auto-install into multiple agents.
+
+If you use multiple agents, repeat `-a`:
+
 ```bash
-npx skills add pseudo-longinus/quant-buddy-skills -g --all
+npx skills add pseudo-longinus/quant-buddy-skills -g -s quant-buddy-skill -a claude-code -a cursor -y
+```
+
+List the skills in this repository without installing anything:
+
+```bash
+npx skills add pseudo-longinus/quant-buddy-skills --list
 ```
 
 Update an existing installation:
 
 ```bash
-npx skills update pseudo-longinus/quant-buddy-skills -y
+npx skills update quant-buddy-skill -g -y
 ```
 
-If Windows users encounter symlink or permission errors, add `--copy`:
+If Windows users encounter symlink or permission errors, add `--copy` to the command for the target agent, for example:
 
 ```bash
-npx skills add pseudo-longinus/quant-buddy-skills -g --all --copy
+npx skills add pseudo-longinus/quant-buddy-skills -g -a claude-code -s quant-buddy-skill -y --copy
+```
+
+Use this only when you explicitly want to install into every supported agent:
+
+```bash
+npx skills add pseudo-longinus/quant-buddy-skills -g --all
 ```
 
 Check the current install location:
@@ -335,7 +362,7 @@ For more strategy examples, integration questions, roadmap updates, and real res
         <sub>Personal WeChat</sub>
       </td>
       <td align="center">
-        <img src="assets/wechat_group_qr2.jpg" width="180" alt="WeChat group QR code" />
+        <img src="assets/wechat_group_qr3.jpg" width="180" alt="WeChat group QR code" />
         <br/>
         <sub>WeChat Group</sub>
       </td>
@@ -349,6 +376,16 @@ For more strategy examples, integration questions, roadmap updates, and real res
   <br/>
   <sub>Scan to connect and discuss quantitative research, AI agent workflows, and strategy validation cases.</sub>
 </p>
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=pseudo-longinus%2Fquant-buddy-skills&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=pseudo-longinus/quant-buddy-skills&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=pseudo-longinus/quant-buddy-skills&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=pseudo-longinus/quant-buddy-skills&type=date&legend=top-left" />
+ </picture>
+</a>
 
 ## License
 

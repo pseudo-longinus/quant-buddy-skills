@@ -12,8 +12,11 @@ quant-buddy-skills 不是普通股票数据 API（应用程序接口）。它把
 官网：https://www.quantbuddy.cn
 
 ```bash
-npx skills add pseudo-longinus/quant-buddy-skills -g --all
+# Claude Code 用户
+npx skills add pseudo-longinus/quant-buddy-skills -g -a claude-code -s quant-buddy-skill -y
 ```
+
+Cursor、OpenClaw 或其他 AI Agent（智能代理）用户见下方「安装」章节。
 
 > 本项目用于金融数据分析、量化研究、策略验证和教育用途，不构成投资建议、交易建议、收益承诺或自动交易服务。
 
@@ -264,20 +267,44 @@ quant-buddy-skills 的模式是：
 
 ### npx（Node.js 包执行工具，推荐）
 
+建议新用户**只安装到自己正在使用的 AI Agent（智能代理）**，不要默认使用 `--all`。`--all` 等价于安装全部 skill 到全部支持的 agent，可能在本机创建多处目录或符号链接。
+
+| 你使用的 Agent | 推荐命令 |
+|---|---|
+| Claude Code | `npx skills add pseudo-longinus/quant-buddy-skills -g -a claude-code -s quant-buddy-skill -y` |
+| Cursor | `npx skills add pseudo-longinus/quant-buddy-skills -g -a cursor -s quant-buddy-skill -y` |
+| OpenClaw | `npx skills add pseudo-longinus/quant-buddy-skills -g -a openclaw -s quant-buddy-skill -y` |
+
+如果你使用其他支持的 Agent，把 `-a` 后面的值替换为对应 agent id；不要省略 `-a`，避免 CLI 自动安装到多个 Agent。
+
+如果你同时使用多个 Agent，可以重复指定 `-a`：
+
 ```bash
-npx skills add pseudo-longinus/quant-buddy-skills -g --all
+npx skills add pseudo-longinus/quant-buddy-skills -g -s quant-buddy-skill -a claude-code -a cursor -y
+```
+
+先查看仓库里有哪些 skill（只列出，不安装）：
+
+```bash
+npx skills add pseudo-longinus/quant-buddy-skills --list
 ```
 
 已安装用户更新：
 
 ```bash
-npx skills update pseudo-longinus/quant-buddy-skills -y
+npx skills update quant-buddy-skill -g -y
 ```
 
-Windows（微软桌面操作系统）用户如果遇到 symlink（符号链接）或权限错误，可以追加 `--copy`：
+Windows（微软桌面操作系统）用户如果遇到 symlink（符号链接）或权限错误，可以在对应 Agent 命令后追加 `--copy`，例如：
 
 ```bash
-npx skills add pseudo-longinus/quant-buddy-skills -g --all --copy
+npx skills add pseudo-longinus/quant-buddy-skills -g -a claude-code -s quant-buddy-skill -y --copy
+```
+
+只有在你明确希望安装到所有支持的 Agent 时，才使用：
+
+```bash
+npx skills add pseudo-longinus/quant-buddy-skills -g --all
 ```
 
 查看当前安装位置：
@@ -335,7 +362,7 @@ npx skills list -g --json
         <sub>个人微信</sub>
       </td>
       <td align="center">
-        <img src="assets/wechat_group_qr2.jpg" width="180" alt="微信群二维码" />
+        <img src="assets/wechat_group_qr3.jpg" width="180" alt="微信群二维码" />
         <br/>
         <sub>微信群</sub>
       </td>
@@ -349,6 +376,16 @@ npx skills list -g --json
   <br/>
   <sub>扫码添加微信或加入交流群，欢迎交流量化投研、AI Agent（智能代理）工作流和策略验证案例。</sub>
 </p>
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=pseudo-longinus%2Fquant-buddy-skills&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=pseudo-longinus/quant-buddy-skills&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=pseudo-longinus/quant-buddy-skills&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=pseudo-longinus/quant-buddy-skills&type=date&legend=top-left" />
+ </picture>
+</a>
 
 ## License（开源许可证）
 
