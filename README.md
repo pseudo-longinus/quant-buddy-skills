@@ -362,7 +362,7 @@ npx skills list -g --json
         <sub>个人微信</sub>
       </td>
       <td align="center">
-        <img src="assets/wechat_group_qr3.jpg" width="180" alt="微信群二维码" />
+        <img src="assets/wechat_group_qr4.jpg" width="180" alt="微信群二维码" />
         <br/>
         <sub>微信群</sub>
       </td>
