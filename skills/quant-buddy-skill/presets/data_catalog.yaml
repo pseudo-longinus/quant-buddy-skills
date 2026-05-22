@@ -123,6 +123,86 @@ valuation:
     usage: >
       高股息 = ("A股股息率〔估值数据〕">3) * 板块(万得全A) * 缺失填零("非ST股")
 
+  - index_title: A股市现率（PCF，经营活动现金流TTM）〔估值数据〕
+    dimension: two
+    is_bool: false
+    unit: 倍
+    description: "市现率PCF（经营活动现金流TTM），日频"
+
+  - index_title: A股市现率（PCF，现金净流量TTM）〔估值数据〕
+    dimension: two
+    is_bool: false
+    unit: 倍
+    description: "市现率PCF（现金净流量TTM），日频"
+
+  # ── 港股 TTM 估值（日频，通过 fast_query 查询）──────────────
+  - index_title: 港股市盈率PE：TTM〔估值数据〕
+    dimension: one
+    is_bool: false
+    description: "港股市盈率TTM，日频，通过 fast_query 查询"
+
+  - index_title: 港股市净率PB：TTM〔估值数据〕
+    dimension: one
+    is_bool: false
+    description: "港股市净率PB TTM，日频"
+
+  - index_title: 港股市销率PS：TTM〔估值数据〕
+    dimension: one
+    is_bool: false
+    description: "港股市销率PS TTM，日频"
+
+  - index_title: 港股股息率：TTM〔估值数据〕
+    dimension: one
+    is_bool: false
+    unit: "%"
+    description: "港股股息率TTM（%），日频"
+
+  - index_title: 港股市现率PCF（经营活动现金流）：TTM〔估值数据〕
+    dimension: one
+    is_bool: false
+    unit: 倍
+    description: "港股市现率PCF（经营活动现金流）TTM，日频"
+
+  - index_title: 港股市现率PCF（现金净流量）：TTM〔估值数据〕
+    dimension: one
+    is_bool: false
+    unit: 倍
+    description: "港股市现率PCF（现金净流量）TTM，日频"
+
+  # ── 美股 TTM 估值（日频，通过 fast_query 查询）──────────────
+  - index_title: 美股市盈率PE：TTM〔估值数据〕
+    dimension: one
+    is_bool: false
+    description: "美股市盈率TTM，日频，通过 fast_query 查询"
+
+  - index_title: 美股市净率PB：TTM〔估值数据〕
+    dimension: one
+    is_bool: false
+    description: "美股市净率PB TTM，日频"
+
+  - index_title: 美股市销率PS：TTM〔估值数据〕
+    dimension: one
+    is_bool: false
+    description: "美股市销率PS TTM，日频"
+
+  - index_title: 美股股息率：TTM〔估值数据〕
+    dimension: one
+    is_bool: false
+    unit: "%"
+    description: "美股股息率TTM（%），日频"
+
+  - index_title: 美股市现率PCF（经营活动现金流）：TTM〔估值数据〕
+    dimension: one
+    is_bool: false
+    unit: 倍
+    description: "美股市现率PCF（经营活动现金流）TTM，日频"
+
+  - index_title: 美股市现率PCF（现金净流量）：TTM〔估值数据〕
+    dimension: one
+    is_bool: false
+    unit: 倍
+    description: "美股市现率PCF（现金净流量）TTM，日频"
+
 # ── 情绪/量价类（数值，二维，日频）──────────────────────────
 sentiment:
   - index_title: A股换手率〔估值数据〕

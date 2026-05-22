@@ -17,7 +17,7 @@
 
 > **`user_query` 必填**：调用 `fast_query` 时仍需在参数中携带用户原始问题，供服务端 trace 分析（不依赖 call.py 自动注入）。
 
-停止：`success: true` 且全部字段有 `value/date`（value 模式）或 `series[]`（series 模式）→ 立刻输出。
+停止：`success: true` 且 `results.{资产名}` 中全部字段均有值 → 立刻输出。
 
 ## 字段速查
 
@@ -81,20 +81,23 @@
 
 ## 输出规则
 
-### value 模式（默认）
+### value 模式（默认）— compact 字典格式
 
-- 每字段取 `results[i].fields[j].value` 和 `fields[j].date`
+- `results.{资产名}.{字段名}` 直接是数值；日期从顶层 `dates.report_period` 获取
+- 若某字段值是对象 `{v, d, fallback}` 而非数字，取 `v` 为值、`d` 为实际报告期日期
+- 单位从 `fields_meta.{字段名}.unit` 获取
 - 元值换算亿元（÷1e8，保留 2 位小数）
-- 首句：`{资产} 最新报告期（{date}）：{字段} {val}{unit}，…`
+- 首句：`{资产} 最新报告期（{dates.report_period}）：{字段} {val}{unit}，…`
 - 固定区间最后有效值首句：`{资产} 在 {start_date} 至 {end_date} 的最后可得报告期（{date}）：{字段} {val}{unit}，…`
-- 不同字段 date 不一致 → 分字段各自报告期，不合并计算派生指标
+- 不同字段日期不一致（fallback 对象各有不同 `d`）→ 分字段各自报告期，不合并计算派生指标
 
-### series 模式
+### series 模式 — compact 列式格式
 
-- 每字段取 `results[i].fields[j].series`，结构为 `[{date, value}, ...]`
-- 元值字段对 `series[*].value` 逐项换算亿元（÷1e8，保留 2 位小数）
+- `results.{资产名}.dates` 为升序日期数组，`results.{资产名}.{字段名}` 为等长值数组
+- 若某字段日期轴不同，该字段值为 `{dates: [...], values: [...]}`
+- 元值字段对值数组逐项换算亿元（÷1e8，保留 2 位小数）
 - 百分比字段（ROE、净利率、资产负债率、毛利率）直接加 `%`，不再乘 100
-- 按日期升序展示；若用户只问序列，不额外推断趋势原因
+- dates 已升序，直接按序展示；若用户只问序列，不额外推断趋势原因
 
 ## 错误处理
 

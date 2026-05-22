@@ -2,7 +2,7 @@
 
 一次调用完成资产解析 + 字段解析 + 公式执行 + 取值。  
 适用：≤3 资产，标准字段，行情/估值/财务标量、固定区间序列或短窗序列。
-**不适用**：选股、回测、行业聚合、事件研究、≥4 资产、K线。
+**不适用**：选股、回测、行业聚合、事件研究、≥4 资产、K线、开放式个股指标画像或全维度指标概览（此类走 `stockProfile`）。
 
 ## 参数
 
@@ -40,10 +40,11 @@
 英文：`close` `open` `high` `low` `pct_change` `回报率` `amount` `volume`
 
 **估值**（snapshot/window）：
-- 仅 A 股：`PE` `PE_TTM` `市盈率TTM` `PB` `市净率` `PS_TTM` `市销率` `股息率`（FMP 无对应 TTM 口径）
+- A/US/HK 均支持（TTM〔估值数据〕，日频）：`PE` `PE_TTM` `市盈率TTM` `PB` `市净率` `PS_TTM` `市销率` `股息率` `PCF` `市现率` `PCF_现金净流量`（港美股自动映射到对应市场的 TTM 估值数据）
 - A/US/HK 均支持：`总市值`（英文：`market_cap`）
 - 仅 A 股：`流通市值` `换手率`（英文：`turnover`）
-- A/US/HK 均支持（港美股专用单季口径）：`PE_单季` `PB_单季` `PS_单季` `股息率_单季`（查港股/美股 PE/PB 时使用这组字段）
+- A/US/HK 均支持（港美股专用单季口径）：`PE_单季` `PB_单季` `PS_单季` `股息率_单季`（显式查询季频数据时使用）
+- PE（静态）：A 股用静态 PE，港美股自动映射到 TTM 版（HK/US 无静态 PE）
 
 **财务**（report）：
 - A/US/HK 均支持：`营业收入` `净利润` `归母净利润` `营业成本` `总资产` `净资产` `净利率`；现金流：`经营现金流`（`operating_cashflow`）`投资活动现金流`（`investing_cashflow`）`筹资活动现金流`（`financing_cashflow`）；英文：`revenue` `net_profit` `cogs` `total_assets` `equity`
@@ -53,33 +54,38 @@
 
 不在白名单 → 服务端自动调 confirmDataMulti 解析（+2s）；无法解析则 FIELD_UNRESOLVABLE。
 
-## 返回结构（关键字段）
+## 返回结构（compact 格式，默认）
 
-`result_mode="value"`（默认，含最新快照 / 最近报告期 / 固定区间最后有效值）：
-
+顶层公共信息：
 ```
 success / query_type
-results[]:
-  asset_name / ticker
-  fields[]: intent / value / unit / date / date_type
-  field_errors[]
-asset_errors[] / field_errors[] / date_warnings[]
-meta: query_time_ms / partial_ok
+fields_meta: { 字段名: {unit, date_type} }   ← 每个字段的单位和日期类型，只声明一次
+meta: query_time_ms / latest_trade_date / partial_ok
 ```
 
-`result_mode="series"` 或 `query_type="window"`：
-
+`result_mode="value"`（默认）— 表格化字典：
 ```
-success / query_type
-results[]:
-  asset_name / ticker
-  fields[]: intent / series[] / unit / date_type
-  field_errors[]
-asset_errors[] / field_errors[] / date_warnings[]
-meta: query_time_ms / partial_ok
+dates: { trade_date: "YYYY-MM-DD", report_period: "YYYY-MM-DD" }   ← 公共日期按 date_type 提升
+results: {
+  "资产名": { ticker, 字段1: 值, 字段2: 值, ... }   ← 日期已提升时直接是数字
+}
+```
+若字段日期与公共日期不同（fallback 等），该字段值为 `{v: 数值, d: "日期", fallback: true}`。
+
+`result_mode="series"` 或 `query_type="window"` — 列式存储：
+```
+results: {
+  "资产名": {
+    ticker,
+    dates: ["YYYY-MM-DD", ...],           ← 共享日期轴（多数字段共用）
+    字段1: [值, 值, ...],                   ← 与 dates 等长的值数组
+    字段2: [值, 值, ...],
+    字段3: { dates: [...], values: [...] }  ← 日期轴不同的字段各自带 dates+values
+  }
+}
 ```
 
-`series[]` 结构为 `[{"date": "YYYY-MM-DD", "value": number}, ...]`，按日期升序。
+非空时才出现的字段：`asset_errors[]` / `field_errors[]` / `warnings[]`（空时省略）。
 
 ## 错误处理
 
@@ -92,7 +98,7 @@ meta: query_time_ms / partial_ok
 | 1 INVALID_RESULT_MODE | `result_mode` 非 `value/series` | 修正为合法值后再调用 |
 | 2 | 资产无法识别 | 告知，其余资产继续 |
 | 3 FIELD_UNRESOLVABLE | 字段不可解析 | 见下方恢复策略 |
-| 3 FIELD_MARKET_MISMATCH | 字段不支持该市场（如港/美股请求 PE_TTM/PB/PS_TTM/股息率 等仅 A 股字段） | 告知用户，建议改用 `PE_单季`/`PB_单季`/`PS_单季`/`股息率_单季`；其余字段继续 |
+| 3 FIELD_MARKET_MISMATCH | 字段不支持该市场（如港/美股请求流通市值/换手率/ROE 等仅 A 股字段） | 告知用户该字段仅支持 A 股；其余字段继续 |
 | 4 | 数据为空/公式失败/派生字段计算失败（`DERIVED_COMPUTE_FAILED`） | 告知该字段暂无数据 |
 
 **FIELD_UNRESOLVABLE 恢复**（partial_ok: true）：保留已成功字段，仅对失败字段补 `confirmDataMulti` → `runMultiFormulaBatchStream`（公式：`"字段全名"*取出(资产名)`，**禁止 LAST() 语法**），不得重读任何 workflow .md。若 field_error 带 `fallback_hint`，按其操作。

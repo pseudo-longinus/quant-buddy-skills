@@ -37,6 +37,7 @@ index | 万得全A可持续ESG | 881101.WI |  |
 index | 万得双创 | 881034.WI |  |
 index | 万得小市值指数 | 8841425.WI |  |
 index | 万得小盘股指数 | 8841656.WI |  |
+index | 万得微盘股指数 | 868008.WI |  |
 index | 万得蓝筹280指数 | 881002.WI |  |
 index | 上证180 | 000010.SH |  |
 index | 上证380 | 000009.SH |  |
@@ -102,6 +103,7 @@ index | 亏损股指数 | 801851.SI |  |
 index | 互联网电商（申万） | 801206.SI |  |
 index | 交通运输（申万） | 801170.SI |  | 交运
 index | 人工智能 | 931071.CSI |  |
+index | 以太坊兑美元 | ETHUSD |  |
 index | 休闲食品（申万） | 801128.SI |  |
 index | 传媒（申万） | 801760.SI |  | 传媒
 index | 低价股指数 | 8841135.WI |  |
@@ -178,6 +180,9 @@ index | 南华塑料指数 | NH0004.NHF |  |
 index | 南华大豆指数 | NH0001.NHF |  |
 index | 南华尿素指数 | NH0045.NHF |  |
 index | 南华工业品指数 | NH0200.NHF |  |
+index | 南华强麦指数 | NH0005.NHF |  |
+index | 南华早籼稻指数 | NH0018.NHF |  |
+index | 南华晚籼稻指数 | NHLR.NHF |  |
 index | 南华有色金属指数 | NH0700.NHF |  |
 index | 南华棉一指数 | NH0006.NHF |  |
 index | 南华棉纱指数 | NH0039.NHF |  |
@@ -200,6 +205,7 @@ index | 南华甲醇指数 | NH0024.NHF |  |
 index | 南华白银指数 | NH0025.NHF |  |
 index | 南华短纤指数 | NH0054.NHF |  |
 index | 南华硅铁指数 | NHSF.NHF |  |
+index | 南华粳稻指数 | NH0034.NHF |  |
 index | 南华粳米指数 | NH0048.NHF |  |
 index | 南华红枣指数 | NH0044.NHF |  |
 index | 南华纤维板指数 | NH0036.NHF |  |
@@ -207,6 +213,7 @@ index | 南华纯碱指数 | NH0051.NHF |  |
 index | 南华纸浆指数 | NH0042.NHF |  |
 index | 南华线材指数 | NH0017.NHF |  |
 index | 南华聚丙烯指数 | NH0037.NHF |  |
+index | 南华胶合板指数 | NH0035.NHF |  |
 index | 南华能化指数 | NH0500.NHF |  |
 index | 南华花生指数 | NH0057.NHF |  |
 index | 南华苯乙烯指数 | NH0049.NHF |  |
@@ -299,9 +306,14 @@ index | 影视院线（申万） | 801766.SI |  |
 index | 微利股指数 | 801852.SI |  |
 index | 微盘股指数 | 8841431.WI |  |
 index | 必选消费红利（长江） | 861407.CJ |  |
+index | 恒生H股金融业 | HSCHFI.HI |  |
 index | 恒生中国(香港上市)100 | HSML100.HI |  |
+index | 恒生中国(香港上市)25 | HSML25.HI |  |
 index | 恒生中国企业指数 | HSCEI.HI |  | 恒生国企
+index | 恒生公用事业类 | HSUI.HI |  |
 index | 恒生可持续发展企业指数 | HSSUS.HI |  |
+index | 恒生地产类 | HSPI.HI |  |
+index | 恒生工商类 | HSCII.HI |  |
 index | 恒生指数 | HSI.HI |  | 港股,恒指
 index | 恒生港股通 | HSHKI.HI |  |
 index | 恒生港股通中国内地银行 | HSSCBI.HI |  |
@@ -340,9 +352,14 @@ index | 服装家纺（申万） | 801132.SI |  |
 index | 机构调研指数 | 8841244.WI |  |
 index | 机械设备（申万） | 801890.SI |  | 机械
 index | 材料（万得） | 882002.WI |  |
+index | 林业Ⅱ(申万) | 801011.SI |  |
 index | 标普500 | SPX.GI |  |
 index | 核心资产指数 | 8841318.WI |  |
 index | 橡胶（申万） | 801037.SI |  |
+index | 欧元兑瑞士法郎 | EURCHF |  |
+index | 欧元兑美元 | EURUSD |  |
+index | 欧洲斯托克银行欧元价格指数 | SX7E.Z |  |
+index | 比特币兑美元 | BTCUSD |  |
 index | 水泥（申万） | 801711.SI |  |
 index | 汽车服务（申万） | 801092.SI |  |
 index | 汽车零部件（申万） | 801093.SI |  |
@@ -360,6 +377,7 @@ index | 深证综指 | 399106.SZ |  |
 index | 渔业（申万） | 801015.SI |  |
 index | 游戏Ⅱ（申万） | 801764.SI |  |
 index | 潜在分红(长江) | 861402.CJ |  |
+index | 澳元兑美元 | AUDUSD |  |
 index | 炼化及贸易（申万） | 801963.SI |  |
 index | 焦炭Ⅱ（申万） | 801952.SI |  |
 index | 煤炭开采（申万） | 801951.SI |  |
@@ -402,12 +420,25 @@ index | 科技龙头指数 | 8841234.WI |  |
 index | 稳定(风格.中信) | CI005921.WI |  | 稳定风格
 index | 红利指数 | 000015.SH |  |
 index | 红利指数(长江) | 861401.CJ |  | 红利
+index | 纳斯达克100指数 | NDX.GI |  |
 index | 纳斯达克指数 | IXIC.GI |  |
 index | 纺织制造（申万） | 801131.SI |  |
 index | 纺织服饰（申万） | 801130.SI |  | 纺服
 index | 绩优股指数 | 801853.SI |  |
 index | 综合Ⅱ（申万） | 801231.SI |  |
 index | 综合（申万） | 801230.SI |  | 综合
+index | 美元兑俄罗斯卢布 | USDRUB |  |
+index | 美元兑加元 | USDCAD |  |
+index | 美元兑土耳其里拉 | USDTRY |  |
+index | 美元兑墨西哥比索 | USDMXN |  |
+index | 美元兑新加坡元 | USDSGD |  |
+index | 美元兑新台币 | USDTWD |  |
+index | 美元兑日元 | USDJPY |  |
+index | 美元兑港币 | USDHKD |  |
+index | 美元兑瑞士法郎 | USDCHF |  |
+index | 美元兑离岸人民币 | USDCNH |  |
+index | 美元兑阿根廷比索 | USDARS |  |
+index | 美元兑马来西亚林吉特 | USDMYR |  |
 index | 美元指数DXY | DXY.M |  |
 index | 美容护理（申万） | 801980.SI |  | 美容护理
 index | 股份制银行Ⅱ（申万） | 801783.SI |  |
@@ -422,6 +453,7 @@ index | 航海装备Ⅱ（申万） | 801744.SI |  |
 index | 航空机场（申万） | 801991.SI |  |
 index | 航空装备Ⅱ（申万） | 801742.SI |  |
 index | 航运港口（申万） | 801992.SI |  |
+index | 英镑兑美元 | GBPUSD |  |
 index | 茅指数 | 8841415.WI |  |
 index | 行业中性PB-ROE(长江) | 861312.CJ |  |
 index | 行业中性中盘(长江) | 861013.CJ |  |
@@ -470,6 +502,7 @@ index | 钴（万得） | 8841083.WI |  |
 index | 铁路公路（申万） | 801179.SI |  |
 index | 银指数 | 8841450.WI |  |
 index | 银行（申万） | 801780.SI |  | 银行
+index | 锂（申万） | 850543.SI |  |
 index | 长江全A | 860001.CJ |  |
 index | 非白酒（申万） | 801126.SI |  |
 index | 非金属材料Ⅱ（申万） | 801039.SI |  |

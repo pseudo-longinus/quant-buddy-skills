@@ -94,6 +94,7 @@ TOOL_ROUTES = {
     "downloadData":          ("GET",  "/data/{id}"),        # id 从 params 取
     "renderChart":           ("POST", "/renderChart"),
     "renderKLine":           ("POST", "/renderKLine"),
+    "stockProfile":          ("POST", "/stockProfile"),
     "getChartSpec":          ("GET",  "/chartSpec/{task_id}"),
     "reRenderChart":         ("POST", "/reRenderChart"),
     "scanDimensions":        ("POST", "/scanDimensions"),
@@ -110,6 +111,7 @@ TOOL_TIMEOUTS = {
     "uploadData":           900,   # call_multipart 原来硬编码 120s，大文件上传需覆盖
     "renderChart":          900,
     "renderKLine":          900,
+    "stockProfile":         900,
     "reRenderChart":        900,
 }
 

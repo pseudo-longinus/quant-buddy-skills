@@ -15,7 +15,7 @@
        命中多条（歧义）→ 向用户澄清选哪个，禁止继续查数
        未命中 → 保留原始名称，由服务端屜底解析
 → ④ 调用 fast_query（query_type="window"；传 window_days=N 或 start_date/end_date；不传 result_mode）
-→ ⑤ 从 results[].fields[].series 提取数据，输出最终答案
+→ ⑤ 从 results.{资产名} 的列式数据提取结果，输出最终答案
 ```
 
 **N > 60 时**：安全失败，告知用户「最多支持 60 日窗口；如需更长窗口，请走完整链路」。
@@ -31,7 +31,7 @@
 | 参数 | 提取方式 |
 |---|---|
 | `assets` | 用户提到的 1~3 个资产 |
-| `fields` | 参照 fast-snapshot.md 字段映射表（行情字段；估值字段 `总市值` 及单季版 `PE_单季`/`PB_单季`/`PS_单季`/`股息率_单季` 在 window 模式同样支持 A/US/HK；`PE_TTM`/`PB`/`PS_TTM`/`股息率` 仅 A 股） |
+| `fields` | 参照 fast-snapshot.md 字段映射表（行情字段；估值字段 `PE_TTM`/`PB`/`PS_TTM`/`股息率`/`PCF`/`总市值` 及单季版 `PE_单季`/`PB_单季`/`PS_单季`/`股息率_单季` 在 window 模式同样支持 A/US/HK；`流通市值`/`换手率` 仅 A 股） |
 | `window_days` | 用户说“最近 N 日”时使用（整数，1~60）；与 `start_date`/`end_date` 二选一 |
 | `start_date`/`end_date` | 用户给出明确起止日期时使用，格式 YYYYMMDD |
 
@@ -91,16 +91,29 @@
 
 ---
 
-## ③ 序列取值与统计规则
+## ③ 序列取值与统计规则（compact 列式格式）
 
-- `results[i].fields[j].series` 为 `[{value, date}, ...]` 升序时间序列，长度 = window_days
-- **只需统计量**（最高/最低/区间收益/振幅）→ 直接从 `series` 计算，无需额外工具调用：
-  - 窗口最高 = `max(series[*].value)`
-  - 窗口最低 = `min(series[*].value)`
+- `results.{资产名}.dates` 为升序日期数组，`results.{资产名}.{字段名}` 为等长值数组；日期轴不同的字段为 `{dates: [...], values: [...]}`
+- 值数组长度 = window_days（或日期范围内的数据点数）
+
+### 序列题强制后处理（硬规则，修复 T-038 类最值日期错答）
+
+当响应结构含 `dates[]` + 同字段 `values[]` 时，**必须先做 date-value 配对再得结论**：
+
+1. 在内部构造数组 `pairs = [{date: dates[i], value: values[i]} for i in range(len(dates))]`。
+2. `min_value / min_date / max_value / max_date / first / last` 一律基于 `pairs` 计算，禁止凭肉眼扫长数组直接口述。
+3. 校验：报出的 `min_date` 对应的 value 必须真等于 `min(values)`；`max_date` 同理。任一校验未过，**禁止输出**，先内部修正再回答。
+4. 用户要求"每日走势 / 日度序列 / 逐日 / 每个交易日"时，区间长度 ≤ 60 个交易日的情况下**默认附完整 `(date, value)` 表格**；只给摘要不给逐日表 = 违反 Publish Discipline。
+
+### 统计与展示
+
+- **只需统计量**（最高/最低/区间收益/振幅）→ 直接从值数组计算，无需额外工具调用：
+  - 窗口最高 = `max(值数组)`（同时取出对应日期）
+  - 窗口最低 = `min(值数组)`（同时取出对应日期）
   - 区间收益 = `(末值 - 首值) / 首值 × 100%`
   - 振幅 = `(窗口最高 - 窗口最低) / 窗口最低 × 100%`
-- **涨跌幅** `value` 已 ×100，为百分比数，直接展示加 `%`
-- 按日期升序展示，禁止中间暴露「排序」过程
+- **涨跌幅** 值已 ×100，为百分比数，直接展示加 `%`
+- dates 已升序，直接按序展示，禁止中间暴露「排序」过程
 
 ---
 

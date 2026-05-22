@@ -2,11 +2,12 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.20.16
+version: 4.20.18
 description: |
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据。
   查询最近N个交易日的价格序列、日涨跌幅序列、窗口最高价、最低价、振幅等短期统计。
   查询上市公司最近报告期的营业收入、净利润、归母净利润、ROE、总资产、资产负债率等财务指标（A股及部分港/美股字段，以工具返回为准）。
+  查询单只股票的预计算指标画像，按估值、财务分析、资金流向、波动率、宏观胜率背景、资产走势等维度返回最新值与上一期值。
   支持A股选股筛选、因子计算、策略回测、净值对比、行业聚合排名、上传自有因子CSV、渲染图表。
   港股、美股优先支持行情价格查询；财务/报告期字段应先尝试 fast_query(report)，按工具实际返回决定。
   即使用户只是简单地问一只股票的价格、涨跌幅或财务数据，也应优先使用本技能，
@@ -14,7 +15,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.20.16
+  version: 4.20.18
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -126,6 +127,31 @@ runtimeRequirements:
    - **事件口径扩大**（如"年报/半年报"禁止扩大为全部业绩披露类型）
    - **卡片附加条件继承**：命中知识卡片后，若卡片含用户未明确提出的"首次/非ST/封板/流动性门槛"等附加条件，必须先删除再执行，禁止默默继承进最终答案
 9. **任务含糊时先反问，禁止猜测开干**：若用户的指令有 **2 种以上合理解读**（如"批量确认X"不清楚是确认指数本身还是全部成分股、"分析一下Y"不清楚要哪个维度），**第一步必须向用户提问澄清，不得凭推测选择一种解读自行执行**。反问应简洁列出各种可能（例："您的意思是 ① … 还是 ② …？"），等用户确认后再继续。**唯一例外**：用户语义明确无歧义（如"给我贵州茅台今日收盘价"），无需反问。
+
+   **⚠️ 模糊词处理规则（先判断是否真歧义，再决定反问还是默认口径直行）**：
+
+   下列词在量化语义中存在多种定义，必须正确处理：
+   - **技术分析类**：支撑位 / 阻力位 / 压力位 / 颈线位 / 关键位 / 关键点位 / 突破位
+   - **走势判断类**：趋势 / 趋势预测 / 后市判断 / 还能不能涨 / 会不会跌 / 短期看法 / 中线看法
+   - **盘面定性类**：异动 / 主力 / 主力流向 / 庄家动向 / 强势 / 弱势 / 抗跌 / 抗跌性
+   - **健康度类**：基本面好不好 / 估值贵不贵 / 财务健康 / 业绩怎么样 / 基本面
+
+   **判定流程（按顺序匹配，命中即停）**：
+
+   1. **综合分析请求 → 用默认口径直行，禁止反问阻塞**。
+      判定：用户在一句话里列出 ≥2 个分析维度（如"基本面 + 技术指标 + 趋势"、"估值 + 财务 + 走势"），或明确说"全面分析 / 综合看一下 / 给一份报告"。
+      做法：直接走 `stockProfile`（综合画像）+ 常规技术指标 + 默认趋势口径，**报告首句**告知用户使用的口径（例："本次按以下默认口径输出：基本面=综合画像（估值+财务+资金流+波动率），技术=MACD/KDJ/RSI/布林带，趋势=MA20/MA60 排列方向。如需调整口径请告诉我。"）。
+
+   2. **孤立的单点定义性请求 → 必须反问**。
+      判定：触发词单独出现，且其定义直接决定结论数值（如"贵州茅台支撑位是多少"、"宁德时代趋势怎么样"，无任何其他维度上下文）。
+      做法：反问 ① 口径定义（如"支撑位"=近N日最低/布林下轨/均线密集区）；② 时间窗口；③ 输出格式。
+
+   3. **触发词只是修饰语 → 直行**。
+      判定：用户主体诉求清晰，触发词只是顺带描述（如"找最近基本面改善的股票"主体是筛选，"基本面改善"已隐含"营收/净利同比上升"等可执行口径）。
+      做法：用最常见的可执行口径执行，并在结果中标注口径。
+
+   **实测教训（T-036）**：用户问"贵州茅台支撑位"，模型擅自用"60日最低价附近"作为定义直接执行——这是孤立单点请求，应走流程 2 反问。
+   **反例（不要再犯）**：用户问"分析东方财富的基本面、技术指标、趋势预测"，模型反问 4 个问题阻塞——这是综合分析请求，应走流程 1 默认口径直行。
 10. **工具返回 `SKILL_VERSION_MISMATCH` 时必须自愈，不得继续执行原任务**：当任何工具调用的输出中出现 `"error": "SKILL_VERSION_MISMATCH"` 时，说明当前对话上下文中的工具签名/参数格式已过时。此时必须执行以下自愈流程（每步不得省略）：
    1. **立即停止**当前任务，不得再调用任何平台工具；
    2. 调用 `newSession`（新建 session，获取新 task_id）；
@@ -133,6 +159,17 @@ runtimeRequirements:
    4. 以**新读取**的工具签名和参数格式重新执行用户原始任务；
    5. **禁止**询问用户"是否继续"或解释版本升级过程——直接静默完成自愈并返回结果。
 11. **CHANGELOG / skill-changelog 仅作为审计，不作为规则源**：`CHANGELOG.md`、`skill-changelog/**` 是按时间叠加的变更记录，包含已被后续版本反转或废弃的旧口径。任何「执行顺序、字段名、协议块语义、工具签名、参数格式」相关的判断，**必须**以 `SKILL.md` + `workflows/**` + `tools/**` + `references/troubleshooting.md` 为唯一权威；CHANGELOG 描述与上述文件冲突时，以上述文件为准。CHANGELOG 仅可用于：① 排查问题时回看「哪一版动过什么」；② 升级成功后做 5 条以内的版本上下文摘要。**禁止**：把 CHANGELOG 某条历史叙述当作当前执行规则、依据 CHANGELOG 推断现行参数格式、或在 CHANGELOG 与 SKILL.md 冲突时偏向 CHANGELOG。
+
+## Fast Path / Leaf workflow 顶部硬闸门（每次进入 leaf 都生效）
+
+> 修复 T-001 / T-011 / T-024 等 leaf 没把 `newSession` 当成首条强制步骤、跳过直接调平台工具的问题。
+
+无论路由进入 `fast-snapshot` / `fast-window` / `fast-report-period` / `render-kline` / 任何 leaf workflow：
+
+1. 准备调用任何平台原生工具（`fast_query` / `renderKLine` / `stockProfile` / `runMultiFormulaBatchStream` / `readData` / `downloadData` / `getCardFormulas` / `searchFunctions` / `searchSimilarCases` / `confirmDataMulti` / `scanDimensions` / `uploadData` / `renderChart` / `refreshSnapshotTime` / `resumeJob`）之前，**必须先调用 `newSession`**。
+2. **不允许**用"已读 SKILL.md 就跳过 newSession"或"已读 leaf workflow 就跳过 newSession"来豁免本条；这条规则不依赖 leaf 内是否再次重申。
+3. 同一对话追问可复用当前 session；但新的用户问题（含明显话题切换）必须重新 `newSession`，参数中 `user_query` 设为新问题原文。
+4. 跳过 `newSession` 直接调用平台工具 = `MISSING_NEW_SESSION` 契约失败（HIGH 级），评分必扣分。
 
 ## 最小充分原则（任何动作前自检）
 
@@ -177,6 +214,7 @@ SKILL_ROOT/
 │   ├── quick-window.md          最近N日短窗序列/窗口统计
 │   ├── quick-report-period.md   最近报告期财务指标
 │   ├── period-return-compare.md 固定区间累计涨跌幅对比
+│   ├── stock-profile.md         单股预计算指标画像
 │   ├── global-rules-lite.md     精简全局规则（quick-window/period-return-compare 专用）
 │   ├── quant-standard.md        选股/回测/因子/图表标准流程
 │   ├── event-study.md           事件研究（给定或可识别事件后的窗口表现）
@@ -203,6 +241,7 @@ SKILL_ROOT/
 │   ├── run_multi_formula.md     → 工具名 `runMultiFormulaBatchStream`  执行公式批次（选股/回测/因子计算）
 │   ├── read_data.md             → 工具名 `readData`            读取公式计算结果（需传 data_id，非 expression_id）
 │   ├── render_kline.md          → 工具名 `renderKLine`         渲染 K 线图（直接传 ticker，无需提前跑公式）
+│   ├── stock_profile.md         → 工具名 `stockProfile`        单股预计算指标画像（估值/财务/资金/波动/走势）
 │   ├── render_chart.md          → 工具名 `renderChart`         渲染折线/柱状/面积图（需先有 data_id）
 │   ├── get_card_formulas.md     → 工具名 `getCardFormulas`     按卡片名拉取完整公式组（量化场景使用）
 │   ├── scan_dimensions.md       → 工具名 `scanDimensions`      九维度 IC 扫描（单股多维度预测力分析）
@@ -286,8 +325,10 @@ SKILL_ROOT/
 | 最新时点行情 / 估值（快照） | 最新价、今日收盘、最新涨跌幅、当前换手率、最新PE/PB/市值… | Fast Path 条件满足 → 只读 `fast-snapshot.md`；不满足/无法查询 → `global-rules.md` → `quick-snapshot.md` |
 | 最近N日序列 / 窗口统计 | 最近5日、最近20日、近N个交易日、窗口最高/最低/振幅…（仅单资产、最近N日） | Fast Path 条件满足 → 只读 `fast-window.md`；不满足/无法查询 → `global-rules-lite.md` → `quick-window.md` |
 | 最近报告期财务 | 营收、净利润、归母净利润、ROE、总资产、总负债、资产负债率… | Fast Path 条件满足 → 只读 `fast-report-period.md`；不满足/无法查询 → `global-rules.md` → `quick-report-period.md` |
+| 单股指标画像 / 个股综合分析 | 分析一下XX个股、看一下XX这只股票、个股画像、指标概览、估值财务资金走势综合看一下、基本面和估值怎么样… | `global-rules.md` → `stock-profile.md` |
 | K线图（可视化） | K线图、画图、展示走势… | `global-rules.md` → `render-kline.md` |
 | 固定区间累计涨跌幅 | 从A到B、某年某月至某年某月、区间收益、累计涨跌幅、区间表现、多资产区间对比 | `global-rules-lite.md` → `period-return-compare.md` |
+| 数据下载 / 导出本地 CSV | 下载成CSV、导出到本地、保存到本地、下载历史数据 | `global-rules.md` → `recipes/download-data.md`；单资产单字段时序优先 `runMultiFormulaBatchStream` → `downloadData` → `write_skill_file`，禁止 Bash 兜底 |
 | 量化选股 / 回测 / 因子 / 图表 / 上传下载 | 选股、回测、均线、PE选股、因子、净值、上传CSV、下载数据、画图… | `global-rules.md` → `quant-standard.md` |
 | 直接运行用户给定的公式链文件 | 「运行/跑一遍/执行这个文件里的全部公式」「公式链文件」「formula chain」「按这个 md/json 跑」 | `global-rules.md` → `run-formula-chain.md` |
 | 事件研究 | 复盘、历次、涨价、降息、加息、事件窗口、随后表现、超预期、不及预期、政策后表现…（给定事件或需先识别事件日） | `global-rules.md` → `event-study.md` |
@@ -321,11 +362,12 @@ SKILL_ROOT/
 
 - 资产数 ≤ 3
 - 所有目标字段属于 fast_query whitelist（价格/估值/财务/衍生字段，详见 `tools/fast_query.md`），不涉及自定义公式/选股/排名
-  > 字段白名单判断含自动替换：用户对 HK/US 股请求 `PE`/`PE_TTM`/`PB`/`PS_TTM`/`股息率` 时，自动替换为对应单季版（`PE_单季`/`PB_单季`/`PS_单季`/`股息率_单季`），替换后仍视为 whitelist 命中，不得因此降级为慢路径。
+  > 字段白名单已统一 TTM 估值：`PE`/`PE_TTM`/`PB`/`PS_TTM`/`股息率`/`PCF` 均支持 A/US/HK（港美股自动映射到对应市场的 TTM〔估值数据〕），无需替换为单季版。仅 `流通市值`/`换手率`/`ROE` 仍为 A 股专属。
 - 非全市场横截面查询（不是"全市场排名/前N只"等场景）
 
 **快速查数路由（按优先级依次判断，首个匹配即停）：**
 
+0. 用户是开放式单股综合指标概览（如“分析一下XX个股”“看一下XX这只股票”“个股画像”“指标概览”“估值财务资金走势综合看一下”），且不是只问单字段/明确窗口/IC 预测力 → `workflows/global-rules.md` → `workflows/stock-profile.md`
 1. 时间锚点是"最近 N 日窗口/序列"，或用户明确给出起止日期要求返回区间序列（如"从X日到X日每日的…走势/序列/数据"）→ Fast Path 条件满足时读 `workflows/fast-window.md`，不满足则 `workflows/global-rules-lite.md` → `workflows/quick-window.md`
 2. 时间锚点是"最近报告期"且字段属于财务类 → Fast Path 条件满足时读 `workflows/fast-report-period.md`，不满足则 `workflows/global-rules.md` → `workflows/quick-report-period.md`
 3. 用户明确要"画图 / K线 / 带成交量走势" → 直接加载 `workflows/render-kline.md`
@@ -344,6 +386,7 @@ SKILL_ROOT/
 4. **条件口径冻结**：用户条件必须原样执行，禁止任何改写（百分比↔小数、相对时间→年份区间、资产宇宙替换、卡片附加条件继承）。详见硬规则第 8 条。
 
 触发词参考：
+- 分析一下XX个股 / 看一下XX这只股票 / 个股画像 / 指标概览 / 估值财务资金走势综合看一下 → `stock-profile`
 - 最近交易日收盘 / 最新已披露PE / 最新市值（非盘中、非筛选） → `quick-snapshot`
 - 最近5日 / 最近20个交易日 / 近N日序列 / 窗口最高最低 → `quick-window`
 - 营收 / 净利润 / ROE / 总资产 / 总负债 / 资产负债率 → `quick-report-period`
@@ -351,7 +394,7 @@ SKILL_ROOT/
 禁止：
 - 优先调用 `scanDimensions`、`renderKLine`（除非用户明确要看图）
 - 先做分析性扩写，再补充结构化数值
-- **在读取对应 leaf workflow 之前**直接调用 `runMultiFormulaBatchStream` / `renderKLine` / `scanDimensions` / 输出“无法联网”或“无法获取实时数据”
+- **在读取对应 leaf workflow 之前**直接调用 `runMultiFormulaBatchStream` / `renderKLine` / `scanDimensions` / `stockProfile` / 输出“无法联网”或“无法获取实时数据”
 - 把卡片附加条件（首次/非ST/封板/流动性门槛等）默默继承进最终答案
 - 以 `description`、`samples`、预览行、截断大表作为**名单题**的完整结果直接收尾（必须提取完整名单或明确声明不完整）
 
@@ -392,9 +435,10 @@ SKILL_ROOT/
 > **港股 / 美股数据范围限制**：
 > - **行情价格类**（收盘价、开盘价、最高价、最低价、涨跌幅、成交量、成交额）：A / HK / US 均支持。
 > - **估值类**：
->   - 仅 A 股：`PE`/`PE_TTM`/`PB`/`PS_TTM`/`股息率`（FMP 无 TTM 口径）
->   - A/US/HK：`总市值`；港美股查 PE/PB 请用 `PE_单季`/`PB_单季`/`PS_单季`/`股息率_单季`
+>   - A/US/HK：`PE`/`PE_TTM`/`PB`/`PS_TTM`/`股息率`/`PCF`/`总市值`（港美股使用 TTM〔估值数据〕，日频，服务端自动映射）
 >   - 仅 A 股：`流通市值`/`换手率`
+>   - PE（静态）：A 股用静态 PE，港美股自动映射到 TTM 版
+>   - 单季口径：`PE_单季`/`PB_单季`/`PS_单季`/`股息率_单季` 仍可用于显式查询季频数据
 > - **财务类**（营业收入/净利润/归母净利润等）：A / HK / US 均支持（通过 `fast_query` 接口）；**ROE 仅 A 股**。
 > - 查询港股/美股时若字段不在上述支持范围内，应主动告知用户，而不是静默跳过。
 

@@ -14,6 +14,7 @@
 
 | CP | 名称 | 已验证状态 | Acceptance Test |
 |----|------|-----------|-----------------|
+| **K-1** | **newSession 已建立** | 本轮已显式调用 `newSession` | 准备调用 `renderKLine` / `fast_query` / 任何平台工具前，本轮必须已有 `newSession` 调用记录。**未通过 K-1 = 禁止调用任何平台工具**（MISSING_NEW_SESSION，HIGH 级） |
 | K0 | 资产已确认 | ticker 代码已确定 | `presets/assets_db/{类型}.yaml` 返回明确资产 |
 | K1 | 时间窗口已解析 | begin_date 已计算 | "最近 N 月"转为 YYYYMMDD；未指定时默认近 6 个月 |
 | **K1.5** | **日期锚点已获取** | **当前日期来自可靠来源** | 当前日期锚点来自**系统上下文 或 工具返回**（非模型猜测）；begin_date 基于该锚点计算得出。**未通过 K1.5 = 禁止调用 renderKLine** |
@@ -21,6 +22,7 @@
 | K3 | 交付完成 | 图片已展示 + 简短说明 | 无多余文字，无目测数值 |
 
 ### 首选路径
+0. `newSession`（若本轮尚未调用；不可省略，K-1 未通过则禁止往下做任何平台工具调用）
 1. `presets/assets_db/{类型}.yaml`→ 获得 ticker
 2. 解析用户时间描述 → 计算 `begin_date`
 3. `renderKLine(ticker, begin_date, ...)` → 获得图片

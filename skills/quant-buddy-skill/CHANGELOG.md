@@ -9,6 +9,37 @@
 
 ---
 
+## [4.20.18] — 2026-05-20
+
+**变更文件**：`SKILL.md`、`tools/fast_query.md`、`workflows/fast-snapshot.md`、`workflows/fast-window.md`、`workflows/quick-snapshot.md`、`presets/assets_db/stock_hk.yaml`、`presets/assets_db/stock_us.yaml`、`presets/data_catalog.yaml`
+
+统一 A 股/港股/美股估值白名单：港美股新增 TTM〔估值数据〕（日频），PE_TTM/PB/PS_TTM/股息率/PCF 三市场全部支持，不再需要替换为单季版。
+
+- `tools/fast_query.md`：估值白名单从"仅 A 股"改为"A/US/HK 均支持（TTM〔估值数据〕）"，新增 PCF/市现率/PCF_现金净流量；FIELD_MARKET_MISMATCH 错误描述缩减为仅提及流通市值/换手率/ROE。
+- `workflows/fast-snapshot.md`：字段映射表 PE_TTM/PB/PS_TTM/股息率从"仅 A 股"改为"A/US/HK"，新增 PCF 两行；市场范围警告同步更新。
+- `workflows/fast-window.md`：参数提取规则中估值字段市场范围同步更新。
+- `workflows/quick-snapshot.md`：估值类公式模板注释从"仅适用 A 股"改为"A 股 index_title 模板，港美股走 fast_query"。
+- `SKILL.md`：Fast Path 白名单判断从"自动替换为单季版"改为"TTM 估值已统一支持"；港美股数据范围限制同步更新，估值类改为 A/US/HK 全市场支持。
+- `presets/assets_db/stock_hk.yaml` / `stock_us.yaml`：头部注释从"仅支持行情价格数据"改为"支持行情价格 + TTM 估值 + 财务"。
+- `presets/data_catalog.yaml`：新增 A 股 PCF 两条（经营活动现金流/现金净流量），港股 TTM 估值 6 条，美股 TTM 估值 6 条。
+
+---
+
+## [4.20.17] — 2026-05-20
+
+**变更文件**：`SKILL.md`、`tools/stock_profile.md`、`tools/fast_query.md`、`workflows/stock-profile.md`、`workflows/quick-lookup.md`、`workflows/quant-standard.md`、`scripts/executor.py`、测试台 `agent/tools_schema.py`、`agent/local_tools.py`、`agent/tool_contracts.py`
+
+新增 `stockProfile` 个股预计算指标画像能力，承接“分析一下 XX 个股 / 个股画像 / 指标概览 / 估值财务资金走势综合看一下”等开放式单股综合分析请求，同时保留简单查数走 `fast_query`、IC 预测力走 `scanDimensions` 的边界。
+
+- `SKILL.md`：版本号升至 `4.20.17`；description 新增单股预计算指标画像能力；目录树、工具清单和场景路由新增 `stock-profile.md` / `stockProfile`；快速查数路由新增开放式单股指标画像分支，并将 `stockProfile` 纳入“读取 leaf workflow 前禁止直接调用”的红线。
+- `tools/stock_profile.md`：新增 `stockProfile` 工具文档，明确实际工具名、参数、返回结构、维度口径、日内 `close_price` 刷新注意事项、错误处理和输出规则。
+- `workflows/stock-profile.md`：新增单股指标画像 leaf workflow，规定 `newSession`、资产确认、`stockProfile` 调用、按维度输出事实摘要，以及禁止买卖建议、目标价和价格预测。
+- `tools/fast_query.md` / `workflows/quick-lookup.md` / `workflows/quant-standard.md`：同步防误路由说明，开放式个股画像走 `stockProfile`，单字段行情/估值/财务、窗口序列和量化任务仍走原有路径。
+- `scripts/executor.py`：注册 `stockProfile -> POST /stockProfile`，并配置 900s 工具超时。
+- 测试台 `agent/tools_schema.py`、`agent/local_tools.py`、`agent/tool_contracts.py`：同步暴露 `stockProfile` schema 和平台工具名集合，确保 agent 可调用、审计识别并禁止 Bash 包装原生工具。
+
+---
+
 ## [4.20.16] — 2026-05-19
 
 **变更文件**：`scripts/call.py`

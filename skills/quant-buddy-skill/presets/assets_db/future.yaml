@@ -12,40 +12,44 @@ future | CBOT5年期美国国债 | FV.CBT |  | 5年期美国国债
 future | CBOT小麦 | W.CBT |  | 小麦
 future | CBOT燕麦 | O.CBT |  | 燕麦
 future | CBOT稻谷 | RR.CBT |  | 稻谷
-future | CBOT豆油 | BO.CBT |  | 美豆油
+future | CBOT豆油 | BO.CBT |  | 豆油,美豆油
 future | CBOT豆粕 | SM.CBT |  | 美豆粕
 future | CBOT超国债 | UL.CBT |  |
 future | CBOT迷你小麦 | YW.CBT |  | 迷你小麦
 future | CBOT迷你玉米 | YC.CBT |  | 迷你玉米
 future | CBT-10年美国国债 | TY.CBT |  | 10年美国国债,美债期货
 future | CBT-大豆 | S.CBT |  | 大豆,美豆
-future | CBT-玉米 | C.CBT |  | 美玉米
+future | CBT-玉米 | C.CBT |  | 玉米,美玉米
 future | CME日元兑美元 | J1.CME |  |
+future | CME木材 | LB.CME |  | 木材
 future | CME活牛 | LC.CME |  | 活牛
 future | CME瘦肉猪 | LH.CME |  | 瘦肉猪
+future | CME英镑兑美元 | BP.CBT |  |
 future | CME饲牛 | FC.CME |  | 饲牛
-future | CMX-白银 | SI.CMX |  | comex银,comex白银,COMEX银,COMEX白银,CMX银,白银
+future | CMX-白银 | SI.CMX |  | 白银,comex银,comex白银,COMEX银,COMEX白银,CMX银
 future | CMX-铜 | HG.CMX |  | 铜,COMEX铜,comex铜,CMX铜
-future | CMX-黄金 | GC.CMX |  | comex黄金,comex金,COMEX黄金,COMEX金,黄金
+future | CMX-黄金 | GC.CMX |  | 黄金,comex黄金,comex金,COMEX黄金,COMEX金
+future | COMEX上海黄金(离岸人民币) | SGC.CMX |  | 上海黄金(离岸人民币)
 future | COMEX上海黄金(美元) | SGU.CMX |  | 上海黄金(美元)
 future | COMEX迷你白银 | QI.CMX |  |
 future | ICE NYH(RBOB)汽油 | N.IPE |  | NYH(RBOB)汽油
-future | ICE WTI原油 | T.IPE |  |
+future | ICE WTI原油 | T.IPE |  | WTI原油
 future | ICE冷冻浓缩橙汁 | OJ.NYB |  | 冷冻浓缩橙汁
-future | ICE取暖油 | O.IPE |  |
+future | ICE取暖油 | O.IPE |  | 取暖油
 future | ICE可可 | CC.NYB |  | 可可
 future | ICE咖啡 | KC.NYB |  | 咖啡
 future | ICE白糖期货 | W.IPE |  |
+future | ICE荷兰TTF天然气 | TTF.IPE |  | 荷兰TTF天然气
 future | IPE-布伦特原油 | B.IPE |  | 布伦特原油
 future | IPE-柴油 | G.IPE |  | 柴油
 future | LME-铅 | PB.LME |  | 铅
-future | LME-铜 | CA.LME |  | LME铜,伦敦铜
+future | LME-铜 | CA.LME |  | 铜,LME铜,伦敦铜
 future | LME-铝 | AH.LME |  | 铝
 future | LME-锌 | ZS.LME |  | 锌
 future | LME锡 | SN.LME |  | 锡
 future | LME镍 | NI.LME |  | 镍
 future | NYB-11号糖 | SB.NYB |  | 11号糖
-future | NYB-棉花 | CT.NYB |  | 2号棉,美棉
+future | NYB-棉花 | CT.NYB |  | 棉花,2号棉,美棉
 future | NYM-取暖油 | HO.NYM |  | 取暖油
 future | NYM-天然气 | NG.NYM |  | 天然气
 future | NYM-汽油 | RB.NYM |  | 汽油
@@ -54,12 +58,19 @@ future | NYMEX迷你轻质原油 | QM.NYM |  | 迷你轻质原油
 future | NYMEX钯 | PA.NYM |  |
 future | NYMEX铂 | PL.NYM |  | 铂
 future | 上证50主连 | IH.CFE |  | IH,ih
+future | 上证50次主连 | IH_S.CFE |  | IH,ih
 future | 中国10年期国债主连 | T.CFE | 美容护理 | 10年期国债期货,国债,10年期国债
+future | 中国10年期国债次主连 | T_S.CFE | 美容护理 | 10年期国债期货,国债,10年期国债
 future | 中国2年期国债主连 | TS.CFE |  | 2年期国债期货,2年期国债
+future | 中国2年期国债次主连 | TS_S.CFE |  | 2年期国债期货,2年期国债
 future | 中国30年期国债主连 | TL.CFE |  | 30年期国债期货,30年期国债
+future | 中国30年期国债次主连 | TL_S.CFE |  | 30年期国债期货,30年期国债
 future | 中国5年期国债主连 | TF.CFE |  | 5年期国债期货,5年期国债,lpr5年
+future | 中国5年期国债次主连 | TF_S.CFE |  | 5年期国债期货,5年期国债,lpr5年
 future | 中证1000主连 | IM.CFE |  |
+future | 中证1000次主连 | IM_S.CFE |  |
 future | 中证500主连 | IC.CFE |  |
+future | 中证500次主连 | IC_S.CFE |  |
 future | 微型标普500 | MES.CME |  |
 future | 微型罗素 | M2K.CME |  |
 future | 微型道琼斯工业平均指数 | MYM.CBT |  |
@@ -68,31 +79,59 @@ future | 标普500期货小型 | ES.CME |  | 小型标普指数
 future | 欧元兑美元 | EC.CME |  |
 future | 欧元区STOXX50期货 | FESX.EUX |  |
 future | 沪20号胶主连 | NR.INE |  | 20号胶
+future | 沪20号胶次主连 | NR_S.INE |  | 20号胶
 future | 沪丁二烯橡胶主连 | BR.SHF |  | 丁二烯橡胶
+future | 沪丁二烯橡胶次主连 | BR_S.SHF |  | 丁二烯橡胶
 future | 沪不锈钢主连 | SS.SHF |  | 不锈钢
+future | 沪不锈钢次主连 | SS_S.SHF |  | 不锈钢
 future | 沪低硫燃油主连 | LU.INE |  | 低硫燃料油
+future | 沪低硫燃油次主连 | LU_S.INE |  | 低硫燃料油
+future | 沪原油TAS主连 | SCTAS.INE |  |
+future | 沪原油TAS次主连 | SCTAS_S.INE |  |
 future | 沪原油主连 | SC.INE |  | 原油,INE原油
+future | 沪原油次主连 | SC_S.INE |  | 原油,INE原油
 future | 沪国际铜主连 | BC.INE |  | 国际铜
+future | 沪国际铜次主连 | BC_S.INE |  | 国际铜
 future | 沪欧线集运主连 | EC.INE |  | 集运指数(欧线)
+future | 沪欧线集运次主连 | EC_S.INE |  | 集运指数(欧线)
 future | 沪氧化铝主连 | AO.SHF |  | 氧化铝
+future | 沪氧化铝次主连 | AO_S.SHF |  | 氧化铝
 future | 沪沥青主连 | BU.SHF |  | 沥青
+future | 沪沥青次主连 | BU_S.SHF |  | 沥青
 future | 沪深300主连 | IF.CFE |  |
+future | 沪深300次主连 | IF_S.CFE |  |
 future | 沪热卷主连 | HC.SHF |  | 热轧卷板
+future | 沪热卷次主连 | HC_S.SHF |  | 热轧卷板
 future | 沪燃油主连 | FU.SHF |  | 燃油
+future | 沪燃油次主连 | FU_S.SHF |  | 燃油
 future | 沪纸浆主连 | SP.SHF |  | 纸浆
+future | 沪纸浆次主连 | SP_S.SHF |  | 纸浆
 future | 沪线材主连 | WR.SHF |  | 线材
+future | 沪线材次主连 | WR_S.SHF |  | 线材
 future | 沪胶版纸主连 | OP.SHF |  |
+future | 沪胶版纸次主连 | OP_S.SHF |  |
 future | 沪螺纹钢主连 | RB.SHF |  | 螺纹钢
-future | 沪金主连 | AU.SHF |  | 沪金
-future | 沪铅主连 | PB.SHF |  | 沪铅
-future | 沪铜主连 | CU.SHF |  | 沪铜
-future | 沪铝主连 | AL.SHF |  | 沪铝
-future | 沪银主连 | AG.SHF |  | 沪银
+future | 沪螺纹钢次主连 | RB_S.SHF |  | 螺纹钢
+future | 沪金主连 | AU.SHF |  | 黄金,沪金
+future | 沪金次主连 | AU_S.SHF |  | 黄金,沪金
+future | 沪铅主连 | PB.SHF |  | 铅,沪铅
+future | 沪铅次主连 | PB_S.SHF |  | 铅,沪铅
+future | 沪铜主连 | CU.SHF |  | 铜,沪铜
+future | 沪铜次主连 | CU_S.SHF |  | 铜,沪铜
+future | 沪铝主连 | AL.SHF |  | 铝,沪铝
+future | 沪铝次主连 | AL_S.SHF |  | 铝,沪铝
+future | 沪银主连 | AG.SHF |  | 白银,沪银
+future | 沪银次主连 | AG_S.SHF |  | 白银,沪银
 future | 沪铸造铝主连 | AD.SHF |  |
-future | 沪锌主连 | ZN.SHF |  | 沪锌
-future | 沪锡主连 | SN.SHF |  | 沪锡
-future | 沪镍主连 | NI.SHF |  | 沪镍
+future | 沪铸造铝次主连 | AD_S.SHF |  |
+future | 沪锌主连 | ZN.SHF |  | 锌,沪锌
+future | 沪锌次主连 | ZN_S.SHF |  | 锌,沪锌
+future | 沪锡主连 | SN.SHF |  | 锡,沪锡
+future | 沪锡次主连 | SN_S.SHF |  | 锡,沪锡
+future | 沪镍主连 | NI.SHF |  | 镍,沪镍
+future | 沪镍次主连 | NI_S.SHF |  | 镍,沪镍
 future | 沪香蕉主连 | RU.SHF |  | 橡胶
+future | 沪香蕉次主连 | RU_S.SHF |  | 橡胶
 future | 粤多晶硅主力合约 | PS.GFE |  |
 future | 粤工业硅主力合约 | SI.GFE |  | 硅
 future | 粤碳酸锂主力合约 | LC.GFE |  | 碳酸锂
@@ -100,50 +139,125 @@ future | 粤钯主力合约 | PD.GFE |  |
 future | 粤铂主力合约 | PT.GFE |  |
 future | 纳斯达克100小型期货 | NQ.CME |  |
 future | 纳斯达克100微型迷你期货 | MNQ.CME |  |
-future | 美国天然气 | HH.NYM |  |
+future | 美国天然气 | HH.NYM |  | 美国天然气
 future | 连PVC主连 | V.DCE |  | PVC
+future | 连PVC月均价主连 | V_F.DCE |  |
+future | 连PVC次主连 | V_S.DCE |  | PVC
 future | 连乙二醇主连 | EG.DCE |  | 乙二醇
+future | 连乙二醇次主连 | EG_S.DCE |  | 乙二醇
 future | 连乙烯主连 | L.DCE |  | 塑料
+future | 连乙烯次主连 | L_S.DCE |  | 塑料
 future | 连原木主连 | LG.DCE |  |
+future | 连原木次主连 | LG_S.DCE |  |
+future | 连大豆主连 | S.DCE |  |
+future | 连大豆次主连 | S_S.DCE |  |
 future | 连棕油主连 | P.DCE |  | 棕榈油
+future | 连棕油次主连 | P_S.DCE |  | 棕榈油
 future | 连液化气主连 | PG.DCE |  | LPG
+future | 连液化气次主连 | PG_S.DCE |  | LPG
 future | 连焦炭主连 | J.DCE |  | 焦炭
+future | 连焦炭次主连 | J_S.DCE |  | 焦炭
 future | 连焦煤主连 | JM.DCE |  | 焦煤
+future | 连焦煤次主连 | JM_S.DCE |  | 焦煤
 future | 连玉米主连 | C.DCE |  | 玉米
+future | 连玉米次主连 | C_S.DCE |  | 玉米
 future | 连玉米淀粉主连 | CS.DCE |  | 玉米淀粉
+future | 连玉米淀粉次主连 | CS_S.DCE |  | 玉米淀粉
 future | 连生猪主连 | LH.DCE |  | 生猪
+future | 连生猪次主连 | LH_S.DCE |  | 生猪
 future | 连粳米主连 | RR.DCE |  | 粳米
+future | 连粳米次主连 | RR_S.DCE |  | 粳米
 future | 连纤维板主连 | FB.DCE |  | 纤维板
+future | 连纤维板次主连 | FB_S.DCE |  | 纤维板
 future | 连纯苯主连 | BZ.DCE |  |
+future | 连纯苯次主连 | BZ_S.DCE |  |
 future | 连聚丙烯主连 | PP.DCE |  | 聚丙烯
+future | 连聚丙烯月均价主连 | PP_F.DCE |  |
+future | 连聚丙烯次主连 | PP_S.DCE |  | 聚丙烯
+future | 连聚乙烯月均价主连 | L_F.DCE |  |
 future | 连胶合板主连 | BB.DCE |  | 胶合板
+future | 连胶合板次主连 | BB_S.DCE |  | 胶合板
 future | 连苯乙烯主连 | EB.DCE |  | 苯乙烯
+future | 连苯乙烯次主连 | EB_S.DCE |  | 苯乙烯
 future | 连豆一主连 | A.DCE |  | 豆一
+future | 连豆一次主连 | A_S.DCE |  | 豆一
 future | 连豆二主连 | B.DCE |  | 豆二
+future | 连豆二次主连 | B_S.DCE |  | 豆二
 future | 连豆油主连 | Y.DCE |  | 豆油
+future | 连豆油次主连 | Y_S.DCE |  | 豆油
 future | 连豆粕主连 | M.DCE |  | 豆粕
+future | 连豆粕次主连 | M_S.DCE |  | 豆粕
 future | 连铁矿石主连 | I.DCE |  | 铁矿石
+future | 连铁矿石次主连 | I_S.DCE |  | 铁矿石
 future | 连鸡蛋主连 | JD.DCE |  | 鸡蛋
+future | 连鸡蛋次主连 | JD_S.DCE |  | 鸡蛋
 future | 迷你罗素 | RTY.CME |  |
 future | 郑PTA主连 | TA.CZC |  | PTA
+future | 郑PTA次主连 | TA_S.CZC |  | PTA
 future | 郑丙烯主连 | PL.CZC |  |
+future | 郑丙烯次主连 | PL_S.CZC |  |
+future | 郑动力煤主连 | TC.CZC |  | 动力煤
+future | 郑动力煤主连（退） | ZC.CZC |  |
+future | 郑动力煤次主连 | TC_S.CZC |  | 动力煤
+future | 郑动力煤次主连（退） | ZC_S.CZC |  |
 future | 郑对二甲苯主连 | PX.CZC |  | 对二甲苯
+future | 郑对二甲苯次主连 | PX_S.CZC |  | 对二甲苯
 future | 郑尿素主连 | UR.CZC |  | 尿素
+future | 郑尿素次主连 | UR_S.CZC |  | 尿素
+future | 郑强麦主连 | WS.CZC |  | 强麦
+future | 郑强麦主连（退） | WH.CZC |  |
+future | 郑强麦次主连 | WS_S.CZC |  | 强麦
+future | 郑强麦次主连（退） | WH_S.CZC |  |
+future | 郑早籼稻主连 | ER.CZC |  | 早籼稻
+future | 郑早籼稻主连（退） | RI.CZC |  |
+future | 郑早籼稻次主连 | ER_S.CZC |  | 早籼稻
+future | 郑早籼稻次主连（退） | RI_S.CZC |  |
+future | 郑晚籼稻主连 | LR.CZC |  | 晚籼稻
+future | 郑晚籼稻次主连 | LR_S.CZC |  | 晚籼稻
+future | 郑普麦主连（退） | PM.CZC |  | 普麦
+future | 郑普麦次主连（退） | PM_S.CZC |  | 普麦
 future | 郑棉纱主连 | CY.CZC |  | 棉纱
+future | 郑棉纱次主连 | CY_S.CZC |  | 棉纱
 future | 郑棉花主连 | CF.CZC |  | 棉花,郑棉
+future | 郑棉花次主连 | CF_S.CZC |  | 棉花,郑棉
 future | 郑油菜籽主连 | RS.CZC |  | 菜籽
+future | 郑油菜籽次主连 | RS_S.CZC |  | 菜籽
 future | 郑烧碱主连 | SH.CZC |  | 烧碱
+future | 郑烧碱次主连 | SH_S.CZC |  | 烧碱
 future | 郑玻璃主连 | FG.CZC |  | 玻璃
+future | 郑玻璃次主连 | FG_S.CZC |  | 玻璃
 future | 郑瓶片主连 | PR.CZC |  |
+future | 郑瓶片次主连 | PR_S.CZC |  |
 future | 郑甲醇主连 | MA.CZC |  | 甲醇
+future | 郑甲醇主连 | ME.CZC |  |
+future | 郑甲醇次主连 | MA_S.CZC |  | 甲醇
+future | 郑甲醇次主连 | ME_S.CZC |  |
 future | 郑白糖主连 | SR.CZC |  | 白糖,内糖,郑糖
+future | 郑白糖次主连 | SR_S.CZC |  | 白糖,内糖,郑糖
 future | 郑短纤主连 | PF.CZC |  | 短纤
+future | 郑短纤次主连 | PF_S.CZC |  | 短纤
 future | 郑硅铁主连 | SF.CZC |  | 硅铁
+future | 郑硅铁次主连 | SF_S.CZC |  | 硅铁
+future | 郑硬麦主连 | WT.CZC |  | 硬麦
+future | 郑硬麦次主连 | WT_S.CZC |  | 硬麦
+future | 郑粳稻主连（退） | JR.CZC |  | 粳稻
+future | 郑粳稻次主连（退） | JR_S.CZC |  | 粳稻
 future | 郑红枣主连 | CJ.CZC |  | 红枣
+future | 郑红枣次主连 | CJ_S.CZC |  | 红枣
 future | 郑纯碱主连 | SA.CZC |  | 纯碱
+future | 郑纯碱次主连 | SA_S.CZC |  | 纯碱
+future | 郑绿豆主连 | GN.CZC |  |
+future | 郑绿豆次主连 | GN_S.CZC |  |
 future | 郑花生主连 | PK.CZC |  | 花生
+future | 郑花生次主连 | PK_S.CZC |  | 花生
 future | 郑苹果主连 | AP.CZC |  | 苹果
+future | 郑苹果次主连 | AP_S.CZC |  | 苹果
 future | 郑菜油主连 | OI.CZC |  | 菜油
+future | 郑菜油主连 | RO.CZC |  |
+future | 郑菜油次主连 | OI_S.CZC |  | 菜油
+future | 郑菜油次主连 | RO_S.CZC |  |
 future | 郑菜粕主连 | RM.CZC |  | 菜粕
+future | 郑菜粕次主连 | RM_S.CZC |  | 菜粕
 future | 郑锰硅主连 | SM.CZC |  | 锰硅
+future | 郑锰硅次主连 | SM_S.CZC |  | 锰硅
 future | 长期欧元债券期货 | FGBL.EUX |  |

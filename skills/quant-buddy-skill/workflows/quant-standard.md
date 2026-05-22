@@ -27,6 +27,7 @@
 | 最新交易日行情/估值（少量字段） | `workflows/quick-snapshot.md` |
 | 最近 N 个交易日序列/窗口统计 | `workflows/quick-window.md` |
 | 最近报告期财务指标 | `workflows/quick-report-period.md` |
+| 单股综合指标画像 / 个股概览 | `workflows/stock-profile.md` |
 | 单次查数后简单四则计算/对比 | 同上，按字段类型路由 |
 | 行业/板块近N日涨跌幅排名、行业平均涨跌幅 TopN | 优先用行业聚合快速模板（见 `recipes/industry-aggregation.md`），不要先走完整标准流程 |
 

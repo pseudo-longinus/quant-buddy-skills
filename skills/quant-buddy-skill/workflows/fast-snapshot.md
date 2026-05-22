@@ -19,13 +19,13 @@
 → ⑤ 从 value/date 或 series[] 提取结果，输出最终答案
 ```
 
-**停止条件**：fast_query 返回 `success: true`，且目标字段均有 `value`（value 模式）或 `series[]`（series 模式）→ 立刻停止，不得再调用任何工具。
+**停止条件**：fast_query 返回 `success: true`，且 `results.{资产名}` 中目标字段均有值 → 立刻停止，不得再调用任何工具。
 
 ---
 
 ## ① 字段映射表（fields 参数写法）
 
-> ⚠️ 估值字段市场范围：**总市值** 支持 A/US/HK；**PE/PE_TTM/PB/PS_TTM/股息率** 仅 A 股（FMP 无 TTM 口径）；港股/美股请使用 `PE_单季`/`PB_单季`/`PS_单季`/`股息率_单季`；**流通市值、换手率** 仅 A 股。
+> ⚠️ 估值字段市场范围：**PE/PE_TTM/PB/PS_TTM/股息率/PCF** 支持 A/US/HK（TTM〔估值数据〕，日频，港美股自动映射）；**总市值** 支持 A/US/HK；**流通市值、换手率** 仅 A 股。
 
 | 用户描述的字段 | 传入 fields 的写法 | 返回 unit | 备注 |
 |---|---|---|---|
@@ -36,23 +36,29 @@
 | 涨跌幅 / 日涨幅 / 回报率 / pct_change | `涨跌幅` | % | value 已 ×100，直接加 % |
 | 成交额 / amount | `成交额` | 元 | |
 | 成交量 / volume | `成交量` | 股 | |
-| PE / 市盈率TTM / PE_TTM | `PE_TTM` | 倍 | 仅 A 股 |
-| PB / 市净率 | `PB` | 倍 | 仅 A 股 |
-| 市销率 / PS_TTM | `PS_TTM` | 倍 | 仅 A 股 |
+| PE / 市盈率TTM / PE_TTM | `PE_TTM` | 倍 | A/US/HK |
+| PB / 市净率 | `PB` | 倍 | A/US/HK |
+| 市销率 / PS_TTM | `PS_TTM` | 倍 | A/US/HK |
 | 总市值 / 市值 | `总市值` | 亿元 | A/US/HK |
 | 流通市值 | `流通市值` | 亿元 | 仅 A 股 |
 | 换手率 / turnover | `换手率` | % | 仅 A 股 |
-| 股息率 / dividend | `股息率` | % | 仅 A 股 |
-| PE（单季，港美股）/ PE_单季 | `PE_单季` | 倍 | A/US/HK |
-| PB（单季，港美股）/ PB_单季 | `PB_单季` | 倍 | A/US/HK |
-| 市销率（单季，港美股）/ PS_单季 | `PS_单季` | 倍 | A/US/HK |
-| 股息率（单季，港美股）/ 股息率_单季 | `股息率_单季` | % | A/US/HK |
+| 股息率 / dividend | `股息率` | % | A/US/HK |
+| PCF / 市现率 | `PCF` | 倍 | A/US/HK |
+| PCF（现金净流量） | `PCF_现金净流量` | 倍 | A/US/HK |
+| PE（单季）/ PE_单季 | `PE_单季` | 倍 | A/US/HK |
+| PB（单季）/ PB_单季 | `PB_单季` | 倍 | A/US/HK |
+| 市销率（单季）/ PS_单季 | `PS_单季` | 倍 | A/US/HK |
+| 股息率（单季）/ 股息率_单季 | `股息率_单季` | % | A/US/HK |
 
 > 字段不在上表时：原样传入 `fields`，服务端自动解析（约 +2s）。
 
 ---
 
 ## ② 调用示例
+
+> ⛔ **leaf 级硬闸门（重复声明 SKILL.md 硬规则 1，每次进入本 workflow 都必须遵守）**：
+> 调用 `fast_query` 之前必须先调用 `newSession`。若本轮上一步只有 `Read` / `Grep` / `read_skill_file` 痕迹而没有 `newSession` 调用记录，**第一件事就是 `newSession`，不是 `fast_query`**。
+> 这条规则优先级高于"参数已经提取完毕"等任何后续步骤说明；跳过 `newSession` 直接调 `fast_query` = MISSING_NEW_SESSION 契约失败（HIGH 级）。
 
 > ⛔ **P0 红线**：调用 `fast_query` 前必须以本节示例为参数模板构造请求体，禁止自行推断参数结构；必传字段 `query_type`、`assets`、`fields` 缺一不可，不得用 `query` 等非标字段替代。
 
@@ -100,24 +106,33 @@
 
 ## ③ 取值与输出规则
 
-### value 模式（默认）
+### value 模式（默认）— compact 字典格式
 
-- 每字段取 `results[i].fields[j].value` 和 `fields[j].date`
-- `unit` 字段已给出单位，直接使用
-- **涨跌幅**：`value` 已是百分比数（如 `-2.74`），直接加 `%`，**不再乘 100**
-- 未传日期范围时，`date` 为最新交易日；若 `date` 早于当前自然日，声明「以下为最后可得交易日 YYYY-MM-DD 的数据」
-- 传入日期范围时，`value/date` 表示该区间内最后一个有效值
+- 响应为字典：`results.{资产名}.{字段名}` 直接是数值（日期已提升到顶层 `dates.{date_type}`）
+- 若某字段值是对象 `{v, d, fallback}` 而非数字，说明该字段日期与公共日期不同（fallback 回退），取 `v` 为值、`d` 为日期
+- 单位从 `fields_meta.{字段名}.unit` 获取
+- **涨跌幅**：值已是百分比数（如 `-2.74`），直接加 `%`，**不再乘 100**
+- 未传日期范围时，`dates.trade_date` 为最新交易日；若早于当前自然日，声明「以下为最后可得交易日 YYYY-MM-DD 的数据」
+- 传入日期范围时，值为该区间内最后一个有效值
 
-**输出首句格式**：`{资产名} 最新数据（{date}）：{字段1} {value1}{unit}，{字段2} {value2}{unit}…`
+**输出首句格式**：`{资产名} 最新数据（{dates.trade_date}）：{字段1} {value1}{unit}，{字段2} {value2}{unit}…`
+
+#### 日期解释硬规则（修复 T-001 类回答漂移）
+
+- 字段对应的交易日期 = `dates.<fields_meta.<字段>.date_type>`（通常是 `dates.trade_date`）；这是回答中**唯一可用**的"交易日期"来源。
+- **禁止**仅凭工具未明确返回的元信息（如 `meta.latest_trade_date`、`query_time_ms`、对话外部的"今天/最新交易日"）自行写出"真正最新交易日是 X，但快照返回是 Y"之类的二元日期说明。
+- 工具未显式声明数据延迟时，禁止追加任何"数据延迟"/"非实时"解释；只输出 `字段 + 数值 + dates.trade_date`，由用户自行判断。
+- 多字段日期不一致（部分字段返回 fallback 对象 `{v, d, fallback}`）时，按各字段自带的 `d` 标注真实日期，禁止用 `dates.trade_date` 强行覆盖。
 
 固定区间最后有效值首句：`{资产名} 在 {start_date} 至 {end_date} 的最后可得数据（{date}）：{字段1} {value1}{unit}…`
 
-### series 模式
+### series 模式 — compact 列式格式
 
-- 每字段取 `results[i].fields[j].series`，结构为 `[{date, value}, ...]`
-- `series` 按日期升序，直接用于走势表或区间序列回答
-- **涨跌幅序列**：`series[*].value` 已是百分比数，直接加 `%`，**不再乘 100**
-- 若用户只要走势/序列，输出日期和值；若用户要区间统计，可基于 `series[*].value` 计算最高、最低、首末变化等简单统计
+- `results.{资产名}.dates` 为共享日期轴（升序），`results.{资产名}.{字段名}` 为等长值数组
+- 若某字段日期轴不同（如混合 trade_date + report_period），该字段值为 `{dates: [...], values: [...]}`
+- 单位从 `fields_meta.{字段名}.unit` 获取
+- **涨跌幅序列**：值已是百分比数，直接加 `%`，**不再乘 100**
+- 若用户只要走势/序列，按 dates 对应输出日期和值；若用户要区间统计，可基于值数组计算最高、最低、首末变化等简单统计
 
 ---
 
@@ -128,7 +143,7 @@
 | Layer 1（MISSING_START_DATE / INVALID_DATE_RANGE / INVALID_RESULT_MODE / DATE_RANGE_WINDOW_CONFLICT） | 退出 fast path → `global-rules.md` → `quick-snapshot.md` 或完整链路 |
 | Layer 1（任何其他 code） | 退出 fast path → `global-rules.md` → `quick-snapshot.md` |
 | Layer 2（ASSET_NOT_FOUND） | 告知用户该资产未识别；其余资产结果正常输出 |
-| Layer 3（FIELD_MARKET_MISMATCH） | 告知用户该字段仅支持 A 股 |
+| Layer 3（FIELD_MARKET_MISMATCH） | 告知用户该字段仅支持 A 股（如流通市值/换手率/ROE） |
 | Layer 3（FIELD_UNRESOLVABLE） | 告知用户字段不在支持范围，其余字段正常输出 |
 | Layer 4（DATA_UNAVAILABLE） | **立即退出 fast path → 完整链路**；禁止重试 fast_query，禁止 confirmDataMulti 换字段名后再重试 |
 | HTTP 500 / 任何网络错误 | **立即退出 fast path → 完整链路**；禁止重试同一接口 |
@@ -137,7 +152,7 @@
 
 ## 保护规则（4 条）
 
-1. **evidence-only**：只输出 `results[].fields[].value`；禁止推断归因
+1. **evidence-only**：只输出 `results.{资产名}.{字段名}` 中的实际值；禁止推断归因
 2. **去过程化**：首句必须是资产名 + 数据结论；禁止「已成功获取」「让我来」等话术
-3. **涨跌幅**：`value` 已是百分比数，直接加 `%`，**不再乘 100**
+3. **涨跌幅**：值已是百分比数，直接加 `%`，**不再乘 100**
 4. **条件冻结**：用户条件原样传入，不改写
