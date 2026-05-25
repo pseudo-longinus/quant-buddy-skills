@@ -3,7 +3,7 @@
 [中文](README.md) | [English](README.en.md)
 
 <p align="center">
-  <img src="assets/banner.png" alt="quant-buddy-skills" width="100%" />
+  <img src="assets/banner.jpg" alt="quant-buddy-skills" width="100%" />
 </p>
 
 ## 🔥 Quick Install
