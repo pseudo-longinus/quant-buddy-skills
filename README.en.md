@@ -2,6 +2,24 @@
 
 [中文](README.md) | [English](README.en.md)
 
+<p align="center">
+  <img src="assets/banner.png" alt="quant-buddy-skills" width="100%" />
+</p>
+
+## 🔥 Quick Install
+
+If you're familiar with AI agent tools (Claude Code, Cursor, OpenClaw, etc.), just tell your agent:
+
+> Install this skill for me:
+
+```bash
+npx skills add pseudo-longinus/quant-buddy-skills -g -a claude-code -s quant-buddy-skill -y
+```
+
+Not sure how to use agents or skills? Follow the [step-by-step beginner guide](https://tcn8bvcbyokw.feishu.cn/wiki/E1zswck3oiiJjJkP07QcmSG3nle?from=from_copylink).
+
+---
+
 > **Run formulas, stock screens, factors, and backtests across the full A-share market from an AI Agent.**  
 > A-share quant execution layer for Claude Code, Cursor, Codex, GitHub Copilot, Windsurf, and other AI agents.
 
@@ -10,13 +28,6 @@ quant-buddy-skills is not a generic stock data API. It packages **market data, v
 Traditional data APIs only get raw data out. quant-buddy-skills helps an AI agent turn natural-language research ideas into **executable formulas, platform-side computation, structured results, and reusable tasks**.
 
 Official site: https://www.quantbuddy.cn
-
-```bash
-# For Claude Code users
-npx skills add pseudo-longinus/quant-buddy-skills -g -a claude-code -s quant-buddy-skill -y
-```
-
-Cursor, OpenClaw, and other AI agent users should see the Installation section below.
 
 > This project is for financial data analysis, quantitative research, strategy validation, and educational use only. It is not investment advice, trading advice, a return guarantee, or an automated trading service.
 
@@ -357,7 +368,7 @@ For more strategy examples, integration questions, roadmap updates, and real res
   <table>
     <tr>
       <td align="center">
-        <img src="assets/wechat_qr2.jpg" width="180" alt="Personal WeChat QR code" />
+        <img src="assets/wechat_qr3.png" width="180" alt="Personal WeChat QR code" />
         <br/>
         <sub>Personal WeChat</sub>
       </td>

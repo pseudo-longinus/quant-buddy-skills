@@ -2,21 +2,32 @@
 
 [中文](README.md) | [English](README.en.md)
 
-> **让 AI Agent（智能代理）直接在全 A 股上跑公式、选股、因子和回测。**  
-> A-share quant execution layer（A 股量化执行层）for Claude Code（编程智能代理）、Cursor（智能编辑器）、Codex（编程智能代理）、GitHub Copilot（编程助手）、Windsurf（智能编辑器）等 AI Agent（智能代理）。
+<p align="center">
+  <img src="assets/banner.png" alt="quant-buddy-skills" width="100%" />
+</p>
 
-quant-buddy-skills 不是普通股票数据 API（应用程序接口）。它把**行情、估值、财务、公式引擎、全市场筛选、因子计算、策略回测、净值对比和图表渲染**封装成 AI Agent（智能代理）可直接调用的投研工作流。
+## 🔥 3 秒快速安装
 
-传统数据 API（应用程序接口）只负责“把数据拉出来”；quant-buddy-skills 负责让 AI Agent（智能代理）把自然语言投研想法转成**可执行公式、平台侧计算、结构化结果和可复用任务**。
+如果你熟悉 Agent 工具（Claude Code、Cursor、OpenClaw 等），可以直接对 AI Agent 说：
 
-官网：https://www.quantbuddy.cn
+> 帮我安装这个 skill：
 
 ```bash
-# Claude Code 用户
 npx skills add pseudo-longinus/quant-buddy-skills -g -a claude-code -s quant-buddy-skill -y
 ```
 
-Cursor、OpenClaw 或其他 AI Agent（智能代理）用户见下方「安装」章节。
+如果你不懂如何使用 Agent 和 skill，可以按照[小白图文教程](https://tcn8bvcbyokw.feishu.cn/wiki/E1zswck3oiiJjJkP07QcmSG3nle?from=from_copylink)一步步展开。
+
+---
+
+> **让 AI Agent（智能代理）直接在全 A 股上跑公式、选股、因子和回测。**  
+> A-share quant execution layer for Claude Code、Cursor、Codex、GitHub Copilot、Windsurf 等 AI Agent。
+
+quant-buddy-skills 不是普通股票数据 API（应用程序接口）。它把**行情、估值、财务、公式引擎、全市场筛选、因子计算、策略回测、净值对比和图表渲染**封装成 AI Agent（智能代理）可直接调用的投研工作流。
+
+传统数据 API 只负责"把数据拉出来"；quant-buddy-skills 负责让 AI Agent 把自然语言投研想法转成**可执行公式、平台侧计算、结构化结果和可复用任务**。
+
+官网：https://www.quantbuddy.cn
 
 > 本项目用于金融数据分析、量化研究、策略验证和教育用途，不构成投资建议、交易建议、收益承诺或自动交易服务。
 
@@ -357,7 +368,7 @@ npx skills list -g --json
   <table>
     <tr>
       <td align="center">
-        <img src="assets/wechat_qr2.jpg" width="180" alt="个人微信二维码" />
+        <img src="assets/wechat_qr3.png" width="180" alt="个人微信二维码" />
         <br/>
         <sub>个人微信</sub>
       </td>
