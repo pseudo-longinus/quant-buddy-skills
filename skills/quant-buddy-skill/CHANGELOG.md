@@ -9,6 +9,71 @@
 
 ---
 
+## [4.20.21] — 2026-06-01
+
+**变更文件**：`SKILL.md`、`tools/fast_query.md`、`scripts/fetch_fastquery_csv.py`（新增）、`workflows/fast-snapshot.md`、`workflows/fast-window.md`、`workflows/fast-report-period.md`、`workflows/event-study.md`、`workflows/period-return-compare.md`、`workflows/quant-standard.md`、`workflows/quick-lookup.md`、`workflows/quick-snapshot.md`、`workflows/global-rules.md`
+
+`fast_query` 接口大幅扩容（≤3 资产 → ≤1000 资产），同时新增 CSV 自动降级模式与限流说明；相关 workflow 中的资产数量限制描述全部同步更新。
+
+- `tools/fast_query.md`：
+  - 资产数上限从 1~3 扩至 ≤1000，`window_days` 上限从 1~60 扩至 1~2500；删除"≥4 资产"的不适用限制。
+  - 新增**限流表**：最大资产数 1,000（`ASSETS_EXCEED_LIMIT`）、最大交易日数 2,500（`WINDOW_DAYS_EXCEED_LIMIT` / `DATE_RANGE_EXCEED_LIMIT`）、单次最大数据点 200,000（`DATA_POINTS_EXCEED_LIMIT`）、每日用户级数据点 1,000,000、每日 CSV 下载 50 次；数据点计算公式同步说明。
+  - 新增 **CSV 模式返回结构**：数据点 > 500 时服务端自动切换 CSV 格式，`mode:"csv"` + `csv_fields[].csv_url` + `summary`；处理规则包括汇报 `summary`、展示下载链接、禁止在对话中展开 CSV 内容。
+  - 错误码表新增 6 条限流错误。
+- `scripts/fetch_fastquery_csv.py`（新增）：下载并解析 `fast_query` CSV 模式返回的 `csv_url`，支持宽表格式（`ticker,name,<日期1>,<日期2>…`），对每个资产计算首值/末值/最高/最低/区间涨跌幅，输出 JSON；仅依赖 Python 标准库（`urllib`/`csv`/`json`），支持 `--full` 全序列输出与 `--max-points` 截断。
+- `workflows/global-rules.md` / `workflows/quick-lookup.md` / `workflows/quick-snapshot.md`：资产数量描述从"1~3 个"统一改为"≤1000 个（明确列出的资产）"。
+- 其余 workflow（`fast-snapshot.md`、`fast-window.md`、`fast-report-period.md`、`event-study.md`、`period-return-compare.md`、`quant-standard.md`）：细节描述与新接口规格对齐。
+
+---
+
+## [4.20.20] — 2026-05-26
+
+**变更文件**：`SKILL.md`、`tools/fast_query.md`、`workflows/quant-standard.md`
+
+修正 `fast_query` 字段市场范围：总市值仅 A 股（之前版本误标为 A/US/HK）；财务字段 ROE/毛利率统一扩展至 A/US/HK；`stock_us.yaml` 注释更正为"美股及境外ETF"。
+
+- `tools/fast_query.md`：
+  - `总市值`：从"A/US/HK 均支持"改回"仅 A 股"（亿元）；港美股查询返回 `FIELD_MARKET_MISMATCH`。
+  - 财务字段：`ROE` 从"仅 A 股"升为"A/US/HK 均支持"；`毛利率` 显式加入 A/US/HK 均支持列表；派生字段 `资产负债率` 同步注明公式 `(总资产 - 净资产) / 总资产 × 100`。
+  - 财务字段说明头部注明"所有财务字段统一返回**单季**数据，A/US/HK 一致"。
+  - `FIELD_MARKET_MISMATCH` 错误描述更新为"港/美股查总市值/流通市值/换手率等仅 A 股字段"。
+- `SKILL.md`：目录树注释 `stock_us.yaml` 说明改为"美股及境外ETF"。
+- `workflows/quant-standard.md`：资产确认表格"美股 → `stock_us.yaml`"备注同步为"美股及境外ETF"。
+
+---
+
+## [4.20.19] — 2026-05-25
+
+**变更文件**：`scripts/call.py`
+
+扩展流式进度转发：`resumeJob` 工具与 `runMultiFormulaBatchStream` 共享实时 stderr 转发路径，用户在终端可逐条看到后台任务进度。
+
+- `scripts/call.py`：`_run_executor()` 中将流式进度工具集合从单个 `runMultiFormulaBatchStream` 扩为 `{"runMultiFormulaBatchStream", "resumeJob"}`，注释从"runMultiFormulaBatchStream：实时转发 stderr"改为"流式进度工具：实时转发 stderr"；逻辑不变，仅扩展触发范围。
+
+---
+
+## [4.20.18b] — 2026-05-22
+
+**变更文件**：`SKILL.md`、`workflows/render-kline.md`、`workflows/fast-snapshot.md`、`workflows/fast-window.md`、`workflows/global-rules.md`、`recipes/download-data.md`
+
+补充 K 线工作流的 `newSession` 前置门禁规则；新增模糊词处理规则，明确综合分析请求直行与单点定义性请求反问的分支。
+
+- `SKILL.md`：新增**模糊词处理规则**——技术分析类/走势判断类/盘面定性类/健康度类词的判定流程：①综合分析请求（≥2 维度或明确说"全面/综合分析"）→ 走 `stockProfile` 直行，报告首句告知口径；②孤立的单点定义性请求 → 必须反问澄清。
+- `workflows/render-kline.md`：新增 **K-1 门禁**（`newSession 已建立`）——调用任何平台工具前本轮必须已有 `newSession` 记录，未通过则 MISSING_NEW_SESSION（HIGH 级）；Step 0 同步补充 `newSession` 前置步骤。
+
+---
+
+## [4.20.18a] — 2026-05-21
+
+**变更文件**：`tools/fast_query.md`、`workflows/fast-report-period.md`、`workflows/fast-snapshot.md`、`workflows/fast-window.md`、`workflows/period-return-compare.md`
+
+将所有 workflow 中对 `fast_query` 返回结构的描述从旧版嵌套数组（`results[].fields[]`）更新为新版 compact 格式（顶层提升 `dates`/`fields_meta`，`results.{资产名}.{字段名}` 直接是数值）。
+
+- `tools/fast_query.md`：返回结构重写——新增顶层 `fields_meta`（单位+日期类型，只声明一次）；`value` 模式改为字典 `results.{资产名}.{字段名}` 直接是数值，公共日期提升至 `dates.{date_type}`；日期 fallback 时字段值为 `{v, d, fallback: true}`；`series` 模式改为列式 `dates` 共享日期轴 + 等长值数组，日期轴不同时为 `{dates, values}` 对象。
+- `workflows/fast-snapshot.md` / `fast-window.md` / `fast-report-period.md` / `period-return-compare.md`：取值规则、首句模板、统计规则全部对齐 compact 格式；删除所有 `results[i].fields[j]` 写法，改为 `results.{资产名}.{字段名}`；日期字段从 `fields[j].date` 改为 `dates.trade_date` / `dates.report_period`；单位从 `fields[j].unit` 改为 `fields_meta.{字段名}.unit`。
+
+---
+
 ## [4.20.18] — 2026-05-20
 
 **变更文件**：`SKILL.md`、`tools/fast_query.md`、`workflows/fast-snapshot.md`、`workflows/fast-window.md`、`workflows/quick-snapshot.md`、`presets/assets_db/stock_hk.yaml`、`presets/assets_db/stock_us.yaml`、`presets/data_catalog.yaml`

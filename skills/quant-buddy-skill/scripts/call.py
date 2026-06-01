@@ -295,8 +295,8 @@ def _detect_skill_version_outdated(stdout_text):
 def _run_executor(tool_name, param_arg):
     """调用 executor.py，返回 (returncode, stdout_bytes, stderr_bytes)。
 
-    对 runMultiFormulaBatchStream 使用 Popen + 后台线程实时转发 stderr，
-    让用户在终端能逐条看到公式完成进度；其余工具仍走 capture_output=True。
+    对会输出流式进度的工具使用 Popen + 后台线程实时转发 stderr，
+    让用户在终端能逐条看到公式/后台任务完成进度；其余工具仍走 capture_output=True。
     """
     import signal as _signal
     import threading
@@ -312,8 +312,9 @@ def _run_executor(tool_name, param_arg):
         env["PYTHONIOENCODING"] = "utf-8"
         sub_timeout = _TOOL_SUBPROCESS_TIMEOUTS.get(tool_name, _DEFAULT_SUBPROCESS_TIMEOUT)
 
-        # ── runMultiFormulaBatchStream：实时转发 stderr ──────────────
-        if tool_name == "runMultiFormulaBatchStream":
+        # ── 流式进度工具：实时转发 stderr ──────────────
+        stream_progress_tools = {"runMultiFormulaBatchStream", "resumeJob"}
+        if tool_name in stream_progress_tools:
             proc = subprocess.Popen(
                 [sys.executable, EXECUTOR, tool_name, param_arg],
                 stdout=subprocess.PIPE,

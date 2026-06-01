@@ -7,6 +7,7 @@
 index | 300红利低波 | 930740.CSI |  |
 index | 300银行全收益 | H00951.CSI |  |
 index | A股指数 | 000002.SH |  |
+index | CBOE波动率VIX | VIX.GI |  |
 index | CS中药生产 | CI005153.WI |  |
 index | CS人工智 | 930713.CSI |  |
 index | CS化学制药 | CI005152.WI |  |
@@ -24,6 +25,7 @@ index | MSCI欧澳远东 | 990300.MI |  |
 index | MSCI美国 | 984000.MI |  |
 index | MYR | MYRCNY |  |
 index | PB-ROE指数(长江) | 861302.CJ |  |
+index | Reserved9339 | Reserved9339 |  |
 index | USD | USDCNY |  |
 index | 一般零售（申万） | 801203.SI |  |
 index | 万得300除金融 | 881007.WI |  |
@@ -439,7 +441,7 @@ index | 美元兑瑞士法郎 | USDCHF |  |
 index | 美元兑离岸人民币 | USDCNH |  |
 index | 美元兑阿根廷比索 | USDARS |  |
 index | 美元兑马来西亚林吉特 | USDMYR |  |
-index | 美元指数DXY | DXY.M |  |
+index | 美元指数DXY | DXY.M |  | 美元指数
 index | 美容护理（申万） | 801980.SI |  | 美容护理
 index | 股份制银行Ⅱ（申万） | 801783.SI |  |
 index | 股权激励指数 | 8841248.WI |  |

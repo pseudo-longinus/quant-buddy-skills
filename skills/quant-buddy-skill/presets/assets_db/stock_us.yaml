@@ -2,7 +2,7 @@
 # 美股及境外 ETF（NASDAQ .N / NYSE .O / AMEX .A）
 # 来源：MongoDB tkrsInfo 集合（type=stock，ticker 以 .N/.O/.A 结尾）
 # 格式：stock | name | ticker | 备注 | short_names
-# ⚠️ 支持行情价格 + TTM 估值（PE/PB/PS/股息率/PCF/总市值）+ 财务（通过 fast_query）
+# ⚠️ 仅支持行情价格数据（收盘/开盘/涨跌幅等），不支持估值/财务
 # ============================================================
 
 stock | 3M公司 | MMM.N |  |
@@ -125,6 +125,7 @@ stock | Confluent_Inc | CFLT.O |  |
 stock | Constellation_Energy_Corporation | CEG.O |  |
 stock | Copart_Inc | CPRT.O |  |
 stock | Corcept_Therapeutics_Incorporated | CORT.O |  |
+stock | CoreWeave_Inc_Class_A | CRWV.O |  |
 stock | Core__Main_Inc | CNM.N |  |
 stock | Corpay_Inc | CPAY.N |  |
 stock | CoStar_Group_Inc | CSGP.O |  |
@@ -270,7 +271,6 @@ stock | Kinsale_Capital_Group_Inc | KNSL.N |  |
 stock | Kirby_Corporation | KEX.N |  |
 stock | KKR__Co_Inc | KKR.N |  |
 stock | Knight-Swift_Transportation_Holdings_Inc | KNX.N |  |
-stock | KraneShares中证中国互联网ETF | KWEB.A |  |
 stock | Kyndryl_Holdings_Inc | KD.N |  |
 stock | Lamar_Advertising_Company | LAMR.O |  |
 stock | Lamb_Weston_Holdings_Inc | LW.N |  |
@@ -444,14 +444,6 @@ stock | Solstice_Advanced_Materials_Inc | SOLS.O |  |
 stock | Solventum_Corporation | SOLV.N |  |
 stock | Somnigroup_International_Inc | SGI.N |  |
 stock | SouthState_Corporation | SSB.N |  |
-stock | SPDR医疗保健精选行业ETF | XLV.A |  |
-stock | SPDR标普500ETF信托 | SPY.A |  |
-stock | SPDR标普地区银行ETF | KRE.A |  |
-stock | SPDR标普银行ETF | KBE.A |  |
-stock | SPDR欧洲斯托克50ETF | FEZ.A |  |
-stock | SPDR科技精选行业ETF | XLK.A |  |
-stock | SPDR能源精选行业ETF | XLE.A |  |
-stock | SPDR金融精选行业ETF | XLF.A |  |
 stock | Sprouts_Farmers_Market_Inc | SFM.O |  |
 stock | SSC_Technologies_Holdings_Inc | SSNC.O |  |
 stock | STAG_Industrial_Inc | STAG.N |  |
@@ -510,7 +502,6 @@ stock | Unum_Group | UNM.N |  |
 stock | US_Foods_Holding_Corp | USFD.N |  |
 stock | UWM_Holdings_Corporation | UWMC.N |  |
 stock | Valmont_Industries_Inc | VMI.N |  |
-stock | VanEck半导体ETF | SMH.O |  |
 stock | Veeva_Systems_Inc | VEEV.N |  |
 stock | Ventas_Inc | VTR.N |  |
 stock | Veralto_Corporation | VLTO.N |  |
@@ -590,7 +581,6 @@ stock | 元平台 | META.O |  |
 stock | 克兰 | CR.N |  |
 stock | 克利夫兰克里夫斯 | CLF.N |  |
 stock | 克罗格 | KR.N |  |
-stock | 全球X-MSCI阿根廷ETF | ARGT.A |  |
 stock | 共和服务 | RSG.N |  |
 stock | 再生元 | REGN.O |  |
 stock | 冠城国际 | CCI.N |  |
@@ -676,15 +666,6 @@ stock | 安捷伦科技 | A.N |  |
 stock | 安森美 | ON.O |  |
 stock | 安波福 | APTV.N |  |
 stock | 安特吉 | ETR.N |  |
-stock | 安硕iBoxx投资级公司债ETF | LQD.A |  |
-stock | 安硕iBoxx高收益公司债ETF | HYG.A |  |
-stock | 安硕MSCI台湾ETF | EWT.A |  |
-stock | 安硕MSCI巴西ETF | EWZ.A |  |
-stock | 安硕MSCI日本ETF | EWJ.A |  |
-stock | 安硕MSCI英国ETF | EWU.A |  |
-stock | 安硕半导体ETF | SOXX.O |  |
-stock | 安硕生物科技ETF | IBB.O |  |
-stock | 安硕罗素2000ETF | IWM.A |  |
 stock | 安费诺 | APH.N |  |
 stock | 安进 | AMGN.O |  |
 stock | 安靠科技 | AMKR.O |  |
@@ -778,7 +759,6 @@ stock | 普信集团 | TROW.O |  |
 stock | 普尔特房屋 | PHM.N |  |
 stock | 普洛斯 | PLD.N |  |
 stock | 景顺 | IVZ.N |  |
-stock | 景顺QQQ信托ETF | QQQ.O |  |
 stock | 李尔 | LEA.N |  |
 stock | 杜克能源 | DUK.N |  |
 stock | 杜比实验室 | DLB.N |  |
@@ -907,7 +887,6 @@ stock | 罗致恒富 | RHI.N |  |
 stock | 美元将军 | DG.N |  |
 stock | 美元树 | DLTR.O |  |
 stock | 美光科技 | MU.O |  |
-stock | 美国全球喷气机ETF | JETS.A |  |
 stock | 美国合众银行 | USB.N |  |
 stock | 美国国际集团 | AIG.N |  |
 stock | 美国家庭人寿保险 | AFL.N |  |
@@ -953,11 +932,11 @@ stock | 艾默生电气 | EMR.N |  |
 stock | 芝加哥商品交易所 | CME.O |  |
 stock | 芯源系统 | MPWR.O |  |
 stock | 花旗集团 | C.N |  |
-stock | 英伟达 | NVDA.O |  |
+stock | 英伟达 | NVDA.O |  | NVDA
 stock | 英格索兰 | IR.N |  |
 stock | 英特尔 | INTC.O |  |
 stock | 英迈 | INGM.N |  |
-stock | 苹果公司 | AAPL.O |  |
+stock | 苹果公司 | AAPL.O |  | 苹果
 stock | 荷美尔食品 | HRL.N |  |
 stock | 莫德纳 | MRNA.O |  |
 stock | 莫霍克工业 | MHK.N |  |

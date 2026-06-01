@@ -1,6 +1,6 @@
 ﻿# 快速执行 · 最近 N 日短窗序列 / 固定区间序列
 
-> **适用范围**：≤3 个资产，最近 N 日（1~60）序列或固定日期范围序列（行情/成交）；窗口统计量。  
+> **适用范围**：≤1000 个资产，最近 N 日（1~2500）序列或固定日期范围序列（行情/成交）；窗口统计量。  
 > 本 workflow 使用 `fast_query` 单次调用完成（无需 runMultiFormulaBatchStream / readData）。
 
 ---
@@ -8,17 +8,21 @@
 ## 执行步骤（4 步，严格顺序）
 
 ```
-① 从用户意图提取 assets、fields，以及窗口参数：window_days（1~60）或 start_date/end_date（二选一）
+① 从用户意图提取 assets、fields，以及窗口参数：window_days（1~2500）或 start_date/end_date（二选一）
 → ② 调用 newSession（若本轮尚未显式调用；调用 fast_query 前不可省略）
-→ ③ 对每个 asset 执行 grep presets/assets_db/{类型}.yaml 查本地库：
-       命中唯一 → 用 ticker（如 SH600303）替换原始中文名传参
-       命中多条（歧义）→ 向用户澄清选哪个，禁止继续查数
-       未命中 → 保留原始名称，由服务端屜底解析
+→ ③ 资产解析（见下方「资产解析硬规则」：批量 grep + 跨市场唯一性）
 → ④ 调用 fast_query（query_type="window"；传 window_days=N 或 start_date/end_date；不传 result_mode）
 → ⑤ 从 results.{资产名} 的列式数据提取结果，输出最终答案
 ```
 
-**N > 60 时**：安全失败，告知用户「最多支持 60 日窗口；如需更长窗口，请走完整链路」。
+### 资产解析硬规则（步骤 ③，修复 T-044 跨市场同名 / 多资产逐个 grep）
+
+1. **批量 grep（多资产必须）**：多个资产时一次 grep 用 `名1|名2|…` 合并匹配，仅对未命中项补查；禁止逐个 grep。
+2. **跨市场唯一性（用户只给名称、未带市场/后缀时）**：grep 必须跨 `stock_a.yaml`/`stock_hk.yaml`/`stock_us.yaml`/`index.yaml` 检索，不得默认只搜 `stock_a.yaml`。同名在 ≥2 个市场命中 → **先向用户确认市场，禁止默认 A 股继续查数**。用户已给完整代码 → 完整代码精确匹配，禁止数字子串模糊命中。
+3. **未命中表述**：跨市场均未命中 → 只能说「资产库未识别到『{名称}』」，禁止写「请核对名称/代码」。
+4. **指数口径**：若资产是指数（命中 `index.yaml` 或指数代码），价格序列对外表述为「点位」、单位「点」，不写「元」（参照 `fast-snapshot.md` 指数口径覆盖表）。
+
+**N > 2500 时**：安全失败，告知用户「最多支持 2500 日窗口（约 10 年交易日），请缩小范围」。
 
 **停止条件**：fast_query 返回 `success: true`，目标序列已到手 → 立刻停止。
 
@@ -30,9 +34,9 @@
 
 | 参数 | 提取方式 |
 |---|---|
-| `assets` | 用户提到的 1~3 个资产 |
+| `assets` | 用户提到的资产（≤1000） |
 | `fields` | 参照 fast-snapshot.md 字段映射表（行情字段；估值字段 `PE_TTM`/`PB`/`PS_TTM`/`股息率`/`PCF`/`总市值` 及单季版 `PE_单季`/`PB_单季`/`PS_单季`/`股息率_单季` 在 window 模式同样支持 A/US/HK；`流通市值`/`换手率` 仅 A 股） |
-| `window_days` | 用户说“最近 N 日”时使用（整数，1~60）；与 `start_date`/`end_date` 二选一 |
+| `window_days` | 用户说”最近 N 日”时使用（整数，1~2500）；与 `start_date`/`end_date` 二选一 |
 | `start_date`/`end_date` | 用户给出明确起止日期时使用，格式 YYYYMMDD |
 
 注意：
@@ -45,6 +49,7 @@
 |---|---|
 | ≤ 20 | 今天 − 3 个月 |
 | 21 ~ 60 | 今天 − 6 个月 |
+| > 60 | 服务端自动扩展 |
 
 > 本 workflow 无需手动设 begin_date，服务端已处理。
 
@@ -117,12 +122,30 @@
 
 ---
 
+### CSV 模式（数据点 > 500 时自动触发）→ 下载解析后作答（强规则）
+
+当 资产 × 字段 × 日期数 > 500 时，服务端**按设计**返回 CSV 模式（`mode:"csv"`，每个字段一个 `csv_url`，OSS 链接、有有效期）。**CSV 链接是大数据量的正常交付路径，不是失败**；但**把链接直接丢给用户不算完成**——除非用户明确只要下载文件。
+
+处理（默认：用户要走势/序列/对比/统计）：
+1. 对响应里每个 `csv_fields[].csv_url`，调用本 skill 脚本下载并解析（url 含 `&`，**必须整体加引号**；多字段一次传多个 url，`--labels` 按顺序对应 `csv_fields[].intent`）：
+   ```
+   python scripts/fetch_fastquery_csv.py "<csv_url1>" ["<csv_url2>" ...] --labels <字段1>,<字段2>
+   ```
+2. 脚本输出 JSON：每个资产的 `first / last / min / max / count / period_return_pct`（要逐日序列再加 `--full`，大序列按 `--max-points` 截断并标注 `series_truncated`）。
+3. 据脚本输出作答：实际日期区间 + 各资产 首值/末值/最高/最低 + 区间涨跌幅 + 1~3 条总体观察；明细多时不必逐日展开，但**不得只给链接无摘要**。
+
+> 这是「消费工具返回的 csv_url」，是**许可路径**，不受「禁止 Bash 包装原生工具」约束（见 `SKILL.md` 硬规则 2 的 csv 解析例外）。脚本对某个 url 报 `error` 时，按其错误说明该字段未取到、其余字段正常作答；**不要**改用裸 `curl`/自写解析绕过脚本。
+
+仅当用户明确要「导出/下载原始明细 CSV 文件」时：直接给 `csv_url` + 汇报 `summary`（资产数/字段数/总点数），无需下载解析；禁止在对话中逐行展开 CSV 内容。
+
+---
+
 ## 错误处理
 
 | fast_query 返回 | 处理方式 |
 |---|---|
+| Layer 1（ASSETS_EXCEED_LIMIT / WINDOW_DAYS_EXCEED_LIMIT / DATA_POINTS_EXCEED_LIMIT / DAILY_*_EXCEEDED） | 告知用户超限，按错误 message 引导 |
 | Layer 1（MISSING_WINDOW_PARAMS / INVALID_WINDOW_DAYS） | 退出 fast path → `global-rules-lite.md` → `quick-window.md` |
-| Layer 1（ASSETS_LIMIT_EXCEEDED 等） | 退出 fast path → 完整链路 |
 | Layer 2（ASSET_NOT_FOUND） | 告知用户，其余资产正常输出 |
 | Layer 3（FIELD_MARKET_MISMATCH / FIELD_UNRESOLVABLE） | 告知用户，其余字段正常输出 |
 | Layer 4（DATA_UNAVAILABLE） | **立即退出 fast path → 完整链路（newSession → grep presets/assets_db/{类型}.yaml → runMultiFormulaBatchStream → readData）**；禁止重试 fast_query，禁止 confirmDataMulti 换字段名后再重试 |

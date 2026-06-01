@@ -21,7 +21,7 @@
 
 | 特征 | 跳转目标 |
 |------|----------|
-| 最新交易日行情/估值（1~3 个资产，查标量，字段齐即停） | `workflows/quick-snapshot.md` |
+| 最新交易日行情/估值（≤1000 个资产，查标量，字段齐即停） | `workflows/quick-snapshot.md` |
 | 最近 N 个交易日序列 / 窗口极值 / 振幅统计 | `workflows/quick-window.md` |
 | 最近报告期财务指标（营收/净利润/总资产/ROE 等） | `workflows/quick-report-period.md` |
 | 用户明确要求看 K 线图（走势可视化） | `workflows/render-kline.md` |

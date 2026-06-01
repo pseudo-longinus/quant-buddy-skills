@@ -1,6 +1,6 @@
 ﻿# 固定区间累计涨跌幅对比
 
-> **适用范围**：给定明确起止日期/区间，查询 1~3 个股票或指数的区间累计涨跌幅，并做简单横向比较。
+> **适用范围**：给定明确起止日期/区间，查询 ≤1000 个股票或指数的区间累计涨跌幅，并做简单横向比较。
 > 本流程定义本场景的专用执行步骤；全局执行合同、证据分级、禁语与回答边界以 `workflows/global-rules-lite.md` 为准（进入本流程前必须已读取该文件）。
 
 > ⛔ **硬前置条件**：进入本流程前 **必须** 已读取 `workflows/global-rules-lite.md`。
@@ -20,7 +20,7 @@
 
 - 用户给出**明确起止日期**（如"2019年7月至2020年3月""从A到B"）
 - 只问区间累计涨跌幅/区间收益/区间表现
-- 资产数量 1~3 个
+- 资产数量 ≤1000 个
 - 不涉及因子、回测、选股、可视化
 
 ## 反例（不属于此流程，不要误路由）
@@ -71,7 +71,7 @@
 
 ### Step 2：取收盘价序列
 
-对 1~3 个已确认的股票/指数，固定使用 `fast_query(window)` 的日期范围模式拉取区间收盘价序列：
+对已确认的股票/指数（≤1000），固定使用 `fast_query(window)` 的日期范围模式拉取区间收盘价序列（资产 × 日期 > 500 时返回 CSV 模式，见 `tools/fast_query.md`）：
 
 ```json
 {
@@ -85,6 +85,16 @@
 ```
 
 本流程禁止使用 `runMultiFormulaBatchStream`、`runMultiFormulaBatch`、`readData`、`force_reusable_array`、`force_reusable_flags`、`use_minute_data` 或 `getCardFormulas`。
+
+#### CSV 触发 → 下载解析（强规则）
+
+多资产 × 长区间一次 `fast_query(window)` 可能因 资产×日期 > 500 返回 `mode:"csv"`（每字段一个 `csv_url`）。**这是正常交付，不是失败**；区间收益只需首末值，脚本已直接给出：
+
+1. 调 `python scripts/fetch_fastquery_csv.py "<csv_url>" --labels 收盘价`（url 含 `&`，**必须整体加引号**），读其 JSON 里每个资产的 `first` / `last` / `period_return_pct`，据此填结果表。
+2. 这是消费工具输出的**许可路径**（见 `SKILL.md` 硬规则 2 的 csv 解析例外）；**不要**自写 `curl`/python 解析绕过本脚本，也不要为了避开 CSV 而把题目拆成多次单资产查询。
+3. 仅当用户明确要「导出原始明细/CSV 文件」时，才直接提供 `csv_url`。
+
+> 注：本节调用 `scripts/fetch_fastquery_csv.py` 是上面「禁止使用 runMultiFormulaBatchStream/readData 等」的**例外**——它不查数、只解析已返回的 csv_url。
 
 ### Step 3：从 fast_query series 定位区间首末值
 

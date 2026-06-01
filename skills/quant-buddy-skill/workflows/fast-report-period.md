@@ -1,6 +1,6 @@
 ﻿# fast-report-period · 财务报告期快照与固定区间序列
 
-适用：≤3 只 A股/港股/美股；查询最近报告期财务，或固定日期范围内的财务最后有效值/完整序列；`fast_query` 单次调用。港股/美股财务不要静态拒答，应先尝试 `fast_query(query_type="report")`，按工具实际返回决定是否支持。
+适用：≤1000 只 A股/港股/美股；查询最近报告期财务，或固定日期范围内的财务最后有效值/完整序列；`fast_query` 单次调用。港股/美股财务不要静态拒答，应先尝试 `fast_query(query_type="report")`，按工具实际返回决定是否支持。
 
 ## 执行（5 步）
 
@@ -91,6 +91,19 @@
 - 固定区间最后有效值首句：`{资产} 在 {start_date} 至 {end_date} 的最后可得报告期（{date}）：{字段} {val}{unit}，…`
 - 不同字段日期不一致（fallback 对象各有不同 `d`）→ 分字段各自报告期，不合并计算派生指标
 
+#### report_period 复述规则（强规则，修复 T-039）
+
+> Fast Path 不加载 global-rules.md，故此处显式声明证据边界。
+
+**根源（务必理解，否则改不对）**：`report_period` 是一个**原始日期**（如 `2026-03-31`）。模型看到日期会本能地"帮用户翻译"成"第几季度 / 第几财季"——这是越界补全：① 用户没要这个映射；② 工具没返回这个映射；③ **港美股财年≠自然年**（如阿里巴巴财年 3 月底结束），一翻译就错（把 `2026-03-31` 说成"2025 年第四季度"是错的，它是自然年 Q1）。工具其实已经把**口径**标全了（`hint` 与 `index_title` 都写了「单季、非累计」），缺的从来不是口径，而是**约束模型别去翻译日期**。
+
+**因此**：
+- 报告期**只能原样复述 `dates.report_period`（YYYY-MM-DD）** + 字段值 + `hint`/`fields_meta` 已明确的口径（如「单季、非累计值」）。
+- **禁止**把 `report_period` 翻译/推断成任何工具未返回的标签：「某年Qx」「某财年第x财季」「年报/中报/一季报/三季报」等一律不得输出（A 股也不例外——即使你"算得出"，也属于工具外补全）。
+- 用户主动问「这是第几季度/财年」时，只能答「工具返回的报告期为 {report_period}，单季口径；未提供财季/财年映射」，不得推断。
+
+> 一句话：**report_period 是日期不是季度名。照抄日期 + 工具已标的「单季」，绝不把日期翻译成季度/财年。**
+
 ### series 模式 — compact 列式格式
 
 - `results.{资产名}.dates` 为升序日期数组，`results.{资产名}.{字段名}` 为等长值数组
@@ -99,10 +112,20 @@
 - 百分比字段（ROE、净利率、资产负债率、毛利率）直接加 `%`，不再乘 100
 - dates 已升序，直接按序展示；若用户只问序列，不额外推断趋势原因
 
+### CSV 模式（数据点 > 500 时自动触发）
+
+当查询的资产 × 字段 × 日期数 > 500 时，服务端自动返回 CSV 模式（`mode: "csv"`）。
+
+- 检查响应 `mode` 字段：若为 `"csv"`，按 CSV 模式处理
+- **禁止**在对话中逐行展开 CSV 内容
+- 用户要具体数值/序列时：调 `python scripts/fetch_fastquery_csv.py "<csv_url>" --labels <字段>` 下载解析后据其 JSON 作答（许可路径，见 `SKILL.md` 硬规则 2 csv 例外）
+- 仅当用户明确要导出 CSV 文件时：直接给 `csv_fields[].csv_url` + `summary`（资产数/字段数/总点数），无需解析
+
 ## 错误处理
 
 | fast_query 返回 | 处理 |
 |---|---|
+| Layer 1 ASSETS_EXCEED_LIMIT / DATA_POINTS_EXCEED_LIMIT / DAILY_*_EXCEEDED | 告知用户超限，按错误 message 引导 |
 | Layer 1 MARKET_NOT_SUPPORTED | 按工具返回说明当前市场暂不支持该 report 查询，退出 |
 | Layer 1 INVALID_RESULT_MODE | 修正为 `value/series` 或退出 → `global-rules.md` → `quick-report-period.md` |
 | Layer 1 MISSING_START_DATE / INVALID_DATE_RANGE | 退出 → `global-rules.md` → `quick-report-period.md` 或完整链路 |

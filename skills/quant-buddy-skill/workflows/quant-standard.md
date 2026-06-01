@@ -578,6 +578,13 @@ python scripts/call.py newSession
 
 ### cases_index 强制命中规则（硬规则）
 
+> **卡片是公式 know-how 的来源，不是答案外壳**。命中卡片只为拿到正确的函数写法（如 `昨天()` 包裹的非跳空突破、`支撑线()` 口径），下面两条对**所有**走卡片的题强制生效（修复 T-026/T-030/T-035 条件污染、T-034 拿到结果不收口）：
+>
+> 1. **卡片条件不继承**：`getCardFormulas` 返回的公式/insight 里若带用户**未明确提出**的附加条件（`非ST`/`普通股`/`封板`/`流动性门槛`/`市值门槛`/`主板` 等），**必须先删除再执行**，禁止默默带进最终公式或答案（见 SKILL.md 硬规则 8）。卡片说「非ST」但用户没说 → 不加；反之卡片漏了用户要的条件 → 必须补。
+> 2. **命中即用、收到即停**：拿到卡片公式 → 调整参数 → `runMultiFormulaBatchStream` → `readData` 拿到目标截面后**立即组织答案**；禁止再读第二张卡片、再 `searchSimilarCases`、再开替代公式分支（与全局执行合同第 5 条一致）。
+>
+> **与「简单横截面直达模式」的边界**：仅当题目用到下表的**专用函数 know-how**（非跳空突破需 `昨天()`、支撑/阻力需 `支撑线/阻力线`、涨跌停判断）时才走卡片；若是普通的「单指标 TopN / 1~3 个阈值筛选」（如简单涨幅前N、PE<x 且 股息率>y），按「简单横截面选股微流程（直达模式）」直接构造，**不强制**读 cases_index / 调 getCardFormulas。
+
 以下关键词场景**必须**在执行公式前查阅 `presets/cases_index.yaml`，若命中卡片则**必须优先使用卡片公式**：
 
 | 用户问题关键词 | 必须匹配的 cases_index tags | 禁止行为 |
@@ -828,7 +835,7 @@ PE数据="A股市盈率（PE, TTM）〔估值数据〕"
 | 公式中出现了… | 必须先查 / 先调 | 怎么做 |
 |---------------|----------------|--------|
 | **函数名**（如 `取出`、`涨跌幅`、`成分平均汇总`） | `presets/functions.yaml` | 函数名 + 参数个数必须与 yaml 中一致；若 yaml 无此函数 → 调 `searchFunctions` 确认 |
-| **资产名**（如 `贵州茅台`、`沪深300`） | `presets/assets_db/{类型}.yaml`（grep） | **grep `assets_db/` 对应类型文件**（A股 → `stock_a.yaml`、港股 → `stock_hk.yaml`、美股 → `stock_us.yaml`、指数 → `index.yaml`、期货 → `future.yaml`），⚠️ 禁止 `read_file` 整文件；唯一命中即用，未命中或多命中则报错/澄清。用户说「确认资产 / 批量确认 / 找ticker」同样适用此顺序。**name 字段必须精确匹配**；`assets_db` 不含指数成分股映射，不能用全量股票文件冒充某指数成分池。 |
+| **资产名**（如 `贵州茅台`、`沪深300`） | `presets/assets_db/{类型}.yaml`（grep） | **grep `assets_db/` 对应类型文件**（A股 → `stock_a.yaml`、港股 → `stock_hk.yaml`、美股及境外ETF → `stock_us.yaml`、指数 → `index.yaml`、期货 → `future.yaml`），⚠️ 禁止 `read_file` 整文件；唯一命中即用，未命中或多命中则报错/澄清。用户说「确认资产 / 批量确认 / 找ticker」同样适用此顺序。**name 字段必须精确匹配**；`assets_db` 不含指数成分股映射，不能用全量股票文件冒充某指数成分池。 |
 | **板块名 / 行业名**（如 `板块(芯片概念)`） | `presets/sectors.yaml` 或 `presets/themes.yaml` | 必须用 yaml 中的精确名称；若无 → 报错/澄清，不再远程确认 |
 | **全市场数据集名**（如 `"全市场每日收盘价"`） | `presets/data_catalog.yaml` | 必须用 `index_title`；若 yaml 无 → 调 `confirmDataMulti` 确认后补入 yaml |
 

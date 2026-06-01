@@ -2,7 +2,7 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.20.18
+version: 4.20.21
 description: |
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据。
   查询最近N个交易日的价格序列、日涨跌幅序列、窗口最高价、最低价、振幅等短期统计。
@@ -15,7 +15,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.20.18
+  version: 4.20.21
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -105,6 +105,7 @@ runtimeRequirements:
    - 平台已有原生工具时，必须直接调用原生工具：`fast_query`、`confirmDataMulti`、`runMultiFormulaBatchStream`、`resumeJob`、`readData`、`renderKLine`、`renderChart` 等。
    - 禁止用 Bash / shell / Python / `scripts/call.py` / `run_skill_script` 包装已有原生平台工具。
    - 只有平台明确不存在等价原生工具，且 workflow 明确允许脚本兜底时，才可使用本地脚本。
+   - **许可例外（csv 解析）**：当 `fast_query` 返回 `mode:"csv"` + `csv_url`（数据点 > 500 的正常交付）时，调用 `python scripts/fetch_fastquery_csv.py "<csv_url>"` 下载并解析该 csv 属于**许可路径**——这是消费工具返回的 OSS 产物（平台无等价原生解析工具），不算"包装原生工具"。但仍禁止用裸 `curl` / 自写临时脚本替代该脚本。
    - 涉及资产时仍需先用 `grep presets/assets_db/{类型}.yaml` 搜索本地资产库，禁止整文件读取；命中多条先澄清，未命中再交给服务端兜底解析。
    - 英文代码无市场后缀时必须先 grep 对应资产库确认 ticker 格式。
 3. **工具失败熔断：同类错误不得重复**
@@ -206,9 +207,9 @@ SKILL_ROOT/
 ├── SKILL.md                 ← 本文件（入口 + 路由）
 │
 ├── workflows/               ← 业务流程编排（路由目标）
-│   ├── fast-snapshot.md         Fast Path：最新时点行情/估值（≤3资产，标量）
-│   ├── fast-window.md           Fast Path：最近N日序列/窗口统计
-│   ├── fast-report-period.md    Fast Path：最近报告期财务（≤3资产）
+│   ├── fast-snapshot.md         Fast Path：最新时点行情/估值（≤1000资产，标量/CSV）
+│   ├── fast-window.md           Fast Path：最近N日序列/窗口统计（≤2500日）
+│   ├── fast-report-period.md    Fast Path：最近报告期财务（≤1000资产）
 │   ├── quick-lookup.md          快速查数路由器 + 共享基础规则
 │   ├── quick-snapshot.md        最新时点行情/估值快照（字段齐即停）
 │   ├── quick-window.md          最近N日短窗序列/窗口统计
@@ -236,7 +237,7 @@ SKILL_ROOT/
 │
 ├── tools/                   ← API 工具完整参数文档（默认不读；workflow 标注「必读」或报错时再查）
 │   │                           ⚠️ 下表列出所有可用工具的**实际调用名**，调用时必须使用此名，不得变体
-│   ├── fast_query.md            → 工具名 `fast_query`          快速合并查询（行情/估值/财务，≤3资产快照）
+│   ├── fast_query.md            → 工具名 `fast_query`          快速合并查询（行情/估值/财务，≤1000资产，支持CSV）
 │   ├── confirm_data_multi.md    → 工具名 `confirmDataMulti`    批量确认数据项存在性与维度（写公式前必查）
 │   ├── run_multi_formula.md     → 工具名 `runMultiFormulaBatchStream`  执行公式批次（选股/回测/因子计算）
 │   ├── read_data.md             → 工具名 `readData`            读取公式计算结果（需传 data_id，非 expression_id）
@@ -258,7 +259,7 @@ SKILL_ROOT/
 │   ├── assets_db/               全量资产字典（按类型分文件，⚠️ 仅 grep 检索，禁止 read_file 整文件；不含指数成分股映射）
 │   │   ├── stock_a.yaml             A 股 5505 条（SH/SZ）
 │   │   ├── stock_hk.yaml            港股 2862 条（HK 前缀；行情优先，财务以 fast_query 返回为准）
-│   │   ├── stock_us.yaml            美股 1044 条（.N/.O/.A；行情优先，财务以 fast_query 返回为准）
+│   │   ├── stock_us.yaml            美股及境外ETF 1044 条（.N/.O/.A；行情优先，财务以 fast_query 返回为准）
 │   │   ├── index.yaml               指数 503 条
 │   │   └── future.yaml              期货 257 条
 │   ├── functions.yaml           常用函数
@@ -358,12 +359,12 @@ SKILL_ROOT/
 
 若用户请求满足以下任一模式，应优先判定为【快速查数任务】，按以下路由直接跳转，不得先进入其他 workflow：
 
-**Fast Path 条件（同时满足以下 3 点才可走 Fast Path；否则走完整链路）：**
+**Fast Path 条件（同时满足以下 2 点才可走 Fast Path；否则走完整链路）：**
 
-- 资产数 ≤ 3
 - 所有目标字段属于 fast_query whitelist（价格/估值/财务/衍生字段，详见 `tools/fast_query.md`），不涉及自定义公式/选股/排名
-  > 字段白名单已统一 TTM 估值：`PE`/`PE_TTM`/`PB`/`PS_TTM`/`股息率`/`PCF` 均支持 A/US/HK（港美股自动映射到对应市场的 TTM〔估值数据〕），无需替换为单季版。仅 `流通市值`/`换手率`/`ROE` 仍为 A 股专属。
-- 非全市场横截面查询（不是"全市场排名/前N只"等场景）
+- 非全市场横截面查询（不是"全市场排名/前N只/行业筛选"等场景）
+
+> 资产数量不再限制 Fast Path 路由（服务端支持 ≤1000 个资产）。超过 500 数据点时服务端自动返回 CSV 格式（OSS 下载链接），详见 `tools/fast_query.md` 限流与 CSV 模式段落。
 
 **快速查数路由（按优先级依次判断，首个匹配即停）：**
 
