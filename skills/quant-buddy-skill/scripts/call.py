@@ -898,6 +898,7 @@ def main():
         except Exception:
             pass
         user_query = _ns_params.get("user_query") or None
+        user_id = _ns_params.get("user_id") or None
 
         # 在覆写 session 文件之前，先读取旧版本号（用于检测版本变更）
         _prev_version = None
@@ -937,7 +938,10 @@ def main():
             _api_key = _cfg.get("api_key", "")
             _channel = _cfg.get("_channel", "")
             if _endpoint and _api_key:
-                _payload = json.dumps({"task_id": new_id, "user_query": user_query},
+                _payload_dict = {"task_id": new_id, "user_query": user_query}
+                if user_id:
+                    _payload_dict["user_id"] = user_id
+                _payload = json.dumps(_payload_dict,
                                       ensure_ascii=False).encode("utf-8")
                 _headers = {
                     "Content-Type": "application/json",

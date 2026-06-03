@@ -18,9 +18,10 @@
 ### 资产解析硬规则（步骤 ③，修复 T-044 跨市场同名 / 多资产逐个 grep）
 
 1. **批量 grep（多资产必须）**：多个资产时一次 grep 用 `名1|名2|…` 合并匹配，仅对未命中项补查；禁止逐个 grep。
-2. **跨市场唯一性（用户只给名称、未带市场/后缀时）**：grep 必须跨 `stock_a.yaml`/`stock_hk.yaml`/`stock_us.yaml`/`index.yaml` 检索，不得默认只搜 `stock_a.yaml`。同名在 ≥2 个市场命中 → **先向用户确认市场，禁止默认 A 股继续查数**。用户已给完整代码 → 完整代码精确匹配，禁止数字子串模糊命中。
-3. **未命中表述**：跨市场均未命中 → 只能说「资产库未识别到『{名称}』」，禁止写「请核对名称/代码」。
-4. **指数口径**：若资产是指数（命中 `index.yaml` 或指数代码），价格序列对外表述为「点位」、单位「点」，不写「元」（参照 `fast-snapshot.md` 指数口径覆盖表）。
+2. **跨市场唯一性（用户只给名称、未带市场/后缀时）**：grep 必须跨 `stock_a.yaml`/`stock_hk.yaml`/`stock_us.yaml`/`index.yaml`/`future.yaml` 检索，不得默认只搜 `stock_a.yaml`。同名在 ≥2 个市场命中 → **先向用户确认市场，禁止默认 A 股继续查数**。用户已给完整代码 → 完整代码精确匹配，禁止数字子串模糊命中。
+3. **期货主连优先**：若仅 `future.yaml` 命中，且同一简称同时命中“主连/次主连”，用户未指定时默认选择“主连”（如“螺纹钢”→“沪螺纹钢主连 / RB.SHF”），最终答案标注“按主连口径”。
+4. **未命中表述**：跨市场均未命中 → 只能说「资产库未识别到『{名称}』」，禁止写「请核对名称/代码」。
+5. **指数口径**：若资产是指数（命中 `index.yaml` 或指数代码），价格序列对外表述为「点位」、单位「点」，不写「元」（参照 `fast-snapshot.md` 指数口径覆盖表）。
 
 **N > 2500 时**：安全失败，告知用户「最多支持 2500 日窗口（约 10 年交易日），请缩小范围」。
 
@@ -35,11 +36,12 @@
 | 参数 | 提取方式 |
 |---|---|
 | `assets` | 用户提到的资产（≤1000） |
-| `fields` | 参照 fast-snapshot.md 字段映射表（行情字段；估值字段 `PE_TTM`/`PB`/`PS_TTM`/`股息率`/`PCF`/`总市值` 及单季版 `PE_单季`/`PB_单季`/`PS_单季`/`股息率_单季` 在 window 模式同样支持 A/US/HK；`流通市值`/`换手率` 仅 A 股） |
+| `fields` | 参照 fast-snapshot.md 字段映射表（行情字段；估值字段 `PE_TTM`/`PB`/`PS_TTM`/`股息率`/`PCF`/`总市值` 及单季版 `PE_单季`/`PB_单季`/`PS_单季`/`股息率_单季` 在 window 模式同样支持 A/US/HK；`流通市值`/`换手率` 仅 A 股；期货仅尝试行情字段：收盘价、开盘价、最高价、最低价、涨跌幅、成交额、成交量） |
 | `window_days` | 用户说”最近 N 日”时使用（整数，1~2500）；与 `start_date`/`end_date` 二选一 |
 | `start_date`/`end_date` | 用户给出明确起止日期时使用，格式 YYYYMMDD |
 
 注意：
+- 用户只说“最近走势 / 看走势”但未给 N 或起止日期时，默认 `window_days=20`，并在答案中说明“最近20个交易日口径”
 - 不传 `result_mode`：`window` 固定返回 `series[]`，无需显式传
 - `window_days` 与 `start_date`/`end_date` 同时传时优先使用日期范围（忽略 window_days）
 
@@ -146,10 +148,12 @@
 |---|---|
 | Layer 1（ASSETS_EXCEED_LIMIT / WINDOW_DAYS_EXCEED_LIMIT / DATA_POINTS_EXCEED_LIMIT / DAILY_*_EXCEEDED） | 告知用户超限，按错误 message 引导 |
 | Layer 1（MISSING_WINDOW_PARAMS / INVALID_WINDOW_DAYS） | 退出 fast path → `global-rules-lite.md` → `quick-window.md` |
-| Layer 2（ASSET_NOT_FOUND） | 告知用户，其余资产正常输出 |
-| Layer 3（FIELD_MARKET_MISMATCH / FIELD_UNRESOLVABLE） | 告知用户，其余字段正常输出 |
+| Layer 2（ASSET_NOT_FOUND） | 若资产已唯一命中 `future.yaml`，立即退出 fast path → 完整链路尝试 `收盘价(资产名)` / `涨跌幅("收盘", 1)`；其他资产告知用户，其余资产正常输出 |
+| Layer 3（FIELD_MARKET_MISMATCH / FIELD_UNRESOLVABLE / MARKET_NOT_SUPPORTED） | 若资产已唯一命中 `future.yaml` 且字段是行情字段，立即退出 fast path → 完整链路；其他情况告知用户，其余字段正常输出 |
 | Layer 4（DATA_UNAVAILABLE） | **立即退出 fast path → 完整链路（newSession → grep presets/assets_db/{类型}.yaml → runMultiFormulaBatchStream → readData）**；禁止重试 fast_query，禁止 confirmDataMulti 换字段名后再重试 |
 | HTTP 500 / 任何网络错误 | **立即退出 fast path → 完整链路**；禁止重试同一接口 |
+
+**期货完整链路收敛**：若 `future.yaml` 已唯一命中，但 `fast_query(window)` 不可用，完整链路优先使用 `收盘价(资产名)` 生成收盘序列，必要时用 `涨跌幅("收盘", 1)` 生成日涨跌幅；若完整链路仍失败，最终只能说「当前工具链未返回该期货行情数据」，不得说「平台不支持期货」。
 
 ---
 

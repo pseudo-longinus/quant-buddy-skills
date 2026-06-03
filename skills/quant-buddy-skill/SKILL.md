@@ -2,7 +2,7 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.20.21
+version: 4.20.22
 description: |
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据。
   查询最近N个交易日的价格序列、日涨跌幅序列、窗口最高价、最低价、振幅等短期统计。
@@ -15,7 +15,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.20.21
+  version: 4.20.22
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -327,7 +327,7 @@ SKILL_ROOT/
 | 最近N日序列 / 窗口统计 | 最近5日、最近20日、近N个交易日、窗口最高/最低/振幅…（仅单资产、最近N日） | Fast Path 条件满足 → 只读 `fast-window.md`；不满足/无法查询 → `global-rules-lite.md` → `quick-window.md` |
 | 最近报告期财务 | 营收、净利润、归母净利润、ROE、总资产、总负债、资产负债率… | Fast Path 条件满足 → 只读 `fast-report-period.md`；不满足/无法查询 → `global-rules.md` → `quick-report-period.md` |
 | 单股指标画像 / 个股综合分析 | 分析一下XX个股、看一下XX这只股票、个股画像、指标概览、估值财务资金走势综合看一下、基本面和估值怎么样… | `global-rules.md` → `stock-profile.md` |
-| K线图（可视化） | K线图、画图、展示走势… | `global-rules.md` → `render-kline.md` |
+| K线图（可视化） | K线图、画图、图片、带成交量图…（用户明确要求可视化 artifact） | `global-rules.md` → `render-kline.md` |
 | 固定区间累计涨跌幅 | 从A到B、某年某月至某年某月、区间收益、累计涨跌幅、区间表现、多资产区间对比 | `global-rules-lite.md` → `period-return-compare.md` |
 | 数据下载 / 导出本地 CSV | 下载成CSV、导出到本地、保存到本地、下载历史数据 | `global-rules.md` → `recipes/download-data.md`；单资产单字段时序优先 `runMultiFormulaBatchStream` → `downloadData` → `write_skill_file`，禁止 Bash 兜底 |
 | 量化选股 / 回测 / 因子 / 图表 / 上传下载 | 选股、回测、均线、PE选股、因子、净值、上传CSV、下载数据、画图… | `global-rules.md` → `quant-standard.md` |
@@ -369,9 +369,9 @@ SKILL_ROOT/
 **快速查数路由（按优先级依次判断，首个匹配即停）：**
 
 0. 用户是开放式单股综合指标概览（如“分析一下XX个股”“看一下XX这只股票”“个股画像”“指标概览”“估值财务资金走势综合看一下”），且不是只问单字段/明确窗口/IC 预测力 → `workflows/global-rules.md` → `workflows/stock-profile.md`
-1. 时间锚点是"最近 N 日窗口/序列"，或用户明确给出起止日期要求返回区间序列（如"从X日到X日每日的…走势/序列/数据"）→ Fast Path 条件满足时读 `workflows/fast-window.md`，不满足则 `workflows/global-rules-lite.md` → `workflows/quick-window.md`
+1. 时间锚点是"最近 N 日窗口/序列"，或用户明确给出起止日期要求返回区间序列（如"从X日到X日每日的…走势/序列/数据"），或用户只说"最近走势/看走势"但未明确要图片/K线 → Fast Path 条件满足时读 `workflows/fast-window.md`，不满足则 `workflows/global-rules-lite.md` → `workflows/quick-window.md`；未给 N 时默认按最近 20 个交易日
 2. 时间锚点是"最近报告期"且字段属于财务类 → Fast Path 条件满足时读 `workflows/fast-report-period.md`，不满足则 `workflows/global-rules.md` → `workflows/quick-report-period.md`
-3. 用户明确要"画图 / K线 / 带成交量走势" → 直接加载 `workflows/render-kline.md`
+3. 用户明确要"画图 / K线 / 图片 / 带成交量图" → 直接加载 `workflows/render-kline.md`
 4. 其余（明确是最近完成交易日或当日的行情/估值/多资产对比，且**不含** 排名/筛选/全市场 语义）→ Fast Path 条件满足时读 `workflows/fast-snapshot.md`，不满足则 `workflows/global-rules.md` → `workflows/quick-snapshot.md`
    > **说明**：含"今天/今日/当日/当前/现在/实时/盘中"但仅查单资产行情字段，属于日内刷新场景，`fast_query snapshot` 已自动启用盘中刷新（等效 `use_minute_data: true`），应直接走 Fast Path；上方"路由硬排除"已拦截"今天 + 全市场/板块 + 排名/筛选"，此处无需重复排除。
 
@@ -396,6 +396,7 @@ SKILL_ROOT/
 - 优先调用 `scanDimensions`、`renderKLine`（除非用户明确要看图）
 - 先做分析性扩写，再补充结构化数值
 - **在读取对应 leaf workflow 之前**直接调用 `runMultiFormulaBatchStream` / `renderKLine` / `scanDimensions` / `stockProfile` / 输出“无法联网”或“无法获取实时数据”
+- 资产已唯一命中 `presets/assets_db/future.yaml` 时，静态输出“平台不支持期货/期权”或“期货无法查询”；应先按行情/窗口序列工具链尝试，失败后只按工具返回说明当前品种或字段暂不可得
 - 把卡片附加条件（首次/非ST/封板/流动性门槛等）默默继承进最终答案
 - 以 `description`、`samples`、预览行、截断大表作为**名单题**的完整结果直接收尾（必须提取完整名单或明确声明不完整）
 
@@ -428,7 +429,7 @@ SKILL_ROOT/
 
 | ✅ 支持 | ⚠️ 有条件支持 | ❌ 不支持（短期内不会支持） |
 |------|------|------|
-| A股个股（沪深主板/创业板/科创板/北交所） | ETF / LOF / 场外基金（先 grep 本地资产库，能唯一命中则正常执行；未命中才告知不支持） | 期货 / 期权 |
+| A股个股（沪深主板/创业板/科创板/北交所） | ETF / LOF / 场外基金（先 grep 本地资产库，能唯一命中则正常执行；未命中才告知不支持）；期货行情/窗口序列（先 grep `presets/assets_db/future.yaml`，唯一命中后按工具返回尝试行情字段；不承诺估值/财务/K线图） | 期权 |
 | 港股个股（HK + 代码，如 HK0001） | | 台股 / 韩股 / 日股 / 德股等其他境外市场 |
 | 美股个股（NASDAQ: 代码.N；NYSE: 代码.O；AMEX: 代码.A） | | |
 | 主要宽基指数（沪深300、中证500、万得全A等） | | |

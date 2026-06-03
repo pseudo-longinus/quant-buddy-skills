@@ -9,6 +9,19 @@
 
 ---
 
+## [4.20.22] — 2026-06-03
+
+**变更文件**：`SKILL.md`、`tools/fast_query.md`、`workflows/fast-window.md`、`workflows/render-kline.md`、`workflows/quick-lookup.md`
+
+修复“螺纹钢最近走势”被静态判定为期货不支持的问题：将可识别期货行情/窗口序列改为有条件支持，普通“看走势”优先走数值走势，只有明确要求 K 线图片时才进入 K 线渲染流程。
+
+- `SKILL.md`：版本号升至 `4.20.22`；数据覆盖范围中将“期货”从“完全不支持”拆为“行情/窗口序列有条件支持”，保留期权不支持；快速查数路由新增“最近走势/看走势”默认走 `fast-window.md`、未给 N 时按最近 20 个交易日；仅“画图 / K线 / 图片 / 带成交量图”进入 `render-kline.md`；新增命中 `future.yaml` 后禁止静态输出“平台不支持期货”的红线。
+- `workflows/fast-window.md`：资产解析跨市场检索加入 `future.yaml`；期货主连/次主连同时命中且用户未指定时默认主连（如“螺纹钢”→“沪螺纹钢主连 / RB.SHF”）；期货仅尝试行情字段；`fast_query(window)` 不可用时转完整链路尝试 `收盘价(资产名)` / `涨跌幅("收盘", 1)`，仍失败则按工具证据受控说明。
+- `workflows/render-kline.md`：适用范围收窄为明确可视化 artifact 请求；期货命中时禁止调用 `renderKLine`，普通“看走势”转数值走势，明确要求期货 K 线图时说明当前 K 线渲染工具只支持 A 股。
+- `tools/fast_query.md` / `workflows/quick-lookup.md`：同步期货行情“尝试支持、以工具返回为准”的边界，不承诺期货估值、财务或 K 线图。
+
+---
+
 ## [4.20.21] — 2026-06-01
 
 **变更文件**：`SKILL.md`、`tools/fast_query.md`、`scripts/fetch_fastquery_csv.py`（新增）、`workflows/fast-snapshot.md`、`workflows/fast-window.md`、`workflows/fast-report-period.md`、`workflows/event-study.md`、`workflows/period-return-compare.md`、`workflows/quant-standard.md`、`workflows/quick-lookup.md`、`workflows/quick-snapshot.md`、`workflows/global-rules.md`
