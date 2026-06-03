@@ -13,7 +13,7 @@
 
 <p align="center">
   <a href="https://github.com/pseudo-longinus/quant-buddy-skills/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/pseudo-longinus/quant-buddy-skills?style=social"></a>
-  <a href="https://github.com/pseudo-longinus/quant-buddy-skills/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/github/license/pseudo-longinus/quant-buddy-skills"></a>
+  <a href="https://github.com/pseudo-longinus/quant-buddy-skills/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-green"></a>
   <img alt="Python" src="https://img.shields.io/badge/Python-3.8%2B-blue">
   <img alt="Market" src="https://img.shields.io/badge/A%E8%82%A1-quant-orange">
 </p>
