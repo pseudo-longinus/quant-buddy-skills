@@ -50,7 +50,7 @@ No need to push thousands of rows into the LLM context. No need to manually writ
 - **Built for full-market A-share cross-sectional computation**: heavy computation runs on the platform side; only results are returned to the agent.
 - **Reusable by design**: formulas explored today can be scheduled and rerun tomorrow.
 - **Designed for agent workflows**: works with Claude Code, Cursor, Codex, GitHub Copilot, Windsurf, and similar environments.
-- **Deepest coverage for A-shares**: market data, valuation, financials, screening, factors, backtesting, and charts. HK and US support currently focuses on market price data.
+- **Deepest coverage for A-shares**: market data, valuation, financials, screening, factors, backtesting, and charts. HK and US stocks support market data plus selected valuation and financial fields, subject to API results. Recognized futures can be queried conditionally for market/window series.
 
 ## What Can You Do In One Sentence
 
@@ -66,8 +66,8 @@ No need to push thousands of rows into the LLM context. No need to manually writ
 
 | Capability | Coverage | Example Prompt |
 |---|---|---|
-| Fast market data lookup | A-shares / HK stocks / US stocks / indices | “Check Kweichow Moutai's latest close, return, and turnover” |
-| Valuation and financials | Mainly A-shares | “List CATL's latest ROE, net profit, and debt ratio” |
+| Fast market data lookup | A-shares / HK stocks / US stocks / indices / recognized futures, subject to API results | “Check Kweichow Moutai's latest close, return, and turnover” |
+| Valuation and financials | A-shares plus selected HK / US fields, subject to API results | “List CATL's latest ROE, net profit, and debt ratio” |
 | Full-market formula computation | Mainly A-shares | “Calculate 20-day and 60-day returns for all A-shares and rank by momentum” |
 | Multi-condition stock screening | Mainly A-shares | “Screen non-ST stocks with low PE, high ROE, and expanding turnover” |
 | Factor analysis | Mainly A-shares | “Build a composite factor from dividend yield, ROE, and momentum” |
@@ -86,7 +86,7 @@ No need to push thousands of rows into the LLM context. No need to manually writ
 ## Who Is This Not For
 
 - Users who need a fully custom low-level data pipeline.
-- Users focused mainly on crypto, futures, or deep US fundamental valuation.
+- Users focused mainly on crypto, options, futures valuation/financials, or deep US fundamental valuation.
 - Users expecting automated order execution, return guarantees, or personalized investment advice.
 
 ## Real Invocation Examples
@@ -268,11 +268,12 @@ The difference is that computation is not improvised inside the LLM context with
 | Market | Market Data | Valuation | Financial Data | Screening / Backtesting |
 |---|---|---|---|---|
 | A-shares | Supported | Supported | Supported | Supported |
-| Hong Kong stocks | Supported | Not supported | Not supported | Not supported |
-| US stocks | Supported | Not supported | Not supported | Not supported |
+| Hong Kong stocks | Supported | Selected TTM valuation fields, subject to API results | Selected report-period fields, subject to API results | Not supported |
+| US stocks | Supported | Selected TTM valuation fields, subject to API results | Selected report-period fields, subject to API results | Not supported |
 | Major broad-based indices | Supported | Partially supported | - | Can be used as benchmarks or universes |
+| Recognized futures | Conditional market/window series support, subject to API results | Not supported | Not supported | Limited formula/strategy scenarios may be attempted |
 
-> Hong Kong and US stocks currently focus on market price data, such as close, open, high, low, return, volume, and turnover. Valuation, financial, screening, and backtesting features are mainly available for A-shares.
+> Hong Kong and US stocks support market price data such as close, open, high, low, return, volume, and turnover; valuation and financial fields depend on actual API results. Futures are currently limited to recognized assets in the local asset database and may be attempted for market/window series only; futures valuation, financials, and candlestick rendering are not promised.
 
 ## Installation
 
