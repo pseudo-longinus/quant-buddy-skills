@@ -1,9 +1,21 @@
 # quant-buddy-skills
 
-[中文](README.md) | [English](README.en.md)
-
 <p align="center">
   <img src="assets/banner.jpg" alt="quant-buddy-skills" width="100%" />
+</p>
+
+<p align="center">
+  <a href="README.md">中文</a> ·
+  <a href="README.en.md">English</a> ·
+  <a href="https://www.quantbuddy.cn">官网</a> ·
+  <a href="https://tcn8bvcbyokw.feishu.cn/wiki/E1zswck3oiiJjJkP07QcmSG3nle?from=from_copylink">新手教程</a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/pseudo-longinus/quant-buddy-skills/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/pseudo-longinus/quant-buddy-skills?style=social"></a>
+  <a href="https://github.com/pseudo-longinus/quant-buddy-skills/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/github/license/pseudo-longinus/quant-buddy-skills"></a>
+  <img alt="Python" src="https://img.shields.io/badge/Python-3.8%2B-blue">
+  <img alt="Market" src="https://img.shields.io/badge/A%E8%82%A1-quant-orange">
 </p>
 
 ## 🔥 3 秒快速安装
