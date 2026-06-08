@@ -9,6 +9,20 @@
 
 ---
 
+## [4.21.0] — 2026-06-05
+
+**变更文件**：`SKILL.md`、`scripts/formula_package.py`（新增）、`tools/formula_package.md`（新增）、`recipes/formula-package.md`（新增）、`config.json`
+
+新增「公式任务包（Formula Package）」对外取数能力：把一组公式注册成长期任务包，得到 `package_id` + `signature`，之后**无需 API Key**即可凭凭证流式取数（SSE），底层数据更新自动重算。适合前端页面 / 第三方只读接入。
+
+- `scripts/formula_package.py`（新增）：公式包客户端，子命令 `register` / `query` / `list` / `revoke` / `refresh`；复用 `executor.py` 的 `load_config` / 无代理 opener / skill 版本头；`query` 走 SSE 解析并组装为 `outputs` dict，签名可由本地凭证自动补全；注册/轮换成功后凭证落盘 `output/formula_packages/<package_id>.json`。
+- `tools/formula_package.md`（新增）：端点、注册参数、三种 `read_mode`（`last_day_stats` / `last_valid_per_asset` / `range_data`）的 `result.data` 结构、错误码、与 `runMultiFormulaBatchStream` 的选型对照。
+- `recipes/formula-package.md`（新增）：使用说明（设计公式组 → 注册 → 取数 → 前端用 `fetch` 读 SSE 直连渲染 → 管理），含一个页面型用法的参考写法，但不在 skill 内附带成品页。
+- `SKILL.md`：版本号升至 `4.21.0`；场景路由新增「对外发布公式组 / 做取数页面 / 注册任务包」一行；目录树补充 `scripts/formula_package.py` 与 `tools/formula_package.md`；frontmatter `networkEndpoints` 增列公式包注册/取数端点。
+- `config.json`：`endpoint` 协议修正为 `http://`（该部署 :3010 端口为明文 HTTP，`https://` 会 SSL 握手失败）。
+
+---
+
 ## [4.20.22] — 2026-06-03
 
 **变更文件**：`SKILL.md`、`tools/fast_query.md`、`workflows/fast-window.md`、`workflows/render-kline.md`、`workflows/quick-lookup.md`
