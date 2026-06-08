@@ -72,6 +72,7 @@ No need to push thousands of rows into the LLM context. No need to manually writ
 | “Find the top 10 A-shares breaking above 60-day highs with volume expansion” | Runs full-market formulas, filters, and ranking on the platform side |
 | “Backtest a low PE + high ROE portfolio and compare it with CSI 300” | Runs strategy backtesting, benchmark comparison, and NAV chart output |
 | “Run this screen every day at 14:30” | Saves validated formulas as reusable tasks |
+| “Publish this set of computed metrics as a data pack a web page can read directly” | Registers a formula package, returns credentials, and lets a front end / third party stream the latest values without an API Key |
 | “Upload my CSV factor and rank it together with ROE” | Uploads custom factors and uses them in formulas, screening, and charts |
 
 ## Skill Matrix
@@ -86,6 +87,7 @@ No need to push thousands of rows into the LLM context. No need to manually writ
 | Strategy backtesting | Mainly A-shares | “Backtest a low PE + high ROE portfolio against CSI 300” |
 | Intraday tasks | A-share minute-data capability, subject to actual API support | “At 14:30 today, screen the top 30 stocks breaking above 60-day highs with volume expansion” |
 | Chart rendering | Candlestick, NAV, benchmark comparison | “Plot the strategy NAV and CSI 300 benchmark” |
+| Formula packages | Register a formula set as a long-lived package, served to the outside via SSE without an API Key | “Publish this screen as a data page the front end can read directly” |
 | Custom data | CSV factor upload | “Upload my factor CSV and rank it together with ROE” |
 
 ## Who Is This For
@@ -211,6 +213,88 @@ GZQ_PARAMS='{"ids":["<data_id>"],"mode":"last_column_full"}' python scripts/call
 ```
 
 This separates exploration from usage: explore and iterate with natural language first, then reuse stable formulas as production research tasks.
+
+## Formula Packages: Publish a Validated Formula Set to the Outside
+
+Example 3 fixes formulas into a task your own agent / scheduler reruns. **Formula packages** go one step further — register a validated set of formulas as a **long-lived data service** so your own web page, dashboard, or a third party can read the latest results repeatedly, **without an API Key**.
+
+Register once (needs an API Key) and you get a pair of credentials, `package_id` + `signature`. After that, anywhere that can send an HTTP request can pull data **streamed over SSE** with those credentials. Whenever the underlying data updates, the server **recomputes automatically along the dependency graph**, so a query always returns the latest values — never stale data.
+
+> How it differs from `runMultiFormulaBatchStream`: that runs on **your own account side** (the agent / scheduler executes and reads a `data_id`); a formula package instead **exposes the computed outputs read-only via a credential** — the query side needs no API Key and spends no quota of its own, and billing always lands on the **package owner**. The two execution pools and billing are independent.
+
+**Use cases**
+
+- **Build your own research daily report / dashboard**: register the metrics you review every day (screening lists, factor rankings, valuation percentiles, money flow, …) as one package, then `fetch` and render them from a single static HTML page. Open the page and you see today's latest data — **no backend, no manual recompute**.
+- **Give a team / client a read-only data page**: hand out `package_id` + `signature`, not your API Key. They can only read the outputs you fixed — they can't change formulas or touch your account, and you can revoke any time.
+- **Embed into an existing site / Notion / Feishu / a wall display**: anywhere `fetch` runs, you can pipe quant-buddy's computed results into your own page.
+- **Third-party / lightweight integration**: hand a precomputed metric package to a partner for read-only access with zero config.
+
+**Two-step usage**
+
+```powershell
+cd skills/quant-buddy-skill
+
+# 1. Register (needs API Key): put formulas + reads in params.json; pass Chinese formulas with @file to avoid encoding truncation
+python scripts/formula_package.py register @params.json
+
+# 2. Query (no API Key): only package_id is needed; signature auto-fills from the locally saved credential
+$env:FP_PARAMS='{"package_id":"pkg_xxx"}'
+python scripts/formula_package.py query
+
+# Manage: list / revoke / refresh (rotate signature)
+python scripts/formula_package.py list    '{"page":1,"page_size":20}'
+python scripts/formula_package.py revoke  '{"package_id":"pkg_xxx"}'
+python scripts/formula_package.py refresh '{"package_id":"pkg_xxx","rotate_signature":true}'
+```
+
+Example `params.json` for registration (formula syntax is the same as `runMultiFormulaBatchStream`):
+
+```json
+{
+  "formulas": [
+    "排序值 = 涨跌幅(\"全市场每日收盘价\")",
+    "放量突破Top10 = 取前(\"排序值\", 10, 返回数值)"
+  ],
+  "reads": [
+    { "output": "放量突破Top10", "read_mode": "last_day_stats" }
+  ],
+  "ttl_days": 365
+}
+```
+
+- Formulas not listed in `reads` are intermediate variables — computed but not exposed.
+- Different outputs in the same package can use **different read modes**: `range_data` (full series over a date range) / `last_day_stats` (latest cross-section stats) / `last_valid_per_asset` (last valid value per asset).
+- Up to 100 formulas and 20 exposed outputs per package; default validity 365 days.
+
+**Query directly from a front end (no API Key)**
+
+The query endpoint streams SSE. In the browser, read the stream with `fetch` (signature in the body, never the URL; do not use `EventSource`):
+
+```js
+const resp = await fetch('https://www.quantbuddy.cn/skill/queryFormulaPackage', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ package_id, signature }),
+})
+const reader = resp.body.getReader()
+const decoder = new TextDecoder()
+const outputs = {}
+let buf = ''
+for (;;) {
+  const { value, done } = await reader.read()
+  if (done) break
+  buf += decoder.decode(value, { stream: true })
+  const blocks = buf.split('\n\n'); buf = blocks.pop()
+  for (const block of blocks) {
+    const ev = (block.match(/event:\s*(.*)/) || [])[1]
+    const dt = JSON.parse((block.match(/data:\s*([\s\S]*)/) || [])[1])
+    if (ev === 'result') outputs[dt.output] = dt        // outputs["放量突破Top10"].data ...
+    else if (ev === 'error') throw new Error(`${dt.code}: ${dt.message}`)
+  }
+}
+```
+
+> Register / list / revoke / refresh need an API Key and **must stay server-side**; only the query endpoint (`queryFormulaPackage`) is safe to expose to a browser. For full parameters, read-mode result structures, and error codes see `tools/formula_package.md`; end-to-end usage is in `recipes/formula-package.md`.
 
 ## Why Not Just Another Data API
 
