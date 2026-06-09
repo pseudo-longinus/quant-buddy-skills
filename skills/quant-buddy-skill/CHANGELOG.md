@@ -9,6 +9,27 @@
 
 ---
 
+## [4.21.1] — 2026-06-09
+
+**变更文件**：`SKILL.md`、`scripts/formula_package.py`、`presets/assets_db/stock_a.yaml`、`presets/assets_db/stock_us.yaml`
+
+本次小版本两件事：把公式任务包的调用流程并入与其它工具一致的统一规范；并扩充本地资产库支持的境内外 ETF。
+
+- **公式任务包调用流程对齐统一规范**（`scripts/formula_package.py`）：此前该脚本独立于 `call.py`，注册/取数/管理会绕过「先 newSession + 版本检查」前置，且请求不带 `task_id` / `user_query`。现复用 `call.py` 的 session 读取与版本守卫——
+  - 调用前统一做**版本守卫**：session 创建版本与当前 skill 版本不一致时返回 `SKILL_VERSION_MISMATCH`，提示先 `newSession` 再继续；
+  - 每个请求自动注入 **`task_id` / `user_query`**（连同既有的 `x-skill-version` 头），与其它工具「每个请求带当前版本 + user_query」的固定口径一致；
+  - `register` / `list` / `revoke` / `refresh` 等需 api_key 的管理类操作，未建 session 时直接返回 `SESSION_REQUIRED`，强制先 `newSession`；
+  - 对外取数 `query` 仍保持**无凭证、无版本门禁**（浏览器 / 第三方只读直连行为不变），从 skill 内调用时附带 session 上下文供服务端审计。
+  > 配套：服务端 `registerFormulaPackage` / `refreshFormulaPackage` / `listFormulaPackages` / `revokeFormulaPackage` 同步要求 `task_id`（缺失返回 `TASK_ID_REQUIRED`）；该改动在服务端仓库，不在本 skill 内。
+
+- **新增支持资产：境内外 ETF**（`presets/assets_db/stock_a.yaml`、`presets/assets_db/stock_us.yaml`）：
+  - **A 股场内 ETF**：宽基（上证50 `SH510050` / 沪深300 `SH510300` / 中证500 `SH510500` / 中证1000 `SH512100` / 中证A500 `SZ159361` / 创业板 `SZ159915` / 科创50 `SH588000` / 科创芯片 `SH588990`）、行业（有色 `SH512400` / 钢铁 `SH515210` / 煤炭 `SH515220` / 化工 `SH516120` / 建材 `SZ159745` / 养殖 `SZ159865` / 半导体设备 `SZ159516` / 红利低波 `SH512890`）、跨境（恒生 `SH513210` / 恒生科技 `SH513180` / 中概互联 `SH513050` / 港股科技 `SH513010` / 港股通互联网 `SZ159792` / 中韩半导体 `SH513310`）、商品与债券（黄金 `SH518880` / 石油 `SH561360` / 十年国债 `SH511260` / 城投债 `SH511220`）。
+  - **美股及境外 ETF**：SPDR 系列（`SPY.A` / `XLF.A` / `XLE.A` / `XLK.A` / `XLV.A` / `KRE.A` / `KBE.A` / `FEZ.A`）、iShares 安硕系列（`SOXX.O` / `LQD.A` / `HYG.A` / `EWT.A` / `EWZ.A` / `EWJ.A` / `EWU.A`）、VanEck `SMH.O`、KraneShares `KWEB.A`、全球X `ARGT.A`，以及 `JETS.A` / `MAGS.BAT` / `IGV.BAT` / `DWPP.O` 等。
+  - ⚠️ ETF 仍按所在市场口径：A 股场内 ETF 行情正常，估值/财务以工具返回为准；境外 ETF **仅支持行情价格**，不支持估值/财务。
+- `SKILL.md`：版本号升至 `4.21.1`；目录树资产计数同步为 `stock_a.yaml` 5540 条、`stock_us.yaml` 1068 条。
+
+---
+
 ## [4.21.0] — 2026-06-05
 
 **变更文件**：`SKILL.md`、`scripts/formula_package.py`（新增）、`tools/formula_package.md`（新增）、`recipes/formula-package.md`（新增）、`config.json`

@@ -54,6 +54,10 @@ SKILL_ROOT = os.path.dirname(SCRIPT_DIR)
 if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 import executor as _ex  # noqa: E402
+# 复用 call.py 的 session 读取与版本守卫，保证公式包与其它工具走同一套
+# “先 newSession + 版本检查、每个请求带 task_id/user_query” 的统一流程。
+# call.py 的 main() 受 __name__ 守卫，import 仅执行常量定义，无副作用。
+import call as _call  # noqa: E402
 
 # 公式包接口的统一前缀（与 fastQuery 等不同，固定带 /skill）
 _PATH = {
@@ -175,10 +179,58 @@ def _save_credential(reg):
 
 
 # ────────────────────────────────────────────────
+# 统一流程：session 上下文 + 版本守卫（与 call.py 同款）
+# ────────────────────────────────────────────────
+
+# 需要 api_key 的管理类子命令，必须先 newSession（与 call.py 的“先建会话”一致）
+_SESSION_REQUIRED = {"register", "list", "revoke", "refresh"}
+
+
+def _session_context():
+    """读取当前 session 的 task_id / user_query，并做版本守卫。
+
+    复用 call.py 的 SESSION 解析（含 QBS_SESSION_FILE / QBS_SESSION_KEY 多会话），
+    保证公式包与其它工具读同一个 .session.json。
+
+    返回 (ctx, guard)：
+      ctx   = {"task_id": str|None, "user_query": str|None}
+      guard = None 或版本不匹配的错误 dict（命中即应中止并提示重新 newSession）
+    """
+    data = _call._read_session_full()
+    ctx = {"task_id": data.get("task_id"), "user_query": data.get("user_query")}
+
+    # 版本守卫：与 call.py 行为一致 —— 仅当已有 session 且版本变化时拦截
+    current = _call._read_skill_version()
+    session_ver = data.get("skill_version_at_creation")
+    guard = None
+    if current and ctx["task_id"] and session_ver is not None and session_ver != current:
+        guard = {
+            "code": 1,
+            "error": "SKILL_VERSION_MISMATCH",
+            "current_version": current,
+            "session_version": session_ver,
+            "message": (
+                f"检测到 skill 版本不匹配（session 创建于 {session_ver}，当前为 {current}）。"
+                "请立即调用 newSession 创建新 session，然后重读 SKILL.md 后再使用公式包。"
+            ),
+        }
+    return ctx, guard
+
+
+def _inject_session(body, ctx):
+    """把 session 的 task_id / user_query 注入请求体（已存在则不覆盖，空串视为未传）。"""
+    if ctx.get("task_id") and not body.get("task_id"):
+        body["task_id"] = ctx["task_id"]
+    if ctx.get("user_query") and not body.get("user_query"):
+        body["user_query"] = ctx["user_query"]
+    return body
+
+
+# ────────────────────────────────────────────────
 # 子命令
 # ────────────────────────────────────────────────
 
-def cmd_register(params):
+def cmd_register(params, ctx):
     endpoint, api_key = _config(require_key=True)
     formulas = params.get("formulas")
     reads = params.get("reads")
@@ -194,6 +246,7 @@ def cmd_register(params):
     for k in ("intents", "begin_date", "ttl_days"):
         if params.get(k) is not None:
             body[k] = params[k]
+    _inject_session(body, ctx)
     reg = _http_json("POST", endpoint + _PATH["register"],
                      _headers(api_key), body, timeout=_DEFAULT_TIMEOUT)
     if reg.get("code") == 0 and reg.get("package_id"):
@@ -203,7 +256,7 @@ def cmd_register(params):
     return reg
 
 
-def cmd_query(params):
+def cmd_query(params, ctx):
     """取数：无需 api_key，凭 package_id + signature，逐条 SSE → 组装为 outputs dict。"""
     endpoint, _ = _config(require_key=False)
     pkg = params.get("package_id")
@@ -217,7 +270,9 @@ def cmd_query(params):
     if not pkg or not sig:
         return {"code": 1, "message": "query 需要 package_id + signature（signature 可由本地凭证补全）"}
 
-    body = json.dumps({"package_id": pkg, "signature": sig}).encode("utf-8")
+    # 取数端点对第三方保持无凭证；从 skill 内调用时附带 session 上下文供服务端 audit
+    _qbody = _inject_session({"package_id": pkg, "signature": sig}, ctx)
+    body = json.dumps(_qbody).encode("utf-8")
     req = urllib.request.Request(endpoint + _PATH["query"], data=body,
                                  headers=_headers(accept="text/event-stream"),
                                  method="POST")
@@ -279,28 +334,36 @@ def cmd_query(params):
             "outputs": outputs, "progress": progress, "done": done}
 
 
-def cmd_list(params):
+def cmd_list(params, ctx):
+    import urllib.parse as _up
     endpoint, api_key = _config(require_key=True)
     page = params.get("page", 1)
     page_size = params.get("page_size", 20)
-    url = f"{endpoint}{_PATH['list']}?page={page}&page_size={page_size}"
+    # task_id / user_query 走 query string，供服务端 audit 中间件落库
+    qs_pairs = [("page", page), ("page_size", page_size)]
+    if ctx.get("task_id"):
+        qs_pairs.append(("task_id", ctx["task_id"]))
+    if ctx.get("user_query"):
+        qs_pairs.append(("user_query", ctx["user_query"]))
+    url = f"{endpoint}{_PATH['list']}?" + _up.urlencode(qs_pairs)
     return _http_json("GET", url, _headers(api_key))
 
 
-def cmd_revoke(params):
+def cmd_revoke(params, ctx):
     endpoint, api_key = _config(require_key=True)
     if not params.get("package_id"):
         return {"code": 1, "message": "revoke 需要 package_id"}
-    return _http_json("POST", endpoint + _PATH["revoke"], _headers(api_key),
-                      {"package_id": params["package_id"]})
+    body = _inject_session({"package_id": params["package_id"]}, ctx)
+    return _http_json("POST", endpoint + _PATH["revoke"], _headers(api_key), body)
 
 
-def cmd_refresh(params):
+def cmd_refresh(params, ctx):
     endpoint, api_key = _config(require_key=True)
     if not params.get("package_id"):
         return {"code": 1, "message": "refresh 需要 package_id"}
     body = {"package_id": params["package_id"],
             "rotate_signature": bool(params.get("rotate_signature", False))}
+    _inject_session(body, ctx)
     res = _http_json("POST", endpoint + _PATH["refresh"], _headers(api_key), body)
     # 轮换签名时更新本地凭证
     if res.get("code") == 0 and res.get("signature"):
@@ -336,8 +399,27 @@ def main():
         sys.exit(1)
     cmd = sys.argv[1]
     params = _read_params(sys.argv[2:])
+
+    # ── 统一流程：先做版本守卫，再带上 session 上下文 ─────────────
+    ctx, guard = _session_context()
+    if guard is not None:
+        _emit(guard)
+        sys.exit(1)
+    # 管理类子命令必须先 newSession（与 call.py 的“先建会话”一致）
+    if cmd in _SESSION_REQUIRED and not ctx.get("task_id"):
+        _emit({
+            "code": 1,
+            "error": "SESSION_REQUIRED",
+            "message": (
+                f"`{cmd}` 需要先创建 session：请先运行 "
+                "`python scripts/call.py newSession`（携带 user_query），"
+                "再使用公式包。这样每个请求才会带上 task_id / user_query / 当前版本。"
+            ),
+        })
+        sys.exit(1)
+
     try:
-        result = _COMMANDS[cmd](params)
+        result = _COMMANDS[cmd](params, ctx)
     except (FileNotFoundError, ValueError) as e:
         result = {"code": 1, "message": str(e)}
     _emit(result)

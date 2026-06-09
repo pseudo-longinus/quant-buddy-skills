@@ -2,7 +2,7 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.21.0
+version: 4.21.1
 description: |
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据。
   查询最近N个交易日的价格序列、日涨跌幅序列、窗口最高价、最低价、振幅等短期统计。
@@ -15,7 +15,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.21.0
+  version: 4.21.1
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -260,9 +260,9 @@ SKILL_ROOT/
 │   ├── cases_index.yaml         106 张案例卡片目录（量化标准场景必读，快速查数无需）
 │   ├── assets.yaml              常用资产（99 行精选，可一次读完）
 │   ├── assets_db/               全量资产字典（按类型分文件，⚠️ 仅 grep 检索，禁止 read_file 整文件；不含指数成分股映射）
-│   │   ├── stock_a.yaml             A 股 5505 条（SH/SZ）
+│   │   ├── stock_a.yaml             A 股 5540 条（SH/SZ，含场内 ETF）
 │   │   ├── stock_hk.yaml            港股 2862 条（HK 前缀；行情优先，财务以 fast_query 返回为准）
-│   │   ├── stock_us.yaml            美股及境外ETF 1044 条（.N/.O/.A；行情优先，财务以 fast_query 返回为准）
+│   │   ├── stock_us.yaml            美股及境外ETF 1068 条（.N/.O/.A；行情优先，财务以 fast_query 返回为准）
 │   │   ├── index.yaml               指数 503 条
 │   │   └── future.yaml              期货 257 条
 │   ├── functions.yaml           常用函数

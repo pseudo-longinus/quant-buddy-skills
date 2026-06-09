@@ -5,6 +5,26 @@
 # ⚠️ ETF 也在此文件中（如 SH510300 沪深300ETF），行业字段可能为空
 # ============================================================
 
+stock | 上证50ETF华夏 | SH510050 |  |
+stock | 沪深300ETF华泰柏瑞 | SH510300 |  |
+stock | 中证500ETF南方 | SH510500 |  |
+stock | 城投债ETF海富通 | SH511220 |  |
+stock | 十年国债ETF国泰 | SH511260 |  |
+stock | 中证1000ETF南方 | SH512100 |  |
+stock | 有色ETF南方 | SH512400 |  |
+stock | 红利低波ETF华泰柏瑞 | SH512890 |  |
+stock | 港股科技ETF易方达 | SH513010 |  |
+stock | 中概互联ETF易方达 | SH513050 |  |
+stock | 恒生科技ETF华夏 | SH513180 |  |
+stock | 恒生ETF | SH513210 |  |
+stock | 中韩半导体ETF华泰柏瑞 | SH513310 |  |
+stock | 钢铁ETF国泰 | SH515210 |  |
+stock | 煤炭ETF国泰 | SH515220 |  |
+stock | 化工ETF华安 | SH516120 |  |
+stock | 黄金ETF华安 | SH518880 |  |
+stock | 石油ETF国泰 | SH561360 |  |
+stock | 科创50ETF华夏 | SH588000 |  |
+stock | 科创芯片ETF博时 | SH588990 |  |
 stock | 浦发银行 | SH600000 | 银行 |
 stock | 邯郸钢铁 | SH600001 | 钢铁 |
 stock | 齐鲁石化 | SH600002 | 基础化工 |
@@ -4079,6 +4099,12 @@ stock | 真爱美家 | SZ003041 | 纺织服饰 |
 stock | 中农联合 | SZ003042 | 基础化工 |
 stock | 华亚智能 | SZ003043 | 电子 |
 stock | 中国广核 | SZ003816 | 公用事业 | 广核
+stock | 中证A500ETF摩根 | SZ159361 |  |
+stock | 半导体设备ETF国泰 | SZ159516 |  |
+stock | 建材ETF国泰 | SZ159745 |  |
+stock | 港股通互联网ETF富国 | SZ159792 |  |
+stock | 养殖ETF国泰 | SZ159865 |  |
+stock | 创业板ETF易方达 | SZ159915 |  |
 stock | 特锐德 | SZ300001 | 电力设备 |
 stock | 神州泰岳 | SZ300002 | 传媒 |
 stock | 乐普医疗 | SZ300003 | 医药生物 | 乐普
