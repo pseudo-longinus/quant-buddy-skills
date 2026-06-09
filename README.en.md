@@ -229,6 +229,24 @@ Register once (needs an API Key) and you get a pair of credentials, `package_id`
 - **Embed into an existing site / Notion / Feishu / a wall display**: anywhere `fetch` runs, you can pipe quant-buddy's computed results into your own page.
 - **Third-party / lightweight integration**: hand a precomputed metric package to a partner for read-only access with zero config.
 
+**What you can build: two real pages powered by formula packages**
+
+Both pages below are **plain static HTML** — no backend, no database. They just `fetch` a formula package in the browser and render the returned `outputs` into tables and charts. Whenever the underlying data updates, a page refresh shows today's latest values, and the **API Key never touches the front end**.
+
+<p align="center">
+  <img src="assets/demo_market_bubble.png" alt="Global market temperature / valuation bubble dashboard" width="78%" />
+  <br/>
+  <sub><b>Global market-temperature dashboard</b> · seven major indices, a market-wide valuation "bubble temperature", plus commodity and bond trends — the whole page comes from a single formula-package query.</sub>
+</p>
+
+<p align="center">
+  <img src="assets/demo_hs300_monitor.png" alt="CSI 300 single-stock anomaly monitor" width="78%" />
+  <br/>
+  <sub><b>CSI 300 anomaly monitor</b> · gainers / losers, turnover &amp; volume anomalies, and six-month price tracks — rendered from the same single <code>fetch</code>.</sub>
+</p>
+
+> ⚠️ These pages are **illustrative demos** of formula packages. All figures are historical / sample data and **do not constitute any investment or trading advice**.
+
 **Two-step usage**
 
 ```powershell
