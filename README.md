@@ -72,6 +72,7 @@ AI Agent（智能代理）会生成公式链，由 quant-buddy（量化投研平
 | “筛全 A 股放量突破 60 日新高的前 10 只” | 平台侧执行全市场公式、筛选、排序，只返回 Top10（前十名） |
 | “回测低 PE（市盈率）+ 高 ROE（净资产收益率）组合，相对沪深 300 画净值” | 执行策略回测、基准对比、输出净值曲线 |
 | “把这个选股条件每天 14:30 跑一遍” | 将验证过的公式沉淀为可复用任务 |
+| “把这组算好的指标发布成一个网页能直接读的数据包” | 注册成公式任务包，返回凭证，前端/第三方免 API Key 流式取最新值 |
 | “上传我的 CSV（逗号分隔值文件）因子，和 ROE（净资产收益率）一起做排序” | 上传自有因子并参与公式计算、选股和图表输出 |
 
 ## Skill Matrix（能力矩阵）
@@ -86,6 +87,7 @@ AI Agent（智能代理）会生成公式链，由 quant-buddy（量化投研平
 | 策略回测 | A 股为主 | “回测低 PE + 高 ROE 组合，相对沪深 300 画净值” |
 | 盘中任务 | A 股分钟数据能力，以实际接口为准 | “今天 14:30 筛选放量突破 60 日新高的前 30 名” |
 | 图表渲染 | K 线、净值、基准对比 | “把策略净值和沪深 300 画成图” |
+| 公式任务包 | 把公式组注册成长期包，对外免 API Key（接口密钥）SSE 取数 | “把这组选股公式发布成一个数据页，前端直接取最新结果” |
 | 自有数据 | CSV（逗号分隔值文件）因子上传 | “上传我的因子 CSV，和 ROE 一起排序” |
 
 ## 适合谁
@@ -211,6 +213,106 @@ GZQ_PARAMS='{"ids":["<data_id>"],"mode":"last_column_full"}' python scripts/call
 ```
 
 这就是“探索阶段”和“使用阶段”的区别：探索阶段用自然语言快速改想法，使用阶段直接复用公式和接口，把投研流程固化为可重复执行的生产任务。
+
+## 公式任务包（Formula Package）：把验证过的公式组对外发布
+
+示例 3 把公式固化成「Agent / 调度自己重复跑」的任务；**公式任务包**再往前一步——把一组验证过的公式**注册成一个长期数据服务**，让你自己的网页、看板或第三方**无需 API Key（接口密钥）**就能反复取到最新结果。
+
+注册一次（需 API Key），拿到一对凭证 `package_id` + `signature`；之后任何能发 HTTP（超文本传输协议）请求的地方，凭这对凭证就能以 **SSE（服务器推送事件）流式**取数。底层数据一更新，服务端**自动按依赖关系重算**，取数永远拿最新值、绝不返回过期数据。
+
+> 与 `runMultiFormulaBatchStream`（全市场公式批算）的区别：后者是 Agent / 调度在**你自己的账号侧**执行、读 `data_id`（数据标识）；公式任务包是把算好的产出**以凭证形式对外只读开放**，取数方无需 API Key、也不消耗其配额，费用始终计入**包所有者**。两者执行池与计费相互独立。
+
+**典型场景**
+
+- **自建投研日报 / 数据看板**：把每天复盘要看的指标（选股名单、因子排序、估值分位、资金流向……）注册成一个包，用一个静态 HTML（网页）页面 `fetch`（浏览器取数）渲染。打开页面即当日最新，**无需后端、无需每天手动重跑公式**。
+- **给团队 / 客户一个只读数据页**：发出去的是 `package_id` + `signature`，不是 API Key；对方只能读你固定的产出，改不了公式、拿不到账号权限，可随时撤销。
+- **嵌进已有网站 / Notion / 飞书 / 大屏**：任何能跑 `fetch` 的地方都能把 quant-buddy（量化投研平台）的计算结果接进你自己的页面。
+- **第三方 / 轻量集成**：把一个算好的指标包交给合作方只读对接，零配置接入。
+
+**它能搭出什么：两个用公式任务包做的真实页面**
+
+下面两个页面都是**纯静态 HTML（网页）**——没有后端、没有数据库，只在浏览器里 `fetch`（取数）一个公式任务包，把返回的 `outputs`（产出）渲染成表格和图表。底层数据一更新，刷新页面即当日最新值，**API Key（接口密钥）不进前端**。
+
+<p align="center">
+  <img src="assets/demo_market_bubble.png" alt="全球市场温度 / 估值泡沫看板" width="78%" />
+  <br/>
+  <sub><b>全球市场温度看板</b>　·　七大股指涨跌、全市场估值「泡沫温度」、商品与债券走势——整页数据来自一个公式任务包的单次取数。</sub>
+</p>
+
+<p align="center">
+  <img src="assets/demo_hs300_monitor.png" alt="沪深300 个股异动监控" width="78%" />
+  <br/>
+  <sub><b>沪深300 个股异动监控</b>　·　涨跌幅榜、换手 / 量能异动、个股半年价格轨迹——同样一个 <code>fetch</code> 取数渲染。</sub>
+</p>
+
+> ⚠️ 以上页面仅为公式任务包的**示例展示**，所示数字均为历史 / 示例数据，**不构成任何投资或交易建议**。
+
+**两段式用法**
+
+```powershell
+cd skills/quant-buddy-skill
+
+# 1. 注册（需 API Key）：params.json 写 formulas + reads，中文公式用 @file 传避免编码截断
+python scripts/formula_package.py register @params.json
+
+# 2. 取数（无需 API Key）：只需 package_id，signature 可由本地落盘凭证自动补全
+$env:FP_PARAMS='{"package_id":"pkg_xxx"}'
+python scripts/formula_package.py query
+
+# 管理：列表 / 撤销 / 刷新（轮换签名）
+python scripts/formula_package.py list    '{"page":1,"page_size":20}'
+python scripts/formula_package.py revoke  '{"package_id":"pkg_xxx"}'
+python scripts/formula_package.py refresh '{"package_id":"pkg_xxx","rotate_signature":true}'
+```
+
+注册用的 `params.json` 示例（公式语法与 `runMultiFormulaBatchStream` 同款）：
+
+```json
+{
+  "formulas": [
+    "排序值 = 涨跌幅(\"全市场每日收盘价\")",
+    "放量突破Top10 = 取前(\"排序值\", 10, 返回数值)"
+  ],
+  "reads": [
+    { "output": "放量突破Top10", "read_mode": "last_day_stats" }
+  ],
+  "ttl_days": 365
+}
+```
+
+- 未列入 `reads` 的公式只作中间变量参与计算、不对外返回。
+- 同一个包里不同产出可用**不同读取模式**：`range_data`（区间完整序列）/ `last_day_stats`（最新截面统计）/ `last_valid_per_asset`（每个资产最后一个有效值）。
+- 单包最多 100 条公式、20 个对外产出，默认有效期 365 天。
+
+**前端直接取数（无需 API Key）**
+
+取数接口走 SSE，浏览器用 `fetch` 读流（签名放 body、不进 URL，不要用 `EventSource`）：
+
+```js
+const resp = await fetch('https://www.quantbuddy.cn/skill/queryFormulaPackage', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ package_id, signature }),
+})
+const reader = resp.body.getReader()
+const decoder = new TextDecoder()
+const outputs = {}
+let buf = ''
+for (;;) {
+  const { value, done } = await reader.read()
+  if (done) break
+  buf += decoder.decode(value, { stream: true })
+  const blocks = buf.split('\n\n'); buf = blocks.pop()
+  for (const block of blocks) {
+    const ev = (block.match(/event:\s*(.*)/) || [])[1]
+    const dt = JSON.parse((block.match(/data:\s*([\s\S]*)/) || [])[1])
+    if (ev === 'result') outputs[dt.output] = dt        // outputs["放量突破Top10"].data ...
+    else if (ev === 'error') throw new Error(`${dt.code}: ${dt.message}`)
+  }
+}
+```
+
+> 注册 / 列表 / 撤销 / 刷新需 API Key，**必须放在服务端**；只有取数接口（`queryFormulaPackage`）可暴露给浏览器。完整参数、读取模式结构与错误码见 `tools/formula_package.md`，端到端用法见 `recipes/formula-package.md`。
 
 ## 为什么不是普通数据 API
 
