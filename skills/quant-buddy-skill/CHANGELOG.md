@@ -9,6 +9,59 @@
 
 ---
 
+## [4.21.2] — 2026-06-11
+
+**变更文件**：`SKILL.md`、`scripts/call.py`、`scripts/self_update.py`、`references/troubleshooting.md`
+
+本次小版本完成「强拦截 → 软升级」闭环：旧版本用户不再因为服务端版本配置被业务接口硬拦截；普通接口成功响应携带版本心跳，客户端仅记录待更新状态，并在下一次 `newSession` 时再静默安装与激活新版，避免影响当前任务上下文。
+
+- **成功响应版本心跳**（`scripts/call.py`）：普通业务接口成功返回时识别 `skill_latest_version` / `skill_update_available` / `skill_update_enforced:false` / `skill_self_update`；命中新版时写入 `output/.self_update_state.json`，状态为 `pending`，激活策略为 `next_newSession`，当前业务结果照常返回。
+- **长 session 不强制切换**（`scripts/call.py`）：如果用户正在同一个 session 里连续使用，后台只沉淀待更新信息，不在当前上下文中替换文件或要求重读文档；等下一次 `newSession` 时再执行更新，并让新会话使用新版规则。
+- **`newSession` 版本检查降频**（`scripts/call.py`）：`/version/check` 仍作为主动检查与诊断入口，但默认按 TTL 去重，避免每次新建会话都重复触发远端检查；可通过 `QBS_FORCE_VERSION_CHECK` 强制检查。
+- **禁止自动降级**（`scripts/call.py`、`scripts/self_update.py`）：当服务端 `latest_version` 低于或等于本地版本时，客户端会忽略该更新信号并标注 `skill_update_ignored_reason`；`self_update.py` 直跑也会 no-op 跳过，避免测试/灰度环境配置滞后时把新版覆盖回旧版。
+- **自更新更稳妥**（`scripts/self_update.py`）：下载超时提升到 5 分钟，新增至少 3 次重试；安装流程使用 staging / lock / 原子替换思路，并保留 `config.json`、`config.local.json`、`output/`、`logs/` 等用户配置与运行态数据。
+- **调用入口更健壮**（`scripts/call.py`）：工具白名单运行时从 `executor.TOOL_ROUTES` 源解析，避免在 `call.py` 二次硬编码漂移；同时优化 stdin 读取，减少无输入或输入不规范时的挂起风险。
+- **排错文档同步**（`references/troubleshooting.md`）：补充软升级、业务 `code:-1`、版本心跳与待更新状态的判断口径，帮助 Agent 区分 HTTP 成功、业务错误与升级提示。
+- **最终答案呈现补强**（`SKILL.md`、`workflows/fast-snapshot.md`）：成功查数后必须把工具 JSON 转写成人类可读结论；默认隐藏 `task_id`、`_quota`、`skill_update_available`、`skill_self_update` 等运行态/升级字段，避免简单查询被原样 JSON 淹没。
+- `SKILL.md`：版本号升至 `4.21.2`。
+
+---
+
+## [4.21.1] — 2026-06-09
+
+**变更文件**：`SKILL.md`、`scripts/formula_package.py`、`presets/assets_db/stock_a.yaml`、`presets/assets_db/stock_us.yaml`
+
+本次小版本两件事：把公式任务包的调用流程并入与其它工具一致的统一规范；并扩充本地资产库支持的境内外 ETF。
+
+- **公式任务包调用流程对齐统一规范**（`scripts/formula_package.py`）：此前该脚本独立于 `call.py`，注册/取数/管理会绕过「先 newSession + 版本检查」前置，且请求不带 `task_id` / `user_query`。现复用 `call.py` 的 session 读取与版本守卫——
+  - 调用前统一做**版本守卫**：session 创建版本与当前 skill 版本不一致时返回 `SKILL_VERSION_MISMATCH`，提示先 `newSession` 再继续；
+  - 每个请求自动注入 **`task_id` / `user_query`**（连同既有的 `x-skill-version` 头），与其它工具「每个请求带当前版本 + user_query」的固定口径一致；
+  - `register` / `list` / `revoke` / `refresh` 等需 api_key 的管理类操作，未建 session 时直接返回 `SESSION_REQUIRED`，强制先 `newSession`；
+  - 对外取数 `query` 仍保持**无凭证、无版本门禁**（浏览器 / 第三方只读直连行为不变），从 skill 内调用时附带 session 上下文供服务端审计。
+  > 配套：服务端 `registerFormulaPackage` / `refreshFormulaPackage` / `listFormulaPackages` / `revokeFormulaPackage` 同步要求 `task_id`（缺失返回 `TASK_ID_REQUIRED`）；该改动在服务端仓库，不在本 skill 内。
+
+- **新增支持资产：境内外 ETF**（`presets/assets_db/stock_a.yaml`、`presets/assets_db/stock_us.yaml`）：
+  - **A 股场内 ETF**：宽基（上证50 `SH510050` / 沪深300 `SH510300` / 中证500 `SH510500` / 中证1000 `SH512100` / 中证A500 `SZ159361` / 创业板 `SZ159915` / 科创50 `SH588000` / 科创芯片 `SH588990`）、行业（有色 `SH512400` / 钢铁 `SH515210` / 煤炭 `SH515220` / 化工 `SH516120` / 建材 `SZ159745` / 养殖 `SZ159865` / 半导体设备 `SZ159516` / 红利低波 `SH512890`）、跨境（恒生 `SH513210` / 恒生科技 `SH513180` / 中概互联 `SH513050` / 港股科技 `SH513010` / 港股通互联网 `SZ159792` / 中韩半导体 `SH513310`）、商品与债券（黄金 `SH518880` / 石油 `SH561360` / 十年国债 `SH511260` / 城投债 `SH511220`）。
+  - **美股及境外 ETF**：SPDR 系列（`SPY.A` / `XLF.A` / `XLE.A` / `XLK.A` / `XLV.A` / `KRE.A` / `KBE.A` / `FEZ.A`）、iShares 安硕系列（`SOXX.O` / `LQD.A` / `HYG.A` / `EWT.A` / `EWZ.A` / `EWJ.A` / `EWU.A`）、VanEck `SMH.O`、KraneShares `KWEB.A`、全球X `ARGT.A`，以及 `JETS.A` / `MAGS.BAT` / `IGV.BAT` / `DWPP.O` 等。
+  - ⚠️ ETF 仍按所在市场口径：A 股场内 ETF 行情正常，估值/财务以工具返回为准；境外 ETF **仅支持行情价格**，不支持估值/财务。
+- `SKILL.md`：版本号升至 `4.21.1`；目录树资产计数同步为 `stock_a.yaml` 5540 条、`stock_us.yaml` 1068 条。
+
+---
+
+## [4.21.0] — 2026-06-05
+
+**变更文件**：`SKILL.md`、`scripts/formula_package.py`（新增）、`tools/formula_package.md`（新增）、`recipes/formula-package.md`（新增）、`config.json`
+
+新增「公式任务包（Formula Package）」对外取数能力：把一组公式注册成长期任务包，得到 `package_id` + `signature`，之后**无需 API Key**即可凭凭证流式取数（SSE），底层数据更新自动重算。适合前端页面 / 第三方只读接入。
+
+- `scripts/formula_package.py`（新增）：公式包客户端，子命令 `register` / `query` / `list` / `revoke` / `refresh`；复用 `executor.py` 的 `load_config` / 无代理 opener / skill 版本头；`query` 走 SSE 解析并组装为 `outputs` dict，签名可由本地凭证自动补全；注册/轮换成功后凭证落盘 `output/formula_packages/<package_id>.json`。
+- `tools/formula_package.md`（新增）：端点、注册参数、三种 `read_mode`（`last_day_stats` / `last_valid_per_asset` / `range_data`）的 `result.data` 结构、错误码、与 `runMultiFormulaBatchStream` 的选型对照。
+- `recipes/formula-package.md`（新增）：使用说明（设计公式组 → 注册 → 取数 → 前端用 `fetch` 读 SSE 直连渲染 → 管理），含一个页面型用法的参考写法，但不在 skill 内附带成品页。
+- `SKILL.md`：版本号升至 `4.21.0`；场景路由新增「对外发布公式组 / 做取数页面 / 注册任务包」一行；目录树补充 `scripts/formula_package.py` 与 `tools/formula_package.md`；frontmatter `networkEndpoints` 增列公式包注册/取数端点。
+- `config.json`：`endpoint` 协议修正为 `http://`（该部署 :3010 端口为明文 HTTP，`https://` 会 SSL 握手失败）。
+
+---
+
 ## [4.20.22] — 2026-06-03
 
 **变更文件**：`SKILL.md`、`tools/fast_query.md`、`workflows/fast-window.md`、`workflows/render-kline.md`、`workflows/quick-lookup.md`

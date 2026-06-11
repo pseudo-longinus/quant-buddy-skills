@@ -4,6 +4,17 @@
 
 ---
 
+## 成败判定通则（先读这条）
+
+> ⚠️ **判断一次工具调用成败，看返回 body 里的 `code` / `success` 字段，不看 HTTP 状态码。**
+
+- **HTTP 200 ≠ 业务成功。** 平台/封装层即使返回 HTTP 200，body 里仍可能是 `"code": -1` / `"success": false` —— 这是**业务错误**，必须按失败处理。
+- 命中 `code: -1` / `success: false` 时：读 `error` / `message` 字段判断原因，再决定动作（重试 / 改参 / 走对应排查表），**绝不能**因为「HTTP 通了」就当成功继续往下走。
+- 常见 `code:-1` 业务错误类型：版本拦截（`error.type=SKILL_VERSION_OUTDATED`，见下方版本小节）、参数缺失/非法、task_id 不一致、数据为空等。
+- 本地封装 `call.py` 的明确失败信号：`error: "INVALID_TOOL_NAME"`（工具名写错/缺失）、`error: "SKILL_VERSION_MISMATCH"`（会话与本地版本不一致），均需先自愈再继续。
+
+---
+
 ## 公式 / 变量
 
 | 问题现象 | 可能原因 | 处理方式 |

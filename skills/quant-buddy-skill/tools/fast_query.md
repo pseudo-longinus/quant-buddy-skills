@@ -50,6 +50,22 @@
 
 **派生**（服务端自动计算，A/US/HK 均支持）：`资产负债率`（英文：`debt_ratio`，公式：`(总资产 - 净资产) / 总资产 × 100`）
 
+**资金流向 / 南北向持股**（snapshot/window，股票×日期 日频；用 `snapshot` 或 `window`，**不是 `report`**）：
+- 仅 A 股：`主力资金净额`（`主力净额`/`主力资金净流入`，万元）`主力资金净占比`（%）`超大单净额` `超大单净占比` `大单净额` `大单净占比` `中单净额` `中单净占比` `小单净额` `小单净占比`（主力 = 超大单 + 大单；净占比分母为当日全股成交额，各档之和≠100%）
+- 仅 A 股：`北向持股比例`（`陆股通持股比例`，%）`北向持股市值`（亿元，RMB）——2024-08 后季频/稀疏，末值常落在季末
+- 仅港股：`南向持股比例`（`港股南向持股比例`，%）`南向持股市值`（亿元，HKD）——日频
+- A 股资金流向/北向字段查港美股返回 `FIELD_MARKET_MISMATCH`；港股南向字段查 A 股返回 `DATA_UNAVAILABLE`
+- 以上为白名单专用短别名，仅白名单内命中（全称如 `A股中单资金当日流量净额`）
+- **不支持**：北向/南向「资金成交额、成交量、净买入」（市场级一维序列，无个股维度，需走 confirmDataMulti + readData）；北向/南向「十大活跃股成交额」暂走动态解析（+2s，需用全称）
+
+**商品期货：行情 / 现货价格 / 库存**（snapshot/window，按品种单位，仅 A 股期货品种，约 60 个商品）：
+- 期货行情 `收盘价`/`开盘价`/`最高价`/`最低价`：单位**按品种**（白银元/千克、螺纹元/吨、黄金元/克、原油元/桶、鸡蛋元/500千克…）；成交额仍为元
+- `现货价格`（`商品现货价格`/`现货价`）：基差/现货，多为元/吨，约 50 品种有数据
+- `商品库存`（`库存`）/ `库存按发布日`：单位**按品种推测**（万吨/吨/千克/克/万重量箱/万立方米/头），带 `STOCK_UNIT_INFERRED` 警告
+- 直接用期货 ticker（如 `RB.SHF`、`AG.SHF`）查询即可；查港美股返回 `FIELD_MARKET_MISMATCH`
+
+> **单位按品种下沉**：同一字段多品种单位不一致时，`fields_meta[字段].unit_per_asset=true`，单位下沉到每个资产值：value 模式 `{v, unit}`，series 模式 `{unit, values}`（主轴）。单位一致时仍在 `fields_meta`、值为标量/数组。读值时优先看资产内联 `unit`，没有再读 `fields_meta.unit`。
+
 不在白名单 → 服务端自动调 confirmDataMulti 解析（+2s）；无法解析则 FIELD_UNRESOLVABLE。
 
 ## 限流
@@ -72,6 +88,8 @@ success / query_type
 fields_meta: { 字段名: {unit, date_type} }   ← 每个字段的单位和日期类型，只声明一次
 meta: query_time_ms / latest_trade_date / partial_ok
 ```
+
+> **单位按品种下沉**：当同一字段多资产单位不一致（商品按品种）时，`fields_meta[字段]` 改为 `{unit_per_asset:true, date_type}`（无统一 unit），单位下沉到每资产值：value 模式 `字段:{v, unit}`，series 模式主轴字段 `字段:{unit, values}`、非主轴 `{dates, values, unit}`。读值优先看资产内联 `unit`，没有再读 `fields_meta.unit`。
 
 `result_mode="value"`（默认）— 表格化字典：
 ```
@@ -105,7 +123,8 @@ results: {
 success: true
 query_type / mode: "csv"
 csv_fields: [
-  { intent: "收盘价", index_title: "...", csv_url: "https://...", csv_expires_at: "...", tickers: [...] },
+  { intent: "收盘价", index_title: "...", csv_url: "https://...", csv_expires_at: "...", tickers: [...], unit: "元" },
+  // 商品多品种：unit:null + unit_per_asset:true + units:{ "RB.SHF":"元/吨", "AG.SHF":"元/千克" }
   ...
 ]
 summary: {

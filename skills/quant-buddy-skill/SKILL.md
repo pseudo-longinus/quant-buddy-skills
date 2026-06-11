@@ -2,7 +2,7 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.20.22
+version: 4.21.2
 description: |
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据。
   查询最近N个交易日的价格序列、日涨跌幅序列、窗口最高价、最低价、振幅等短期统计。
@@ -15,7 +15,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.20.22
+  version: 4.21.2
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -30,6 +30,8 @@ metadata:
   networkEndpoints:
     - https://www.quantbuddy.cn/skill
     - https://www.quantbuddy.cn/user
+    - <config.endpoint>/skill/registerFormulaPackage  # 公式任务包：注册（需 api_key）
+    - <config.endpoint>/skill/queryFormulaPackage     # 公式任务包：取数（无需 api_key，SSE）
   pythonPackages:
     - python-dateutil (optional)
     - Pillow (optional)
@@ -121,6 +123,9 @@ runtimeRequirements:
    - **工具返回 API Key 缺失错误**（含 `api_key 为空` 消息 / `code: 1`）：立即停止查数，输出**新用户引导消息**（格式见「前置条件」章节模板），禁止继续执行查数；等待用户粘贴 Key 后再执行配置向导。
    - **其他工具报错**（网络、服务端错误等）：直接报告"内部工具异常"，不做认证相关引导。
 7. **最终答案首句必须是数据结论**：回答用户时，第一句话必须直接给出数据结论（如资产名+数值、表格、或"符合条件的共N只"），绝对禁止以"已成功获取""数据已获取""根据返回结果""让我来"等过程性陈述开头。违反此规则 = 必须删除过程话术后重新输出。
+   - **禁止原样粘贴工具 JSON**：工具返回 `code:0` / `success:true` 后，最终答复必须把 `data.results` 等业务字段转写成人类可读结论（一句话、短表格或名单）。除非用户明确要求"给我原始 JSON / 调试输出"，否则不得把完整工具响应原样发给用户。
+   - **隐藏运行态字段**：最终答案默认忽略 `code`、`success`、`task_id`、`_quota`、`skill_latest_version`、`skill_update_available`、`skill_update_enforced`、`skill_self_update`、`auto_upgrade*`、`version_check` 等运行态/升级字段；这些字段只供 Agent 判断流程，不是给普通用户看的答案内容。
+   - **版本心跳不打断业务回答**：若业务 `data` 已成功返回，即使响应体带版本心跳，也必须先回答用户问题；只有工具明确返回业务失败或 `SKILL_VERSION_MISMATCH` 时才进入自愈/排错流程。
 8. **用户条件冻结，不得改写**：执行前必须逐字核对用户原始条件，以下改写行为均属违规（一旦发现必须回退并重新确认）：
    - **百分比↔小数互转**（如"股息率>3%"禁止改写为 `>0.03`）
    - **相对时间改为年份区间**（如"过去10年"禁止改写为"2015-2025"）
@@ -160,6 +165,7 @@ runtimeRequirements:
    4. 以**新读取**的工具签名和参数格式重新执行用户原始任务；
    5. **禁止**询问用户"是否继续"或解释版本升级过程——直接静默完成自愈并返回结果。
 11. **CHANGELOG / skill-changelog 仅作为审计，不作为规则源**：`CHANGELOG.md`、`skill-changelog/**` 是按时间叠加的变更记录，包含已被后续版本反转或废弃的旧口径。任何「执行顺序、字段名、协议块语义、工具签名、参数格式」相关的判断，**必须**以 `SKILL.md` + `workflows/**` + `tools/**` + `references/troubleshooting.md` 为唯一权威；CHANGELOG 描述与上述文件冲突时，以上述文件为准。CHANGELOG 仅可用于：① 排查问题时回看「哪一版动过什么」；② 升级成功后做 5 条以内的版本上下文摘要。**禁止**：把 CHANGELOG 某条历史叙述当作当前执行规则、依据 CHANGELOG 推断现行参数格式、或在 CHANGELOG 与 SKILL.md 冲突时偏向 CHANGELOG。
+12. **判断工具成败看返回 body 的 `code`/`success`，不看 HTTP 状态码**：HTTP 200 不代表业务成功——body 里出现 `"code": -1` / `"success": false` 即为**业务错误**，必须按失败处理（读 `error`/`message` 再决定重试/改参/走排查表），禁止「HTTP 通了就当成功」继续往下走。另：`call.py` 返回 `"error": "INVALID_TOOL_NAME"` 表示工具名写错或缺失（工具名必须排在命令最前、且为已注册工具名），属可立即修正的本地错误。详见 `references/troubleshooting.md` 顶部「成败判定通则」。
 
 ## Fast Path / Leaf workflow 顶部硬闸门（每次进入 leaf 都生效）
 
@@ -170,6 +176,7 @@ runtimeRequirements:
 1. 准备调用任何平台原生工具（`fast_query` / `renderKLine` / `stockProfile` / `runMultiFormulaBatchStream` / `readData` / `downloadData` / `getCardFormulas` / `searchFunctions` / `searchSimilarCases` / `confirmDataMulti` / `scanDimensions` / `uploadData` / `renderChart` / `refreshSnapshotTime` / `resumeJob`）之前，**必须先调用 `newSession`**。
 2. **不允许**用"已读 SKILL.md 就跳过 newSession"或"已读 leaf workflow 就跳过 newSession"来豁免本条；这条规则不依赖 leaf 内是否再次重申。
 3. 同一对话追问可复用当前 session；但新的用户问题（含明显话题切换）必须重新 `newSession`，参数中 `user_query` 设为新问题原文。
+   - **建议同时传 `agent_model`**：把你（当前 Agent）正在使用的模型标识作为 `newSession` 的参数填入（例如 `gpt-4o` / `claude-sonnet-4` / `gemini-2.5-pro` 等，取你运行时的真实模型名），供后台在本次会话上统计当前用户使用的模型。**拿不准就留空，不要瞎填**（错误的模型名比没有更糟）。
 4. 跳过 `newSession` 直接调用平台工具 = `MISSING_NEW_SESSION` 契约失败（HIGH 级），评分必扣分。
 
 ## 最小充分原则（任何动作前自检）
@@ -251,15 +258,16 @@ SKILL_ROOT/
 │   ├── download_data.md         → 工具名 `downloadData`        按 data_id 下载一维时序到 CSV/JSON
 │   ├── upload_data.md           → 工具名 `uploadData`          上传自有因子 CSV，上传后可在公式中引用
 │   ├── refresh_snapshot_time.md → 工具名 `refreshSnapshotTime` 强制刷新分钟数据截止时间（盘中实时场景）
-│   └── resume_job.md            → 工具名 `resumeJob`           续传 deferred 后台任务（配合 research_24h 使用）
+│   ├── resume_job.md            → 工具名 `resumeJob`           续传 deferred 后台任务（配合 research_24h 使用）
+│   └── formula_package.md       → 脚本 `scripts/formula_package.py` 注册公式组为「任务包」→ 凭 package_id+signature 无 key 取数（对外只读/前端页面接入）
 │
 ├── presets/                 ← 已验证的常用数据（按需加载）
 │   ├── cases_index.yaml         106 张案例卡片目录（量化标准场景必读，快速查数无需）
 │   ├── assets.yaml              常用资产（99 行精选，可一次读完）
 │   ├── assets_db/               全量资产字典（按类型分文件，⚠️ 仅 grep 检索，禁止 read_file 整文件；不含指数成分股映射）
-│   │   ├── stock_a.yaml             A 股 5505 条（SH/SZ）
+│   │   ├── stock_a.yaml             A 股 5540 条（SH/SZ，含场内 ETF）
 │   │   ├── stock_hk.yaml            港股 2862 条（HK 前缀；行情优先，财务以 fast_query 返回为准）
-│   │   ├── stock_us.yaml            美股及境外ETF 1044 条（.N/.O/.A；行情优先，财务以 fast_query 返回为准）
+│   │   ├── stock_us.yaml            美股及境外ETF 1068 条（.N/.O/.A；行情优先，财务以 fast_query 返回为准）
 │   │   ├── index.yaml               指数 503 条
 │   │   └── future.yaml              期货 257 条
 │   ├── functions.yaml           常用函数
@@ -270,6 +278,7 @@ SKILL_ROOT/
 ├── scripts/                 ← 执行脚本
 │   ├── call.py                  工具统一入口（所有命令通过它调用）
 │   ├── executor.py              call.py 的底层（禁止直接调用）
+│   ├── formula_package.py       公式任务包客户端（register/query/list/revoke/refresh，取数走 SSE）
 │   ├── quant_api.py             Python SDK（供其他脚本 import）
 │   ├── auth/                    认证脚本
 │   └── eval/                    评测脚本
@@ -334,6 +343,7 @@ SKILL_ROOT/
 | 直接运行用户给定的公式链文件 | 「运行/跑一遍/执行这个文件里的全部公式」「公式链文件」「formula chain」「按这个 md/json 跑」 | `global-rules.md` → `run-formula-chain.md` |
 | 事件研究 | 复盘、历次、涨价、降息、加息、事件窗口、随后表现、超预期、不及预期、政策后表现…（给定事件或需先识别事件日） | `global-rules.md` → `event-study.md` |
 | 阈值区间统计 / 连续阶段 | 历次、每次、平均、回撤超过、从高点下跌超过、熊市区间、连续阶段、regime | `global-rules.md` → `regime-segmentation.md` |
+| 对外发布公式组 / 做取数页面 / 注册任务包 | 注册公式包、package_id、签名取数、做个能直接打开的页面/看板、前端实时取数、对外只读接口、第三方接入 | `tools/formula_package.md` + `recipes/formula-package.md`（用 `scripts/formula_package.py`，非平台原生工具）|
 
 > 上传、下载、画图不是独立场景——它们是 workflow 内的子步骤，workflow 文档会在需要时指引你读对应的 `recipes/`。
 
@@ -361,7 +371,7 @@ SKILL_ROOT/
 
 **Fast Path 条件（同时满足以下 2 点才可走 Fast Path；否则走完整链路）：**
 
-- 所有目标字段属于 fast_query whitelist（价格/估值/财务/衍生字段，详见 `tools/fast_query.md`），不涉及自定义公式/选股/排名
+- 所有目标字段属于 fast_query whitelist（价格/估值/财务/衍生/资金流向·南北向持股/商品现货·库存字段，详见 `tools/fast_query.md`），不涉及自定义公式/选股/排名
 - 非全市场横截面查询（不是"全市场排名/前N只/行业筛选"等场景）
 
 > 资产数量不再限制 Fast Path 路由（服务端支持 ≤1000 个资产）。超过 500 数据点时服务端自动返回 CSV 格式（OSS 下载链接），详见 `tools/fast_query.md` 限流与 CSV 模式段落。
@@ -442,6 +452,16 @@ SKILL_ROOT/
 >   - PE（静态）：A 股用静态 PE，港美股自动映射到 TTM 版
 >   - 单季口径：`PE_单季`/`PB_单季`/`PS_单季`/`股息率_单季` 仍可用于显式查询季频数据
 > - **财务类**（营业收入/净利润/归母净利润等）：A / HK / US 均支持（通过 `fast_query` 接口）；**ROE 仅 A 股**。
+> - **资金流向 / 南北向持股类**（`fast_query` `snapshot`/`window`，**非 `report`**）：
+>   - 仅 A 股：`主力资金净额`/`主力资金净占比`、`超大单/大单/中单/小单 净额·净占比`（主力 = 超大单 + 大单）
+>   - 仅 A 股：`北向持股比例`（`陆股通持股比例`）/`北向持股市值`（2024-08 后季频/稀疏）
+>   - 仅港股：`南向持股比例`/`南向持股市值`（日频）
+>   - 走动态解析（非白名单，需用全称）：北向/南向「十大活跃股成交额」
+>   - **不支持**：北向/南向「资金成交额·成交量·净买入」（市场级一维序列，无个股维度）——应走 `confirmDataMulti` + `readData`，而非 `fast_query`。
+> - **商品期货类**（`fast_query` `snapshot`/`window`，仅 A 股期货品种，单位按品种）：
+>   - 期货行情 `收盘价`/`开盘价`/`最高价`/`最低价`：单位按品种（白银元/千克、螺纹元/吨、黄金元/克…）
+>   - `现货价格`（基差，多为元/吨）、`商品库存`/`库存按发布日`（单位按品种**推测**，带 `STOCK_UNIT_INFERRED` 警告）
+>   - 用期货 ticker（如 `RB.SHF`）查询；**单位按品种发散时** `fields_meta[字段].unit_per_asset=true`，单位下沉到每资产值（`{v, unit}`），读值优先看资产内联 `unit`
 > - 查询港股/美股时若字段不在上述支持范围内，应主动告知用户，而不是静默跳过。
 
 ### 股票代码格式速查

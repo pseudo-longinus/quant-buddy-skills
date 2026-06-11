@@ -202,6 +202,7 @@ stock | First_Citizens_BancShares_Inc | FCNCA.O |  |
 stock | First_Hawaiian_Inc | FHB.O |  |
 stock | First_Horizon_Corporation | FHN.N |  |
 stock | First_Industrial_Realty_Trust_Inc | FR.N |  |
+stock | First_Trust_Dorsey_Wright_Peoples_Portfolio_ETF | DWPP.O |  |
 stock | Five_Below_Inc | FIVE.O |  |
 stock | Floor__Decor_Holdings_Inc | FND.N |  |
 stock | Flowers_Foods_Inc | FLO.N |  |
@@ -271,6 +272,7 @@ stock | Kinsale_Capital_Group_Inc | KNSL.N |  |
 stock | Kirby_Corporation | KEX.N |  |
 stock | KKR__Co_Inc | KKR.N |  |
 stock | Knight-Swift_Transportation_Holdings_Inc | KNX.N |  |
+stock | KraneShares中证中国互联网ETF | KWEB.A |  |
 stock | Kyndryl_Holdings_Inc | KD.N |  |
 stock | Lamar_Advertising_Company | LAMR.O |  |
 stock | Lamb_Weston_Holdings_Inc | LW.N |  |
@@ -444,6 +446,14 @@ stock | Solstice_Advanced_Materials_Inc | SOLS.O |  |
 stock | Solventum_Corporation | SOLV.N |  |
 stock | Somnigroup_International_Inc | SGI.N |  |
 stock | SouthState_Corporation | SSB.N |  |
+stock | SPDR医疗保健精选行业ETF | XLV.A |  |
+stock | SPDR标普500ETF信托 | SPY.A |  |
+stock | SPDR标普地区银行ETF | KRE.A |  |
+stock | SPDR标普银行ETF | KBE.A |  |
+stock | SPDR欧洲斯托克50ETF | FEZ.A |  |
+stock | SPDR科技精选行业ETF | XLK.A |  |
+stock | SPDR能源精选行业ETF | XLE.A |  |
+stock | SPDR金融精选行业ETF | XLF.A |  |
 stock | Sprouts_Farmers_Market_Inc | SFM.O |  |
 stock | SSC_Technologies_Holdings_Inc | SSNC.O |  |
 stock | STAG_Industrial_Inc | STAG.N |  |
@@ -502,6 +512,7 @@ stock | Unum_Group | UNM.N |  |
 stock | US_Foods_Holding_Corp | USFD.N |  |
 stock | UWM_Holdings_Corporation | UWMC.N |  |
 stock | Valmont_Industries_Inc | VMI.N |  |
+stock | VanEck半导体ETF | SMH.O |  |
 stock | Veeva_Systems_Inc | VEEV.N |  |
 stock | Ventas_Inc | VTR.N |  |
 stock | Veralto_Corporation | VLTO.N |  |
@@ -581,6 +592,7 @@ stock | 元平台 | META.O |  |
 stock | 克兰 | CR.N |  |
 stock | 克利夫兰克里夫斯 | CLF.N |  |
 stock | 克罗格 | KR.N |  |
+stock | 全球X-MSCI阿根廷ETF | ARGT.A |  |
 stock | 共和服务 | RSG.N |  |
 stock | 再生元 | REGN.O |  |
 stock | 冠城国际 | CCI.N |  |
@@ -593,6 +605,7 @@ stock | 力特 | LFUS.O |  |
 stock | 劳氏 | LOW.N |  |
 stock | 勃肯 | BIRK.N |  |
 stock | 北方信托 | NTRS.O |  |
+stock | 华丽七号ETF | MAGS.BAT |  |
 stock | 华纳兄弟探索 | WBD.O |  |
 stock | 华美银行 | EWBC.O |  |
 stock | 南方公司 | SO.N |  |
@@ -666,6 +679,15 @@ stock | 安捷伦科技 | A.N |  |
 stock | 安森美 | ON.O |  |
 stock | 安波福 | APTV.N |  |
 stock | 安特吉 | ETR.N |  |
+stock | 安硕iBoxx投资级公司债ETF | LQD.A |  |
+stock | 安硕iBoxx高收益公司债ETF | HYG.A |  |
+stock | 安硕MSCI台湾ETF | EWT.A |  |
+stock | 安硕MSCI巴西ETF | EWZ.A |  |
+stock | 安硕MSCI日本ETF | EWJ.A |  |
+stock | 安硕MSCI英国ETF | EWU.A |  |
+stock | 安硕半导体ETF | SOXX.O |  |
+stock | 安硕生物科技ETF | IBB.O |  |
+stock | 安硕罗素2000ETF | IWM.A |  |
 stock | 安费诺 | APH.N |  |
 stock | 安进 | AMGN.O |  |
 stock | 安靠科技 | AMKR.O |  |
@@ -759,6 +781,7 @@ stock | 普信集团 | TROW.O |  |
 stock | 普尔特房屋 | PHM.N |  |
 stock | 普洛斯 | PLD.N |  |
 stock | 景顺 | IVZ.N |  |
+stock | 景顺QQQ信托ETF | QQQ.O |  | QQQ
 stock | 李尔 | LEA.N |  |
 stock | 杜克能源 | DUK.N |  |
 stock | 杜比实验室 | DLB.N |  |
@@ -770,6 +793,7 @@ stock | 林肯电气 | LECO.O |  |
 stock | 查尔斯河实验室 | CRL.N |  |
 stock | 柯蒂斯莱特 | CW.N |  |
 stock | 标普全球 | SPGI.N |  |
+stock | 标普北美科技软件ETF | IGV.BAT |  |
 stock | 格芯 | GFS.O |  |
 stock | 桑坦德银行 | SAN.N |  |
 stock | 桑普拉能源 | SRE.N |  |
@@ -887,6 +911,7 @@ stock | 罗致恒富 | RHI.N |  |
 stock | 美元将军 | DG.N |  |
 stock | 美元树 | DLTR.O |  |
 stock | 美光科技 | MU.O |  |
+stock | 美国全球喷气机ETF | JETS.A |  |
 stock | 美国合众银行 | USB.N |  |
 stock | 美国国际集团 | AIG.N |  |
 stock | 美国家庭人寿保险 | AFL.N |  |

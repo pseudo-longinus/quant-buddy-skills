@@ -16,7 +16,6 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_SKILL_ROOT = SCRIPT_DIR.parent
-PRESERVE_NAMES = {"config.json", "config.local.json", "output", "logs"}
 REQUIRED_PATHS = [
     "SKILL.md",
     "CHANGELOG.md",
@@ -45,14 +44,71 @@ def _read_skill_version(skill_md: Path) -> str:
     return ""
 
 
-def _download(url: str, dest: Path) -> None:
+def _parse_version_tuple(version: str):
+    if not version:
+        return None
+    text = str(version).strip()
+    if text.startswith(("v", "V")):
+        text = text[1:]
+    parts = text.split(".")
+    if not parts:
+        return None
+    nums = []
+    for part in parts:
+        if not re.fullmatch(r"\d+", part):
+            return None
+        nums.append(int(part))
+    return tuple(nums)
+
+
+def _is_newer_version(target_version: str, current_version: str) -> bool:
+    target = _parse_version_tuple(target_version)
+    current = _parse_version_tuple(current_version)
+    if target is None or current is None:
+        return str(target_version or "") != str(current_version or "")
+    width = max(len(target), len(current))
+    target = target + (0,) * (width - len(target))
+    current = current + (0,) * (width - len(current))
+    return target > current
+
+
+DOWNLOAD_TIMEOUT = 300          # 单次下载超时：5 分钟
+DOWNLOAD_MAX_ATTEMPTS = 3       # 至少重试 3 次
+DOWNLOAD_BACKOFF_BASE = 2       # 退避基数（秒）：1s, 2s, 4s ...
+
+
+def _download_once(url: str, dest: Path) -> None:
     req = urllib.request.Request(url, headers={"User-Agent": "quant-buddy-skill-self-update"})
-    with urllib.request.urlopen(req, timeout=60) as resp, dest.open("wb") as out:
+    with urllib.request.urlopen(req, timeout=DOWNLOAD_TIMEOUT) as resp, dest.open("wb") as out:
         while True:
             chunk = resp.read(1024 * 1024)
             if not chunk:
                 break
             out.write(chunk)
+
+
+def _download(url: str, dest: Path) -> None:
+    """带退避重试的下载：单次 5min 超时，至少尝试 DOWNLOAD_MAX_ATTEMPTS 次。
+    每次失败按 1s/2s/4s 退避；全部失败时抛出最后一次异常，错误信息含尝试次数与原因类别。
+    """
+    last_exc = None
+    for attempt in range(1, DOWNLOAD_MAX_ATTEMPTS + 1):
+        try:
+            _download_once(url, dest)
+            return
+        except Exception as exc:  # noqa: BLE001 - 统一重试所有可恢复网络错误
+            last_exc = exc
+            try:
+                if dest.exists():
+                    dest.unlink()
+            except OSError:
+                pass
+            if attempt < DOWNLOAD_MAX_ATTEMPTS:
+                time.sleep(DOWNLOAD_BACKOFF_BASE ** (attempt - 1))
+    raise RuntimeError(
+        f"download failed after {DOWNLOAD_MAX_ATTEMPTS} attempts: "
+        f"{type(last_exc).__name__}: {last_exc}"
+    )
 
 
 def _sha512(path: Path) -> str:
@@ -133,63 +189,179 @@ def _copytree(src: Path, dst: Path) -> None:
     shutil.copytree(src, dst, ignore=ignore)
 
 
-def _clear_installation(skill_root: Path) -> None:
-    for item in skill_root.iterdir():
-        if item.name in PRESERVE_NAMES:
-            continue
-        if item.is_dir() and not item.is_symlink():
-            shutil.rmtree(item)
-        else:
-            item.unlink()
+# 随版本更新的“代码/文档”顶层项；其余（output/logs/config*）跨版本保留、绝不换名
+PRESERVE_FROM_SWAP = {"config.json", "config.local.json", "output", "logs", "__pycache__"}
+STAGING_DIRNAME = ".staging"
+LOCK_DIRNAME = ".self_update.lock"
+LOCK_STALE_SECONDS = 1800  # 锁超过 30min 视为残留，可抢占
 
 
-def _copy_source(source: Path, skill_root: Path) -> None:
-    for item in source.iterdir():
-        if item.name in {"config.local.json", "output", "logs", "__pycache__"}:
-            continue
-        target = skill_root / item.name
-        if item.is_dir() and not item.is_symlink():
-            shutil.copytree(item, target)
-        else:
-            shutil.copy2(item, target)
+def _acquire_lock(skill_root: Path):
+    """用 output/.self_update.lock 目录做并发互斥锁（mkdir 原子）。
+    返回锁路径；获取失败抛 RuntimeError。检测并抢占明显残留的旧锁。
+    """
+    output_dir = skill_root / "output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = output_dir / LOCK_DIRNAME
+    try:
+        lock_path.mkdir()
+        return lock_path
+    except FileExistsError:
+        try:
+            age = time.time() - lock_path.stat().st_mtime
+            if age > LOCK_STALE_SECONDS:
+                shutil.rmtree(lock_path, ignore_errors=True)
+                lock_path.mkdir()
+                return lock_path
+        except Exception:
+            pass
+        raise RuntimeError("another self_update is in progress (lock held)")
 
 
-def _restore_config(skill_root: Path, configs: dict) -> None:
-    for name, data in configs.items():
-        if data is not None:
-            (skill_root / name).write_bytes(data)
-    config_json = skill_root / "config.json"
-    template = skill_root / "config.json.template"
-    if configs.get("config.json") is None and not config_json.exists() and template.exists():
-        shutil.copy2(template, config_json)
+def _release_lock(lock_path: Path):
+    try:
+        shutil.rmtree(lock_path, ignore_errors=True)
+    except Exception:
+        pass
 
 
-def _rollback(skill_root: Path, backup_path: Path, configs: dict) -> None:
-    if not backup_path.exists():
+def _atomic_swap_item(staged_item: Path, target: Path, trash_dir: Path) -> None:
+    """同卷原子换名：把已就位的 staged_item 换成 target。
+    - target 不存在：直接 os.replace（原子创建）
+    - target 是文件/链接：os.replace 原子覆盖
+    - target 是目录：旧目录先移入 trash，再放新目录
+    Windows 对“有打开句柄/正在执行”的目录换名可能失败，调用方需保证更新时段无并发执行。
+    """
+    if not target.exists():
+        os.replace(staged_item, target)
         return
-    _clear_installation(skill_root)
-    _copy_source(backup_path, skill_root)
-    _restore_config(skill_root, configs)
+    if target.is_file() or target.is_symlink():
+        os.replace(staged_item, target)
+        return
+    trash_target = trash_dir / target.name
+    os.replace(target, trash_target)
+    try:
+        os.replace(staged_item, target)
+    except Exception:
+        os.replace(trash_target, target)
+        raise
 
 
 def _install(source: Path, skill_root: Path, backup_root: Path) -> Path:
+    """方案 X 原子安装：
+      1) 文件锁互斥；
+      2) 备份当前安装（沿用旧逻辑，供审计/手工回滚）；
+      3) 新版各顶层“代码/文档”项先拷到 output/.staging/<item>（同卷）；
+      4) 逐项用 os.replace 原子换名换入 skill_root，旧项移入 .trash；
+      5) 全部成功后清 .trash / .staging；任一步失败则从 .trash 回滚已换项。
+    config*/output/logs 全程不参与换名，原地保留。
+    """
+    lock_path = _acquire_lock(skill_root)
     timestamp = time.strftime("%Y%m%d%H%M%S")
     backup_path = backup_root / f"quant-buddy-skill-backup-{timestamp}"
     backup_root.mkdir(parents=True, exist_ok=True)
-    configs = {}
-    for name in ("config.json", "config.local.json"):
-        path = skill_root / name
-        configs[name] = path.read_bytes() if path.exists() else None
 
-    _copytree(skill_root, backup_path)
+    output_dir = skill_root / "output"
+    staging_root = output_dir / STAGING_DIRNAME / timestamp
+    trash_root = output_dir / STAGING_DIRNAME / f"{timestamp}.trash"
+    swapped = []  # [(target, trash_path_or_None)] 供失败回滚
+
     try:
-        _clear_installation(skill_root)
-        _copy_source(source, skill_root)
-        _restore_config(skill_root, configs)
+        # 备份（best-effort，失败不阻断主流程）
+        try:
+            _copytree(skill_root, backup_path)
+        except Exception:
+            pass
+
+        # 计算要换入的顶层项（排除保留态）
+        items = [it for it in source.iterdir() if it.name not in PRESERVE_FROM_SWAP]
+
+        # 全部先拷到 staging（同卷，保证后续 os.replace 原子）
+        if staging_root.exists():
+            shutil.rmtree(staging_root, ignore_errors=True)
+        staging_root.mkdir(parents=True, exist_ok=True)
+        trash_root.mkdir(parents=True, exist_ok=True)
+        for it in items:
+            dst = staging_root / it.name
+            if it.is_dir() and not it.is_symlink():
+                shutil.copytree(it, dst)
+            else:
+                shutil.copy2(it, dst)
+
+        # 逐项原子换名
+        for it in items:
+            target = skill_root / it.name
+            staged = staging_root / it.name
+            had_target = target.exists()
+            _atomic_swap_item(staged, target, trash_root)
+            swapped.append((target, (trash_root / it.name) if had_target else None))
+
+        # 成功：清理 trash / staging
+        shutil.rmtree(trash_root, ignore_errors=True)
+        shutil.rmtree(staging_root, ignore_errors=True)
+        return backup_path
+
     except Exception:
-        _rollback(skill_root, backup_path, configs)
+        # 回滚已换入的项：把 trash 里的旧项换回来
+        for target, trash_old in reversed(swapped):
+            try:
+                if trash_old is not None and trash_old.exists():
+                    if target.exists():
+                        if target.is_dir() and not target.is_symlink():
+                            shutil.rmtree(target, ignore_errors=True)
+                        else:
+                            target.unlink()
+                    os.replace(trash_old, target)
+                else:
+                    # 原本不存在的新项：删除以恢复原状
+                    if target.exists():
+                        if target.is_dir() and not target.is_symlink():
+                            shutil.rmtree(target, ignore_errors=True)
+                        else:
+                            target.unlink()
+            except Exception:
+                pass
+        shutil.rmtree(trash_root, ignore_errors=True)
+        shutil.rmtree(staging_root, ignore_errors=True)
         raise
-    return backup_path
+    finally:
+        _release_lock(lock_path)
+
+
+
+def _finalize_dedup_state(skill_root: Path, target_version: str, status: str, last_error=None):
+    """更新 output/.self_update_state.json，让 call.py 的“当日去重/软锁”自愈：
+    后台更新结束（ok/failed）后清除 in_progress，避免同日其他进程被永久软锁。
+    与 call.py._self_update_mark 写同一文件、同一字段约定；best-effort，失败不抛。
+    """
+    if not target_version:
+        return
+    state_file = skill_root / "output" / ".self_update_state.json"
+    try:
+        today = time.strftime("%Y-%m-%d")
+        prev = {}
+        if state_file.exists():
+            try:
+                prev = json.loads(state_file.read_text(encoding="utf-8")) or {}
+            except Exception:
+                prev = {}
+        same = prev.get("date") == today and prev.get("target_version") == target_version
+        attempts = int(prev.get("attempts") or 0) if same else 0
+        prev_status = prev.get("status") if same else None
+        if status == "failed" and prev_status != "failed":
+            attempts += 1
+        new_state = {
+            "date": today,
+            "target_version": target_version,
+            "attempts": attempts,
+            "status": status,
+            "last_error": last_error,
+            "ts": int(time.time()),
+        }
+        state_file.parent.mkdir(parents=True, exist_ok=True)
+        state_file.write_text(json.dumps(new_state, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        pass
 
 
 def main():
@@ -213,6 +385,17 @@ def main():
     if not (skill_root / "SKILL.md").exists():
         _json_exit(1, success=False, error=f"skill root does not contain SKILL.md: {skill_root}")
     backup_root = Path(args.backup_root).resolve() if args.backup_root else _default_backup_root(skill_root).resolve()
+    current_version = _read_skill_version(skill_root / "SKILL.md")
+    if current_version and not _is_newer_version(args.version, current_version):
+        _finalize_dedup_state(skill_root, args.version, "ok")
+        _json_exit(
+            0,
+            success=True,
+            skipped=True,
+            reason=f"target version {args.version} is not newer than current {current_version}; skip self_update to avoid downgrade.",
+            package_version=current_version,
+            skill_root=str(skill_root),
+        )
 
     with tempfile.TemporaryDirectory(prefix="qbs_self_update_") as tmp:
         tmpdir = Path(tmp)
@@ -234,8 +417,10 @@ def main():
                 _json_exit(0, success=True, dry_run=True, package_version=package_version, source=str(source), skill_root=str(skill_root))
 
             backup_path = _install(source, skill_root, backup_root)
+            _finalize_dedup_state(skill_root, args.version, "ok")
             _json_exit(0, success=True, package_version=package_version, skill_root=str(skill_root), backup_path=str(backup_path))
         except Exception as exc:
+            _finalize_dedup_state(skill_root, args.version, "failed", last_error=str(exc))
             _json_exit(1, success=False, error=str(exc), skill_root=str(skill_root))
 
 

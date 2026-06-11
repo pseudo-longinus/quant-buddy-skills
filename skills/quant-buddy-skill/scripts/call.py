@@ -17,6 +17,12 @@ renderChart 自动保存 PNG 并打开（无需额外调 saveChart）。
     方式4 —— 管道传参（macOS/Linux）：
     echo '{"query":"收盘价"}' | python scripts/call.py searchFunctions
 
+❌ 常见错误用法（会被前置校验立即拒绝，不要这样用）：
+    ❌ python scripts/call.py @params.json          # 缺工具名：把 @file 当成了工具名
+    ❌ python scripts/call.py '{"tool":"x","params":{}}'  # 把“结果 JSON 的长相”误当成输入格式
+    ❌ python scripts/call.py fastquery @params.json # 工具名写错/大小写不符（正确为 fast_query）
+    正确：python scripts/call.py <工具名> @params.json，工具名必须排在最前，且为已注册工具。
+
 原理：
   1. 从 GZQ_PARAMS 环境变量读取 JSON（PowerShell 赋值字符串时不剥双引号）
   2. 调用 executor.py <tool> @tmpfile
@@ -35,9 +41,146 @@ import sys
 import tempfile
 import uuid
 
+try:
+    import select as _select
+except Exception:  # pragma: no cover
+    _select = None
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 SKILL_ROOT = os.path.dirname(SCRIPT_DIR)
 EXECUTOR = os.path.join(SCRIPT_DIR, "executor.py")
+
+
+# call.py 自身处理（不走 executor）的本地工具
+_LOCAL_TOOLS = {"newSession", "saveChart", "webSearch", "buildEventStudy"}
+
+
+def _known_tools():
+    """工具白名单 = executor.TOOL_ROUTES 的 key（网络工具，单一事实源）
+    + call.py 本地处理的工具。
+
+    实现说明：**不 import executor**——executor.py 在模块级会重包裹
+    sys.stdout/stderr（TextIOWrapper over .buffer），import 会破坏 call.py 已配置的
+    stdio 并在解释器退出时抛 “I/O operation on closed file.”。
+    因此改为静态解析 executor.py 源码提取 TOOL_ROUTES / SAVE_CHART_TOOL，
+    既保持单一事实源、又零副作用。解析失败时退化为仅本地工具。
+    """
+    names = set(_LOCAL_TOOLS)
+    try:
+        src = open(EXECUTOR, "r", encoding="utf-8").read()
+        lines = src.splitlines()
+        in_routes = False
+        for line in lines:
+            stripped = line.strip()
+            if not in_routes:
+                if re.match(r"TOOL_ROUTES\s*=\s*\{", stripped):
+                    in_routes = True
+                continue
+            # 到达独立的右花括号即结束（避免被 "/data/{id}" 占位符误判）
+            if stripped.startswith("}"):
+                break
+            km = re.match(r'["\']([A-Za-z0-9_]+)["\']\s*:', stripped)
+            if km:
+                names.add(km.group(1))
+        m2 = re.search(r'SAVE_CHART_TOOL\s*=\s*["\']([A-Za-z0-9_]+)["\']', src)
+        if m2:
+            names.add(m2.group(1))
+    except Exception:
+        pass
+    return names
+
+
+def _reject_bad_tool_name(tool_name):
+    """工具名前置校验：@ 开头或未知工具立即报错退出，
+    把“静默挂死读 stdin”变成“瞬时明确报错”。
+    """
+    known = _known_tools()
+    bad_reason = None
+    if tool_name.startswith("@"):
+        bad_reason = (
+            f"疑似把 @file 当成了工具名：'{tool_name}'。"
+            "正确用法：python scripts/call.py <工具名> @params.json"
+        )
+    elif tool_name not in known:
+        bad_reason = (
+            f"未知工具名：'{tool_name}'。工具名必须排在最前，且为已注册工具。"
+        )
+    if bad_reason is None:
+        return
+    err = {
+        "code": 1,
+        "success": False,
+        "error": "INVALID_TOOL_NAME",
+        "message": bad_reason,
+        "known_tools": sorted(known),
+    }
+    out = json.dumps(err, ensure_ascii=False, indent=2)
+    try:
+        out_file = os.path.join(tempfile.gettempdir(), "gzq_out.txt")
+        with open(out_file, "w", encoding="utf-8") as _f:
+            _f.write(out)
+    except Exception:
+        pass
+    print(out)
+    sys.exit(1)
+
+
+def _read_stdin_nonblocking():
+    """只在 stdin 确有数据时读取，避免 agent/CI 空管道下无限阻塞。
+    - tty：直接返回 None（交互式不读）
+    - POSIX：用 select 判定是否有数据；
+    - Windows：select 对管道会报 WSAStartup，用 PeekNamedPipe 检查管道可读字节；
+      普通重定向文件直接读取。
+    返回 str 或 None。
+    """
+    try:
+        if sys.stdin is None or sys.stdin.isatty():
+            return None
+    except Exception:
+        return None
+
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            import msvcrt
+            handle = msvcrt.get_osfhandle(sys.stdin.fileno())
+            kernel32 = ctypes.windll.kernel32
+            file_type = kernel32.GetFileType(ctypes.c_void_p(handle))
+            FILE_TYPE_DISK = 0x0001
+            FILE_TYPE_PIPE = 0x0003
+            if file_type == FILE_TYPE_PIPE:
+                available = ctypes.c_ulong(0)
+                ok = kernel32.PeekNamedPipe(
+                    ctypes.c_void_p(handle),
+                    None,
+                    0,
+                    None,
+                    ctypes.byref(available),
+                    None,
+                )
+                if not ok or available.value <= 0:
+                    return None
+            elif file_type != FILE_TYPE_DISK:
+                return None
+            data = sys.stdin.buffer.read()
+            return data.decode("utf-8", errors="replace").strip()
+        except Exception:
+            return None
+
+    if _select is not None:
+        try:
+            ready, _, _ = _select.select([sys.stdin], [], [], 0)
+            if not ready:
+                return None
+        except Exception:
+            return None
+    else:
+        return None
+    try:
+        data = sys.stdin.buffer.read()
+        return data.decode("utf-8", errors="replace").strip()
+    except Exception:
+        return None
 
 
 def _configure_parent_stdio():
@@ -152,6 +295,47 @@ def _read_skill_version() -> str:
     return ""
 
 
+def _parse_version_tuple(version):
+    """把 4.21.2 / v4.21.2 解析为整数 tuple；解析失败返回 None。"""
+    if not version:
+        return None
+    text = str(version).strip()
+    if text.startswith(("v", "V")):
+        text = text[1:]
+    parts = text.split(".")
+    if not parts:
+        return None
+    nums = []
+    for part in parts:
+        if not re.fullmatch(r"\d+", part):
+            return None
+        nums.append(int(part))
+    return tuple(nums)
+
+
+def _compare_versions(left, right):
+    """语义版本比较：left > right 返回 1；相等 0；left < right 返回 -1；未知返回 None。"""
+    lv = _parse_version_tuple(left)
+    rv = _parse_version_tuple(right)
+    if lv is None or rv is None:
+        return None
+    width = max(len(lv), len(rv))
+    lv = lv + (0,) * (width - len(lv))
+    rv = rv + (0,) * (width - len(rv))
+    if lv > rv:
+        return 1
+    if lv < rv:
+        return -1
+    return 0
+
+
+def _is_newer_version(target_version, current_version):
+    relation = _compare_versions(target_version, current_version)
+    if relation is None:
+        return str(target_version or "") != str(current_version or "")
+    return relation > 0
+
+
 def _read_session():
     """读取当前 session 的 task_id，不存在则返回 None。"""
     try:
@@ -205,8 +389,217 @@ def _write_session(task_id, user_query=None):
 
 SELF_UPDATE_SCRIPT = os.path.join(SCRIPT_DIR, "self_update.py")
 
+# 自更新当日去重状态文件（output/ 受保护、跨版本共享）
+SELF_UPDATE_STATE_FILE = os.path.join(SKILL_ROOT, "output", ".self_update_state.json")
+VERSION_CHECK_STATE_FILE = os.path.join(SKILL_ROOT, "output", ".version_check_state.json")
+# 同一天、同一 target_version 的失败上限：一次触发内已含 3 次下载重试；失败后当日不再重复下载
+SELF_UPDATE_DAILY_FAIL_CAP = 1
+# self_update 子进程总超时：必须 >= 下载(5min) x 重试(3) + 安装余量，否则会被外层提前杀死
+SELF_UPDATE_SUBPROC_TIMEOUT = 1200  # 20min
+# newSession 主动版本检查节流：默认 1 小时最多查一次；成功响应心跳只记录待更新
+try:
+    VERSION_CHECK_TTL_SECONDS = max(0, int(os.environ.get("QBS_VERSION_CHECK_TTL_SECONDS", "3600") or "3600"))
+except ValueError:
+    VERSION_CHECK_TTL_SECONDS = 3600
 
-def _attempt_self_update(self_update_info, timeout=180):
+
+def _today_str():
+    import time as _t
+    return _t.strftime("%Y-%m-%d")
+
+
+def _read_self_update_state():
+    try:
+        with open(SELF_UPDATE_STATE_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _write_self_update_state(state):
+    try:
+        os.makedirs(os.path.dirname(SELF_UPDATE_STATE_FILE), exist_ok=True)
+        with open(SELF_UPDATE_STATE_FILE, "w", encoding="utf-8") as f:
+            json.dump(state, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def _read_version_check_state():
+    try:
+        with open(VERSION_CHECK_STATE_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _write_version_check_state(skill_version, version_info=None, error=None):
+    import time as _t
+    state = {
+        "checked_at": int(_t.time()),
+        "skill_version": skill_version,
+        "latest_version": (version_info or {}).get("latest_version"),
+        "update_required": bool((version_info or {}).get("update_required")),
+        "error": error,
+    }
+    try:
+        os.makedirs(os.path.dirname(VERSION_CHECK_STATE_FILE), exist_ok=True)
+        with open(VERSION_CHECK_STATE_FILE, "w", encoding="utf-8") as f:
+            json.dump(state, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def _should_run_new_session_version_check(skill_version):
+    """newSession 的主动版本检查只做节流补充；成功响应心跳负责记录 pending update。"""
+    if os.environ.get("QBS_FORCE_VERSION_CHECK", "").strip() in ("1", "true", "TRUE", "yes", "YES"):
+        return True, "forced"
+    state = _read_version_check_state()
+    try:
+        import time as _t
+        age = int(_t.time()) - int(state.get("checked_at") or 0)
+    except Exception:
+        age = VERSION_CHECK_TTL_SECONDS + 1
+    if state.get("skill_version") != skill_version:
+        return True, "skill_version_changed"
+    if age >= VERSION_CHECK_TTL_SECONDS:
+        return True, "ttl_expired"
+    return False, "ttl_active"
+
+
+# 会话内内存标记：本进程是否已对某 target_version 触发过更新（一个会话最多一次）
+_SELF_UPDATE_TRIED_THIS_RUN = set()
+
+
+def _self_update_target_version(self_update_info):
+    """从 self_update / error 信息里尽量解析出目标版本号，作为去重键。"""
+    if not isinstance(self_update_info, dict):
+        return ""
+    v = self_update_info.get("version") or self_update_info.get("target_version")
+    if v:
+        return str(v)
+    args = self_update_info.get("args") or []
+    if isinstance(args, list):
+        for i, a in enumerate(args):
+            if a == "--version" and i + 1 < len(args):
+                return str(args[i + 1])
+    return ""
+
+
+def _self_update_gate(target_version):
+    """返回 (allowed: bool, short_circuit_reason: str|None)。
+    去重键 = 当日 + target_version。规则：
+      - 本会话已对该 target_version 触发过 → 短路（会话内一次）
+      - 同日 + 同 target_version + status=failed 且 attempts>=cap → 短路
+      - status=in_progress（充当软锁）→ 短路，避免并发重复触发
+      - target_version 变化或换天 → 放行
+    """
+    if not target_version:
+        return True, None
+    if target_version in _SELF_UPDATE_TRIED_THIS_RUN:
+        return False, f"本会话已尝试更新到 {target_version}，不再重复触发；如需更新请新开会话(newSession)。"
+    state = _read_self_update_state()
+    if state.get("date") == _today_str() and state.get("target_version") == target_version:
+        status = state.get("status")
+        attempts = int(state.get("attempts") or 0)
+        if status == "in_progress":
+            return False, "更新进行中，请稍后重试。"
+        if status == "failed" and attempts >= SELF_UPDATE_DAILY_FAIL_CAP:
+            return False, (
+                f"今日已自动更新 {attempts} 次失败（目标 {target_version}）：{state.get('last_error')}；"
+                "当日不再重复下载，请手动执行 self_update 或检查网络。"
+            )
+    return True, None
+
+
+def _self_update_mark(target_version, status, last_error=None):
+    import time as _t
+    state = _read_self_update_state()
+    same = state.get("date") == _today_str() and state.get("target_version") == target_version
+    attempts = int(state.get("attempts") or 0) if same else 0
+    prev_status = state.get("status") if same else None
+    if status == "failed" and prev_status != "failed":
+        attempts += 1
+    new_state = {
+        "date": _today_str(),
+        "target_version": target_version,
+        "attempts": attempts,
+        "status": status,
+        "last_error": last_error,
+        "ts": int(_t.time()),
+    }
+    _write_self_update_state(new_state)
+
+
+def _record_pending_self_update(self_update_info, source="heartbeat"):
+    """记录待更新信息，但不安装激活新版。
+
+    长 session 中只能“发现并准备下一次 newSession 更新”，不能直接替换当前
+    SKILL_ROOT，否则下一次工具调用会因 session 版本与磁盘版本不一致被本地守卫拦住。
+    """
+    result = {"recorded": False, "skipped": False, "reason": None, "target_version": None}
+    if not isinstance(self_update_info, dict) or not self_update_info.get("available"):
+        result["reason"] = "self_update not available"
+        return result
+
+    target_version = _self_update_target_version(self_update_info)
+    result["target_version"] = target_version or None
+    if not target_version:
+        result["reason"] = "self_update target version missing"
+        return result
+
+    current_version = _read_skill_version()
+    if current_version and not _is_newer_version(target_version, current_version):
+        result["skipped"] = True
+        result["reason"] = (
+            f"target version {target_version} is not newer than current {current_version}; "
+            "skip self_update to avoid downgrade."
+        )
+        return result
+
+    state = _read_self_update_state()
+    if state.get("target_version") == target_version and state.get("status") == "pending":
+        result["skipped"] = True
+        result["reason"] = "pending update already recorded"
+        return result
+
+    import time as _t
+    pending_state = {
+        "date": _today_str(),
+        "target_version": target_version,
+        "attempts": int(state.get("attempts") or 0) if state.get("target_version") == target_version else 0,
+        "status": "pending",
+        "last_error": None,
+        "ts": int(_t.time()),
+        "source": source,
+        "current_version": current_version,
+        "activation": "next_newSession",
+        "self_update": self_update_info,
+    }
+    _write_self_update_state(pending_state)
+    result["recorded"] = True
+    return result
+
+
+def _get_pending_self_update():
+    state = _read_self_update_state()
+    if state.get("status") != "pending":
+        return None
+    self_update_info = state.get("self_update")
+    if not isinstance(self_update_info, dict) or not self_update_info.get("available"):
+        return None
+    target_version = _self_update_target_version(self_update_info)
+    current_version = _read_skill_version()
+    if target_version and current_version and not _is_newer_version(target_version, current_version):
+        _self_update_mark(target_version, "ok")
+        return None
+    return self_update_info
+
+
+
+def _attempt_self_update(self_update_info, timeout=None, skip_dedup=False):
     """根据服务端返回的 self_update 对象自动执行 scripts/self_update.py。
 
     self_update_info 形如：
@@ -224,7 +617,28 @@ def _attempt_self_update(self_update_info, timeout=180):
         "stdout": "",
         "stderr": "",
         "error": None,
+        "skipped": False,
     }
+
+    if timeout is None:
+        timeout = SELF_UPDATE_SUBPROC_TIMEOUT
+
+    # ── 当日去重闸门：避免逢错必重下、并发重复触发 ──
+    _target_ver = _self_update_target_version(self_update_info)
+    _current_ver = _read_skill_version()
+    if _target_ver and _current_ver and not _is_newer_version(_target_ver, _current_ver):
+        result["skipped"] = True
+        result["error"] = (
+            f"target version {_target_ver} is not newer than current {_current_ver}; "
+            "skip self_update to avoid downgrade."
+        )
+        return result
+    if not skip_dedup:
+        _allowed, _reason = _self_update_gate(_target_ver)
+        if not _allowed:
+            result["skipped"] = True
+            result["error"] = _reason
+            return result
 
     if not isinstance(self_update_info, dict):
         result["error"] = "self_update info missing"
@@ -242,6 +656,9 @@ def _attempt_self_update(self_update_info, timeout=180):
         return result
 
     result["attempted"] = True
+    if _target_ver:
+        _SELF_UPDATE_TRIED_THIS_RUN.add(_target_ver)
+        _self_update_mark(_target_ver, "in_progress")
     try:
         proc = subprocess.run(
             [sys.executable, SELF_UPDATE_SCRIPT, *[str(a) for a in args]],
@@ -268,6 +685,12 @@ def _attempt_self_update(self_update_info, timeout=180):
         result["error"] = f"self_update timed out after {timeout}s"
     except Exception as e:
         result["error"] = f"self_update launch failed: {e}"
+
+    if _target_ver:
+        if result.get("ok"):
+            _self_update_mark(_target_ver, "ok")
+        else:
+            _self_update_mark(_target_ver, "failed", last_error=result.get("error"))
     return result
 
 
@@ -874,6 +1297,9 @@ def main():
 
     tool_name = sys.argv[1]
 
+    # 工具名前置校验：非法/缺失立即报错，杜绝“静默挂死读 stdin”
+    _reject_bad_tool_name(tool_name)
+
     # ── newSession：生成新 task_id 并持久化 ──────────────────────
     if tool_name == "newSession":
         new_id = str(uuid.uuid4())
@@ -899,6 +1325,9 @@ def main():
             pass
         user_query = _ns_params.get("user_query") or None
         user_id = _ns_params.get("user_id") or None
+        # 当前模型：由上层 Agent 在 newSession 时传入，作为 body 参数随 session/begin 上报，
+        # 供服务端在 newSession 这条日志上单独落库（与请求头来源相互独立、互不影响）。
+        agent_model = (_ns_params.get("agent_model") or "").strip() or None
 
         # 在覆写 session 文件之前，先读取旧版本号（用于检测版本变更）
         _prev_version = None
@@ -941,6 +1370,8 @@ def main():
                 _payload_dict = {"task_id": new_id, "user_query": user_query}
                 if user_id:
                     _payload_dict["user_id"] = user_id
+                if agent_model:
+                    _payload_dict["agent_model"] = agent_model
                 _payload = json.dumps(_payload_dict,
                                       ensure_ascii=False).encode("utf-8")
                 _headers = {
@@ -960,35 +1391,61 @@ def main():
         except Exception:
             pass  # 上报失败不影响 session 创建
 
-        # 主动查询服务端版本，便于上层 Agent 在 newSession 时立即知道是否需要升级
+        # 主动查询服务端版本：作为成功响应心跳之外的补充，按 TTL 节流，避免每次 newSession 都打服务端
         _ver_info = {}
-        try:
-            import urllib.request as _u2  # noqa: PLC0415
-            import urllib.parse as _up2  # noqa: PLC0415
-            if _endpoint and _api_key:
-                _vc_headers = {
-                    "Authorization": f"Bearer {_api_key}",
-                    "x-skill-version": _current_ver,
-                }
-                if _channel:
-                    _vc_headers["x-skill-channel"] = _channel
-                # 把 task_id / user_query 拼到 query string，供服务端 audit 中间件落库追踪
-                _vc_qs_pairs = [("task_id", new_id)]
-                if user_query:
-                    _vc_qs_pairs.append(("user_query", user_query))
-                _vc_url = f"{_endpoint}/skill/version/check?" + _up2.urlencode(_vc_qs_pairs)
-                _vc_req = _u2.Request(
-                    _vc_url,
-                    headers=_vc_headers,
-                    method="GET",
-                )
-                with _u2.urlopen(_vc_req, timeout=3) as _vc_resp:
-                    _vc_body = _vc_resp.read().decode("utf-8")
-                    _vc_data = json.loads(_vc_body)
-                    if _vc_data.get("code") == 0 and _vc_data.get("success"):
-                        _ver_info = _vc_data
-        except Exception:
-            pass  # 版本检查失败不影响 session 创建
+        _version_check_state = {}
+        _should_check_version, _version_check_reason = _should_run_new_session_version_check(_current_ver)
+        if _should_check_version:
+            try:
+                import urllib.request as _u2  # noqa: PLC0415
+                import urllib.parse as _up2  # noqa: PLC0415
+                if _endpoint and _api_key:
+                    _vc_headers = {
+                        "Authorization": f"Bearer {_api_key}",
+                        "x-skill-version": _current_ver,
+                    }
+                    if _channel:
+                        _vc_headers["x-skill-channel"] = _channel
+                    # 把 task_id / user_query 拼到 query string，供服务端 audit 中间件落库追踪
+                    _vc_qs_pairs = [("task_id", new_id)]
+                    if user_query:
+                        _vc_qs_pairs.append(("user_query", user_query))
+                    _vc_url = f"{_endpoint}/skill/version/check?" + _up2.urlencode(_vc_qs_pairs)
+                    _vc_req = _u2.Request(
+                        _vc_url,
+                        headers=_vc_headers,
+                        method="GET",
+                    )
+                    with _u2.urlopen(_vc_req, timeout=3) as _vc_resp:
+                        _vc_body = _vc_resp.read().decode("utf-8")
+                        _vc_data = json.loads(_vc_body)
+                        if _vc_data.get("code") == 0 and _vc_data.get("success"):
+                            _ver_info = _vc_data
+                            _write_version_check_state(_current_ver, _ver_info)
+            except Exception as _vc_exc:
+                _write_version_check_state(_current_ver, error=str(_vc_exc))
+        else:
+            _version_check_state = _read_version_check_state()
+
+        _version_check_latest = _ver_info.get("latest_version") or _version_check_state.get("latest_version")
+        _version_check_update_required = bool(_ver_info.get("update_required") or _version_check_state.get("update_required"))
+        _version_check_server_update_required = _version_check_update_required
+        _version_check_ignored_reason = None
+        _version_check_target = _version_check_latest or _self_update_target_version(_ver_info.get("self_update"))
+        if (
+            _version_check_update_required
+            and _version_check_target
+            and _current_ver
+            and not _is_newer_version(_version_check_target, _current_ver)
+        ):
+            _version_check_update_required = False
+            _version_check_ignored_reason = (
+                f"server target version {_version_check_target} is not newer than current {_current_ver}; "
+                "ignore to avoid downgrade."
+            )
+            if _ver_info:
+                _ver_info = dict(_ver_info)
+                _ver_info["update_required"] = False
 
         _result_obj = {
             "code": 0,
@@ -1003,8 +1460,30 @@ def main():
                    if _version_changed else
                    "task_id 已保存到 .session.json，后续调用自动注入。")
             ),
+            "version_check": {
+                "attempted": bool(_should_check_version and _endpoint and _api_key),
+                "reason": _version_check_reason,
+                "ttl_seconds": VERSION_CHECK_TTL_SECONDS,
+                "latest_version": _version_check_latest,
+                "update_required": _version_check_update_required,
+                "server_update_required": _version_check_server_update_required,
+            },
         }
+        if _version_check_ignored_reason:
+            _result_obj["version_check"]["ignored_reason"] = _version_check_ignored_reason
+        _pending_self_update = None
+        _pending_target_version = None
+        if not _ver_info.get("update_required"):
+            _pending_self_update = _get_pending_self_update()
+            _pending_target_version = _self_update_target_version(_pending_self_update)
+
+        _activation_self_update = None
+        _activation_latest_version = None
+        _activation_source = None
         if _ver_info.get("update_required"):
+            _activation_self_update = _ver_info.get("self_update")
+            _activation_latest_version = _ver_info.get("latest_version")
+            _activation_source = "version_check"
             _result_obj["update_required"] = True
             _result_obj["latest_version"] = _ver_info.get("latest_version")
             _result_obj["package"] = _ver_info.get("package")
@@ -1012,16 +1491,36 @@ def main():
             _result_obj["try_order"] = _ver_info.get("try_order")
             _result_obj["reload_files"] = _ver_info.get("reload_files")
             _result_obj["update_message"] = _ver_info.get("message")
+        elif _pending_self_update:
+            _activation_self_update = _pending_self_update
+            _activation_latest_version = _pending_target_version
+            _activation_source = "pending_next_newSession"
+            _result_obj["update_required"] = True
+            _result_obj["latest_version"] = _pending_target_version
+            _result_obj["self_update"] = _pending_self_update
+            _result_obj["update_message"] = "检测到上一个 session 记录的待更新版本，正在 newSession 阶段安装新版。"
 
+        if _activation_self_update:
             # 自动尝试本地 self_update（不依赖 Agent 阅读提示词），失败时保留升级元信息供上层兜底
-            _upgrade = _attempt_self_update(_ver_info.get("self_update"))
-            if _upgrade.get("attempted"):
+            # newSession = 切换新会话：在上下文边界安装/激活新版，但仍遵守当日去重闸门
+            _result_obj["auto_upgrade_source"] = _activation_source
+            _upgrade = _attempt_self_update(_activation_self_update)
+            if _upgrade.get("skipped"):
+                _result_obj["auto_upgrade_attempted"] = False
+                _result_obj["auto_upgrade_skipped"] = True
+                _result_obj["auto_upgrade_skip_reason"] = _upgrade.get("error")
+            elif _upgrade.get("attempted"):
                 _result_obj["auto_upgrade_attempted"] = True
                 if _upgrade.get("ok"):
                     # 升级成功后，当前 call.py / executor.py 已被新版本覆盖；
-                    # 不在原进程继续执行（避免新旧代码混跑），返回明确指令让上层重新发起。
-                    _new_ver = _upgrade.get("new_version") or _ver_info.get("latest_version")
+                    # 不在原进程继续执行原业务工具（避免新旧代码混跑），但本次 newSession 已写入新版 session。
+                    _new_ver = _upgrade.get("new_version") or _activation_latest_version
                     _old_ver = _current_ver
+                    try:
+                        _write_session(new_id, user_query=user_query)
+                        _new_ver = _read_skill_version() or _new_ver
+                    except Exception:
+                        pass
                     _result_obj["auto_upgrade_ok"] = True
                     _result_obj["previous_skill_version"] = _old_ver
                     _result_obj["skill_version"] = _new_ver
@@ -1029,8 +1528,8 @@ def main():
                     _result_obj["version_changed_from_last_session"] = True
                     _result_obj["message"] = (
                         f"skill 已自动升级（{_old_ver} → {_new_ver}）。"
-                        "当前 call.py/executor.py 已被覆盖，请立即重新调用 newSession，"
-                        "并按 reload_files 重读上下文后重跑原始任务。"
+                        "本次 newSession 已切到新版 session；"
+                        "请按 reload_files 重读上下文后重跑原始任务。"
                     )
                     # 保留 reload_files 供 Agent 使用；清理其他“升级前才有意义”的元信息
                     for _k in ("update_required", "latest_version", "package",
@@ -1059,8 +1558,10 @@ def main():
                     _raw = _f.read()
             else:
                 _raw = " ".join(sys.argv[2:])
-        if not _raw and not sys.stdin.isatty():
-            _raw = sys.stdin.buffer.read().decode("utf-8", errors="replace").strip()
+        if not _raw:
+            _stdin = _read_stdin_nonblocking()
+            if _stdin:
+                _raw = _stdin
         _params = json.loads(_raw or "{}")
 
         try:
@@ -1123,9 +1624,10 @@ def main():
         at_file = sys.argv[2]          # @/path/to/file.json
     elif len(sys.argv) >= 3:
         raw = " ".join(sys.argv[2:])
-    elif not sys.stdin.isatty():
-        raw_bytes = sys.stdin.buffer.read()
-        raw = raw_bytes.decode("utf-8", errors="replace").strip()
+    else:
+        _stdin = _read_stdin_nonblocking()
+        if _stdin:
+            raw = _stdin
 
     if not at_file and not raw:
         raw = "{}"
@@ -1205,45 +1707,59 @@ def main():
         # ── 服务端版本拦截 → 自动 self_update（不依赖 Agent 阅读提示词）──
         _outdated, _err_obj = _detect_skill_version_outdated(stdout)
         if _outdated and _err_obj is not None:
-            _upgrade = _attempt_self_update(_err_obj.get("self_update"))
-            if _upgrade.get("attempted"):
-                _new_ver = _upgrade.get("new_version") or _err_obj.get("latest_version")
-                if _upgrade.get("ok"):
-                    # call.py / executor.py 已被覆盖，本进程不重试原工具，
-                    # 返回明确指令让上层重新 newSession + 重跑当前工具
-                    # 升级成功后，原 error 里的 self_update/package/try_order 等已无意义，
-                    # 只保留 reload_files 让 Agent 知道要重读哪些文档
-                    _reload_files = None
-                    if isinstance(_err_obj, dict):
-                        _reload_files = _err_obj.get("reload_files")
-                    _upgrade_resp = {
-                        "code": -1,
-                        "success": False,
-                        "auto_upgrade_attempted": True,
-                        "auto_upgrade_ok": True,
-                        "new_skill_version": _new_ver,
-                        "tool_name": tool_name,
-                        "instruction": (
-                            f"skill 已自动升级到 {_new_ver}。请立即调用 newSession，"
-                            "按返回的 reload_files 重读上下文后重跑此工具 "
-                            f"`{tool_name}`（参数保持不变）。"
-                        ),
-                    }
-                    if _reload_files:
-                        _upgrade_resp["reload_files"] = _reload_files
-                    stdout = json.dumps(_upgrade_resp, ensure_ascii=False, indent=2)
-                    rc = 0  # 升级动作本身视为成功，避免上层把它当业务失败
+            # 会话内（工具调用）路径：**不阻塞**当前调用。
+            # 旧服务端若仍返回版本拦截错误，这里只记录 pending update，不在当前 session 激活新版。
+            _pending = _record_pending_self_update(_err_obj.get("self_update"), source="version_outdated")
+            try:
+                _resp = json.loads(stdout)
+            except Exception:
+                _resp = None
+            if isinstance(_resp, dict):
+                if _pending.get("recorded"):
+                    _resp["auto_upgrade"] = "pending_next_newSession"
+                    _resp["auto_upgrade_note"] = (
+                        "已记录待更新版本，不会在当前 session 中激活新版；"
+                        "下一次 newSession 时会安装并切换到新版。"
+                    )
+                    if _pending.get("target_version"):
+                        _resp["auto_upgrade_target_version"] = _pending["target_version"]
+                elif _pending.get("skipped"):
+                    _resp["auto_upgrade_skipped"] = True
+                    _resp["auto_upgrade_skip_reason"] = _pending.get("reason")
                 else:
-                    stdout = json.dumps({
-                        "code": -1,
-                        "success": False,
-                        "auto_upgrade_attempted": True,
-                        "auto_upgrade_ok": False,
-                        "auto_upgrade_error": _upgrade.get("error"),
-                        "auto_upgrade_stderr": (_upgrade.get("stderr") or "")[-2000:],
-                        "tool_name": tool_name,
-                        "original_error": _err_obj,
-                    }, ensure_ascii=False, indent=2)
+                    _resp["auto_upgrade_attempted"] = False
+                    _resp["auto_upgrade_error"] = _pending.get("reason")
+                stdout = json.dumps(_resp, ensure_ascii=False, indent=2)
+
+        # ── 版本心跳（4.4）：成功响应携带 skill_update_available 时，记录待更新 ──
+        # 服务端在“版本通过”的成功响应里带 skill_latest_version / skill_update_available
+        # (+ skill_self_update)。同一 session 内不激活新版；下一次 newSession 再安装切换。
+        elif rc == 0:
+            try:
+                _resp_hb = json.loads(stdout)
+            except Exception:
+                _resp_hb = None
+            if isinstance(_resp_hb, dict) and _resp_hb.get("skill_update_available") is True:
+                _hb_info = _resp_hb.get("skill_self_update")
+                _hb_target = _self_update_target_version(_hb_info) or _resp_hb.get("skill_latest_version")
+                _hb_current = _read_skill_version()
+                if _hb_target and _hb_current and not _is_newer_version(_hb_target, _hb_current):
+                    _resp_hb["skill_update_available"] = False
+                    _resp_hb["skill_update_ignored_reason"] = (
+                        f"server target version {_hb_target} is not newer than current {_hb_current}; "
+                        "ignore to avoid downgrade."
+                    )
+                    _resp_hb.pop("skill_self_update", None)
+                    stdout = json.dumps(_resp_hb, ensure_ascii=False, indent=2)
+                elif isinstance(_hb_info, dict) and _hb_info.get("available"):
+                    _pending = _record_pending_self_update(_hb_info, source="heartbeat")
+                    if _pending.get("recorded"):
+                        _resp_hb["auto_upgrade"] = "pending_next_newSession"
+                        _resp_hb["auto_upgrade_note"] = (
+                            "检测到新版本，已记录待更新；当前 session 继续使用现有上下文，"
+                            "下一次 newSession 时安装并启用新版。"
+                        )
+                        stdout = json.dumps(_resp_hb, ensure_ascii=False, indent=2)
 
         # renderChart / renderKLine 自动保存
         if tool_name in ("renderChart", "renderKLine") and rc == 0:
