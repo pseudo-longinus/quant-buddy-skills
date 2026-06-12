@@ -1,0 +1,330 @@
+# ============================================================
+# 千维 · 选股维度目录（由 qw_indicator / qw_dimension 导出）
+#
+# indicator_id = qw_indicator.ind_id（优先）/ code；selectByComposition 直接用它查库
+# direction    = 服务端元数据方向；请求不可覆盖
+# output_type  = score 用于加权排序，screen 用于集合筛选
+# asset_scope  = v1 用于校验该指标是否支持用户请求市场
+# ============================================================
+A股_动量与反转:
+  - asset_scope:
+      - A股
+    calculation: 通用动量基础85% + A股短期反转健康15%
+    description: A股动量与反转最终得分
+    dimension: 动量与反转
+    direction: high_bullish
+    indicator_id: ind_a_share_momentum_reversal
+    name: A股动量与反转
+    output_type: score
+    source_name: A股动量与反转
+    window: 14
+A股_基本面_估值_质量与供需:
+  - asset_scope:
+      - A股
+    calculation: 营收增长25%、净利润增长25%、ROE25%、PE估值12.5%、PB估值12.5%
+    description: A股基本面可落地部分的综合得分
+    dimension: 基本面、估值、质量与供需
+    direction: high_bullish
+    indicator_id: ind_a_share_fundamental_quality
+    name: A股基本面质量
+    output_type: score
+    source_name: A股基本面质量
+    window: 250
+A股_异动监控:
+  - asset_scope:
+      - A股
+    calculation: 10日偏离+100%/-50%、30日偏离+200%/-70%，或10日内多次同向异常波动
+    description: 1表示进入严重异动监控口径
+    dimension: 异动监控
+    direction: high_bullish
+    indicator_id: ind_a_share_severe_abnormal_volatility
+    name: 严重异常波动
+    output_type: screen
+    source_name: 严重异常波动
+    window: 30
+  - asset_scope:
+      - A股
+    calculation: 3日内价格偏离异动、3日内换手异动、严重异常波动三者取并集
+    description: 1表示该股当日进入交易异动监控名单，已包含严重异常波动
+    dimension: 异动监控
+    direction: high_bullish
+    indicator_id: ind_a_share_daily_trading_abnormal
+    name: 当日交易异动
+    output_type: screen
+    source_name: 当日交易异动
+    window: 1
+  - asset_scope:
+      - A股
+    calculation: 价格偏离强度65% + 换手爆量强度35%，方向由价格偏离决定
+    description: 交易员可直接按绝对值看异动强度，按正负看异动方向
+    dimension: 异动监控
+    direction: high_bullish
+    indicator_id: ind_a_share_daily_abnormal_score
+    name: 当日异动评分
+    output_type: score
+    source_name: 当日异动评分
+    window: 1
+A股_形态_波动与风控:
+  - asset_scope:
+      - A股
+    calculation: 波动收敛15%、布林开口15%、均线偏离25%、回撤25%、回踩企稳20%
+    description: A股形态健康最终得分
+    dimension: 形态、波动与风控
+    direction: high_bullish
+    indicator_id: ind_a_share_pattern_health
+    name: A股形态健康
+    output_type: score
+    source_name: A股形态健康
+    window: 60
+A股_相对强度:
+  - asset_scope:
+      - A股
+    calculation: 相对市场35%、行业内40%、5日行业内领涨25%
+    description: A股相对强度最终得分
+    dimension: 相对强度
+    direction: high_bullish
+    indicator_id: ind_a_share_relative_strength
+    name: A股相对强度
+    output_type: score
+    source_name: A股相对强度
+    window: 60
+A股_资金流向:
+  - asset_scope:
+      - A股
+    calculation: 主力净流入30%、主力持续25%、大单超大单25%、行业内主力20%
+    description: A股资金流向最终得分
+    dimension: 资金流向
+    direction: high_bullish
+    indicator_id: ind_a_share_capital_flow
+    name: A股资金流向
+    output_type: score
+    source_name: A股资金流向
+    window: 3
+A股_趋势结构:
+  - asset_scope:
+      - A股
+    calculation: 20日突破28%、60日突破24%、均线多头25%、突破放量8%、高低点抬升15%，再乘不过热修正
+    description: A股趋势结构最终得分
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_a_share_trend_structure
+    name: A股趋势结构
+    output_type: score
+    source_name: A股趋势结构
+    window: 60
+A股_量能与流动性:
+  - asset_scope:
+      - A股
+    calculation: 成交额量比25%、短期放量10%、换手适中25%、成交额活跃20%、量价承接20%
+    description: A股量能与流动性最终得分
+    dimension: 量能与流动性
+    direction: high_bullish
+    indicator_id: ind_a_share_volume_liquidity
+    name: A股量能与流动性
+    output_type: score
+    source_name: A股量能与流动性
+    window: 20
+期货_动量与反转:
+  - asset_scope:
+      - 期货
+    calculation: 多头动量基础分 - 空头动量基础分，再乘动量健康修正；多空基础分均按 5日25%、20日30%、60日25%、供需共振20%
+    description: 正值表示上行动量占优，负值表示下行动量占优，接近0表示动量方向不清晰
+    dimension: 动量与反转
+    direction: high_bullish
+    indicator_id: ind_futures_momentum_reversal_direction
+    name: 期货动量与反转方向
+    output_type: score
+    source_name: 期货动量与反转方向
+    window: 60
+期货_基本面_估值_质量与供需:
+  - asset_scope:
+      - 期货
+    calculation: 供需偏紧多头基础分 - 供需宽松空头基础分；多空基础分均按库存水位40%、库存变化30%、现货强弱30%
+    description: 正值表示供需偏紧支持多头，负值表示供需宽松支持空头，接近0表示供需方向不清晰
+    dimension: 基本面、估值、质量与供需
+    direction: high_bullish
+    indicator_id: ind_futures_fundamental_supply_demand
+    name: 期货基本面供需方向
+    output_type: score
+    source_name: 期货基本面供需方向
+    window: 250
+期货_形态_波动与风控:
+  - asset_scope:
+      - 期货
+    calculation: 形态多头基础分 - 形态空头基础分，再乘波动健康修正；多空基础分均按均线偏离40%、回撤/反弹35%、回踩/受压25%
+    description: 正值表示多头形态更健康，负值表示空头形态更健康，接近0表示形态方向不清晰
+    dimension: 形态、波动与风控
+    direction: high_bullish
+    indicator_id: ind_futures_pattern_health
+    name: 期货形态健康方向
+    output_type: score
+    source_name: 期货形态健康方向
+    window: 250
+期货_相对强度:
+  - asset_scope:
+      - 期货
+    calculation: 相对强度多头基础分 - 相对弱度空头基础分，再乘交易健康修正；多空基础分均按 20日45%、60日35%、5日20%
+    description: 正值表示期货池内相对强，负值表示相对弱，接近0表示横截面强弱不突出
+    dimension: 相对强度
+    direction: high_bullish
+    indicator_id: ind_futures_relative_strength_direction
+    name: 期货相对强度方向
+    output_type: score
+    source_name: 期货相对强度方向
+    window: 60
+期货_趋势结构:
+  - asset_scope:
+      - 期货
+    calculation: 多头基础分 - 空头基础分，再乘趋势健康修正；多空基础分均按结构36%、均线15%、斜率17%、放量12%、高低点8%、反向破位/远离破位12%
+    description: 正值表示多头结构占优，负值表示空头结构占优，接近0表示趋势不清晰
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_futures_trend_structure_direction
+    name: 期货趋势结构方向
+    output_type: score
+    source_name: 期货趋势结构方向
+    window: 60
+期货_量能与流动性:
+  - asset_scope:
+      - 期货
+    calculation: 量能多头确认基础分 - 量能空头确认基础分，再乘流动性健康修正
+    description: 正值表示上涨方向获量能确认，负值表示下跌方向获量能确认，接近0表示方向承接不清晰
+    dimension: 量能与流动性
+    direction: high_bullish
+    indicator_id: ind_futures_volume_liquidity_direction
+    name: 期货量能与流动性方向
+    output_type: score
+    source_name: 期货量能与流动性方向
+    window: 20
+港股_动量与反转:
+  - asset_scope:
+      - 港股
+    calculation: 3日20%、5日25%、20日25%、RSI15%、低冲击流动性15%
+    description: 港股动量与反转最终得分
+    dimension: 动量与反转
+    direction: high_bullish
+    indicator_id: ind_hk_momentum_reversal
+    name: 港股动量与反转
+    output_type: score
+    source_name: 港股动量与反转
+    window: 20
+港股_形态_波动与风控:
+  - asset_scope:
+      - 港股
+    calculation: 波动收敛15%、布林开口15%、均线偏离20%、回撤20%、回踩企稳15%、跳空健康15%
+    description: 港股形态健康最终得分
+    dimension: 形态、波动与风控
+    direction: high_bullish
+    indicator_id: ind_hk_pattern_health
+    name: 港股形态健康
+    output_type: score
+    source_name: 港股形态健康
+    window: 60
+港股_相对强度:
+  - asset_scope:
+      - 港股
+    calculation: 相对恒生综指35%、恒生行业内40%、5日行业内领涨25%
+    description: 港股相对强度最终得分
+    dimension: 相对强度
+    direction: high_bullish
+    indicator_id: ind_hk_relative_strength
+    name: 港股相对强度
+    output_type: score
+    source_name: 港股相对强度
+    window: 60
+港股_资金流向:
+  - asset_scope:
+      - 港股
+    calculation: 南向持股变化70%、南向持股水平30%
+    description: 港股南向资金关注最终得分
+    dimension: 资金流向
+    direction: high_bullish
+    indicator_id: ind_hk_capital_attention
+    name: 港股资金关注
+    output_type: score
+    source_name: 港股资金关注
+    window: 250
+港股_趋势结构:
+  - asset_scope:
+      - 港股
+    calculation: 20日突破25%、60日突破25%、均线多头20%、趋势斜率15%、突破放量10%、高低点抬升5%，再乘不过热修正
+    description: 港股趋势结构最终得分
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_hk_trend_structure
+    name: 港股趋势结构
+    output_type: score
+    source_name: 港股趋势结构
+    window: 60
+港股_量能与流动性:
+  - asset_scope:
+      - 港股
+    calculation: 成交额量比25%、短期放量15%、成交额活跃30%、量价承接20%、低冲击10%
+    description: 港股量能与流动性最终得分
+    dimension: 量能与流动性
+    direction: high_bullish
+    indicator_id: ind_hk_volume_liquidity
+    name: 港股量能与流动性
+    output_type: score
+    source_name: 港股量能与流动性
+    window: 20
+美股_动量与反转:
+  - asset_scope:
+      - 美股
+    calculation: 1日10%、5日25%、20日30%、60日20%、RSI15%
+    description: 美股动量与反转最终得分
+    dimension: 动量与反转
+    direction: high_bullish
+    indicator_id: ind_us_momentum_reversal
+    name: 美股动量与反转
+    output_type: score
+    source_name: 美股动量与反转
+    window: 60
+美股_形态_波动与风控:
+  - asset_scope:
+      - 美股
+    calculation: 波动收敛15%、布林开口15%、均线偏离20%、回撤20%、回踩企稳15%、跳空健康15%
+    description: 美股形态健康最终得分
+    dimension: 形态、波动与风控
+    direction: high_bullish
+    indicator_id: ind_us_pattern_health
+    name: 美股形态健康
+    output_type: score
+    source_name: 美股形态健康
+    window: 60
+美股_相对强度:
+  - asset_scope:
+      - 美股
+    calculation: 20日市场内50%、60日市场内30%、5日领涨20%
+    description: 美股相对强度最终得分
+    dimension: 相对强度
+    direction: high_bullish
+    indicator_id: ind_us_relative_strength
+    name: 美股相对强度
+    output_type: score
+    source_name: 美股相对强度
+    window: 60
+美股_趋势结构:
+  - asset_scope:
+      - 美股
+    calculation: 20日突破20%、60日突破25%、均线多头20%、趋势斜率20%、突破放量10%、高低点抬升5%，再乘不过热修正
+    description: 美股趋势结构最终得分
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_us_trend_structure
+    name: 美股趋势结构
+    output_type: score
+    source_name: 美股趋势结构
+    window: 60
+美股_量能与流动性:
+  - asset_scope:
+      - 美股
+    calculation: 成交额量比30%、短期放量15%、成交额活跃25%、量价承接20%、低冲击10%
+    description: 美股量能与流动性最终得分
+    dimension: 量能与流动性
+    direction: high_bullish
+    indicator_id: ind_us_volume_liquidity
+    name: 美股量能与流动性
+    output_type: score
+    source_name: 美股量能与流动性
+    window: 20

@@ -9,6 +9,25 @@
 
 ---
 
+## [4.22.0] — 2026-06-12
+
+**变更文件**：`SKILL.md`、`scripts/executor.py`、`presets/dimensions.yaml`（新增）、`tools/select_by_composition.md`（新增）、`workflows/composition-select.md`（新增）
+
+新增「已物化维度组合选股」能力：对"某个已上线维度分 TopN / 排名 / 名单 / 推荐"类问题，直接读取 `presets/dimensions.yaml` 选择 `indicator_id`，调用 `selectByComposition` 完成横截面组合选股/筛选，不走公式引擎，响应更快。
+
+- **新增 `selectByComposition` 工具**（`scripts/executor.py`）：注册 `selectByComposition -> POST /selectByComposition`，超时 120s（轻量 DB 查询，无需按公式任务长时间等待）。
+- **新增已物化维度目录**（`presets/dimensions.yaml`）：从 `qw_indicator` / `qw_dimension` 导出，包含 A 股动量与反转、基本面质量、异动监控、形态健康、趋势结构、相对强度等 score/screen 指标，每条记录含 `indicator_id`、`direction`、`output_type`、`asset_scope`、`calculation` 说明；`selectByComposition` 直接用 `indicator_id` 查库。
+- **新增工具文档**（`tools/select_by_composition.md`）：说明 `selectByComposition` 的参数（`mode`/`universe`/`composition`/`screens`/`sort_by`/`top_n`/`with_breakdown`）、典型调用、输出要点与失败处理（`INDICATOR_NOT_FOUND` / 404 时退回 `quant-standard.md`）。
+- **新增 leaf workflow**（`workflows/composition-select.md`）：命中条件（当前截面 TopN + 语义匹配 `dimensions.yaml` + 不要求回测/历史/IC/下载）、执行步骤（`newSession` → 读 `dimensions.yaml` → `selectByComposition`）、失败退回 `quant-standard.md` 规则。
+- **SKILL.md 路由与目录更新**：
+  - 原生工具优先列表新增 `selectByComposition`；
+  - `newSession` 前置工具列表新增 `selectByComposition`；
+  - 目录树新增 `workflows/composition-select.md`、`tools/select_by_composition.md`、`presets/dimensions.yaml`；
+  - 场景路由表新增「已物化维度选股 / 维度分 TopN / 推荐股票」行，路由至 `composition-select.md`；原「量化选股 / 回测」行补充"或目录无匹配维度、需要临时构造指标"的说明。
+- `SKILL.md`：版本号升至 `4.22.0`。
+
+---
+
 ## [4.21.2] — 2026-06-11
 
 **变更文件**：`SKILL.md`、`scripts/call.py`、`scripts/self_update.py`、`references/troubleshooting.md`

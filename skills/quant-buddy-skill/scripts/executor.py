@@ -95,6 +95,7 @@ TOOL_ROUTES = {
     "renderChart":           ("POST", "/renderChart"),
     "renderKLine":           ("POST", "/renderKLine"),
     "stockProfile":          ("POST", "/stockProfile"),
+    "selectByComposition":   ("POST", "/selectByComposition"),
     "getChartSpec":          ("GET",  "/chartSpec/{task_id}"),
     "reRenderChart":         ("POST", "/reRenderChart"),
     "scanDimensions":        ("POST", "/scanDimensions"),
@@ -112,6 +113,7 @@ TOOL_TIMEOUTS = {
     "renderChart":          900,
     "renderKLine":          900,
     "stockProfile":         900,
+    "selectByComposition":  120,   # 轻量 DB 查询，避免按公式任务长时间等待
     "reRenderChart":        900,
 }
 

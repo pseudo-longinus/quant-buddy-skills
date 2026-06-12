@@ -2,7 +2,7 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.21.2
+version: 4.22.0
 description: |
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据。
   查询最近N个交易日的价格序列、日涨跌幅序列、窗口最高价、最低价、振幅等短期统计。
@@ -15,7 +15,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.21.2
+  version: 4.22.0
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -104,7 +104,7 @@ runtimeRequirements:
    - 工具实际返回 `api_key 为空` / `code: 1` / 401/402 时才进入认证引导并停止当前查数任务。
    - 同一对话追问可复用当前 session；新问题必须新建 session。
 2. **原生工具优先，禁止脚本包装**：
-   - 平台已有原生工具时，必须直接调用原生工具：`fast_query`、`confirmDataMulti`、`runMultiFormulaBatchStream`、`resumeJob`、`readData`、`renderKLine`、`renderChart` 等。
+   - 平台已有原生工具时，必须直接调用原生工具：`fast_query`、`confirmDataMulti`、`selectByComposition`、`runMultiFormulaBatchStream`、`resumeJob`、`readData`、`renderKLine`、`renderChart` 等。
    - 禁止用 Bash / shell / Python / `scripts/call.py` / `run_skill_script` 包装已有原生平台工具。
    - 只有平台明确不存在等价原生工具，且 workflow 明确允许脚本兜底时，才可使用本地脚本。
    - **许可例外（csv 解析）**：当 `fast_query` 返回 `mode:"csv"` + `csv_url`（数据点 > 500 的正常交付）时，调用 `python scripts/fetch_fastquery_csv.py "<csv_url>"` 下载并解析该 csv 属于**许可路径**——这是消费工具返回的 OSS 产物（平台无等价原生解析工具），不算"包装原生工具"。但仍禁止用裸 `curl` / 自写临时脚本替代该脚本。
@@ -173,7 +173,7 @@ runtimeRequirements:
 
 无论路由进入 `fast-snapshot` / `fast-window` / `fast-report-period` / `render-kline` / 任何 leaf workflow：
 
-1. 准备调用任何平台原生工具（`fast_query` / `renderKLine` / `stockProfile` / `runMultiFormulaBatchStream` / `readData` / `downloadData` / `getCardFormulas` / `searchFunctions` / `searchSimilarCases` / `confirmDataMulti` / `scanDimensions` / `uploadData` / `renderChart` / `refreshSnapshotTime` / `resumeJob`）之前，**必须先调用 `newSession`**。
+1. 准备调用任何平台原生工具（`fast_query` / `renderKLine` / `stockProfile` / `selectByComposition` / `runMultiFormulaBatchStream` / `readData` / `downloadData` / `getCardFormulas` / `searchFunctions` / `searchSimilarCases` / `confirmDataMulti` / `scanDimensions` / `uploadData` / `renderChart` / `refreshSnapshotTime` / `resumeJob`）之前，**必须先调用 `newSession`**。
 2. **不允许**用"已读 SKILL.md 就跳过 newSession"或"已读 leaf workflow 就跳过 newSession"来豁免本条；这条规则不依赖 leaf 内是否再次重申。
 3. 同一对话追问可复用当前 session；但新的用户问题（含明显话题切换）必须重新 `newSession`，参数中 `user_query` 设为新问题原文。
    - **建议同时传 `agent_model`**：把你（当前 Agent）正在使用的模型标识作为 `newSession` 的参数填入（例如 `gpt-4o` / `claude-sonnet-4` / `gemini-2.5-pro` 等，取你运行时的真实模型名），供后台在本次会话上统计当前用户使用的模型。**拿不准就留空，不要瞎填**（错误的模型名比没有更糟）。
@@ -223,6 +223,7 @@ SKILL_ROOT/
 │   ├── quick-report-period.md   最近报告期财务指标
 │   ├── period-return-compare.md 固定区间累计涨跌幅对比
 │   ├── stock-profile.md         单股预计算指标画像
+│   ├── composition-select.md    已物化维度组合选股（selectByComposition 快路径）
 │   ├── global-rules-lite.md     精简全局规则（quick-window/period-return-compare 专用）
 │   ├── quant-standard.md        选股/回测/因子/图表标准流程
 │   ├── event-study.md           事件研究（给定或可识别事件后的窗口表现）
@@ -250,6 +251,7 @@ SKILL_ROOT/
 │   ├── read_data.md             → 工具名 `readData`            读取公式计算结果（需传 data_id，非 expression_id）
 │   ├── render_kline.md          → 工具名 `renderKLine`         渲染 K 线图（直接传 ticker，无需提前跑公式）
 │   ├── stock_profile.md         → 工具名 `stockProfile`        单股预计算指标画像（估值/财务/资金/波动/走势）
+│   ├── select_by_composition.md → 工具名 `selectByComposition` 已物化维度组合选股/筛选（不走公式引擎）
 │   ├── render_chart.md          → 工具名 `renderChart`         渲染折线/柱状/面积图（需先有 data_id）
 │   ├── get_card_formulas.md     → 工具名 `getCardFormulas`     按卡片名拉取完整公式组（量化场景使用）
 │   ├── scan_dimensions.md       → 工具名 `scanDimensions`      九维度 IC 扫描（单股多维度预测力分析）
@@ -272,6 +274,7 @@ SKILL_ROOT/
 │   │   └── future.yaml              期货 257 条
 │   ├── functions.yaml           常用函数
 │   ├── data_catalog.yaml        常用数据集
+│   ├── dimensions.yaml          已物化维度目录（score/screen 指标，用于 selectByComposition）
 │   ├── sectors.yaml             行业板块
 │   └── themes.yaml              题材板块
 │
@@ -339,7 +342,8 @@ SKILL_ROOT/
 | K线图（可视化） | K线图、画图、图片、带成交量图…（用户明确要求可视化 artifact） | `global-rules.md` → `render-kline.md` |
 | 固定区间累计涨跌幅 | 从A到B、某年某月至某年某月、区间收益、累计涨跌幅、区间表现、多资产区间对比 | `global-rules-lite.md` → `period-return-compare.md` |
 | 数据下载 / 导出本地 CSV | 下载成CSV、导出到本地、保存到本地、下载历史数据 | `global-rules.md` → `recipes/download-data.md`；单资产单字段时序优先 `runMultiFormulaBatchStream` → `downloadData` → `write_skill_file`，禁止 Bash 兜底 |
-| 量化选股 / 回测 / 因子 / 图表 / 上传下载 | 选股、回测、均线、PE选股、因子、净值、上传CSV、下载数据、画图… | `global-rules.md` → `quant-standard.md` |
+| 已物化维度选股 / 维度分 TopN / 推荐股票 | 分数最高、综合分最高、维度分、推荐/选出/筛选 TopN，且语义能匹配 `presets/dimensions.yaml` 中的 score/screen 指标 | `global-rules.md` → `composition-select.md`（`newSession` → 读 `presets/dimensions.yaml` → `selectByComposition`） |
+| 量化选股 / 回测 / 因子 / 图表 / 上传下载 | 选股、回测、均线、PE选股、因子、净值、上传CSV、下载数据、画图…；或目录无匹配维度、需要临时构造指标/历史曲线/自定义公式 | `global-rules.md` → `quant-standard.md` |
 | 直接运行用户给定的公式链文件 | 「运行/跑一遍/执行这个文件里的全部公式」「公式链文件」「formula chain」「按这个 md/json 跑」 | `global-rules.md` → `run-formula-chain.md` |
 | 事件研究 | 复盘、历次、涨价、降息、加息、事件窗口、随后表现、超预期、不及预期、政策后表现…（给定事件或需先识别事件日） | `global-rules.md` → `event-study.md` |
 | 阈值区间统计 / 连续阶段 | 历次、每次、平均、回撤超过、从高点下跌超过、熊市区间、连续阶段、regime | `global-rules.md` → `regime-segmentation.md` |
