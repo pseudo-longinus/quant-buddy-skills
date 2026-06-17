@@ -472,8 +472,11 @@ def call_post(endpoint, api_key, path, params, accept_yaml=True, timeout=900):
 # ────────────────────────────────────────────────
 # runMultiFormulaBatch SSE 主路径
 # spec: docs/runMultiFormulaBatch-sse-spec.md
-# 对外契约：返回 dict 结构与同步版 /skill/runMultiFormulaBatch 完全一致；
-# trace_id 暂时保留在响应顶层，由 call.py 写入 session 后由打印层剥离。
+# 对外契约：返回 done 事件的 compact 负载（{status,summary,results}，字段 indexinfo_id）
+#   或 fatal/非SSE-JSON 错误 dict（{code,success,error}）。归一化成文档信封
+#   （{code,success,data:{...},task_id}、注入 data_id）由 call.py 的
+#   _process_run_multi_formula_batch 负责。trace_id 暂时保留在结果里，由 call.py
+#   写入 session 后由打印层剥离。
 # ────────────────────────────────────────────────
 
 class _StreamUnsupportedError(Exception):
@@ -541,6 +544,46 @@ def _consume_sse(url, method, body, headers, state, timeout, ignore_deferred=Fal
     data_buf = []
     entry_id = None
     try:
+        # ── 按 Content-Type 分流：后端对参数/格式错误用普通 JSON（HTTP 200）回复，不是 SSE 流。
+        # 若按 SSE 逐行解析，这条 JSON 匹配不到任何分支被当噪音丢弃，最后误报 STREAM_INTERRUPTED。
+        # 先看响应头，非 event-stream 直接当 fatal 原样透出后端 error（含 code/message/usage 用法提示）。
+        # 覆盖 TASK_ID_REQUIRED / FORMULAS_REQUIRED / INVALID_FORMULA / INVALID_FORCE_REUSABLE /
+        # 公式数超限 等全部 200-JSON 校验错误。resume(GET) 是 SSE，不会误触此分支。
+        ctype = (resp.headers.get("Content-Type") or "").lower()
+        if "text/event-stream" not in ctype:
+            body_txt = resp.read().decode("utf-8", errors="replace")
+            parsed = None
+            try:
+                obj = json.loads(body_txt)
+                if isinstance(obj, dict):
+                    parsed = obj
+            except Exception:
+                parsed = None
+            if parsed is not None:
+                err_obj = parsed.get("error")
+                if not isinstance(err_obj, dict):
+                    err_obj = {
+                        "code": parsed.get("code", "NON_SSE_RESPONSE"),
+                        "message": parsed.get("message", body_txt[:500]),
+                    }
+                return {
+                    "code": parsed.get("code", -1),
+                    "success": bool(parsed.get("success", False)),
+                    "task_id": state.get("task_id"),
+                    "trace_id": state.get("trace_id"),
+                    "error": err_obj,
+                }
+            return {
+                "code": -1,
+                "success": False,
+                "task_id": state.get("task_id"),
+                "trace_id": state.get("trace_id"),
+                "error": {
+                    "code": "NON_SSE_RESPONSE",
+                    "message": (body_txt[:500] if body_txt.strip()
+                                else f"服务端返回了非 SSE 响应（Content-Type: {ctype or '未知'}）"),
+                },
+            }
         while True:
             try:
                 raw_line = resp.readline()
@@ -657,9 +700,10 @@ def _consume_sse(url, method, body, headers, state, timeout, ignore_deferred=Fal
 def call_run_multi_formula_batch_stream(endpoint, api_key, params, timeout=1800):
     """以 SSE 主路径调用 runMultiFormulaBatch。
 
-    返回 dict 与同步版 /skill/runMultiFormulaBatch 一致；trace_id 暂时保留在顶层，
-    由 call.py 写入 session 后剥离。断线最多 3 次重连，遵循 1s/3s/9s 退避。
-    若服务端尚未部署 SSE 端点（404/405/406），抛 _StreamUnsupportedError 由调用方回退。
+    成功返回 done 的 compact 负载（{status,summary,results}）；参数/格式错误（后端 200-JSON）
+    或 fatal 返回 {code,success,error} dict。归一化与 trace_id 剥离由 call.py 负责。
+    已握手后断线最多 3 次重连，遵循 1s/3s/9s 退避；从未握手（无 trace_id）则不续传，
+    返回 NO_READY_EVENT。若服务端尚未部署 SSE 端点（404/405/406），抛 _StreamUnsupportedError。
     """
     idem_key = _derive_idempotency_key(params)
     # 预建公式左侧名列表，供 _consume_sse 逐条打印进度时使用
@@ -717,7 +761,21 @@ def call_run_multi_formula_batch_stream(endpoint, api_key, params, timeout=1800)
         )
 
     if final is None:
-        # 流中断且续传无果
+        if not state.get("trace_id"):
+            # 从未收到 ready 事件：续传循环根本没进（条件要求 trace_id）。
+            # 这通常不是传输问题，而是请求在握手前就结束（载荷/格式/网络）。别再假报“续传 N 次”。
+            return {
+                "code": -1,
+                "success": False,
+                "task_id": state.get("task_id"),
+                "trace_id": None,
+                "error": {
+                    "code": "NO_READY_EVENT",
+                    "message": "未收到 ready 事件即结束；请先检查公式格式/载荷与网络，再怀疑传输",
+                },
+                "partial": {"last_event_id": state.get("last_event_id")},
+            }
+        # 已握手但续传耗尽，用真实续传次数
         return {
             "code": -1,
             "success": False,
@@ -725,7 +783,7 @@ def call_run_multi_formula_batch_stream(endpoint, api_key, params, timeout=1800)
             "trace_id": state.get("trace_id"),
             "error": {
                 "code": "STREAM_INTERRUPTED",
-                "message": "SSE 流中断，3 次续传仍失败；可用 task_id+trace_id 后续手工续传",
+                "message": f"SSE 流中断，{attempt} 次续传仍失败；可用 task_id+trace_id 后续手工续传",
             },
             "partial": {"last_event_id": state.get("last_event_id")},
         }
@@ -768,9 +826,11 @@ def call_resume_job(endpoint, api_key, params, timeout=1800):
     }
     backoff = [0, 3, 9]
     final = None
+    tries = 0
     for attempt, wait in enumerate(backoff):
         if wait:
             time.sleep(wait)
+        tries += 1
         final = _consume_sse(url=url, method="GET", body=None, headers=headers, state=state, timeout=timeout, ignore_deferred=True)
         if final is not None:
             break
@@ -788,7 +848,7 @@ def call_resume_job(endpoint, api_key, params, timeout=1800):
             "trace_id": trace_id,
             "error": {
                 "code": "STREAM_INTERRUPTED",
-                "message": "SSE 流中断，3 次续传仍失败",
+                "message": f"SSE 流中断，{tries} 次续传仍失败",
             },
             "partial": {"last_event_id": state.get("last_event_id")},
         }

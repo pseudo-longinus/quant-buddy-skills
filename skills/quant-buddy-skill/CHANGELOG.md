@@ -9,6 +9,20 @@
 
 ---
 
+## [4.22.1] — 2026-06-17
+
+**变更文件**：`SKILL.md`、`scripts/executor.py`、`scripts/call.py`
+
+本次小版本修复 `runMultiFormulaBatchStream` 的一类**接口接收错位**：客户端把后端的报错吞掉、误报成"流中断"，且成功结构与文档承诺不一致。纯客户端接收层修复，工具参数与 Agent 用法不变。
+
+- **修复误报 `STREAM_INTERRUPTED`（`scripts/executor.py`，主修复）**：`_consume_sse` 此前默认所有响应都是 SSE 流，对后端用普通 JSON（HTTP 200）回的参数/格式校验错误（`INVALID_FORMULA` / `TASK_ID_REQUIRED` / `FORMULAS_REQUIRED` / `INVALID_FORCE_REUSABLE` / 公式数超限等**一整类**）逐行解析时匹配不到任何 SSE 帧，被当噪音丢弃，最终落到兜底分支误报"SSE 流中断，3 次续传仍失败"。现进入 SSE 循环前先按 `Content-Type` 分流：非 `text/event-stream` 的响应直接当 fatal **原样透出**后端 `error`（含 `code` / `message` / `usage` 用法提示），不再吞错。
+- **兜底文案不再撒谎（`scripts/executor.py`）**：从未收到 `ready` 事件（续传循环根本没进）时，错误码改为 `NO_READY_EVENT`、文案改为"未收到 ready 事件即结束；请先检查公式格式/载荷与网络，再怀疑传输"；已握手后续传耗尽才报 `STREAM_INTERRUPTED`，且续传次数用真实计数（`call_run_multi_formula_batch_stream` 与 `call_resume_job` 此前写死"3 次"）。
+- **成功/失败结构归一化成文档结构（`scripts/call.py`）**：SSE `done` 事件返回的是 compact 负载（顶层 `status`+`summary`+`results`、无 `code`/`data` 外壳、字段叫 `indexinfo_id`），与 `tools/run_multi_formula.md` 承诺的同步版结构不一致——`_process_run_multi_formula_batch` 此前因键名错配在 SSE 路径上是死代码。现重写为三态：fatal 透出 / compact 包成 `{code:0, success, data:{status,summary,results}, task_id}` 信封（注入 `data_id = indexinfo_id` 供 `readData` 串联、保留 `indexinfo_id` 向后兼容；失败/部分失败时顶层补 `message` 与 `errors[]`）/ 旧同步形态维持原失败提升逻辑。
+- **`trace_id` 不再泄露给 LLM（`scripts/call.py`）**：除顶层/`data` 层外，部分失败时 `trace_id` 还会出现在 `results[]` 失败条目里。现一并从 `data.results[]`（及兼容旧 `results[]`）收集首个非空 `trace_id` 写入 session 供后续续传/调试，再从所有层级剥离；`deferred`（research_24h）响应按 spec 例外保留。
+- `SKILL.md`：版本号升至 `4.22.1`。
+
+---
+
 ## [4.22.0] — 2026-06-12
 
 **变更文件**：`SKILL.md`、`scripts/executor.py`、`presets/dimensions.yaml`（新增）、`tools/select_by_composition.md`（新增）、`workflows/composition-select.md`（新增）
