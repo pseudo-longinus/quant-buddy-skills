@@ -326,3 +326,20 @@ python scripts/executor.py runMultiFormulaBatchStream '{
 4. 拿到 `done` 后才可进入下一批
 
 **禁止**：`deferred` 当完成收尾、跳过续传直接下一批、`STREAM_INTERRUPTED` 后放弃。详见 `tools/resume_job.md`。
+
+---
+
+## 出错时怎么办：先看 `category`，别误把后端超时当公式错
+
+报错（整批 `error.category`，或单条 `errors[].category`）都带统一标签，**处理方式按 `category` 分四类**：
+
+| `category` | 能重试 | 动作 |
+|------------|--------|------|
+| `input_error` | 否 | 改公式/参数再试；按 `errors[].leftName` + message 定位错在哪条 |
+| `server_timeout` | 否 | **不是公式问题**——别改公式、别马上重试；隔几分钟再试 / 拆小批 / 改 `research_24h` 异步模式 |
+| `server_error` | 否 | 隔一会儿试一次，仍失败告诉用户 |
+| `transport_recoverable` | 是 | **唯一该续传重试的**：用 `resumeJob`（task_id+trace_id）接着读，别重提整批 |
+
+> 关键区分：`server_timeout`（任务超时、多半已死，重试/续传都没用，要拆小批或异步）≠ `transport_recoverable`（任务还活着、只是连接断了，该 `resumeJob` 续传）。两者过去长得一样，是误导的根源。完整对照见 `references/troubleshooting.md`。
+>
+> ⚠️ **`NOT_RESOLVED`（函数/资产名无法解析）属 `input_error`，且会「整批受牵连」**：只要批里有一条解析不了，整批都会被标 `NOT_RESOLVED`（含本来正确的公式）。看到整批 `NOT_RESOLVED` 别以为每条都错——逐条核对、改掉真正出错那条即可。

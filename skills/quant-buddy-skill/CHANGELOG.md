@@ -9,6 +9,21 @@
 
 ---
 
+## [4.22.2] — 2026-06-18
+
+**变更文件**：`SKILL.md`、`scripts/executor.py`、`scripts/call.py`、`references/troubleshooting.md`、`tools/run_multi_formula.md`、`tools/resume_job.md`、`workflows/global-rules.md`
+
+给批量公式接口（`runMultiFormulaBatchStream` / `resumeJob`）的错误处理加上统一的 `category` 标签 + 分层指引，让 Agent 分清「该改公式 / 后端超时 / 连接断了 / 后端崩」，不再瞎改公式或空转重试。新增字段向后兼容，缺字段有兜底。
+
+- **修 bug**：服务端真错误码放在 `errorCode`，旧代码只读 `code` 永远拿到笼统 `"FATAL"`；现优先读 `errorCode`（`scripts/executor.py`）。
+- **四类标签**：`input_error`（改公式）/ `server_timeout`（别改公式别马上重试）/ `server_error`（隔会儿试一次）/ `transport_recoverable`（唯一该 `resumeJob` 续传的），每个带 `retryable` + `guidance`。关键区分：`server_timeout`（任务多半已死）≠ `transport_recoverable`（任务还活着、线断了）。
+- **客户端只透传不覆盖**：以服务端给的 `category` 为准，仅在服务端没给时补默认、给客户端自产码贴标签（`scripts/executor.py`、`scripts/call.py`）。权威分类表在服务端仓库，不在本包。
+- **文档指引**：`references/troubleshooting.md`、`tools/run_multi_formula.md`、`tools/resume_job.md`、`workflows/global-rules.md` 各加按 `category` 写动作的对照表。
+- **顺带修**：实时进度行（`✓`/`✗`）此前按提交顺序猜公式名、把报错贴错公式，改为按事件自带身份标注（`scripts/executor.py`）。
+- `SKILL.md`：版本号升至 `4.22.2`。
+
+---
+
 ## [4.22.1] — 2026-06-17
 
 **变更文件**：`SKILL.md`、`scripts/executor.py`、`scripts/call.py`

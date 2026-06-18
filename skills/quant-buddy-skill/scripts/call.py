@@ -1213,9 +1213,15 @@ def _process_run_multi_formula_batch(stdout_str):
                 )
             envelope["errors"] = [
                 {
-                    "leftName": r.get("leftName"),
+                    # 失败结果对象用 expression_id 存左变量名（compact 结果无 leftName/formula 字段），
+                    # 必须兜底到 expression_id，否则 errors[] 的 leftName 恒为 null，agent 认不出是哪条公式失败（错位）
+                    "leftName": r.get("leftName") or r.get("expression_id"),
                     "formula": r.get("formula"),
                     "errorCode": r.get("errorCode"),
+                    # 透传服务端的分类标签，让 agent 分清「该改公式 vs 后端问题」，别原样重试
+                    "category": r.get("category"),
+                    "retryable": r.get("retryable"),
+                    "guidance": r.get("guidance"),
                     "message": r.get("message"),
                 }
                 for r in failed
