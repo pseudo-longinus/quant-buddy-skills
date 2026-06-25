@@ -1136,26 +1136,102 @@ def _auto_summarize_read_data(stdout_str, params):
 
 
 def _process_run_multi_formula_batch(stdout_str):
-    """runMultiFormulaBatchStream 后处理：data.success=false 时把失败摘要提升到顶层。
+    """runMultiFormulaBatchStream 后处理：把 SSE done 的 compact 负载归一化成文档信封。
 
-    设计原则（方案 B）：
-    - 不篡改服务端 code（保持 0），避免与服务端协议（成功 0 / 业务错误 -1）冲突
-    - 不改进程 rc（HTTP 层确实成功）
-    - 在顶层注入 success / errors / message，调用方只需看顶层字段即可识别失败
-    - 区分「全部失败」和「部分成功」两种语义，避免部分成功结果被忽视
+    SSE done 事件返回的是 compact 形态（顶层 status+summary+results、无 code/data 外壳、
+    字段叫 indexinfo_id），与 tools/run_multi_formula.md 承诺的同步版结构
+    （{code:0, success, data:{results:[{data_id,…}], summary, status}, task_id}）不一致。
+    本函数兑现 executor 的「与同步版一致」契约，按三态处理：
+
+    1. fatal / 非SSE-JSON 错误（顶层有 code 且 != 0，如 INVALID_FORMULA）→ 原样透出。
+    2. compact 形态（顶层 status + results 列表、无 data 外壳）→ 包成文档信封：
+       注入 data_id = indexinfo_id（保留 indexinfo_id 向后兼容）；失败/部分失败时在顶层
+       补 message 与 errors:[{leftName,formula,errorCode,message}]。
+    3. 旧同步 {code:0, data:{success,errors,…}} 形态（同步 fallback）→ 维持原失败提升逻辑。
     """
     try:
         resp = json.loads(stdout_str)
     except (json.JSONDecodeError, ValueError):
         return stdout_str
-
-    if resp.get("code") != 0:
+    if not isinstance(resp, dict):
         return stdout_str
 
+    # ── 状态 1：fatal / 非 SSE JSON 错误，顶层 code 已是 -1（或其他非 0）→ 原样透出
+    if resp.get("code") not in (0, None):
+        return stdout_str
+
+    # ── 状态 2：compact 形态（顶层 status + results 列表、无 data 外壳）
+    if (
+        "data" not in resp
+        and isinstance(resp.get("results"), list)
+        and resp.get("status") is not None
+        and resp.get("status") != "deferred"
+    ):
+        status = resp.get("status")
+        summary = resp.get("summary") or {}
+        norm_results = []
+        for r in resp.get("results", []):
+            if isinstance(r, dict):
+                rr = dict(r)
+                # 文档以 data_id 作为 readData 串联键；compact 里叫 indexinfo_id
+                if "indexinfo_id" in rr and "data_id" not in rr:
+                    rr["data_id"] = rr.get("indexinfo_id")
+                norm_results.append(rr)
+            else:
+                norm_results.append(r)
+
+        envelope = {
+            "code": 0,
+            "success": (status == "ok"),
+            "task_id": _read_session(),
+            "data": {
+                "status": status,
+                "summary": summary,
+                "results": norm_results,
+            },
+        }
+        # request_id 等顶层元信息透传（不含 results 内的 trace_id，由后续剥离块处理）
+        if resp.get("request_id") is not None:
+            envelope["request_id"] = resp["request_id"]
+
+        if status != "ok":
+            failed = [
+                r for r in norm_results
+                if isinstance(r, dict) and r.get("status") != "success"
+            ]
+            total = summary.get("total", len(norm_results))
+            succ = summary.get("success", max(total - len(failed), 0))
+            fail = summary.get("failed", len(failed))
+            if succ == 0:
+                envelope["message"] = (
+                    f"runMultiFormulaBatchStream 全部失败（{fail}/{total} 条），详见 errors 数组。"
+                )
+            else:
+                envelope["message"] = (
+                    f"runMultiFormulaBatchStream 部分失败（成功 {succ}/{total}，失败 {fail}/{total}），"
+                    f"成功结果仍在 data.results 中，失败详情见 errors。"
+                )
+            envelope["errors"] = [
+                {
+                    # 失败结果对象用 expression_id 存左变量名（compact 结果无 leftName/formula 字段），
+                    # 必须兜底到 expression_id，否则 errors[] 的 leftName 恒为 null，agent 认不出是哪条公式失败（错位）
+                    "leftName": r.get("leftName") or r.get("expression_id"),
+                    "formula": r.get("formula"),
+                    "errorCode": r.get("errorCode"),
+                    # 透传服务端的分类标签，让 agent 分清「该改公式 vs 后端问题」，别原样重试
+                    "category": r.get("category"),
+                    "retryable": r.get("retryable"),
+                    "guidance": r.get("guidance"),
+                    "message": r.get("message"),
+                }
+                for r in failed
+            ]
+        return json.dumps(envelope, indent=2, ensure_ascii=False)
+
+    # ── 状态 3：旧同步形态 {code:0, data:{success,errors,…}}
     data = resp.get("data", {})
     if not isinstance(data, dict):
         return stdout_str
-
     # 仅在 success=false 时介入；success=true 或缺失（旧版本）时原样透传
     if data.get("success") is not False:
         return stdout_str
@@ -1788,19 +1864,35 @@ def main():
                 # 持久化到 session 供后续手工续传/调试，然后从输出中剥离避免泄露给 LLM
                 # 例外：deferred 响应（research_24h）按 spec 必须把 trace_id / stream_url 暴露给 LLM
                 if tool_name == "runMultiFormulaBatchStream" and isinstance(resp, dict):
-                    sse_trace_id = resp.get("trace_id") or (
-                        resp.get("data", {}) if isinstance(resp.get("data"), dict) else {}
-                    ).get("trace_id")
+                    _data = resp.get("data") if isinstance(resp.get("data"), dict) else {}
+                    # trace_id 可能出现在：顶层、data 层，或失败条目 results[].trace_id（部分失败时）
+                    _result_lists = []
+                    if isinstance(_data.get("results"), list):
+                        _result_lists.append(_data["results"])
+                    if isinstance(resp.get("results"), list):
+                        _result_lists.append(resp["results"])
+                    sse_trace_id = resp.get("trace_id") or _data.get("trace_id")
+                    if not sse_trace_id:
+                        for _rl in _result_lists:
+                            for _r in _rl:
+                                if isinstance(_r, dict) and _r.get("trace_id"):
+                                    sse_trace_id = _r["trace_id"]
+                                    break
+                            if sse_trace_id:
+                                break
                     if sse_trace_id:
                         _update_session_trace(
                             resp_task_id or _read_session(),
                             sse_trace_id,
                         )
-                        if not resp.get("_deferred"):
-                            # 剥离 trace_id（成功路径不暴露给 LLM）
-                            resp.pop("trace_id", None)
-                            if isinstance(resp.get("data"), dict):
-                                resp["data"].pop("trace_id", None)
+                    if not resp.get("_deferred"):
+                        # 剥离 trace_id（成功/失败路径都不暴露给 LLM；deferred 例外）
+                        resp.pop("trace_id", None)
+                        _data.pop("trace_id", None)
+                        for _rl in _result_lists:
+                            for _r in _rl:
+                                if isinstance(_r, dict):
+                                    _r.pop("trace_id", None)
                     # 内部标记不应外泄
                     resp.pop("_deferred", None)
                     stdout = json.dumps(resp, indent=2, ensure_ascii=False)

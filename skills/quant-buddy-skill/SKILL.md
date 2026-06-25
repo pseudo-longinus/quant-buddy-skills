@@ -2,7 +2,7 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.22.0
+version: 4.23.0
 description: |
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据。
   查询最近N个交易日的价格序列、日涨跌幅序列、窗口最高价、最低价、振幅等短期统计。
@@ -15,7 +15,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.22.0
+  version: 4.23.0
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -273,7 +273,8 @@ SKILL_ROOT/
 │   │   ├── index.yaml               指数 503 条
 │   │   └── future.yaml              期货 257 条
 │   ├── functions.yaml           常用函数
-│   ├── data_catalog.yaml        常用数据集
+│   ├── data_catalog.yaml        常用精选数据集（高频 index_title）
+│   ├── index_info_catalog/      系统支持数据名全量索引（按 provider 分 YAML，grep 检索）
 │   ├── dimensions.yaml          已物化维度目录（score/screen 指标，用于 selectByComposition）
 │   ├── sectors.yaml             行业板块
 │   └── themes.yaml              题材板块
@@ -561,12 +562,12 @@ GZQ_PARAMS='<JSON>' python scripts/call.py <工具名>
 
 | 目录 | 是什么 | 何时读 |
 |------|---------|--------|
-| **presets/** | 平台实际返回值的本地快照（YAML）。资产名、函数格式、数据集 index_title、行业/概念名等。**直接可用于公式**，省掉确认类 API 调用。 | 写公式前先查 preset；找不到再调对应 API，并把新结果补回 preset。`cases_index.yaml` 仅在**选股/回测/因子/图表等量化标准场景**（`quant-standard.md`）开始时必读；快速查数场景（quick-snapshot/window/report-period）无需读取。 |
+| **presets/** | 平台实际返回值的本地快照（YAML）。资产名、函数格式、数据集 index_title、行业/概念名等。**直接可用于公式**，省掉确认类 API 调用。`data_catalog.yaml` 是常用精选；`index_info_catalog/` 是系统支持数据名全量索引。 | 写公式前先查 preset；常见行情/估值/财务字段先查 `data_catalog.yaml`；未命中再用 `rg "关键词" presets/index_info_catalog` 搜索全量目录。找到候选后，公式中必须使用精确 `index_title`，不要把用户口语词直接当数据名。`cases_index.yaml` 仅在**选股/回测/因子/图表等量化标准场景**（`quant-standard.md`）开始时必读；快速查数场景（quick-snapshot/window/report-period）无需读取。 |
 | **recipes/** | 端到端使用示例（Markdown）。展示完整场景——从参数准备到最终输出。 | 由 workflow 在具体步骤中指引加载（不独立触发）。 |
 | **tools/** | API 参数手册（Markdown）。每个工具的字段、类型、约束。 | 默认不读。workflow 工具表标注了「必读」或报错时再查。 |
 
 > **简言之**：presets 是数据快照，recipes 是完整教程，tools 是参数字典。
-> presets 6 个文件的详细用法和加载时机→ 当前 workflow 文档内的「预设资源」表。
+> `data_catalog.yaml` 只维护高频精选字段；`index_info_catalog/*.yaml` 承载全量系统数据名。高频且确认常用的数据名，再人工补进 `data_catalog.yaml`。
 
 ---
 

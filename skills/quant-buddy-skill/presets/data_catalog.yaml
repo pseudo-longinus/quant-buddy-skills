@@ -1,5 +1,5 @@
 # ============================================================
-# 常用全市场数据集预设
+# 常用精选数据集预设
 # 来源：平台内置数据集（通过 confirmDataMulti 获取 index_title）
 #
 # 关键概念：
@@ -10,9 +10,11 @@
 #                  false（数值型，如价格、市值）
 #
 # 用法：
-#   1. 查此文件 → 直接用 index_title 写公式
-#   2. 若此文件无目标数据 → 调用 confirmDataMulti，将返回的
-#      index_title 补充到此文件
+#   1. 常见行情、估值、财务字段先查此文件 → 直接用 index_title 写公式
+#   2. 若此文件无目标数据 → 用 rg "关键词" presets/index_info_catalog
+#      搜索系统支持数据名全量索引
+#   3. 高频、已验证、对 Agent 常用的数据名，再人工补充到此文件
+#   4. 不要把用户口语词直接当公式数据名；公式中必须写精确 index_title
 # ============================================================
 
 # ── 行情类（数值，二维，日频）───────────────────────────────
@@ -255,6 +257,43 @@ financials:
     usage: >
       高ROE = ("A股净资产收益率ROE">15) * 板块(万得全A)
 
+  - index_title: 港股EBITDA：TTM〔利润表〕
+    dimension: two
+    is_bool: false
+    description: "港股 EBITDA TTM，来自系统数据名全量索引；实际可用性以工具返回为准"
+
+  - index_title: 美股EBITDA：TTM〔利润表〕
+    dimension: two
+    is_bool: false
+    description: "美股 EBITDA TTM，来自系统数据名全量索引；实际可用性以工具返回为准"
+
+  - index_title: 港股营业收入：TTM〔利润表〕
+    dimension: two
+    is_bool: false
+    description: "港股营业收入 TTM，来自系统数据名全量索引；实际可用性以工具返回为准"
+
+  - index_title: 美股营业收入：TTM〔利润表〕
+    dimension: two
+    is_bool: false
+    description: "美股营业收入 TTM，来自系统数据名全量索引；实际可用性以工具返回为准"
+
+# ── 龙虎榜标签（数值，二维，日频/三日口径以 index_title 为准）────────
+lhb:
+  - index_title: A股龙虎榜机构专用净买额
+    dimension: two
+    is_bool: false
+    description: "机构专用龙虎榜净买额；更多席位/标签见 presets/index_info_catalog/guanzhao_lhb.yaml"
+
+  - index_title: A股龙虎榜活跃营业部净买额
+    dimension: two
+    is_bool: false
+    description: "活跃营业部龙虎榜净买额；更多席位/标签见 presets/index_info_catalog/guanzhao_lhb.yaml"
+
+  - index_title: A股龙虎榜三日机构专用净买额
+    dimension: two
+    is_bool: false
+    description: "三日机构专用龙虎榜净买额；三日口径字段需使用精确 index_title"
+
 # ── 行业归属（索引类，二维）──────────────────────────────────
 industry:
   - index_title: 申万资产所属指数
@@ -263,6 +302,16 @@ industry:
     description: "每只股票所属申万一级行业指数代码，用于行业聚合函数"
     usage: >
       行业均值 = 成分平均汇总("任意因子","申万资产所属指数")
+
+  - index_title: GICS一级行业所属指数
+    dimension: two
+    is_bool: false
+    description: "GICS 一级行业所属指数，来自系统数据名全量索引"
+
+  - index_title: GICS板块所属指数
+    dimension: two
+    is_bool: false
+    description: "GICS 板块所属指数，来自系统数据名全量索引"
 
 # ── 常见派生指标（需用公式自行计算，非平台内置）─────
 # 以下指标不是平台数据集，而是由上述基础数据用公式组合得到。
@@ -294,8 +343,9 @@ filters:
 
 # ============================================================
 # 扩充指引
-# 1. 需要新数据时，用 confirmDataMulti 传入描述词（如"市盈率"）
-# 2. 从返回的 matched_items 中取 index_title
-# 3. 将结果以相同格式追加到本文件对应分类下
-# 4. 去掉注释前缀后即为可直接用的 index_title
+# 1. 常用字段缺失时，先用 rg "关键词" presets/index_info_catalog 搜索全量目录
+# 2. 仍未命中时，再用 confirmDataMulti 传入描述词（如"市盈率"）
+# 3. 从返回的 matched_items 中取精确 index_title
+# 4. 高频且验证通过的数据名，才以相同格式追加到本文件对应分类下
+# 5. 去掉注释前缀后即为可直接用的 index_title
 # ============================================================

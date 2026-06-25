@@ -50,12 +50,15 @@ GZQ_PARAMS='{"task_id":"<task_id>","trace_id":"<trace_id>"}' python scripts/call
 
 | 情况 | 返回 |
 |------|------|
-| 缺少 `task_id` 或 `trace_id` | `code:-1, error.code:"MISSING_PARAMS"` |
-| SSE 流中断且 3 次重连均失败 | `code:-1, error.code:"STREAM_INTERRUPTED"`，`partial.last_event_id` 可用于下次 `since` 参数 |
+| 缺少 `task_id` 或 `trace_id` | `code:-1, error.code:"MISSING_PARAMS"`, `category:"input_error"` |
+| SSE 流中断且 3 次重连均失败 | `code:-1, error.code:"STREAM_INTERRUPTED"`, `category:"transport_recoverable"`，`partial.last_event_id` 可用于下次 `since` 参数 |
+
+> ⚠️ **`resumeJob` 只对 `category:"transport_recoverable"`（连接断了、任务还活着）有意义。**
+> 若返回的是 `category:"server_timeout"`（`QUEUE_WAIT_TIMEOUT` / `EXECUTION_STALLED`），说明任务在后端已超时/判死，**续传读不到结果**——别反复 `resumeJob`，应改为稍后重试、拆小批或换异步模式（见 `references/troubleshooting.md`）。
 
 ### STREAM_INTERRUPTED 恢复（硬规则）
 
-收到 `STREAM_INTERRUPTED` **不等于任务失败**——服务端任务仍在运行，只是 SSE 连接断了。必须按以下步骤恢复：
+收到 `STREAM_INTERRUPTED`（`category:"transport_recoverable"`）**不等于任务失败**——服务端任务仍在运行，只是 SSE 连接断了。必须按以下步骤恢复：
 
 1. 从响应 `partial.last_event_id` 取出上次断点
 2. 以 `since` 参数**再次调用** `resumeJob`：

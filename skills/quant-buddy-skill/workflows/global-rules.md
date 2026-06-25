@@ -70,7 +70,8 @@
     4. 拆批后 `runMultiFormulaBatchStream` 调用次数 ≥ 3。
     
     判定为长程研究任务后，**该 task_id 下所有相关批次**——包括只含 `平均/取出/板块` 等"看起来短"的前置数据准备批、以及 FIX/重试批——调用 `runMultiFormulaBatchStream` 时都**必须显式带** `execution_profile: "research_24h"` 和 `user_query`（保留原文）。详见 `tools/run_multi_formula.md`「任务级 research_24h 传播规则」。
-16. **deferred 响应必须 `resumeJob` 续传（硬规则）**：`runMultiFormulaBatchStream` 返回 `status:"deferred"` 时，**不得视为该批已完成**——这只是入队确认。必须立即用 `resumeJob`（传同 `task_id` + `trace_id`）续传，阻塞等到 `done`/`fatal` 拿到完整结果后，才可进入下一批或向用户报告结论。若 `resumeJob` 返回 `STREAM_INTERRUPTED`，读取 `partial.last_event_id` 用 `since` 参数再次调用，最多额外重试 2 次。**禁止**：① 收到 `deferred` 就向用户说"已完成"；② 跳过续传直接提交下一批（上一批变量未算完，下一批引用会空跑）；③ `STREAM_INTERRUPTED` 后放弃（任务在服务端仍在运行）。详见 `tools/run_multi_formula.md`「deferred 响应与 resumeJob 续传」+ `tools/resume_job.md`。限流错误（429）按第 12 条处理。
+16. **deferred 响应必须 `resumeJob` 续传（硬规则）**：`runMultiFormulaBatchStream` 返回 `status:"deferred"` 时，**不得视为该批已完成**——这只是入队确认。必须立即用 `resumeJob`（传同 `task_id` + `trace_id`）续传，阻塞等到 `done`/`fatal` 拿到完整结果后，才可进入下一批或向用户报告结论。若 `resumeJob` 返回 `STREAM_INTERRUPTED`（`category:"transport_recoverable"`），读取 `partial.last_event_id` 用 `since` 参数再次调用，最多额外重试 2 次。**禁止**：① 收到 `deferred` 就向用户说"已完成"；② 跳过续传直接提交下一批（上一批变量未算完，下一批引用会空跑）；③ `transport_recoverable` 的 `STREAM_INTERRUPTED` 后放弃（任务在服务端仍在运行）。
+    > **按 `category` 区分，别把后端超时当连接断（关键反误导规则）**：错误返回带统一 `category` 标签——`transport_recoverable`（连接断了、任务还活着）才该 `resumeJob` 续传；`server_timeout`（`QUEUE_WAIT_TIMEOUT` / `EXECUTION_STALLED`，任务在后端已超时判死）**续传也读不到结果，别反复 resumeJob**，应稍后重试 / 拆小批 / 改异步；`input_error`（公式或参数错）该改公式再试、**别原样重试**；`server_error` 隔一会儿试一次仍失败就告诉用户。`retryable` 字段同义：只有 `true`（即 `transport_recoverable`）才值得续传重试。完整对照见 `references/troubleshooting.md`「批量公式错误分类」。详见 `tools/run_multi_formula.md`「deferred 响应与 resumeJob 续传」+ `tools/resume_job.md`。限流错误（429）按第 12 条处理。
 
 ### ⛔ 最终答案自检清单（输出前逐项执行，任一不过 = 修改后再输出）
 

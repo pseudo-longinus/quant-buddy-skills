@@ -78,6 +78,48 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 SKILL_ROOT = os.path.dirname(SCRIPT_DIR)
 
 # ────────────────────────────────────────────────
+# 错误类别（category）标签 —— 与 skill_server 用同一套词
+# 服务端已为大多数错误返回 category / retryable / guidance；客户端只在两种情况下用到本表：
+#   1) 服务端没给（旧版服务端或兜底）时补默认值；
+#   2) 客户端自己产生的终态码（STREAM_INTERRUPTED / NO_READY_EVENT / NON_SSE_RESPONSE 等）贴标签。
+# 客户端不自行判断业务错误，一律以服务端给的 category 为准（绝不覆盖）。
+#   input_error           输入错   —— 改公式/参数再试，别原样重试
+#   server_timeout        后端超时 —— 不是公式问题，别改公式也别马上重试；稍后/拆小批/异步
+#   server_error          后端崩   —— 后端异常，可隔一会儿试一次，仍失败告诉用户
+#   transport_recoverable 连接断了 —— 任务在后端还活着，用断点续传接着读（唯一真正可重试）
+# ────────────────────────────────────────────────
+_CATEGORY_DEFAULTS = {
+    "input_error":           {"retryable": False, "guidance": "请检查并修改公式或请求参数后再试，不要原样重试。"},
+    "server_timeout":        {"retryable": False, "guidance": "后端排队或执行超时，通常不是公式本身的问题；请勿修改公式、也不要立即重试，可稍后再试、拆成更小批次，或改用异步模式。"},
+    "server_error":          {"retryable": False, "guidance": "后端发生异常；可隔一会儿再试一次，仍失败请把情况反馈给用户。"},
+    "transport_recoverable": {"retryable": True,  "guidance": "与服务端的连接中断，但任务仍在后端执行，请使用断点续传继续读取结果。"},
+}
+
+# 客户端自产终态码 → 类别（服务端不知道这些错误，由客户端用同一套词贴标签）
+_CLIENT_CODE_CATEGORY = {
+    "STREAM_INTERRUPTED": "transport_recoverable",
+    "NO_READY_EVENT":     "input_error",
+    "NON_SSE_RESPONSE":   "input_error",
+    "MISSING_PARAMS":     "input_error",
+}
+
+
+def _enrich_error_category(err, fallback_category="server_error"):
+    """给 error dict 补上 category / retryable / guidance。
+    服务端已给的字段优先，绝不覆盖；客户端自产码按 _CLIENT_CODE_CATEGORY 贴标签，
+    其余按 fallback_category 兜底。就地修改并返回同一个 dict。"""
+    if not isinstance(err, dict):
+        return err
+    code = err.get("code")
+    category = err.get("category") or _CLIENT_CODE_CATEGORY.get(code) or fallback_category
+    defaults = _CATEGORY_DEFAULTS.get(category, _CATEGORY_DEFAULTS["server_error"])
+    err.setdefault("category", category)
+    if err.get("retryable") is None:
+        err["retryable"] = defaults["retryable"]
+    err.setdefault("guidance", defaults["guidance"])
+    return err
+
+# ────────────────────────────────────────────────
 # 工具名 → HTTP 方法 + 路径 映射表
 # ────────────────────────────────────────────────
 TOOL_ROUTES = {
@@ -472,8 +514,11 @@ def call_post(endpoint, api_key, path, params, accept_yaml=True, timeout=900):
 # ────────────────────────────────────────────────
 # runMultiFormulaBatch SSE 主路径
 # spec: docs/runMultiFormulaBatch-sse-spec.md
-# 对外契约：返回 dict 结构与同步版 /skill/runMultiFormulaBatch 完全一致；
-# trace_id 暂时保留在响应顶层，由 call.py 写入 session 后由打印层剥离。
+# 对外契约：返回 done 事件的 compact 负载（{status,summary,results}，字段 indexinfo_id）
+#   或 fatal/非SSE-JSON 错误 dict（{code,success,error}）。归一化成文档信封
+#   （{code,success,data:{...},task_id}、注入 data_id）由 call.py 的
+#   _process_run_multi_formula_batch 负责。trace_id 暂时保留在结果里，由 call.py
+#   写入 session 后由打印层剥离。
 # ────────────────────────────────────────────────
 
 class _StreamUnsupportedError(Exception):
@@ -523,15 +568,22 @@ def _consume_sse(url, method, body, headers, state, timeout, ignore_deferred=Fal
             err = json.loads(body_txt)
         except Exception:
             err = {"message": getattr(e, "reason", str(e))}
+        err_inner = err.get("error") if isinstance(err.get("error"), dict) else {}
+        out_err = {
+            "code": err_inner.get("code") or err.get("code", "HTTP_ERROR"),
+            "message": err.get("message", str(e)),
+        }
+        # 服务端若已分类（如 429 RESEARCH_CONCURRENT_LIMIT 带 category）则原样带上
+        for k in ("category", "retryable", "guidance"):
+            if err_inner.get(k) is not None:
+                out_err[k] = err_inner[k]
+        _enrich_error_category(out_err)
         return {
             "code": e.code,
             "success": False,
             "task_id": state.get("task_id"),
             "trace_id": state.get("trace_id"),
-            "error": {
-                "code": err.get("error", {}).get("code") if isinstance(err.get("error"), dict) else err.get("code", "HTTP_ERROR"),
-                "message": err.get("message", str(e)),
-            },
+            "error": out_err,
         }
     except (urllib.error.URLError, TimeoutError, ConnectionError):
         # 连接级异常：交给上层 resume
@@ -541,6 +593,48 @@ def _consume_sse(url, method, body, headers, state, timeout, ignore_deferred=Fal
     data_buf = []
     entry_id = None
     try:
+        # ── 按 Content-Type 分流：后端对参数/格式错误用普通 JSON（HTTP 200）回复，不是 SSE 流。
+        # 若按 SSE 逐行解析，这条 JSON 匹配不到任何分支被当噪音丢弃，最后误报 STREAM_INTERRUPTED。
+        # 先看响应头，非 event-stream 直接当 fatal 原样透出后端 error（含 code/message/usage 用法提示）。
+        # 覆盖 TASK_ID_REQUIRED / FORMULAS_REQUIRED / INVALID_FORMULA / INVALID_FORCE_REUSABLE /
+        # 公式数超限 等全部 200-JSON 校验错误。resume(GET) 是 SSE，不会误触此分支。
+        ctype = (resp.headers.get("Content-Type") or "").lower()
+        if "text/event-stream" not in ctype:
+            body_txt = resp.read().decode("utf-8", errors="replace")
+            parsed = None
+            try:
+                obj = json.loads(body_txt)
+                if isinstance(obj, dict):
+                    parsed = obj
+            except Exception:
+                parsed = None
+            if parsed is not None:
+                err_obj = parsed.get("error")
+                if not isinstance(err_obj, dict):
+                    err_obj = {
+                        "code": parsed.get("code", "NON_SSE_RESPONSE"),
+                        "message": parsed.get("message", body_txt[:500]),
+                    }
+                # 服务端 200-JSON 校验错误现已带 category（input_error）；缺失时按 code 兜底
+                _enrich_error_category(err_obj, fallback_category="input_error")
+                return {
+                    "code": parsed.get("code", -1),
+                    "success": bool(parsed.get("success", False)),
+                    "task_id": state.get("task_id"),
+                    "trace_id": state.get("trace_id"),
+                    "error": err_obj,
+                }
+            return {
+                "code": -1,
+                "success": False,
+                "task_id": state.get("task_id"),
+                "trace_id": state.get("trace_id"),
+                "error": _enrich_error_category({
+                    "code": "NON_SSE_RESPONSE",
+                    "message": (body_txt[:500] if body_txt.strip()
+                                else f"服务端返回了非 SSE 响应（Content-Type: {ctype or '未知'}）"),
+                }),
+            }
         while True:
             try:
                 raw_line = resp.readline()
@@ -591,45 +685,44 @@ def _consume_sse(url, method, body, headers, state, timeout, ignore_deferred=Fal
                         # done.data 即完整同步版响应；保留 trace_id 给 call.py
                         return payload
                     elif event_type == "fatal":
+                        # 关键修复：服务端把错误码放在 errorCode，旧代码只读 code 永远拿到笼统 "FATAL"，
+                        # 区分超时/崩溃/输入错的信息在客户端被丢掉。这里优先读 errorCode。
+                        err = {
+                            "code": payload.get("errorCode") or payload.get("code") or "FATAL",
+                            "message": payload.get("message", "stream fatal"),
+                        }
+                        # 服务端已分类时原样带给 agent；未给则按 code 兜底
+                        for k in ("category", "retryable", "guidance"):
+                            if payload.get(k) is not None:
+                                err[k] = payload[k]
+                        _enrich_error_category(err)
                         return {
                             "code": -1,
                             "success": False,
                             "task_id": payload.get("task_id") or state.get("task_id"),
                             "trace_id": payload.get("trace_id") or state.get("trace_id"),
-                            "error": {
-                                "code": payload.get("code", "FATAL"),
-                                "message": payload.get("message", "stream fatal"),
-                            },
+                            "error": err,
                             "partial": payload.get("partial", {}),
                             "last_event_id": state.get("last_event_id"),
                         }
                     # progress / result / formula_error：仅累积 last_event_id，最终从 done 取
                     # 但把每条公式结果实时打印到 stderr，让用户在终端看到流式进度
                     elif event_type == "result":
-                        # SSE result 事件通常不携带 leftName；按提交顺序从 state 取
-                        idx = state.get("_result_count", 0)
-                        names = state.get("_formula_names", [])
-                        left = (
-                            payload.get("leftName")
-                            or (names[idx] if idx < len(names) else None)
-                            or payload.get("expression_id", "?")
-                        )
+                        # 仅用 payload 自带身份标注左值，禁止用"提交顺序计数"猜名字：
+                        # SSE 事件按完成顺序到达（成功/失败交错），按计数取 _formula_names[idx]
+                        # 会把名字贴错（如成功的"好的"被贴成"坏资产"）。
+                        # leftName 缺失时回落到 expression_id（失败/预处理事件里它就是左值名）。
+                        left = payload.get("leftName") or payload.get("expression_id") or "?"
                         if isinstance(left, list):
                             left = ", ".join(left)
-                        state["_result_count"] = idx + 1
                         status = payload.get("status", "?")
                         data_id = payload.get("indexinfo_id") or "—"
                         symbol = "✓" if status == "success" else "✗"
                         print(f"  {symbol} {left}  id={data_id}", file=sys.stderr, flush=True)
                     elif event_type == "formula_error":
-                        idx = state.get("_result_count", 0)
-                        names = state.get("_formula_names", [])
-                        left = (
-                            payload.get("leftName")
-                            or (names[idx] if idx < len(names) else None)
-                            or payload.get("expression_id", "?")
-                        )
-                        state["_result_count"] = idx + 1
+                        left = payload.get("leftName") or payload.get("expression_id") or "?"
+                        if isinstance(left, list):
+                            left = ", ".join(left)
                         msg = payload.get("message", "")
                         print(f"  ✗ {left}  ERROR: {msg}", file=sys.stderr, flush=True)
                 event_type = None
@@ -657,9 +750,10 @@ def _consume_sse(url, method, body, headers, state, timeout, ignore_deferred=Fal
 def call_run_multi_formula_batch_stream(endpoint, api_key, params, timeout=1800):
     """以 SSE 主路径调用 runMultiFormulaBatch。
 
-    返回 dict 与同步版 /skill/runMultiFormulaBatch 一致；trace_id 暂时保留在顶层，
-    由 call.py 写入 session 后剥离。断线最多 3 次重连，遵循 1s/3s/9s 退避。
-    若服务端尚未部署 SSE 端点（404/405/406），抛 _StreamUnsupportedError 由调用方回退。
+    成功返回 done 的 compact 负载（{status,summary,results}）；参数/格式错误（后端 200-JSON）
+    或 fatal 返回 {code,success,error} dict。归一化与 trace_id 剥离由 call.py 负责。
+    已握手后断线最多 3 次重连，遵循 1s/3s/9s 退避；从未握手（无 trace_id）则不续传，
+    返回 NO_READY_EVENT。若服务端尚未部署 SSE 端点（404/405/406），抛 _StreamUnsupportedError。
     """
     idem_key = _derive_idempotency_key(params)
     # 预建公式左侧名列表，供 _consume_sse 逐条打印进度时使用
@@ -717,16 +811,30 @@ def call_run_multi_formula_batch_stream(endpoint, api_key, params, timeout=1800)
         )
 
     if final is None:
-        # 流中断且续传无果
+        if not state.get("trace_id"):
+            # 从未收到 ready 事件：续传循环根本没进（条件要求 trace_id）。
+            # 这通常不是传输问题，而是请求在握手前就结束（载荷/格式/网络）。别再假报“续传 N 次”。
+            return {
+                "code": -1,
+                "success": False,
+                "task_id": state.get("task_id"),
+                "trace_id": None,
+                "error": _enrich_error_category({
+                    "code": "NO_READY_EVENT",
+                    "message": "未收到 ready 事件即结束；请先检查公式格式/载荷与网络，再怀疑传输",
+                }),
+                "partial": {"last_event_id": state.get("last_event_id")},
+            }
+        # 已握手但续传耗尽，用真实续传次数（任务可能仍在后端跑 → transport_recoverable，可续传）
         return {
             "code": -1,
             "success": False,
             "task_id": state.get("task_id"),
             "trace_id": state.get("trace_id"),
-            "error": {
+            "error": _enrich_error_category({
                 "code": "STREAM_INTERRUPTED",
-                "message": "SSE 流中断，3 次续传仍失败；可用 task_id+trace_id 后续手工续传",
-            },
+                "message": f"SSE 流中断，{attempt} 次续传仍失败；可用 task_id+trace_id 后续手工续传",
+            }),
             "partial": {"last_event_id": state.get("last_event_id")},
         }
     return final
@@ -747,7 +855,7 @@ def call_resume_job(endpoint, api_key, params, timeout=1800):
         return {
             "code": -1,
             "success": False,
-            "error": {"code": "MISSING_PARAMS", "message": "resumeJob 需要 task_id 和 trace_id"},
+            "error": _enrich_error_category({"code": "MISSING_PARAMS", "message": "resumeJob 需要 task_id 和 trace_id"}),
         }
     state = {
         "task_id": task_id,
@@ -768,9 +876,11 @@ def call_resume_job(endpoint, api_key, params, timeout=1800):
     }
     backoff = [0, 3, 9]
     final = None
+    tries = 0
     for attempt, wait in enumerate(backoff):
         if wait:
             time.sleep(wait)
+        tries += 1
         final = _consume_sse(url=url, method="GET", body=None, headers=headers, state=state, timeout=timeout, ignore_deferred=True)
         if final is not None:
             break
@@ -786,10 +896,10 @@ def call_resume_job(endpoint, api_key, params, timeout=1800):
             "success": False,
             "task_id": task_id,
             "trace_id": trace_id,
-            "error": {
+            "error": _enrich_error_category({
                 "code": "STREAM_INTERRUPTED",
-                "message": "SSE 流中断，3 次续传仍失败",
-            },
+                "message": f"SSE 流中断，{tries} 次续传仍失败",
+            }),
             "partial": {"last_event_id": state.get("last_event_id")},
         }
     return final

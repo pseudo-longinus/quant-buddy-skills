@@ -15,6 +15,28 @@
 
 ---
 
+## 批量公式错误分类（`category`）—— 拿到 runMultiFormulaBatch 报错先看这条
+
+> ⚠️ **不同错误处理方式完全不同，先看 `category` 再决定动作，别一律重试、也别一律改公式。**
+
+`runMultiFormulaBatchStream` 返回的错误（无论是整批 fatal `error.category`，还是单条失败 `errors[].category`）都带统一的 `category` 标签。按它决定动作：
+
+| `category` | 含义 | 能重试吗 | 你该做什么 |
+|------------|------|----------|------------|
+| `input_error` | 输入错（公式格式/函数名/数据名/代码错、参数缺失非法、公式数超限；`NOT_RESOLVED` 函数/资产名无法解析、`BATCH_DEPENDENCY_VALIDATION_FAILED` 依赖顺序不完整） | 否 | **改公式或参数再试**，别原样重试。按 `errors[].leftName` + message 定位是哪条、错在哪 |
+| `server_timeout` | 后端排队超时（`QUEUE_WAIT_TIMEOUT`）/ 执行超时（`EXECUTION_STALLED`） | 否 | **不是你公式的问题——别改公式、也别马上重试**（马上重试还是一样超时）。可：① 隔几分钟再试；② 把公式拆成更小批次；③ 改用异步/research 模式。连试两次仍超时就告诉用户后端繁忙 |
+| `server_error` | 后端崩（`WORKER_FATAL` / `SUBMIT_FAILED` / `TASK_NOT_FOUND`） | 否 | 后端异常，可隔一会儿试**一次**；仍失败就把情况告诉用户，别反复空转 |
+| `transport_recoverable` | 连接断了（`STREAM_INTERRUPTED`），但任务在后端**还活着** | **是** | 用 `resumeJob`（task_id + trace_id）断点续传接着读结果，**不要**重新提交整批 |
+
+**最常见的误区（务必避免）：**
+- ❌ 看到「批量公式执行失败」就去**改公式**——若 `category=server_timeout`，公式没错，改了也没用。
+- ❌ 看到超时就**立刻原样重试**——系统性超时短时间内重试必然又超时，纯属空转。
+- ✅ 只有 `transport_recoverable` 才值得「续传重试」，因为任务还在后端跑、只是连接断了。
+- ⚠️ **`NOT_RESOLVED` 会「整批受牵连」**：后端按批原子解析，只要有**一条**公式的函数名/资产名无法解析，**整批**都会被补成 `NOT_RESOLVED`（连本来正确的公式也显示 failed）。所以看到整批 `NOT_RESOLVED` 时，**不要以为每条都错**——逐条核对、找出真正无法解析的那条改掉即可，别整批重写或原样重试。
+- 服务端没给 `category` 的旧返回，客户端会兜底贴标签；`retryable` 字段与上表一致，可直接读。
+
+---
+
 ## 公式 / 变量
 
 | 问题现象 | 可能原因 | 处理方式 |

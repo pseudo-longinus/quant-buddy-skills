@@ -9,6 +9,51 @@
 
 ---
 
+## [4.23.0] — 2026-06-25
+
+**变更文件**：`SKILL.md`、`presets/data_catalog.yaml`、`presets/index_info_catalog/*.yaml`、`presets/index_info_catalog/manifest.yaml`、`presets/index_info_catalog/README.md`、`tools/search_functions.md`、`tools/run_multi_formula.md`、`dev-tools/import_index_info_catalog.py`
+
+本次把系统支持数据名目录沉淀为随 skill 发布的 YAML 预设，并同步收紧公式数据名与回测示例文档。`quant-buddy-skill` 不新增公式诊断中枢；公式真实出数验证仍以现有 `runMultiFormulaBatchStream` 流程为准。
+
+- **新增系统支持数据名全量索引**：新增 `presets/index_info_catalog/`，按 provider 拆分为 7 个 YAML 文件，覆盖 `rice_quant_fa`、`join_quant_fa`、`guanzhao_lhb`、`fmp_fa`、`guanzhao`、`fmp`、`fa_jqdata`，合计 2351 条系统支持 `index_title`。
+- **新增导入审计清单**：`manifest.yaml` 记录来源 Excel、记录数、sha256、列名校验与总条数；`README.md` 说明全量目录的检索方式。原始 `.xlsx` 不进入 skill 发布包。
+- **开发导入工具外置**：新增 `dev-tools/import_index_info_catalog.py`，只作为开发维护工具，不放进 `quant-buddy-skill/scripts/`，避免被误认为 skill 运行时能力。
+- **明确数据目录分工**：`data_catalog.yaml` 定位为高频精选字段，新增港/美股 EBITDA、营业收入、龙虎榜净买额、GICS 所属指数等常用条目；全量系统数据名用 `rg "关键词" presets/index_info_catalog` 检索后，在公式中使用精确 `index_title`。
+- **修正文档示例**：`tools/search_functions.md` 将旧 `MA("数据", N)` 示例改为 `平均("数据", N)`，避免引用平台不存在的 `MA()` 函数。
+- **补充标准回测写法**：`tools/run_multi_formula.md` 增加单因子 TopN、多因子综合分 TopN、等权基准、指数基准/超额净值与交易成本签名确认说明，强调数据名必须来自 preset 中的精确 `index_title`。
+- `SKILL.md`：版本号升至 `4.23.0`，目录树与 `presets/` 使用规则同步更新。
+
+---
+
+## [4.22.2] — 2026-06-18
+
+**变更文件**：`SKILL.md`、`scripts/executor.py`、`scripts/call.py`、`references/troubleshooting.md`、`tools/run_multi_formula.md`、`tools/resume_job.md`、`workflows/global-rules.md`
+
+给批量公式接口（`runMultiFormulaBatchStream` / `resumeJob`）的错误处理加上统一的 `category` 标签 + 分层指引，让 Agent 分清「该改公式 / 后端超时 / 连接断了 / 后端崩」，不再瞎改公式或空转重试。新增字段向后兼容，缺字段有兜底。
+
+- **修 bug**：服务端真错误码放在 `errorCode`，旧代码只读 `code` 永远拿到笼统 `"FATAL"`；现优先读 `errorCode`（`scripts/executor.py`）。
+- **四类标签**：`input_error`（改公式）/ `server_timeout`（别改公式别马上重试）/ `server_error`（隔会儿试一次）/ `transport_recoverable`（唯一该 `resumeJob` 续传的），每个带 `retryable` + `guidance`。关键区分：`server_timeout`（任务多半已死）≠ `transport_recoverable`（任务还活着、线断了）。
+- **客户端只透传不覆盖**：以服务端给的 `category` 为准，仅在服务端没给时补默认、给客户端自产码贴标签（`scripts/executor.py`、`scripts/call.py`）。权威分类表在服务端仓库，不在本包。
+- **文档指引**：`references/troubleshooting.md`、`tools/run_multi_formula.md`、`tools/resume_job.md`、`workflows/global-rules.md` 各加按 `category` 写动作的对照表。
+- **顺带修**：实时进度行（`✓`/`✗`）此前按提交顺序猜公式名、把报错贴错公式，改为按事件自带身份标注（`scripts/executor.py`）。
+- `SKILL.md`：版本号升至 `4.22.2`。
+
+---
+
+## [4.22.1] — 2026-06-17
+
+**变更文件**：`SKILL.md`、`scripts/executor.py`、`scripts/call.py`
+
+本次小版本修复 `runMultiFormulaBatchStream` 的一类**接口接收错位**：客户端把后端的报错吞掉、误报成"流中断"，且成功结构与文档承诺不一致。纯客户端接收层修复，工具参数与 Agent 用法不变。
+
+- **修复误报 `STREAM_INTERRUPTED`（`scripts/executor.py`，主修复）**：`_consume_sse` 此前默认所有响应都是 SSE 流，对后端用普通 JSON（HTTP 200）回的参数/格式校验错误（`INVALID_FORMULA` / `TASK_ID_REQUIRED` / `FORMULAS_REQUIRED` / `INVALID_FORCE_REUSABLE` / 公式数超限等**一整类**）逐行解析时匹配不到任何 SSE 帧，被当噪音丢弃，最终落到兜底分支误报"SSE 流中断，3 次续传仍失败"。现进入 SSE 循环前先按 `Content-Type` 分流：非 `text/event-stream` 的响应直接当 fatal **原样透出**后端 `error`（含 `code` / `message` / `usage` 用法提示），不再吞错。
+- **兜底文案不再撒谎（`scripts/executor.py`）**：从未收到 `ready` 事件（续传循环根本没进）时，错误码改为 `NO_READY_EVENT`、文案改为"未收到 ready 事件即结束；请先检查公式格式/载荷与网络，再怀疑传输"；已握手后续传耗尽才报 `STREAM_INTERRUPTED`，且续传次数用真实计数（`call_run_multi_formula_batch_stream` 与 `call_resume_job` 此前写死"3 次"）。
+- **成功/失败结构归一化成文档结构（`scripts/call.py`）**：SSE `done` 事件返回的是 compact 负载（顶层 `status`+`summary`+`results`、无 `code`/`data` 外壳、字段叫 `indexinfo_id`），与 `tools/run_multi_formula.md` 承诺的同步版结构不一致——`_process_run_multi_formula_batch` 此前因键名错配在 SSE 路径上是死代码。现重写为三态：fatal 透出 / compact 包成 `{code:0, success, data:{status,summary,results}, task_id}` 信封（注入 `data_id = indexinfo_id` 供 `readData` 串联、保留 `indexinfo_id` 向后兼容；失败/部分失败时顶层补 `message` 与 `errors[]`）/ 旧同步形态维持原失败提升逻辑。
+- **`trace_id` 不再泄露给 LLM（`scripts/call.py`）**：除顶层/`data` 层外，部分失败时 `trace_id` 还会出现在 `results[]` 失败条目里。现一并从 `data.results[]`（及兼容旧 `results[]`）收集首个非空 `trace_id` 写入 session 供后续续传/调试，再从所有层级剥离；`deferred`（research_24h）响应按 spec 例外保留。
+- `SKILL.md`：版本号升至 `4.22.1`。
+
+---
+
 ## [4.22.0] — 2026-06-12
 
 **变更文件**：`SKILL.md`、`scripts/executor.py`、`presets/dimensions.yaml`（新增）、`tools/select_by_composition.md`（新增）、`workflows/composition-select.md`（新增）

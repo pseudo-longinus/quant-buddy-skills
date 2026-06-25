@@ -111,7 +111,7 @@
 ## 常用公式函数速查
 
 > 完整函数列表见 `presets/functions.yaml`，有疑问时调 `searchFunctions` 获取详细说明。
-> **平台无 `MA()` 函数**，均线请用 `平均(数据, N)`。
+> **平台无 `MA()` 函数**，均线请用 `平均("数据", N)`。
 
 | 类别 | 函数 | 用法 | 返回维度 |
 |------|------|------|----------|
@@ -178,6 +178,90 @@ python scripts/executor.py runMultiFormulaBatchStream '{
   "begin_date": 20200101
 }'
 ```
+
+## 标准回测写法
+
+> 数据名必须来自 `presets/data_catalog.yaml` 或 `presets/index_info_catalog/` 的精确 `index_title`。不要把用户口语词直接写进公式。
+
+### 单因子 TopN 回测
+
+```json
+{
+  "formulas": [
+    "过滤=板块(万得全A)*缺失填零(\"非ST股\")",
+    "排序分=\"A股净资产收益率ROE\"*\"过滤\"",
+    "Top20=取前(\"排序分\",20,返回掩码)",
+    "NAV=回测(\"Top20\",当天收盘买入,返回复利净值,信号按列归一)"
+  ],
+  "begin_date": 20210101,
+  "force_reusable_array": ["NAV"],
+  "execution_profile": "research_24h",
+  "user_query": "单因子 ROE Top20 等权回测"
+}
+```
+
+### 多因子综合分 TopN 回测
+
+```json
+{
+  "formulas": [
+    "过滤=板块(万得全A)*缺失填零(\"非ST股\")",
+    "ROE分=按天归一(\"A股净资产收益率ROE\")",
+    "成长分=按天归一(同比(\"A股营业收入〔报告期利润表〕\"))",
+    "估值惩罚=按天归一(\"A股市盈率（PE, TTM）〔估值数据〕\")",
+    "综合分=(\"ROE分\"+\"成长分\"-\"估值惩罚\")*\"过滤\"",
+    "Top30=取前(\"综合分\",30,返回掩码)",
+    "NAV=回测(\"Top30\",当天收盘买入,返回复利净值,信号按列归一)"
+  ],
+  "begin_date": 20210101,
+  "force_reusable_array": ["NAV"],
+  "execution_profile": "research_24h",
+  "user_query": "多因子综合分 Top30 等权回测"
+}
+```
+
+### 等权基准
+
+```json
+{
+  "formulas": [
+    "基准池=板块(万得全A)*缺失填零(\"非ST股\")",
+    "等权基准NAV=回测(\"基准池\",当天收盘买入,返回复利净值,信号按列归一)"
+  ],
+  "begin_date": 20210101,
+  "force_reusable_array": ["等权基准NAV"],
+  "execution_profile": "research_24h",
+  "user_query": "万得全A非ST等权基准回测"
+}
+```
+
+### 指数基准/超额净值
+
+```json
+{
+  "formulas": [
+    "过滤=板块(万得全A)*缺失填零(\"非ST股\")",
+    "排序分=\"A股净资产收益率ROE\"*\"过滤\"",
+    "Top20=取前(\"排序分\",20,返回掩码)",
+    "超额NAV=回测(\"Top20\",当天收盘买入,返回复利超额净值,信号按列归一,收盘价(沪深300))",
+    "沪深300NAV=设定基准(收盘价(沪深300),1)"
+  ],
+  "begin_date": 20210101,
+  "force_reusable_array": ["超额NAV", "沪深300NAV"],
+  "execution_profile": "research_24h",
+  "user_query": "ROE Top20 相对沪深300超额回测"
+}
+```
+
+### 含交易成本版本
+
+当前 `presets/functions.yaml` 暴露的 `回测` 签名没有 `费率` 参数；不要凭旧记忆写 `回测(..., 费率)`。用户明确要求交易成本时，先调用 `searchFunctions`：
+
+```json
+{"query":"回测 费率 交易成本", "top_k":3, "detail_level":"full"}
+```
+
+只有返回的现行签名明确包含交易成本/费率参数时，才按返回格式补参数；否则应向用户说明“当前函数签名未暴露交易成本参数”，并先交付无成本回测与指数/等权基准对比。
 
 ### 中间变量复用标记（多公式必填）
 
@@ -326,3 +410,20 @@ python scripts/executor.py runMultiFormulaBatchStream '{
 4. 拿到 `done` 后才可进入下一批
 
 **禁止**：`deferred` 当完成收尾、跳过续传直接下一批、`STREAM_INTERRUPTED` 后放弃。详见 `tools/resume_job.md`。
+
+---
+
+## 出错时怎么办：先看 `category`，别误把后端超时当公式错
+
+报错（整批 `error.category`，或单条 `errors[].category`）都带统一标签，**处理方式按 `category` 分四类**：
+
+| `category` | 能重试 | 动作 |
+|------------|--------|------|
+| `input_error` | 否 | 改公式/参数再试；按 `errors[].leftName` + message 定位错在哪条 |
+| `server_timeout` | 否 | **不是公式问题**——别改公式、别马上重试；隔几分钟再试 / 拆小批 / 改 `research_24h` 异步模式 |
+| `server_error` | 否 | 隔一会儿试一次，仍失败告诉用户 |
+| `transport_recoverable` | 是 | **唯一该续传重试的**：用 `resumeJob`（task_id+trace_id）接着读，别重提整批 |
+
+> 关键区分：`server_timeout`（任务超时、多半已死，重试/续传都没用，要拆小批或异步）≠ `transport_recoverable`（任务还活着、只是连接断了，该 `resumeJob` 续传）。两者过去长得一样，是误导的根源。完整对照见 `references/troubleshooting.md`。
+>
+> ⚠️ **`NOT_RESOLVED`（函数/资产名无法解析）属 `input_error`，且会「整批受牵连」**：只要批里有一条解析不了，整批都会被标 `NOT_RESOLVED`（含本来正确的公式）。看到整批 `NOT_RESOLVED` 别以为每条都错——逐条核对、改掉真正出错那条即可。
