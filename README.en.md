@@ -37,6 +37,8 @@ Not sure how to use agents or skills? Follow the [step-by-step beginner guide](h
 
 quant-buddy-skills is not a generic stock data API. It packages **market data, valuation data, financial data, a formula engine, full-market screening, factor calculation, strategy backtesting, NAV comparison, and chart rendering** into agent-callable research workflows.
 
+Data coverage includes common research datasets such as A-share financials, HK/US financials, LHB tags, and GICS industry classifications.
+
 Traditional data APIs only get raw data out. quant-buddy-skills helps an AI agent turn natural-language research ideas into **executable formulas, platform-side computation, structured results, and reusable tasks**.
 
 Official site: https://www.quantbuddy.cn
@@ -63,6 +65,7 @@ No need to push thousands of rows into the LLM context. No need to manually writ
 - **Reusable by design**: formulas explored today can be scheduled and rerun tomorrow.
 - **Designed for agent workflows**: works with Claude Code, Cursor, Codex, GitHub Copilot, Windsurf, and similar environments.
 - **Deepest coverage for A-shares**: market data, valuation, financials, screening, factors, backtesting, and charts. HK and US stocks support market data plus selected valuation and financial fields, subject to API results. Recognized futures can be queried conditionally for market/window series.
+- **Broader research-data coverage**: supports common datasets such as A-share financials, HK/US financials, LHB tags, and GICS industry classifications.
 
 ## What Can You Do In One Sentence
 
@@ -81,6 +84,7 @@ No need to push thousands of rows into the LLM context. No need to manually writ
 |---|---|---|
 | Fast market data lookup | A-shares / HK stocks / US stocks / indices / recognized futures, subject to API results | “Check Kweichow Moutai's latest close, return, and turnover” |
 | Valuation and financials | A-shares plus selected HK / US fields, subject to API results | “List CATL's latest ROE, net profit, and debt ratio” |
+| Common research datasets | A-share financials, HK/US financials, LHB tags, GICS industry classifications, etc. | “Check net profit attributable, EBITDA, LHB net buy amount, or GICS industry” |
 | Full-market formula computation | Mainly A-shares | “Calculate 20-day and 60-day returns for all A-shares and rank by momentum” |
 | Multi-condition stock screening | Mainly A-shares | “Screen non-ST stocks with low PE, high ROE, and expanding turnover” |
 | Factor analysis | Mainly A-shares | “Build a composite factor from dividend yield, ROE, and momentum” |
