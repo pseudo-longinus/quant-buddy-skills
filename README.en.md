@@ -492,7 +492,7 @@ For more strategy examples, integration questions, roadmap updates, and real res
         <sub>Personal WeChat</sub>
       </td>
       <td align="center">
-        <img src="assets/wechat_group_qr8.jpg" width="180" alt="WeChat group QR code" />
+        <img src="assets/wechat_group_qr9.jpg" width="180" alt="WeChat group QR code" />
         <br/>
         <sub>WeChat Group</sub>
       </td>
