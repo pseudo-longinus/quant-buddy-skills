@@ -1,6 +1,6 @@
 # 系统数据名全量索引
 
-本目录保存平台已支持的 `indexInfo` 数据名清单，由开发维护工具从 Excel 导出文件生成。它是 `presets/data_catalog.yaml` 的补充，而不是替代。
+本目录保存平台已支持的 `indexInfo` 数据名清单，由后台页面人工筛选下载的 Excel 导出文件生成。它是 `presets/data_catalog.yaml` 的补充，而不是替代。
 
 ## 何时使用
 
@@ -31,7 +31,27 @@ rg "GICS" presets/index_info_catalog
 
 ## 维护方式
 
-不要手工编辑记录行。需要更新时，在仓库根目录运行开发维护脚本：
+不要手工编辑记录行。需要更新时，先到后台页面人工筛选并下载 Excel：
+
+```text
+http://dunhe.guanzhao12.com:8088/#/indexInfo/dashboard
+```
+
+Provider 只选择以下 7 类：
+
+```text
+fa_jqdata
+fmp
+fmp_fa
+guanzhao
+guanzhao_lhb
+join_quant_fa
+rice_quant_fa
+```
+
+不要选择 `全部`，也不要导入 `dunhe`、`dunhe_custom_fa`、`dunhe_quant`、`fa_dunhe`、`mydata`、`wind_edb`、`wind_search` 等其它 Provider。筛选条件使用 `deleted = false`；其中 `guanzhao` 额外使用 `is_public = true`。
+
+下载完成后，在仓库根目录运行开发维护脚本：
 
 ```bash
 python dev-tools/import_index_info_catalog.py <indexInfo_*.xlsx>...

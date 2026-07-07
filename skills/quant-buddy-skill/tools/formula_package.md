@@ -52,7 +52,7 @@ python scripts/formula_package.py refresh '{"package_id":"pkg_xxx","rotate_signa
 |------|------|------|------|
 | `output` | `string` | ✅ | 产出标识 = 某条公式左侧变量名（如 `AG_ret = ...` 的 `AG_ret`）|
 | `read_mode` | `string` | ✅ | 该产出读取模式，见下表 |
-| `mode_params` | `object` | ❌ | 模式参数；`range_data` 必填 `start_date`、`end_date` |
+| `mode_params` | `object` | ❌ | 模式参数；`range_data` 必填 `lookback_days`（滚动窗口回溯天数）|
 
 > - 未列入 `reads` 的公式 = 中间变量，只计算不对外。
 > - **每个 `output` 只能指定一个 `read_mode`**；同一产出写两条会导致注册失败。
@@ -64,7 +64,9 @@ python scripts/formula_package.py refresh '{"package_id":"pkg_xxx","rotate_signa
 |-----------|------|---------------|---------------------------|
 | `last_day_stats` | 截面（2维）/ 单序列（1维）皆可 | — | 2维：`last_day_stats.{date,top_values[],valid_count,coverage_rate,...}`；**1维序列：`last_value.{date,value}`** |
 | `last_valid_per_asset` | 2维截面 | `max_rows`（默认8000） | 每个资产最后一个有效值（跨市场对齐） |
-| `range_data` | 1维序列 / 2维 | `start_date`✅、`end_date`✅、`assets`、`max_cells`、`nan_handling`(`keep`/`fill_forward`/`drop_rows`) | `range_data.{dates[],values[],series_name}`（非交易日为 `null`）|
+| `range_data`（滚动窗口）| 1维序列 / 2维 | `lookback_days`✅（回溯天数，区间=`[今天-N, 今天]`）、`assets`、`max_cells`、`nan_handling`(`keep`/`fill_forward`/`drop_rows`) | `range_data.{dates[],values[],series_name}`（非交易日为 `null`）|
+
+> `range_data` 是**滚动窗口**：注册时只给 `lookback_days`（如近一年=365、近半年=180），取数时服务端现算成 `[今天-lookback_days, 今天]`。任务包是 live 看板数据源，这样窗口才会随时间滚动到最近 N 天，而不是停在注册那天。旧版 `start_date`+`end_date` 仍兼容（按跨度滚到今天），但**不要再指定绝对 `end_date`**——那对 live 场景是错误用法。
 
 ## 取数（SSE）
 

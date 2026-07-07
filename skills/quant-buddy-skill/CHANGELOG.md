@@ -9,6 +9,21 @@
 
 ---
 
+## [4.23.1] — 2026-07-07
+
+**变更文件**：`SKILL.md`、`CHANGELOG.md`、`presets/functions.yaml`、`presets/assets_db/*.yaml`、`presets/index_info_catalog/*.yaml`、`presets/index_info_catalog/manifest.yaml`、`presets/index_info_catalog/README.md`、`dev-tools/import_index_info_catalog.py`
+
+本次刷新本地预设快照，并把 `index_info_catalog` 的真实维护方式写入文档：全量系统数据名目录来自后台 `indexInfo` 页面人工筛选下载的 Excel，而不是直接从数据库或 `全部` Provider 导出。
+
+- **函数库刷新**：`presets/functions.yaml` 从 `config_support_function.json` 更新为 170 条常用函数。
+- **资产库刷新**：`presets/assets_db/` 从 `tkrsInfo` 更新，当前数量为 A 股 5557 条、港股 3067 条、美股及境外 ETF 1068 条、指数 604 条、期货 257 条。
+- **系统数据名目录刷新**：`presets/index_info_catalog/` 用 7 个手工导出的 `indexInfo_*.xlsx` 重新生成，Provider 范围固定为 `fa_jqdata`、`fmp`、`fmp_fa`、`guanzhao`、`guanzhao_lhb`、`join_quant_fa`、`rice_quant_fa`，合计 2355 条，`warnings: []`。
+- **新增数据名**：`guanzhao` 新增 `中证红利指数成分股`、`创业板50指数成分股`；`join_quant_fa` 新增 `A股融券余额〔融资融券信息〕`、`A股融资融券融券资格〔融资融券信息〕`。
+- **维护口径同步**：`README.md` 记录后台手工筛选下载地址与 Provider 选择规则；`dev-tools/import_index_info_catalog.py` 的期望总数同步为 2355，避免下次维护误报旧总数。
+- `SKILL.md`：版本号升至 `4.23.1`，目录树中的函数库、资产库、系统数据名目录数量同步更新。
+
+---
+
 ## [4.23.0] — 2026-06-25
 
 **变更文件**：`SKILL.md`、`presets/data_catalog.yaml`、`presets/index_info_catalog/*.yaml`、`presets/index_info_catalog/manifest.yaml`、`presets/index_info_catalog/README.md`、`tools/search_functions.md`、`tools/run_multi_formula.md`、`dev-tools/import_index_info_catalog.py`

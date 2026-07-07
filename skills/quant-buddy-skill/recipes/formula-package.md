@@ -40,7 +40,7 @@
     { "output": "SC_ret", "read_mode": "last_day_stats" },
     { "output": "AG_ret", "read_mode": "last_day_stats" },
     { "output": "SC_px",  "read_mode": "range_data",
-      "mode_params": { "start_date": 20260501, "end_date": 20260605 } }
+      "mode_params": { "lookback_days": 30 } }
   ],
   "begin_date": 20260101,
   "ttl_days": 365

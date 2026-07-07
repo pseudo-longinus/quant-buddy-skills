@@ -2,7 +2,7 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.23.0
+version: 4.23.1
 description: |
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据。
   查询最近N个交易日的价格序列、日涨跌幅序列、窗口最高价、最低价、振幅等短期统计。
@@ -15,7 +15,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.23.0
+  version: 4.23.1
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -267,14 +267,14 @@ SKILL_ROOT/
 │   ├── cases_index.yaml         106 张案例卡片目录（量化标准场景必读，快速查数无需）
 │   ├── assets.yaml              常用资产（99 行精选，可一次读完）
 │   ├── assets_db/               全量资产字典（按类型分文件，⚠️ 仅 grep 检索，禁止 read_file 整文件；不含指数成分股映射）
-│   │   ├── stock_a.yaml             A 股 5540 条（SH/SZ，含场内 ETF）
-│   │   ├── stock_hk.yaml            港股 2862 条（HK 前缀；行情优先，财务以 fast_query 返回为准）
+│   │   ├── stock_a.yaml             A 股 5557 条（SH/SZ，含场内 ETF）
+│   │   ├── stock_hk.yaml            港股 3067 条（HK 前缀；行情优先，财务以 fast_query 返回为准）
 │   │   ├── stock_us.yaml            美股及境外ETF 1068 条（.N/.O/.A；行情优先，财务以 fast_query 返回为准）
-│   │   ├── index.yaml               指数 503 条
+│   │   ├── index.yaml               指数 604 条
 │   │   └── future.yaml              期货 257 条
-│   ├── functions.yaml           常用函数
+│   ├── functions.yaml           常用函数（170 条）
 │   ├── data_catalog.yaml        常用精选数据集（高频 index_title）
-│   ├── index_info_catalog/      系统支持数据名全量索引（按 provider 分 YAML，grep 检索）
+│   ├── index_info_catalog/      系统支持数据名全量索引（2355 条，按 provider 分 YAML，grep 检索）
 │   ├── dimensions.yaml          已物化维度目录（score/screen 指标，用于 selectByComposition）
 │   ├── sectors.yaml             行业板块
 │   └── themes.yaml              题材板块
@@ -568,6 +568,7 @@ GZQ_PARAMS='<JSON>' python scripts/call.py <工具名>
 
 > **简言之**：presets 是数据快照，recipes 是完整教程，tools 是参数字典。
 > `data_catalog.yaml` 只维护高频精选字段；`index_info_catalog/*.yaml` 承载全量系统数据名。高频且确认常用的数据名，再人工补进 `data_catalog.yaml`。
+> `index_info_catalog/` 的开发维护来源是后台手工筛选下载的 `indexInfo_*.xlsx`，只纳入 `fa_jqdata`、`fmp`、`fmp_fa`、`guanzhao`、`guanzhao_lhb`、`join_quant_fa`、`rice_quant_fa` 七类 Provider；不要用 `全部` Provider 导出。
 
 ---
 
