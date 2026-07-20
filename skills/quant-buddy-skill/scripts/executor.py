@@ -65,6 +65,26 @@ def _read_skill_channel() -> str:
 SKILL_VERSION = _read_skill_version()
 SKILL_CHANNEL = _read_skill_channel()
 
+
+def _trace_headers(params=None, *, api_key=None, accept=None, content_type=None):
+    params = params if isinstance(params, dict) else {}
+    headers = {
+        "x-skill-name": "quant-buddy-skill",
+        "x-skill-version": SKILL_VERSION,
+    }
+    task_id = str(params.get("task_id") or "").strip()
+    if task_id:
+        headers["x-task-id"] = task_id
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    if accept:
+        headers["Accept"] = accept
+    if content_type:
+        headers["Content-Type"] = content_type
+    if SKILL_CHANNEL:
+        headers["x-skill-channel"] = SKILL_CHANNEL
+    return headers
+
 # ── Windows 下强制 stdout/stderr 使用 UTF-8，避免服务端返回 emoji 等字符时崩溃 ──
 # line_buffering=True：每次 print 立即 flush，避免 PowerShell 终端首次读到空输出。
 # 必须在任何 print 调用之前设置。
@@ -478,12 +498,7 @@ def call_multipart(endpoint, api_key, path, file_path, fields=None, timeout=900)
     url = f"{endpoint}{path}"
     req = urllib.request.Request(
         url, data=body,
-        headers={
-            'Content-Type': f'multipart/form-data; boundary={boundary}',
-            'Authorization': f'Bearer {api_key}',
-            'x-skill-version': SKILL_VERSION,
-            **({'x-skill-channel': SKILL_CHANNEL} if SKILL_CHANNEL else {}),
-        },
+        headers=_trace_headers(fields, api_key=api_key, content_type=f'multipart/form-data; boundary={boundary}'),
         method='POST',
     )
     with _NO_PROXY_OPENER.open(req, timeout=timeout) as resp:
@@ -494,12 +509,7 @@ def call_post(endpoint, api_key, path, params, accept_yaml=True, timeout=900):
     """发送 POST 请求。accept_yaml=True 时返回 YAML 原文(str)，否则返回 JSON(dict)。"""
     url = f"{endpoint}{path}"
     data = json.dumps(params, ensure_ascii=False).encode("utf-8")
-    headers = {
-        "Content-Type": "application/json; charset=utf-8",
-        "Authorization": f"Bearer {api_key}",
-        "x-skill-version": SKILL_VERSION,
-        **({"x-skill-channel": SKILL_CHANNEL} if SKILL_CHANNEL else {}),
-    }
+    headers = _trace_headers(params, api_key=api_key, content_type="application/json; charset=utf-8")
     if accept_yaml:
         headers["Accept"] = "text/yaml"
     req = urllib.request.Request(url, data=data, headers=headers, method="POST")
@@ -768,14 +778,13 @@ def call_run_multi_formula_batch_stream(endpoint, api_key, params, timeout=1800)
         "_formula_names": _formula_names,        # 有序左侧名，供进度打印
         "_result_count": 0,                      # 已收到的 result 事件计数
     }
-    headers_post = {
-        "Content-Type": "application/json; charset=utf-8",
-        "Accept": "text/event-stream",
-        "Authorization": f"Bearer {api_key}",
-        "Idempotency-Key": idem_key,
-        "x-skill-version": SKILL_VERSION,
-        **({"x-skill-channel": SKILL_CHANNEL} if SKILL_CHANNEL else {}),
-    }
+    headers_post = _trace_headers(
+        params,
+        api_key=api_key,
+        accept="text/event-stream",
+        content_type="application/json; charset=utf-8",
+    )
+    headers_post["Idempotency-Key"] = idem_key
     body = json.dumps(params, ensure_ascii=False).encode("utf-8")
 
     final = _consume_sse(
@@ -799,12 +808,7 @@ def call_run_multi_formula_batch_stream(endpoint, api_key, params, timeout=1800)
         )
         if state.get("last_event_id"):
             url += f"&since={state['last_event_id']}"
-        headers_get = {
-            "Accept": "text/event-stream",
-            "Authorization": f"Bearer {api_key}",
-            "x-skill-version": SKILL_VERSION,
-            **({"x-skill-channel": SKILL_CHANNEL} if SKILL_CHANNEL else {}),
-        }
+        headers_get = _trace_headers(state, api_key=api_key, accept="text/event-stream")
         final = _consume_sse(
             url=url, method="GET", body=None, headers=headers_get,
             state=state, timeout=timeout,
@@ -868,12 +872,7 @@ def call_resume_job(endpoint, api_key, params, timeout=1800):
         f"{endpoint}/runMultiFormulaBatch/stream"
         f"?task_id={task_id}&trace_id={trace_id}&since={since}"
     )
-    headers = {
-        "Accept": "text/event-stream",
-        "Authorization": f"Bearer {api_key}",
-        "x-skill-version": SKILL_VERSION,
-        **({"x-skill-channel": SKILL_CHANNEL} if SKILL_CHANNEL else {}),
-    }
+    headers = _trace_headers(params, api_key=api_key, accept="text/event-stream")
     backoff = [0, 3, 9]
     final = None
     tries = 0
@@ -922,7 +921,7 @@ def call_get(endpoint, api_key, path, params, timeout=900):
         url += "?" + "&".join(query_parts)
     req = urllib.request.Request(
         url,
-        headers={"Authorization": f"Bearer {api_key}", "Accept": "text/yaml", "x-skill-version": SKILL_VERSION},
+        headers=_trace_headers(params, api_key=api_key, accept="text/yaml"),
         method="GET",
     )
     with _NO_PROXY_OPENER.open(req, timeout=timeout) as resp:

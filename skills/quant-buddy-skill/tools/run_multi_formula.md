@@ -23,6 +23,9 @@
 | `force_reusable_array` | string[] | ❌ | 需要保留、后续复用或查看的公式**左侧变量名**数组。传入后未列出的变量自动标记为不复用；不传时默认全部复用。详见下方「中间变量复用标记」 |
 | `execution_profile` | string | ❌ | 仅 `"research_24h"` 一个可选值，触发服务端长任务后台模式（24h 队列、断线 SSE 续传、不退款）。**任务级判定**：在切批之前先判断"整个任务"是否属于策略/回测/PnL/批量研究；若是，则**该任务下所有相关批次**（含前置准备、修复/重试 FIX 批次）都必须显式传入。详见下方「任务级 research_24h 传播规则」 |
 | `user_query` | string | ❌ | 当前用户原始问题/意图（中文或英文）。建议每个批次都附带 |
+| `output_mode` | string | ❌ | `full`（默认）或 `summary`。completed summary 保留状态、计数和 `expression_id/data_id`；deferred summary 保留 `task_id/trace_id/job_id/stream_url/_deferred`，省略冗长描述 |
+
+成功完成且每条结果均为 `success` 时，客户端额外返回脱敏的 `validation_receipt_file`。`deferred` 只是排队态，必须用同一 `task_id + trace_id` 调 `resumeJob` 直到完成；失败、部分失败和 deferred 均不会生成收据。
 
 ## 单次公式数限制（保守模板：所有 tier 一律 10 条）
 
@@ -407,6 +410,8 @@ python scripts/executor.py runMultiFormulaBatchStream '{
 1. 提交 → 收到 `deferred` → 保存 `task_id` + `trace_id`
 2. 立即调用 `resumeJob`（传 `task_id` + `trace_id`），等 `done` 拿完整结果
 3. 若返回 `STREAM_INTERRUPTED` → 用 `partial.last_event_id` 作 `since` 参数再调 `resumeJob`，最多额外重试 2 次
+
+若 deferred 响应缺少 `task_id` 或 `trace_id`，客户端返回 `DEFERRED_CONTINUATION_MISSING`。此时不得原样重提整批，以免创建孤儿任务或重复计算。
 4. 拿到 `done` 后才可进入下一批
 
 **禁止**：`deferred` 当完成收尾、跳过续传直接下一批、`STREAM_INTERRUPTED` 后放弃。详见 `tools/resume_job.md`。

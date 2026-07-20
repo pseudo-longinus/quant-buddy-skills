@@ -11,7 +11,8 @@
     from quant_api import QuantAPI
 
     api = QuantAPI()                  # 自动定位 skill root
-    api.new_session()                 # 初始化 session（每个任务调一次）
+    api.new_session()                 # 独立任务：生成新 task_id
+    # 上游编排：api.new_session(task_id="...", task_mode="inherit", task_source="quant-buddy-view")
     r = api.run_multi_formula(formulas=["X=收盘价(贵州茅台)"], begin_date=20160101)
     ids = api.extract_obj_ids(r)      # {"X": "60f..."}
     d = api.read_data(ids=list(ids.values()), mode="smart_sample")
@@ -24,6 +25,14 @@ import os
 import re
 import sys
 import uuid
+
+from task_context import (
+    TaskContextError,
+    build_new_session_context,
+    inject_or_validate_task_id,
+    may_replace_session_task_id,
+    session_context_fields,
+)
 
 __all__ = ["QuantAPI"]
 
@@ -95,18 +104,24 @@ class QuantAPI:
     # ────────────────────────────────────────────
 
     def _read_session(self) -> str:
+        return self._read_session_full().get("task_id", "")
+
+    def _read_session_full(self) -> dict:
         try:
             with open(self._session_file, "r", encoding="utf-8") as f:
-                return json.load(f).get("task_id", "")
+                data = json.load(f)
+                return data if isinstance(data, dict) else {}
         except Exception:
-            return ""
+            return {}
 
-    def _write_session(self, task_id: str, user_query: str = None):
+    def _write_session(self, task_id: str, user_query: str = None, task_context: dict = None):
         self._task_id = task_id          # 同步更新内存，保证同一进程内一致
         os.makedirs(os.path.dirname(self._session_file), exist_ok=True)
         data = {"task_id": task_id, "skill_version_at_creation": _read_skill_version(self.skill_root)}
         if user_query is not None:
             data["user_query"] = user_query
+        if task_context:
+            data.update(session_context_fields(task_context))
         with open(self._session_file, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False)
 
@@ -127,14 +142,11 @@ class QuantAPI:
                 {"task_id": task_id, "user_query": user_query},
                 ensure_ascii=False,
             ).encode("utf-8")
-            headers = {
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key}",
-                "x-skill-version": _read_skill_version(self.skill_root),
-            }
-            channel = cfg.get("_channel") or ""
-            if channel:
-                headers["x-skill-channel"] = channel
+            headers = _ex._trace_headers(
+                {"task_id": task_id},
+                api_key=api_key,
+                content_type="application/json",
+            )
             req = urllib.request.Request(
                 f"{endpoint}/skill/session/begin",
                 data=payload,
@@ -163,13 +175,10 @@ class QuantAPI:
             if not endpoint or not api_key:
                 return {}
 
-            headers = {
-                "Authorization": f"Bearer {api_key}",
-                "x-skill-version": _read_skill_version(self.skill_root),
-            }
-            channel = cfg.get("_channel") or ""
-            if channel:
-                headers["x-skill-channel"] = channel
+            headers = _ex._trace_headers(
+                {"task_id": self._task_id or self._read_session()},
+                api_key=api_key,
+            )
             req = urllib.request.Request(
                 f"{endpoint}/skill/version/check",
                 headers=headers,
@@ -196,9 +205,13 @@ class QuantAPI:
         import uuid as _uuid
         params = dict(params or {})
 
-        # ── newSession：本地生成 UUID，不需要 HTTP ──────────────────
+        # ── newSession：独立模式生成 UUID；上游编排模式继承 task_id ──
         if tool_name == "newSession":
-            new_id = str(_uuid.uuid4())
+            try:
+                task_context = build_new_session_context(params, uuid_factory=_uuid.uuid4)
+            except TaskContextError as exc:
+                raise RuntimeError(f"{exc.code}: {exc.message}") from exc
+            new_id = task_context["task_id"]
             # 覆写前先读旧版本号
             _prev_ver = None
             try:
@@ -207,9 +220,10 @@ class QuantAPI:
             except Exception:
                 pass
             user_query = params.get("user_query")
-            self._write_session(new_id, user_query=user_query)   # 同时更新内存 + 文件
+            self._write_session(new_id, user_query=user_query, task_context=task_context)
             _cur_ver = _read_skill_version(self.skill_root)
-            self._report_session_begin(new_id, user_query=user_query)
+            if task_context["report_session_begin"]:
+                self._report_session_begin(new_id, user_query=user_query)
             _changed = bool(_prev_ver and _prev_ver != _cur_ver)
 
             # 主动查询服务端版本，便于上层 Agent 在 newSession 时立即知道是否需要升级
@@ -217,11 +231,14 @@ class QuantAPI:
             _resp = {
                 "code": 0,
                 "task_id": new_id,
+                "task_mode": task_context["task_mode"],
+                "task_id_source": task_context["task_id_source"],
+                "task_source": task_context["task_source"],
                 "skill_version": _cur_ver,
                 "version_changed_from_last_session": _changed,
                 "previous_skill_version": _prev_ver if _changed else None,
                 "message": (
-                    f"新 session 已创建（skill {_cur_ver}）。"
+                    f"{'上游 task_id 已继承' if task_context['task_id_locked'] else '新 session 已创建'}（skill {_cur_ver}）。"
                     + (f"检测到 skill 从 {_prev_ver} 升级到 {_cur_ver}，"
                        "必须先重读 SKILL.md 再继续。"
                        if _changed else
@@ -253,12 +270,15 @@ class QuantAPI:
                 pass  # 尚未创建 session，不阻断
 
         # ── 注入 task_id（优先用内存缓存，避免文件被并发覆盖导致跨批次漂移）──
-        if "task_id" not in params:
-            # 首次调用：内存为空时才读文件，读后缓存到内存
-            if not self._task_id:
-                self._task_id = self._read_session()
-            if self._task_id:
-                params["task_id"] = self._task_id
+        session_data = self._read_session_full()
+        if self._task_id:
+            session_data["task_id"] = self._task_id
+        elif session_data.get("task_id"):
+            self._task_id = session_data["task_id"]
+        try:
+            inject_or_validate_task_id(session_data, params)
+        except TaskContextError as exc:
+            raise RuntimeError(f"{exc.code}: {exc.message}") from exc
 
         # ── 确保 executor 在 sys.path 里，然后 import ───────────────
         if self._scripts_dir not in sys.path:
@@ -306,11 +326,13 @@ class QuantAPI:
         if isinstance(raw, dict) and raw.get("code") == 0:
             _data = raw.get("data")
             resp_tid = raw.get("task_id") or ((_data if isinstance(_data, dict) else {}).get("task_id"))
-            if resp_tid and resp_tid != self._task_id:
+            session_data = self._read_session_full()
+            if may_replace_session_task_id(session_data, resp_tid):
                 # 只写文件，不动内存
                 os.makedirs(os.path.dirname(self._session_file), exist_ok=True)
+                session_data["task_id"] = resp_tid
                 with open(self._session_file, "w", encoding="utf-8") as _f:
-                    json.dump({"task_id": resp_tid}, _f)
+                    json.dump(session_data, _f, ensure_ascii=False)
 
         # ── 配额累积器：提取 _quota，累加 session 级总消耗 ──────────
         if isinstance(raw, dict) and "_quota" in raw:
@@ -340,9 +362,21 @@ class QuantAPI:
     # Session 管理
     # ────────────────────────────────────────────
 
-    def new_session(self, user_query: str = None) -> str:
-        """初始化新 session，返回 task_id。每个独立任务开始时调一次。"""
-        params = {"user_query": user_query} if user_query is not None else None
+    def new_session(
+        self,
+        user_query: str = None,
+        task_id: str = None,
+        task_mode: str = "standalone",
+        task_source: str = None,
+    ) -> str:
+        """初始化 session；可显式 inherit 已由上游创建的 task_id。"""
+        params = {"task_mode": task_mode}
+        if user_query is not None:
+            params["user_query"] = user_query
+        if task_id is not None:
+            params["task_id"] = task_id
+        if task_source is not None:
+            params["task_source"] = task_source
         r = self._call("newSession", params)
         task_id = r.get("task_id", "")
         if not task_id:

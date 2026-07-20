@@ -41,6 +41,14 @@ import sys
 import tempfile
 import uuid
 
+from task_context import (
+    TaskContextError,
+    build_new_session_context,
+    inject_or_validate_task_id,
+    may_replace_session_task_id,
+    session_context_fields,
+)
+
 try:
     import select as _select
 except Exception:  # pragma: no cover
@@ -377,12 +385,14 @@ def _update_session_trace(task_id, trace_id):
         pass
 
 
-def _write_session(task_id, user_query=None):
+def _write_session(task_id, user_query=None, task_context=None):
     """持久化 task_id（和可选的 user_query）到 .session.json，同时写入当前 skill 版本。"""
     os.makedirs(os.path.dirname(SESSION_FILE), exist_ok=True)
     data = {"task_id": task_id, "skill_version_at_creation": _read_skill_version()}
     if user_query is not None:
         data["user_query"] = user_query
+    if task_context:
+        data.update(session_context_fields(task_context))
     with open(SESSION_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False)
 
@@ -1376,10 +1386,8 @@ def main():
     # 工具名前置校验：非法/缺失立即报错，杜绝“静默挂死读 stdin”
     _reject_bad_tool_name(tool_name)
 
-    # ── newSession：生成新 task_id 并持久化 ──────────────────────
+    # ── newSession：独立模式生成 UUID；上游编排模式继承 task_id ──
     if tool_name == "newSession":
-        new_id = str(uuid.uuid4())
-
         # 顺手清理超过 7 天的旧 session 文件，避免 output/ 累积垃圾
         _cleanup_stale_sessions()
 
@@ -1399,6 +1407,16 @@ def main():
             _ns_params = json.loads(_raw_params or "{}")
         except Exception:
             pass
+        try:
+            _task_context = build_new_session_context(_ns_params, uuid_factory=uuid.uuid4)
+        except TaskContextError as exc:
+            _safe_print(json.dumps({
+                "code": 1,
+                "error": exc.code,
+                "message": exc.message,
+            }, ensure_ascii=False, indent=2))
+            sys.exit(1)
+        new_id = _task_context["task_id"]
         user_query = _ns_params.get("user_query") or None
         user_id = _ns_params.get("user_id") or None
         # 当前模型：由上层 Agent 在 newSession 时传入，作为 body 参数随 session/begin 上报，
@@ -1413,7 +1431,7 @@ def main():
         except Exception:
             pass
 
-        _write_session(new_id, user_query=user_query)
+        _write_session(new_id, user_query=user_query, task_context=_task_context)
         _current_ver = _read_skill_version()
         _version_changed = bool(_prev_version and _prev_version != _current_ver)
 
@@ -1442,7 +1460,7 @@ def main():
             _endpoint = _cfg.get("endpoint", "").rstrip("/")
             _api_key = _cfg.get("api_key", "")
             _channel = _cfg.get("_channel", "")
-            if _endpoint and _api_key:
+            if _endpoint and _api_key and _task_context["report_session_begin"]:
                 _payload_dict = {"task_id": new_id, "user_query": user_query}
                 if user_id:
                     _payload_dict["user_id"] = user_id
@@ -1453,6 +1471,8 @@ def main():
                 _headers = {
                     "Content-Type": "application/json",
                     "Authorization": f"Bearer {_api_key}",
+                    "x-skill-name": "quant-buddy-skill",
+                    "x-task-id": new_id,
                     "x-skill-version": _current_ver,
                 }
                 if _channel:
@@ -1478,6 +1498,8 @@ def main():
                 if _endpoint and _api_key:
                     _vc_headers = {
                         "Authorization": f"Bearer {_api_key}",
+                        "x-skill-name": "quant-buddy-skill",
+                        "x-task-id": new_id,
                         "x-skill-version": _current_ver,
                     }
                     if _channel:
@@ -1526,11 +1548,14 @@ def main():
         _result_obj = {
             "code": 0,
             "task_id": new_id,
+            "task_mode": _task_context["task_mode"],
+            "task_id_source": _task_context["task_id_source"],
+            "task_source": _task_context["task_source"],
             "skill_version": _current_ver,
             "version_changed_from_last_session": _version_changed,
             "previous_skill_version": _prev_version if _version_changed else None,
             "message": (
-                f"新 session 已创建（skill {_current_ver}）。"
+                f"{'上游 task_id 已继承' if _task_context['task_id_locked'] else '新 session 已创建'}（skill {_current_ver}）。"
                 + (f"检测到 skill 从 {_prev_version} 升级到 {_current_ver}，"
                    "旧上下文中的工具签名/参数可能已失效，必须先重读 SKILL.md 再继续。"
                    if _version_changed else
@@ -1593,7 +1618,7 @@ def main():
                     _new_ver = _upgrade.get("new_version") or _activation_latest_version
                     _old_ver = _current_ver
                     try:
-                        _write_session(new_id, user_query=user_query)
+                        _write_session(new_id, user_query=user_query, task_context=_task_context)
                         _new_ver = _read_skill_version() or _new_ver
                     except Exception:
                         pass
@@ -1751,11 +1776,17 @@ def main():
             param_arg = f"@{tmp_path}"
 
         # ── 自动注入 session 字段（task_id、user_query）──────────────
-        session_task_id = _read_session()
+        session_data = _read_session_full()
         _needs_rewrite = False
-        if session_task_id and "task_id" not in params:
-            params["task_id"] = session_task_id
-            _needs_rewrite = True
+        try:
+            _needs_rewrite = inject_or_validate_task_id(session_data, params)
+        except TaskContextError as exc:
+            print(json.dumps({
+                "code": 1,
+                "error": exc.code,
+                "message": exc.message,
+            }, ensure_ascii=False, indent=2))
+            sys.exit(1)
         # 注入 user_query（供服务端 skill_call_logs trace 用）
         # 空串也视为“未传”，避免 Agent 误传空串导致后续工具 user_query 全部丢失
         try:
@@ -1851,14 +1882,24 @@ def main():
         if tool_name == "readData" and rc == 0:
             stdout = _auto_summarize_read_data(stdout, params)
         # runMultiFormulaBatchStream：code=0 但 data.success=false 时提升 errors
-        if tool_name == "runMultiFormulaBatchStream" and rc == 0:
+        if tool_name in ("runMultiFormulaBatchStream", "resumeJob") and rc == 0:
             stdout = _process_run_multi_formula_batch(stdout)
+            try:
+                from validation_receipt import apply_output_mode, write_receipt
+                _receipt_payload = json.loads(stdout)
+                _receipt_file = write_receipt(tool_name, params, _receipt_payload)
+                if _receipt_file:
+                    _receipt_payload["validation_receipt_file"] = _receipt_file
+                _receipt_payload = apply_output_mode(_receipt_payload, params.get("output_mode", "full"))
+                stdout = json.dumps(_receipt_payload, indent=2, ensure_ascii=False)
+            except Exception:
+                pass
         # ── 从响应中捕获 task_id，更新 session（服务端生成的UUID优先）──
         if rc == 0:
             try:
                 resp = json.loads(stdout)
                 resp_task_id = resp.get("task_id") or (resp.get("data") or {}).get("task_id")
-                if resp_task_id and resp_task_id != _read_session():
+                if may_replace_session_task_id(_read_session_full(), resp_task_id):
                     _write_session(resp_task_id)
                 # runMultiFormulaBatchStream SSE 返回会在顶层/data 中携带 trace_id
                 # 持久化到 session 供后续手工续传/调试，然后从输出中剥离避免泄露给 LLM
@@ -1893,8 +1934,10 @@ def main():
                             for _r in _rl:
                                 if isinstance(_r, dict):
                                     _r.pop("trace_id", None)
-                    # 内部标记不应外泄
-                    resp.pop("_deferred", None)
+                    # deferred 的 continuation contract 必须保留 _deferred；
+                    # 非 deferred 响应若意外携带该内部字段才剥离。
+                    if not resp.get("_deferred"):
+                        resp.pop("_deferred", None)
                     stdout = json.dumps(resp, indent=2, ensure_ascii=False)
             except Exception:
                 pass

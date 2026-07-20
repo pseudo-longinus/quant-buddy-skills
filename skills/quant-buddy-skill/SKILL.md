@@ -2,7 +2,7 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.23.1
+version: 4.23.4
 description: |
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据。
   查询最近N个交易日的价格序列、日涨跌幅序列、窗口最高价、最低价、振幅等短期统计。
@@ -15,7 +15,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.23.1
+  version: 4.23.4
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -101,11 +101,15 @@ runtimeRequirements:
 1. **认证后验与 session 初始化**：
    - 不要在普通查数题第一步读取 `config.json`，也不要检查 `.session.json`、`output/.session*.json` 或任何本地 session 文件。
    - 只要本轮准备调用平台原生工具，先直接调用原生 `newSession`；不得用 Bash / Glob / Read / ls 做 session 存在性探测。
+   - **quant-buddy-view 上游继承例外**：若当前任务由 quant-buddy-view 编排，且上游已经通过 `trace_context.py begin` 创建 task_id，不得再生成第二个 task_id。优先由 QBV 的 `scripts/qbs_bridge.py` 调用本技能；bridge 会传 `{"task_mode":"inherit","task_id":"<上游 task_id>","task_source":"quant-buddy-view","user_query":"<用户原始问题>"}` 并用 `QBS_SESSION_KEY=<task_id>` 隔离并发 session。此例外只用于跨 Skill 会话绑定。
+   - 继承 task_id 时必须使用显式 `task_mode=inherit`，不要通过 `qbv_` 等字符串前缀猜测来源。继承 session 会锁定 task_id；后续参数若传入不同值，必须按 `TASK_ID_CONTEXT_MISMATCH` 停止，不能静默拆链。
+   - quant-buddy-skill 独立使用时保持原行为：不传 `task_mode/task_id`，由 `newSession` 自动生成新的 UUID 并上报 session begin。
    - 工具实际返回 `api_key 为空` / `code: 1` / 401/402 时才进入认证引导并停止当前查数任务。
    - 同一对话追问可复用当前 session；新问题必须新建 session。
+   - 所有业务 HTTP/SSE 请求统一携带 `x-skill-name: quant-buddy-skill` 与当前 `x-task-id`，用于跨 Skill Trace 聚合；quant-buddy-view 上游任务不得切换 task_id。
 2. **原生工具优先，禁止脚本包装**：
    - 平台已有原生工具时，必须直接调用原生工具：`fast_query`、`confirmDataMulti`、`selectByComposition`、`runMultiFormulaBatchStream`、`resumeJob`、`readData`、`renderKLine`、`renderChart` 等。
-   - 禁止用 Bash / shell / Python / `scripts/call.py` / `run_skill_script` 包装已有原生平台工具。
+   - 禁止用 Bash / shell / Python / `scripts/call.py` / `run_skill_script` 包装已有原生平台工具。唯一编排例外是 quant-buddy-view 的 `qbs_bridge.py`，它只负责继承 task_id 和隔离 session，不改写业务参数或结果。
    - 只有平台明确不存在等价原生工具，且 workflow 明确允许脚本兜底时，才可使用本地脚本。
    - **许可例外（csv 解析）**：当 `fast_query` 返回 `mode:"csv"` + `csv_url`（数据点 > 500 的正常交付）时，调用 `python scripts/fetch_fastquery_csv.py "<csv_url>"` 下载并解析该 csv 属于**许可路径**——这是消费工具返回的 OSS 产物（平台无等价原生解析工具），不算"包装原生工具"。但仍禁止用裸 `curl` / 自写临时脚本替代该脚本。
    - 涉及资产时仍需先用 `grep presets/assets_db/{类型}.yaml` 搜索本地资产库，禁止整文件读取；命中多条先澄清，未命中再交给服务端兜底解析。
@@ -113,6 +117,7 @@ runtimeRequirements:
 3. **工具失败熔断：同类错误不得重复**
    - 同一工具、同一参数结构、同一错误类型出现第 1 次后，只能按 workflow 声明的备用路径切换；无备用路径则受控失败。
    - 禁止无新信息地重复调用失败工具；禁止尝试名称变体；禁止读更多文档代替执行；禁止用 shell/Python 包装绕过失败工具。
+   - `runMultiFormulaBatchStream` / `resumeJob` 只有最终 `completed` 且全部结果成功时才返回 `validation_receipt_file`；`failed`、部分失败、`deferred` 均不生成收据。QBV 编排必须以该收据作为进度完成证据。长结果可传 `output_mode:"summary"`：completed 保留 `data_id/expression_id/status`；deferred 额外完整保留 `status/task_id/trace_id/job_id/stream_url/_deferred`。deferred 缺 `task_id/trace_id` 时返回 `DEFERRED_CONTINUATION_MISSING`，禁止重提原批次。
 4. **任何 workflow 失败退出时必须输出受控失败答复**：禁止以空白或纯过程日志结束对话。失败答复必须包含：
    - ①用户的原始问题（一句话复述）
    - ②失败卡在哪一步（工具名 + 错误摘要）

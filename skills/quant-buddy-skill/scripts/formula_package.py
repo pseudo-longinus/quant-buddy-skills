@@ -58,6 +58,7 @@ import executor as _ex  # noqa: E402
 # “先 newSession + 版本检查、每个请求带 task_id/user_query” 的统一流程。
 # call.py 的 main() 受 __name__ 守卫，import 仅执行常量定义，无副作用。
 import call as _call  # noqa: E402
+from task_context import TaskContextError, inject_or_validate_task_id  # noqa: E402
 
 # 公式包接口的统一前缀（与 fastQuery 等不同，固定带 /skill）
 _PATH = {
@@ -128,18 +129,13 @@ def _config(require_key):
     return endpoint, cfg.get("api_key", "")
 
 
-def _headers(api_key=None, accept=None):
-    h = {
-        "Content-Type": "application/json; charset=utf-8",
-        "x-skill-version": _ex.SKILL_VERSION,
-    }
-    if _ex.SKILL_CHANNEL:
-        h["x-skill-channel"] = _ex.SKILL_CHANNEL
-    if api_key:
-        h["Authorization"] = f"Bearer {api_key}"
-    if accept:
-        h["Accept"] = accept
-    return h
+def _headers(api_key=None, accept=None, task_id=None):
+    return _ex._trace_headers(
+        {"task_id": task_id} if task_id else {},
+        api_key=api_key,
+        accept=accept,
+        content_type="application/json; charset=utf-8",
+    )
 
 
 def _http_json(method, url, headers, body=None, timeout=_DEFAULT_TIMEOUT):
@@ -197,7 +193,13 @@ def _session_context():
       guard = None 或版本不匹配的错误 dict（命中即应中止并提示重新 newSession）
     """
     data = _call._read_session_full()
-    ctx = {"task_id": data.get("task_id"), "user_query": data.get("user_query")}
+    ctx = {
+        "task_id": data.get("task_id"),
+        "user_query": data.get("user_query"),
+        "task_mode": data.get("task_mode"),
+        "task_source": data.get("task_source"),
+        "task_id_locked": data.get("task_id_locked") is True,
+    }
 
     # 版本守卫：与 call.py 行为一致 —— 仅当已有 session 且版本变化时拦截
     current = _call._read_skill_version()
@@ -219,8 +221,7 @@ def _session_context():
 
 def _inject_session(body, ctx):
     """把 session 的 task_id / user_query 注入请求体（已存在则不覆盖，空串视为未传）。"""
-    if ctx.get("task_id") and not body.get("task_id"):
-        body["task_id"] = ctx["task_id"]
+    inject_or_validate_task_id(ctx, body)
     if ctx.get("user_query") and not body.get("user_query"):
         body["user_query"] = ctx["user_query"]
     return body
@@ -248,7 +249,7 @@ def cmd_register(params, ctx):
             body[k] = params[k]
     _inject_session(body, ctx)
     reg = _http_json("POST", endpoint + _PATH["register"],
-                     _headers(api_key), body, timeout=_DEFAULT_TIMEOUT)
+                     _headers(api_key, task_id=ctx.get("task_id")), body, timeout=_DEFAULT_TIMEOUT)
     if reg.get("code") == 0 and reg.get("package_id"):
         saved = _save_credential(reg)
         if saved:
@@ -274,7 +275,7 @@ def cmd_query(params, ctx):
     _qbody = _inject_session({"package_id": pkg, "signature": sig}, ctx)
     body = json.dumps(_qbody).encode("utf-8")
     req = urllib.request.Request(endpoint + _PATH["query"], data=body,
-                                 headers=_headers(accept="text/event-stream"),
+                                 headers=_headers(accept="text/event-stream", task_id=ctx.get("task_id")),
                                  method="POST")
     outputs = {}
     progress = []
@@ -346,7 +347,7 @@ def cmd_list(params, ctx):
     if ctx.get("user_query"):
         qs_pairs.append(("user_query", ctx["user_query"]))
     url = f"{endpoint}{_PATH['list']}?" + _up.urlencode(qs_pairs)
-    return _http_json("GET", url, _headers(api_key))
+    return _http_json("GET", url, _headers(api_key, task_id=ctx.get("task_id")))
 
 
 def cmd_revoke(params, ctx):
@@ -354,7 +355,7 @@ def cmd_revoke(params, ctx):
     if not params.get("package_id"):
         return {"code": 1, "message": "revoke 需要 package_id"}
     body = _inject_session({"package_id": params["package_id"]}, ctx)
-    return _http_json("POST", endpoint + _PATH["revoke"], _headers(api_key), body)
+    return _http_json("POST", endpoint + _PATH["revoke"], _headers(api_key, task_id=ctx.get("task_id")), body)
 
 
 def cmd_refresh(params, ctx):
@@ -364,7 +365,7 @@ def cmd_refresh(params, ctx):
     body = {"package_id": params["package_id"],
             "rotate_signature": bool(params.get("rotate_signature", False))}
     _inject_session(body, ctx)
-    res = _http_json("POST", endpoint + _PATH["refresh"], _headers(api_key), body)
+    res = _http_json("POST", endpoint + _PATH["refresh"], _headers(api_key, task_id=ctx.get("task_id")), body)
     # 轮换签名时更新本地凭证
     if res.get("code") == 0 and res.get("signature"):
         cred = os.path.join(SKILL_ROOT, "output", "formula_packages",
@@ -420,6 +421,8 @@ def main():
 
     try:
         result = _COMMANDS[cmd](params, ctx)
+    except TaskContextError as e:
+        result = {"code": 1, "error": e.code, "message": e.message}
     except (FileNotFoundError, ValueError) as e:
         result = {"code": 1, "message": str(e)}
     _emit(result)

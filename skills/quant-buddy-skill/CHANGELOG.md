@@ -9,6 +9,14 @@
 
 ---
 
+## [4.23.4] — 2026-07-15
+
+- `output_mode:"summary"` 保留 deferred 的完整续传契约；缺少 `task_id/trace_id` 时返回 `DEFERRED_CONTINUATION_MISSING`，禁止重提原批次。
+- QBV 编排通过 task-scoped `QBS_SESSION_KEY` 继承上游 task_id，避免并发 Agent 共用默认 session 导致 Trace 拆链。
+- failed、部分失败和 deferred 继续不生成 `validation_receipt_file`。
+
+---
+
 ## [4.23.1] — 2026-07-07
 
 **变更文件**：`SKILL.md`、`CHANGELOG.md`、`presets/functions.yaml`、`presets/assets_db/*.yaml`、`presets/index_info_catalog/*.yaml`、`presets/index_info_catalog/manifest.yaml`、`presets/index_info_catalog/README.md`、`dev-tools/import_index_info_catalog.py`
