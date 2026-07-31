@@ -11,6 +11,8 @@
 
 不能满足任一条件时，退回 `quant-standard.md`。
 
+> `presets/dimensions.yaml` 只含**综合指标**（维度分）。若用户问的是「有哪些维度/指标」「某指标怎么算的」，或需要细分指标，那不是选股题——走 `tools/dimension_indicators.md`（`listDimensionIndicators` / `getIndicatorFormulas`），别硬塞进本流程。
+
 ## 2. 执行步骤
 
 1. 调 `newSession`。
@@ -23,7 +25,7 @@
    - 默认 `with_breakdown:true`。
 4. 输出 TopN 表格，并标注 `last_date`、`composition_used` 或 `screens_used`。
 5. 若 `selectByComposition` 失败：
-   - `INDICATOR_NOT_FOUND` 表示本地 `dimensions.yaml` 中的 `indicator_id` 与服务端 `qw_indicator` 当前可用记录不一致（缺记录、未启用、非 `status:"success"` 或非综合指标），不是“没读到本地 preset”；
+   - `INDICATOR_NOT_FOUND` 表示本地 `dimensions.yaml` 中的 `indicator_id` 与服务端 `qw_indicator` 当前可用记录不一致（缺记录、未启用、非 `status:"success"` 或非综合指标），不是“没读到本地 preset”；此时可用 `listDimensionIndicators '{"indicator_type":"综合"}'` 对一次服务端当前可用的综合指标，确认是本地快照过期还是指标确实下线；
    - 404 / Unknown tool / Not Found 表示当前服务端或工具 schema 尚未部署本接口；
    - 对可由公式复刻的 score 排名（如动量与反转、趋势结构类价格/量价指标），立即退回 `quant-standard.md`，并按原公式路径完成；
    - 对无法公式复刻的已物化专有指标，输出受控失败，说明“组合选股接口当前不可用”；

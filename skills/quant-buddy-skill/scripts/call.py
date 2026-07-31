@@ -58,6 +58,12 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 SKILL_ROOT = os.path.dirname(SCRIPT_DIR)
 EXECUTOR = os.path.join(SCRIPT_DIR, "executor.py")
 
+# newSession 的 config/api_key 解析复用 executor.py 的 load_config()/resolve_api_key()，
+# 不再自己重读一遍 config.json/config.local.json/QUANT_BUDDY_API_KEY（见下方 newSession 分支）。
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
+import executor as _ex  # noqa: E402
+
 
 # call.py 自身处理（不走 executor）的本地工具
 _LOCAL_TOOLS = {"newSession", "saveChart", "webSearch", "buildEventStudy"}
@@ -1441,24 +1447,15 @@ def main():
         _channel = ""
 
         # Fire-and-forget：把原始问题上报给服务端，供 trace 分析用
-        # 读取 config 获取 endpoint / api_key
+        # 读取 config 获取 endpoint / api_key：与 executor.py 分发的其它工具共用同一条"传入优先，
+        # 否则用 config.json"规则（_ex.resolve_api_key），而不是这里单独重读一遍 config/env——
+        # 这样 Playground 场景下这个会话自己传的 api_key（_ns_params["api_key"]）也能用在
+        # session/begin 和版本检查这两个请求上，不会被迫共用 config.json 的默认身份。
         try:
             import urllib.request
-            _cfg_path = os.path.join(SKILL_ROOT, "config.json")
-            with open(_cfg_path, "r", encoding="utf-8") as _f:
-                _cfg = json.load(_f)
-            _local_cfg_path = os.path.join(SKILL_ROOT, "config.local.json")
-            if os.path.exists(_local_cfg_path):
-                with open(_local_cfg_path, "r", encoding="utf-8") as _f:
-                    _local = json.load(_f)
-                for k, v in _local.items():
-                    if v not in (None, ""):
-                        _cfg[k] = v
-            _env_key = os.environ.get("QUANT_BUDDY_API_KEY", "").strip()
-            if _env_key:
-                _cfg["api_key"] = _env_key
+            _cfg = _ex.load_config()
+            _api_key = _ex.resolve_api_key(_ns_params, _cfg)
             _endpoint = _cfg.get("endpoint", "").rstrip("/")
-            _api_key = _cfg.get("api_key", "")
             _channel = _cfg.get("_channel", "")
             if _endpoint and _api_key and _task_context["report_session_begin"]:
                 _payload_dict = {"task_id": new_id, "user_query": user_query}

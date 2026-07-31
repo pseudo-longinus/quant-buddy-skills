@@ -80,13 +80,19 @@ class QuantAPI:
         quant-buddy-skill 的根目录，默认自动检测（本文件上两级）。
     timeout : int
         每次 API 调用的最大等待秒数，默认 300。
+    api_key : str, optional
+        本次会话实际用哪个 api_key：传了就用传入的（覆盖 config.json），不传就用
+        config.json/config.local.json/QUANT_BUDDY_API_KEY 解析出的默认值。QuantAPI 是按会话
+        实例化的（一个会话一个实例），这里是它的"传入优先"入口——不是 executor.py 那种每次调用单独传
+        JSON 参数的 CLI，per-session 的 key 天然应该在构造实例时给一次，而不是每个方法都单独传。
     """
 
-    def __init__(self, skill_root=None, timeout=300):
+    def __init__(self, skill_root=None, timeout=300, api_key=None):
         self.skill_root = skill_root or _SKILL_ROOT
         self.timeout = timeout
         self._scripts_dir = os.path.join(self.skill_root, "scripts")
         self._session_file = _resolve_session_file(self.skill_root)
+        self._api_key_override = str(api_key or "").strip()
         # in-memory task_id：一旦初始化后不再从文件重读，避免并发写入导致跨批次 task_id 漂移
         self._task_id: str = ""
         # 配额累积器：跨工具调用累计本 session 消耗的 RU
@@ -98,6 +104,14 @@ class QuantAPI:
                 f"找不到 scripts 目录: {self._scripts_dir}\n"
                 f"请确认 skill_root 指向 quant-buddy-skill 根目录"
             )
+
+    def _resolve_api_key(self, cfg):
+        """本实例（= 本会话）实际用哪个 api_key：构造时传入的 api_key 优先，否则用 cfg['api_key']
+        （load_config() 解析结果）；两者都没有则抛 ValueError。复用 executor.py 同一条判定规则。"""
+        if self._scripts_dir not in sys.path:
+            sys.path.insert(0, self._scripts_dir)
+        import executor as _ex  # noqa: PLC0415
+        return _ex._apply_api_key_override(self._api_key_override, cfg)
 
     # ────────────────────────────────────────────
     # Session 文件读写（与 call.py 共用同一个 .session.json）
@@ -134,7 +148,7 @@ class QuantAPI:
 
             cfg = _ex.load_config()
             endpoint = (cfg.get("endpoint") or "").rstrip("/")
-            api_key = cfg.get("api_key") or ""
+            api_key = self._resolve_api_key(cfg)
             if not endpoint or not api_key:
                 return
 
@@ -171,7 +185,7 @@ class QuantAPI:
 
             cfg = _ex.load_config()
             endpoint = (cfg.get("endpoint") or "").rstrip("/")
-            api_key = cfg.get("api_key") or ""
+            api_key = self._resolve_api_key(cfg)
             if not endpoint or not api_key:
                 return {}
 
@@ -290,21 +304,25 @@ class QuantAPI:
 
         cfg = _ex.load_config()
         method, path = _ex.TOOL_ROUTES[tool_name]
+        try:
+            api_key = self._resolve_api_key(cfg)
+        except ValueError as e:
+            raise RuntimeError(str(e)) from e
 
         try:
             if tool_name == "runMultiFormulaBatchStream":
                 # SSE 主路径；服务端未部署时回退同步老接口
                 try:
                     raw = _ex.call_run_multi_formula_batch_stream(
-                        cfg["endpoint"], cfg["api_key"], params, timeout=self.timeout)
+                        cfg["endpoint"], api_key, params, timeout=self.timeout)
                 except _ex._StreamUnsupportedError:
-                    raw = _ex.call_post(cfg["endpoint"], cfg["api_key"], path, params,
+                    raw = _ex.call_post(cfg["endpoint"], api_key, path, params,
                                         timeout=self.timeout)
             elif method == "GET":
-                raw = _ex.call_get(cfg["endpoint"], cfg["api_key"], path, params,
+                raw = _ex.call_get(cfg["endpoint"], api_key, path, params,
                                    timeout=self.timeout)
             else:
-                raw = _ex.call_post(cfg["endpoint"], cfg["api_key"], path, params,
+                raw = _ex.call_post(cfg["endpoint"], api_key, path, params,
                                     timeout=self.timeout)
         except Exception as e:
             raise RuntimeError(f"HTTP 调用失败 [{tool_name}]: {e}") from e

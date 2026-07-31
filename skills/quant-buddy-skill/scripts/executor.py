@@ -158,6 +158,8 @@ TOOL_ROUTES = {
     "renderKLine":           ("POST", "/renderKLine"),
     "stockProfile":          ("POST", "/stockProfile"),
     "selectByComposition":   ("POST", "/selectByComposition"),
+    "listDimensionIndicators": ("POST", "/listDimensionIndicators"),
+    "getIndicatorFormulas":  ("POST", "/getIndicatorFormulas"),
     "getChartSpec":          ("GET",  "/chartSpec/{task_id}"),
     "reRenderChart":         ("POST", "/reRenderChart"),
     "scanDimensions":        ("POST", "/scanDimensions"),
@@ -176,6 +178,8 @@ TOOL_TIMEOUTS = {
     "renderKLine":          900,
     "stockProfile":         900,
     "selectByComposition":  120,   # 轻量 DB 查询，避免按公式任务长时间等待
+    "listDimensionIndicators": 120,  # 同上，纯 DB 目录查询
+    "getIndicatorFormulas": 120,     # 同上，DB 查询 + 服务端拓扑排序
     "reRenderChart":        900,
 }
 
@@ -461,16 +465,48 @@ def load_config():
                     cfg[k] = v
         except Exception:
             pass
-    # 环境变量优先（QUANT_BUDDY_API_KEY）——标准 credential 声明方式
-    env_key = os.environ.get("QUANT_BUDDY_API_KEY", "").strip()
-    if env_key:
-        cfg["api_key"] = env_key
+    # 环境变量仅作最低优先级兜底：只在 config.json / config.local.json 都没有 api_key 时才生效，
+    # 不作为常规覆盖手段（真正的临时覆盖走调用方 params 里的 api_key，见 main() 的 override_api_key）。
     if not cfg.get("api_key"):
+        env_key = os.environ.get("QUANT_BUDDY_API_KEY", "").strip()
+        if env_key:
+            cfg["api_key"] = env_key
+    return cfg
+
+
+def _apply_api_key_override(override, cfg):
+    """给定一个已经取出的 override 值（可能是空串），按"传入优先，否则用 config"决出最终 api_key；
+    最终仍为空则抛 ValueError。不关心 override 是怎么取出来的，供不同调用点在各自合适的时机复用同一条
+    判定规则，而不必都在同一处 pop 参数。
+
+    QBS_API_KEY 环境变量：跟现有的 QBS_SESSION_KEY/QBS_SESSION_FILE 同一档，是"这次调用要用哪个 key"的
+    显式覆盖通道，排在 override（调用方 params.api_key）之后、cfg['api_key']（config.json 解析结果）
+    之前——调用方拿到一份既有 @file 参数、不方便现改这份文件去塞 api_key 时可以直接用它，效果等价于在
+    顶层参数里传了 api_key，不会被 config.json 里已有的默认 key 悄悄盖掉。跟仅作最低优先级兜底的
+    QUANT_BUDDY_API_KEY（只在 config.json 也为空时才生效，见 load_config()）是两回事，不要混用。
+    """
+    api_key = (override or "").strip()
+    if not api_key:
+        api_key = os.environ.get("QBS_API_KEY", "").strip()
+    if not api_key:
+        api_key = (cfg or {}).get("api_key", "")
+    if not api_key:
         raise ValueError(
             "api_key 为空。请设置环境变量 QUANT_BUDDY_API_KEY，"
             "或在 config.json / config.local.json 中填入 api_key 字段（从 https://www.quantbuddy.cn/login 获取）"
         )
-    return cfg
+    return api_key
+
+
+def resolve_api_key(params, cfg):
+    """本次调用实际用哪个 api_key：params.api_key（有传就用，原地 pop 掉，避免混进请求体/日志）>
+    cfg['api_key']（load_config() 已经按 config.json / config.local.json / QUANT_BUDDY_API_KEY 兜底
+    解析好的结果）。不落盘、不设置进程环境变量，调用方（如 Playground）可放心每次传入不同会话的 key。
+    最终仍为空则抛 ValueError，沿用既有的用户引导文案（配置向导依赖这条消息触发）。"""
+    override = ""
+    if isinstance(params, dict):
+        override = str(params.pop("api_key", "") or "").strip()
+    return _apply_api_key_override(override, cfg)
 
 
 def call_multipart(endpoint, api_key, path, file_path, fields=None, timeout=900):
@@ -1068,6 +1104,15 @@ def main():
             }, ensure_ascii=False))
             sys.exit(1)
 
+    # 调用方（如 Playground）可在 params 里附带 api_key，本次调用临时覆盖 config.json，
+    # 优先级最高（高于 config.json，也高于仅作兜底用的 QUANT_BUDDY_API_KEY 环境变量）；
+    # 不落盘、不设置进程环境变量。这里先 pop 掉（早于下面任何工具专属校验/请求体拼装），避免它混进
+    # 发给后端的请求体/日志；真正"override 优先，否则用 config"的判定见下面 _apply_api_key_override()
+    # （与 resolve_api_key() 共用同一条规则，供 formula_package.py / quant_api.py / call.py 复用）。
+    override_api_key = ""
+    if isinstance(params, dict):
+        override_api_key = str(params.pop("api_key", "") or "").strip()
+
     # ── 客户端必填参数前置校验（在网络调用前拦截，避免浪费 RU 配额）──────
     if tool_name == "runMultiFormulaBatchStream":
         if not params.get("task_id"):
@@ -1167,12 +1212,16 @@ def main():
     # 加载配置
     try:
         cfg = load_config()
-    except (FileNotFoundError, ValueError) as e:
+    except FileNotFoundError as e:
         print(json.dumps({"code": 1, "message": str(e)}, ensure_ascii=False))
         sys.exit(1)
 
     endpoint = cfg["endpoint"].rstrip("/")
-    api_key = cfg["api_key"]
+    try:
+        api_key = _apply_api_key_override(override_api_key, cfg)
+    except ValueError as e:
+        print(json.dumps({"code": 1, "message": str(e)}, ensure_ascii=False))
+        sys.exit(1)
 
     # 特殊处理：uploadData（两阶段）
     if tool_name == "uploadData":

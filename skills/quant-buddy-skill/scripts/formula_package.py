@@ -110,10 +110,18 @@ def _read_params(argv):
         sys.exit(1)
 
 
-def _config(require_key):
-    """加载 endpoint(+api_key)。query 子命令 require_key=False。"""
+def _config(require_key, params=None):
+    """加载 endpoint(+api_key)。query 子命令 require_key=False。
+
+    require_key=True 时，本次调用实际用哪个 api_key 走与 executor.py 同一条规则（见
+    _ex.resolve_api_key）：params 里传了 api_key 就用传入的（原地 pop 掉，不落盘/不混进请求体），
+    没传就用 config.json/config.local.json/QUANT_BUDDY_API_KEY 解析出的默认值；两者都没有则报错。
+    这样公式包的注册/查询/撤销/刷新也能像 executor.py 分发的工具一样接受调用方自带的 api_key，
+    不再被迫和其它并发会话共用 config.json 里的默认身份。
+    """
     if require_key:
-        cfg = _ex.load_config()           # 缺 api_key 会抛 ValueError
+        cfg = _ex.load_config()
+        api_key = _ex.resolve_api_key(params, cfg)
     else:
         # query 不需要 api_key；只取 endpoint，api_key 缺失也不报错
         try:
@@ -123,10 +131,11 @@ def _config(require_key):
             path = os.path.join(SKILL_ROOT, "config.json")
             with open(path, "r", encoding="utf-8") as f:
                 cfg = json.load(f)
+        api_key = cfg.get("api_key", "")
     endpoint = (cfg.get("endpoint") or "").rstrip("/")
     if not endpoint:
         raise ValueError("config.json 缺少 endpoint")
-    return endpoint, cfg.get("api_key", "")
+    return endpoint, api_key
 
 
 def _headers(api_key=None, accept=None, task_id=None):
@@ -232,7 +241,7 @@ def _inject_session(body, ctx):
 # ────────────────────────────────────────────────
 
 def cmd_register(params, ctx):
-    endpoint, api_key = _config(require_key=True)
+    endpoint, api_key = _config(require_key=True, params=params)
     formulas = params.get("formulas")
     reads = params.get("reads")
     if not isinstance(formulas, list) or not formulas:
@@ -337,7 +346,7 @@ def cmd_query(params, ctx):
 
 def cmd_list(params, ctx):
     import urllib.parse as _up
-    endpoint, api_key = _config(require_key=True)
+    endpoint, api_key = _config(require_key=True, params=params)
     page = params.get("page", 1)
     page_size = params.get("page_size", 20)
     # task_id / user_query 走 query string，供服务端 audit 中间件落库
@@ -351,7 +360,7 @@ def cmd_list(params, ctx):
 
 
 def cmd_revoke(params, ctx):
-    endpoint, api_key = _config(require_key=True)
+    endpoint, api_key = _config(require_key=True, params=params)
     if not params.get("package_id"):
         return {"code": 1, "message": "revoke 需要 package_id"}
     body = _inject_session({"package_id": params["package_id"]}, ctx)
@@ -359,7 +368,7 @@ def cmd_revoke(params, ctx):
 
 
 def cmd_refresh(params, ctx):
-    endpoint, api_key = _config(require_key=True)
+    endpoint, api_key = _config(require_key=True, params=params)
     if not params.get("package_id"):
         return {"code": 1, "message": "refresh 需要 package_id"}
     body = {"package_id": params["package_id"],

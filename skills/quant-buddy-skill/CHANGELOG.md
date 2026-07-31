@@ -9,6 +9,23 @@
 
 ---
 
+## [4.24.0] — 2026-07-31
+
+**变更文件**：`SKILL.md`、`tools/dimension_indicators.md`（新增）、`scripts/executor.py`、`workflows/composition-select.md`、`CHANGELOG.md`、`../docs/更新skill版本数据库sql语句.md`
+
+新增「维度指标库」能力：以前 skill 只能通过 `presets/dimensions.yaml` 看到**综合指标**（维度分）并拿去 `selectByComposition` 选股，看不到细分指标，也拿不到任何指标的口径公式。本次接入两个服务端只读接口，把整套指标库和公式定义打开。
+
+- **新增工具 `listDimensionIndicators`**：按维度返回指标目录，细分 + 综合都有（当前 17 个维度 / 163 个指标）。支持 `dimension` / `asset_scope` / `indicator_type` / `output_type` / `keyword` 过滤。默认档只回答「用哪个指标」：维度层 3 个字段（名字/说明/指标数），每条指标 6 个字段（口径细节去 `getIndicatorFormulas` 拿）；`status` 和 `has_formula:false` 是例外字段，只在不正常时出现。四档详略：`with_indicators:false` 仅目录（约 1.6KB）、`compact` 4 字段（约 20KB）、默认 6 字段（约 29KB）、`verbose` 全字段（约 58KB）。⚠️ 默认档不含 `indicator_type`，要拿去喂 `selectByComposition` 时必须带 `indicator_type:"综合"` 查（该接口只接受综合指标）。
+- **新增工具 `getIndicatorFormulas`**：按指标名返回该指标的完整公式组。`name` / `ind_id` / `index_title` 三种写法都认，精确优先，歧义返回 `candidates` 不猜。返回的 `formulas` **依赖在前、目标在最后，可原样传给 `runMultiFormulaBatchStream`**；超 20 条时带 `batch_hint.layers` 分批方案和每批的 `force_reusable_array`。
+- **SKILL.md 新增「维度指标库」概念段**（在「平台数据覆盖范围」下）：讲清 维度 → 指标 → 公式 三层、`细分`/`综合` 的区别、`name` 与 `index_title` 从不相同这一坑，以及「选股走 dimensions.yaml，问口径走新工具」的分流。
+- **场景路由新增一行**：「维度指标库查询 / 指标口径与公式」→ `tools/dimension_indicators.md`。
+- **`presets/dimensions.yaml` 定位澄清**：目录树里标明它是本地快照、**只含综合指标**，要细分指标或公式需在线查。两者并存，选股路径不变。
+- **`composition-select.md`**：补充「问口径不是选股题」的出口，以及 `INDICATOR_NOT_FOUND` 时用 `listDimensionIndicators` 核对服务端当前可用综合指标，区分本地快照过期与指标下线。
+- **`executor.py`**：两个工具进 `TOOL_ROUTES`（`call.py` 白名单随之自动生效）与 `TOOL_TIMEOUTS`（各 120s，纯 DB 查询）。
+- **发布配套**：数据库版本 SQL 同步到 `4.24.0`，继续采用软升级策略；GitHub `v4.24.0` tag 和 zip 尚未生成时，SHA-512 必须保留为占位符，发布后用真实归档哈希替换再执行。
+
+---
+
 ## [4.23.4] — 2026-07-15
 
 - `output_mode:"summary"` 保留 deferred 的完整续传契约；缺少 `task_id/trace_id` 时返回 `DEFERRED_CONTINUATION_MISSING`，禁止重提原批次。

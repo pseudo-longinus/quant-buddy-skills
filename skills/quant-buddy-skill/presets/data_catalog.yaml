@@ -76,6 +76,32 @@ price:
     minute_mapped: true
     description: "A股全市场日度成交量（股），二维矩阵"
 
+  - index_title: A股收盘涨停
+    dimension: two
+    is_bool: false
+    intention_alias: A股涨停,今日涨停,收盘涨停,涨停名单,A股涨停名单,A股收盘涨停名单
+    description: "A股全市场收盘涨停数据，二维矩阵（资产×日期）。用于回答今日/收盘涨停股票名单，优先于用涨跌幅阈值自写公式重算。"
+
+  - index_title: A股收盘跌停
+    dimension: two
+    is_bool: true
+    intention_alias: A股跌停,今日跌停,收盘跌停,跌停名单,A股跌停名单,A股收盘跌停名单
+    description: "A股全市场收盘跌停布尔掩码，二维矩阵（资产×日期）。包含不同交易板块及ST股票的交易所跌停口径；用于回答今日/收盘跌停股票名单，优先于用涨跌幅阈值自写公式重算。"
+
+  - index_title: A股收盘涨停（分钟刷新）
+    dimension: two
+    is_bool: false
+    minute_mapped: true
+    intention_alias: A股涨停分钟刷新,今日涨停分钟刷新,当前涨停,A股当前涨停,盘中涨停,涨停名单分钟刷新,A股收盘涨停分钟刷新
+    description: "A股全市场收盘涨停数据（分钟刷新），二维矩阵（资产×日期）。用于回答当前/今日/盘中涨停股票名单，优先于用涨跌幅阈值自写公式重算。使用前必须校验 readData/description 返回的实际最新日期；若最新日期早于用户询问日期，不得表述为当前/今日数据。"
+
+  - index_title: A股收盘跌停（分钟刷新）
+    dimension: two
+    is_bool: false
+    minute_mapped: true
+    intention_alias: A股跌停分钟刷新,今日跌停分钟刷新,当前跌停,A股当前跌停,盘中跌停,跌停名单分钟刷新,A股收盘跌停分钟刷新
+    description: "A股全市场收盘跌停数据（分钟刷新），二维矩阵（资产×日期）。用于回答当前/今日/盘中跌停股票名单，优先于用涨跌幅阈值自写公式重算。使用前必须校验 readData/description 返回的实际最新日期；若最新日期早于
+
 # ── 估值类（数值，二维，日频）───────────────────────────────
 valuation:
   - index_title: A股市盈率（PE）〔估值数据〕

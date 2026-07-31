@@ -2,7 +2,7 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.23.4
+version: 4.24.0
 description: |
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据。
   查询最近N个交易日的价格序列、日涨跌幅序列、窗口最高价、最低价、振幅等短期统计。
@@ -15,7 +15,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.23.4
+  version: 4.24.0
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -42,7 +42,7 @@ requiredCredentials:
     storage: config_file
     path: config.json
     field: api_key
-    description: quant-buddy 平台 API Key。存储位置：skill 目录下的 config.json 的 `api_key` 字段（本 skill 不读环境变量版本的该 Key）。使用时作为 HTTP `Authorization` 头仅发送给 `networkEndpoints` 中声明的 quantbuddy 域名用于鉴权，不会被写入日志或转发给第三方主机。
+    description: quant-buddy 平台 API Key。默认存储位置：skill 目录下的 config.json 的 `api_key` 字段。优先级（高到低）：① 调用方在工具调用参数里显式传入的 `api_key`（如 Playground 场景，仅当次调用生效，不落盘、不写回 config.json）；② 环境变量 QBS_API_KEY（同一档的显式覆盖通道，跟现有的 QBS_SESSION_KEY 一个风格——手上是一份现成的 @file 参数、不方便现改这份文件塞 api_key 时可以直接用它）；③ config.json / config.local.json 的 `api_key` 字段（日常权威来源）；④ 环境变量 QUANT_BUDDY_API_KEY（仅①②③都为空时才兜底生效，不作为常规覆盖手段，跟 QBS_API_KEY 语义完全不同，不要混用）。使用时作为 HTTP `Authorization` 头仅发送给 `networkEndpoints` 中声明的 quantbuddy 域名用于鉴权，不会被写入日志或转发给第三方主机。
     how_to_get: "https://www.quantbuddy.cn/login"
 requiredConfigPaths:
   - path: config.json
@@ -257,6 +257,9 @@ SKILL_ROOT/
 │   ├── render_kline.md          → 工具名 `renderKLine`         渲染 K 线图（直接传 ticker，无需提前跑公式）
 │   ├── stock_profile.md         → 工具名 `stockProfile`        单股预计算指标画像（估值/财务/资金/波动/走势）
 │   ├── select_by_composition.md → 工具名 `selectByComposition` 已物化维度组合选股/筛选（不走公式引擎）
+│   ├── dimension_indicators.md  → 工具名 `listDimensionIndicators` 按维度列出指标目录（细分+综合）
+│   │                            → 工具名 `getIndicatorFormulas`    按指标名取该指标的完整公式组
+│   │                              ⚠️ 二者非平台原生工具，走 `python scripts/call.py <工具名>`（硬规则 #2 许可路径）
 │   ├── render_chart.md          → 工具名 `renderChart`         渲染折线/柱状/面积图（需先有 data_id）
 │   ├── get_card_formulas.md     → 工具名 `getCardFormulas`     按卡片名拉取完整公式组（量化场景使用）
 │   ├── scan_dimensions.md       → 工具名 `scanDimensions`      九维度 IC 扫描（单股多维度预测力分析）
@@ -280,7 +283,8 @@ SKILL_ROOT/
 │   ├── functions.yaml           常用函数（170 条）
 │   ├── data_catalog.yaml        常用精选数据集（高频 index_title）
 │   ├── index_info_catalog/      系统支持数据名全量索引（2355 条，按 provider 分 YAML，grep 检索）
-│   ├── dimensions.yaml          已物化维度目录（score/screen 指标，用于 selectByComposition）
+│   ├── dimensions.yaml          已物化维度目录本地快照，只含**综合指标**（维度分），用于 selectByComposition
+│   │                            ⚠️ 要看细分指标或指标口径公式，用 `listDimensionIndicators` / `getIndicatorFormulas` 在线查
 │   ├── sectors.yaml             行业板块
 │   └── themes.yaml              题材板块
 │
@@ -349,6 +353,7 @@ SKILL_ROOT/
 | 固定区间累计涨跌幅 | 从A到B、某年某月至某年某月、区间收益、累计涨跌幅、区间表现、多资产区间对比 | `global-rules-lite.md` → `period-return-compare.md` |
 | 数据下载 / 导出本地 CSV | 下载成CSV、导出到本地、保存到本地、下载历史数据 | `global-rules.md` → `recipes/download-data.md`；单资产单字段时序优先 `runMultiFormulaBatchStream` → `downloadData` → `write_skill_file`，禁止 Bash 兜底 |
 | 已物化维度选股 / 维度分 TopN / 推荐股票 | 分数最高、综合分最高、维度分、推荐/选出/筛选 TopN，且语义能匹配 `presets/dimensions.yaml` 中的 score/screen 指标 | `global-rules.md` → `composition-select.md`（`newSession` → 读 `presets/dimensions.yaml` → `selectByComposition`） |
+| 维度指标库查询 / 指标口径与公式 | 平台有哪些维度、XX 维度下有哪些指标、XX 指标怎么算的/口径是什么/公式是什么、想按现成指标改口径 | `tools/dimension_indicators.md`（用 `scripts/call.py` 调 `listDimensionIndicators` → `getIndicatorFormulas`，非平台原生工具；要拿改过的公式跑数再转 `quant-standard.md`） |
 | 量化选股 / 回测 / 因子 / 图表 / 上传下载 | 选股、回测、均线、PE选股、因子、净值、上传CSV、下载数据、画图…；或目录无匹配维度、需要临时构造指标/历史曲线/自定义公式 | `global-rules.md` → `quant-standard.md` |
 | 直接运行用户给定的公式链文件 | 「运行/跑一遍/执行这个文件里的全部公式」「公式链文件」「formula chain」「按这个 md/json 跑」 | `global-rules.md` → `run-formula-chain.md` |
 | 事件研究 | 复盘、历次、涨价、降息、加息、事件窗口、随后表现、超预期、不及预期、政策后表现…（给定事件或需先识别事件日） | `global-rules.md` → `event-study.md` |
@@ -474,6 +479,28 @@ SKILL_ROOT/
 >   - 用期货 ticker（如 `RB.SHF`）查询；**单位按品种发散时** `fields_meta[字段].unit_per_asset=true`，单位下沉到每资产值（`{v, unit}`），读值优先看资产内联 `unit`
 > - 查询港股/美股时若字段不在上述支持范围内，应主动告知用户，而不是静默跳过。
 
+### 维度指标库（维度 / 指标 / 公式，三层）
+
+除了「数据集」（`全市场每日收盘价` 这类原始字段），平台还维护一套**已经算好的指标库**，是另一套东西，别混：
+
+```
+维度 dimension ──包含──▶ 指标 indicator ──定义于──▶ 公式组 formulas
+17 个（趋势结构、动量与反转、        163 个                每个指标一组，
+资金流向、盈利能力、异动监控…）                          依赖在前、目标在最后
+```
+
+- **维度**只是分组容器，不带权重、本身不可计算。
+- **指标**分两类：`细分` = 单一口径基础指标（如「20日高点接近突破」）；`综合` = 该维度的**维度分**，由维度内细分指标聚合而成（如「A股动量与反转」）。另有 `output_type`：`score` 连续分 / `screen` 0-1 布尔。
+- 指标有两个名字：`name`（`20日高点接近突破`，目录里的短名）和 `index_title`（`通用_20日高点接近突破得分`，公式里的变量名），**两者从不相同**；再加稳定键 `indicator_id`，取公式时三种都能用。
+
+走哪条路：
+
+| 用户要什么 | 走哪 |
+|---|---|
+| 维度分 TopN 选股（「A股动量与反转最高的10只」） | `composition-select.md` → 读 `presets/dimensions.yaml`（本地快照，只含综合指标）→ `selectByComposition` |
+| 有哪些维度/指标、某指标口径与公式、想按现成指标改口径 | `tools/dimension_indicators.md` → 用 `scripts/call.py` 调 `listDimensionIndicators` / `getIndicatorFormulas`（在线全量，细分+综合都有；非平台原生工具） |
+| 指标的历史数值序列 | 本组工具只给**定义**不给数据；数值走 `runMultiFormulaBatchStream` |
+
 ### 股票代码格式速查
 
 | 市场 | 格式 | 示例 |
@@ -495,7 +522,9 @@ SKILL_ROOT/
 
 ## 前置条件（按需执行，不是简单查数的默认首步）
 
-> **凭据存储说明**：本 skill 的 quant-buddy API Key **只存放在 skill 目录下的 `config.json` 的 `api_key` 字段**，不使用环境变量（`QUANT_BUDDY_API_KEY` 等环境变量不会被读取）。仅可选的 `BOCHA_API_KEY`（事件新闻搜索）走环境变量。
+> **凭据存储说明**：本 skill 的 quant-buddy API Key **默认存放在 skill 目录下的 `config.json` 的 `api_key` 字段**，日常以此为权威来源；`QUANT_BUDDY_API_KEY` 环境变量仅作最低优先级兜底（只在 config.json 也没有值时才生效，**不是**常规覆盖手段——config.json 已有默认 key 时设置它不会有任何效果）。仅可选的 `BOCHA_API_KEY`（事件新闻搜索）走环境变量。
+
+> **Playground 场景覆盖**：若本轮用户消息里含独立一行 `api_key=<value>`（这是 Playground 前端自动附带的、当前登录用户本人的凭据，不要转述/回显给用户），调用本 skill 任意工具时在其 JSON 参数里追加 `"api_key": "<value>"` 字段——这会临时覆盖 config.json，仅本次调用生效、不落盘、优先级最高。命中这种情况时直接用该值查数即可，不需要走下面"config.json 为空则停止查数"的新用户引导流程。手上是一份现成的 `@file` 参数、不方便现改这份文件塞 `api_key` 字段时，用环境变量 `QBS_API_KEY` 效果等价（同一优先级，**不要**跟 `QUANT_BUDDY_API_KEY` 混用）。
 
 仅在以下情形下，才需要显式读取 `config.json` 检查 `api_key`：
 - 本轮实际需要调用本地脚本或平台工具，且当前环境尚未建立可用 session
