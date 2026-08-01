@@ -9,6 +9,20 @@
 
 ---
 
+## [4.24.1] — 2026-08-01
+
+**变更文件**：`SKILL.md`、`CHANGELOG.md`、`presets/assets_db/stock_a.yaml`、`presets/assets_db/stock_hk.yaml`、`presets/assets_db/stock_us.yaml`、`../docs/更新skill版本数据库sql语句.md`
+
+从 MongoDB `quanLiang.tkrsInfo` 刷新本地资产名称、ticker 与行业映射快照。本次数据库共 10,568 条文档，跳过 6 条无法分类或必要字段为空的记录；同步后再次 dry-run 为零差异，五类资产文件格式和 ticker 唯一性校验通过。
+
+- **A 股资产库**：`stock_a.yaml` 保持 5,561 条，共刷新 227 个 ticker 的资料；其中 3 个名称更新（`SZ000793`：`*ST华闻` → `ST华闻`，`SZ000820`：`*ST节能` → `神雾节能`，`SZ301677`：`欣兴工具` → `C欣兴工具`），225 个 ticker 的行业字段按源库更新。
+- **港股资产库**：`stock_hk.yaml` 从 3,067 条增至 3,068 条，新增 `HK2261 拿森科技`。
+- **美股资产库**：`stock_us.yaml` 从 1,068 条增至 1,070 条，新增 `SPCX.N SpaceX`、`SKHY.N 海力士`。
+- **指数与期货**：`index.yaml` 保持 606 条、`future.yaml` 保持 257 条，内容与源库一致，本次无 Git 差异。
+- **发布配套**：`SKILL.md` 两处版本号升至 `4.24.1`；数据库版本 SQL 同步到 `4.24.1`，继续采用软升级策略。GitHub `v4.24.1` tag 和 zip 尚未生成时，SHA-512 必须保留为占位符，发布后使用真实归档哈希替换再执行。
+
+---
+
 ## [4.24.0] — 2026-07-31
 
 **变更文件**：`SKILL.md`、`tools/dimension_indicators.md`（新增）、`scripts/executor.py`、`workflows/composition-select.md`、`CHANGELOG.md`、`../docs/更新skill版本数据库sql语句.md`
