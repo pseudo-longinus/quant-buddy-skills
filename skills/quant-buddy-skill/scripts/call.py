@@ -1644,7 +1644,9 @@ def main():
         _safe_print(result)
         sys.exit(0)
 
-    # ── 事件研究本地工具（不走 executor / 平台 API）───────────────
+    # ── 本地辅助工具（不走 executor / 平台 API）─────────────────
+    # webSearch 是通用外部事实搜索（事件研究、资产状态核验等）；
+    # buildEventStudy 仍是事件研究专用。
     if tool_name in ("webSearch", "buildEventStudy"):
         from event_study_local import bocha_web_search, build_event_study
 

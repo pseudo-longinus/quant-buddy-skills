@@ -11,6 +11,13 @@
 
 ## [4.24.1] — 2026-08-01
 
+### 同版修复：时效性事实核验门禁
+
+- 新增 `workflows/external-fact-verification.md`，在最新上市/退市/更名/换代码、知识冲突，以及“本地资产库命中但平台返回 `ASSET_NOT_FOUND`”时强制核验外部事实。
+- 明确区分 `external_fact_status` 与 `quant_buddy_data_status`；平台接口未识别资产不得推导为公司未上市，网页搜索结果也不得冒充 Quant Buddy 行情、公式、Grant 或验证收据。
+- `stock-profile.md`、`quick-lookup.md` 接入 `asset_catalog_conflict` 分支；`event-study.md` 复用统一的搜索工具与来源优先级，同时保留事件研究专用的日期和收益计算门禁。
+- 复用现有 Agent Web Search 与本地 `webSearch` / Bocha，不新增搜索接口、不修改配置优先级；增加 SpaceX 原故障回放契约测试和 Bocha 无网络 mock 测试。
+
 **变更文件**：`SKILL.md`、`CHANGELOG.md`、`presets/assets_db/stock_a.yaml`、`presets/assets_db/stock_hk.yaml`、`presets/assets_db/stock_us.yaml`、`../docs/更新skill版本数据库sql语句.md`
 
 从 MongoDB `quanLiang.tkrsInfo` 刷新本地资产名称、ticker 与行业映射快照。本次数据库共 10,568 条文档，跳过 6 条无法分类或必要字段为空的记录；同步后再次 dry-run 为零差异，五类资产文件格式和 ticker 唯一性校验通过。

@@ -1,4 +1,4 @@
-"""事件研究本地工具：博查搜索 + 公式生成。
+"""本地辅助工具：通用外部事实搜索（Bocha 兜底）+ 事件研究公式生成。
 
 供 call.py 直接调用，不经过 executor.py（不是平台 HTTP API）。
 """
@@ -54,7 +54,7 @@ def _load_bocha_api_key() -> str:
     return ""
 
 
-# ── 博查 Web 搜索 ─────────────────────────────────────────
+# ── 通用外部事实 Web 搜索（Bocha 兜底）──────────────────────
 
 _BOCHA_BASE_URL = "https://api.bochaai.com/v1/web-search"
 _BOCHA_TIMEOUT = 15
@@ -68,7 +68,7 @@ def _freshness_param(months_back: int = 36) -> str:
 
 
 def bocha_web_search(query: str, freshness_months: int = 36, count: int | None = None) -> dict[str, Any]:
-    """调用博查 web-search API，返回结构化搜索结果。"""
+    """调用博查 web-search API，返回通用外部事实核验所需的结构化搜索结果。"""
     api_key = _load_bocha_api_key()
     if not api_key:
         return {"ok": False, "error": "BOCHA_API_KEY 未配置（环境变量 / config.local.json / config.json）", "results": []}

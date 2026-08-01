@@ -73,6 +73,24 @@
 16. **deferred 响应必须 `resumeJob` 续传（硬规则）**：`runMultiFormulaBatchStream` 返回 `status:"deferred"` 时，**不得视为该批已完成**——这只是入队确认。必须立即用 `resumeJob`（传同 `task_id` + `trace_id`）续传，阻塞等到 `done`/`fatal` 拿到完整结果后，才可进入下一批或向用户报告结论。若 `resumeJob` 返回 `STREAM_INTERRUPTED`（`category:"transport_recoverable"`），读取 `partial.last_event_id` 用 `since` 参数再次调用，最多额外重试 2 次。**禁止**：① 收到 `deferred` 就向用户说"已完成"；② 跳过续传直接提交下一批（上一批变量未算完，下一批引用会空跑）；③ `transport_recoverable` 的 `STREAM_INTERRUPTED` 后放弃（任务在服务端仍在运行）。
     > **按 `category` 区分，别把后端超时当连接断（关键反误导规则）**：错误返回带统一 `category` 标签——`transport_recoverable`（连接断了、任务还活着）才该 `resumeJob` 续传；`server_timeout`（`QUEUE_WAIT_TIMEOUT` / `EXECUTION_STALLED`，任务在后端已超时判死）**续传也读不到结果，别反复 resumeJob**，应稍后重试 / 拆小批 / 改异步；`input_error`（公式或参数错）该改公式再试、**别原样重试**；`server_error` 隔一会儿试一次仍失败就告诉用户。`retryable` 字段同义：只有 `true`（即 `transport_recoverable`）才值得续传重试。完整对照见 `references/troubleshooting.md`「批量公式错误分类」。详见 `tools/run_multi_formula.md`「deferred 响应与 resumeJob 续传」+ `tools/resume_job.md`。限流错误（429）按第 12 条处理。
 
+## 时效性事实核验门禁（所有 leaf workflow 必须遵守）
+
+以下任一情况出现时，必须读取 `workflows/external-fact-verification.md`，不得只凭模型记忆下结论：
+
+- 用户询问最新上市、退市、更名、换代码、换交易所、并购等易变化事实。
+- 用户陈述、模型记忆、本地资产库或 Quant Buddy 接口响应互相冲突。
+- 本地资产库已命中目标资产，但平台返回 `ASSET_NOT_FOUND`，此时标记 `asset_catalog_conflict`。
+- 结论依赖模型知识截止时间之后发生的事实。
+
+`ASSET_NOT_FOUND` 只表示当前 Quant Buddy 接口没有识别目标资产，**不得推导为公司未上市、不存在或用户陈述错误**。必须分别保留：
+
+```yaml
+external_fact_status: verified | unverified | conflicted
+quant_buddy_data_status: available | unavailable | blocked
+```
+
+外部搜索只核验公司状态、ticker、交易所和事件事实，不能替代 Quant Buddy 行情、财务、公式、Grant 或验证收据。外部事实核验成功但平台无可靠数据时，明确说明“公开来源已确认该事实，但 Quant Buddy 平台数据当前不可用”，不得把搜索数字描述成平台实时数据。
+
 ### ⛔ 最终答案自检清单（输出前逐项执行，任一不过 = 修改后再输出）
 
 1. **删过程话术**：逐句扫描，删除所有含"让我""已成功获取""现在执行""首先""接下来""根据 workflow""Step""数据已获取"的句子；同时删除所有含"等等""让我重新排""我需要重排""重新按""让我再" 等草稿修正话术——这类自我纠错过程必须在输出前内部完成，**不得**出现在 ## 最终答案 中（T-028 教训：草稿表 → "等等，让我重新排序" → 正式表 三段式结构属于 Rule 3 违规）

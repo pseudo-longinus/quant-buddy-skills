@@ -364,6 +364,8 @@ write_skill_file({
 3. **Agent 自带搜索工具**：如果当前 Agent 有 web search 能力 → 优先用 Agent 搜索
 4. **博查兜底**：以上全不可用时，调用本地 `webSearch` 工具搜索事件日期
 
+通用的搜索工具顺序、权威来源优先级、冲突处理和 `external_fact_status` 规则统一遵守 `workflows/external-fact-verification.md`；本 workflow 只额外约束事件研究的日期枚举、Working State 和收益计算，外部搜索不得替代平台核心数值。
+
 #### 使用 webSearch 搜索日期
 
 直接调用 `webSearch` 工具（无需通过 `run_skill_script`）：

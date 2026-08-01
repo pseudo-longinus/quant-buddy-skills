@@ -11,7 +11,7 @@ description: |
   支持A股选股筛选、因子计算、策略回测、净值对比、行业聚合排名、上传自有因子CSV、渲染图表。
   港股、美股优先支持行情价格查询；财务/报告期字段应先尝试 fast_query(report)，按工具实际返回决定。
   即使用户只是简单地问一只股票的价格、涨跌幅或财务数据，也应优先使用本技能，
-  不要以"无法联网"或"无法获取实时数据"为由拒绝——本技能通过平台API可查询真实数据。
+  不要以"无法联网"或"无法获取实时数据"为由拒绝——本技能通过 Quant Buddy API 查询行情、财务和计算数据；当上市、退市、更名、换代码等易变化外部事实需要核验时，使用 Agent Web Search，宿主搜索不可用时再用本地 webSearch / Bocha。
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
@@ -52,7 +52,7 @@ requiredEnvVars:
   - name: BOCHA_API_KEY
     required: false
     sensitive: true
-    description: 可选。仅 scripts/event_study_local.py 的事件新闻搜索功能读取；未配置时该可选功能自动禁用，其它功能不受影响。
+    description: 可选。scripts/event_study_local.py 的通用外部事实搜索读取，用于事件研究以及上市、退市、更名、换代码等时效性事实核验；Agent 宿主搜索可用时优先使用宿主能力。未配置时本地 Bocha 兜底自动禁用，其它功能不受影响。
     how_to_get: "https://open.bochaai.com"
 networkAccess: true
 networkEndpoints:
@@ -64,7 +64,7 @@ runtimeRequirements:
     - name: python-dateutil
       version: ">=2.8"
       required: false
-      description: Used by scripts/event_study_local.py for the optional event-study / Bocha news feature. Not needed if BOCHA_API_KEY is not configured.
+      description: Used by scripts/event_study_local.py for optional Bocha-backed external fact verification, including event study and asset status changes. Not needed if BOCHA_API_KEY is not configured.
     - name: Pillow
       version: ">=9.0"
       required: false
@@ -228,6 +228,7 @@ SKILL_ROOT/
 │   ├── quick-report-period.md   最近报告期财务指标
 │   ├── period-return-compare.md 固定区间累计涨跌幅对比
 │   ├── stock-profile.md         单股预计算指标画像
+│   ├── external-fact-verification.md  上市/退市/更名/换代码及知识冲突核验
 │   ├── composition-select.md    已物化维度组合选股（selectByComposition 快路径）
 │   ├── global-rules-lite.md     精简全局规则（quick-window/period-return-compare 专用）
 │   ├── quant-standard.md        选股/回测/因子/图表标准流程
@@ -349,6 +350,7 @@ SKILL_ROOT/
 | 最近N日序列 / 窗口统计 | 最近5日、最近20日、近N个交易日、窗口最高/最低/振幅…（仅单资产、最近N日） | Fast Path 条件满足 → 只读 `fast-window.md`；不满足/无法查询 → `global-rules-lite.md` → `quick-window.md` |
 | 最近报告期财务 | 营收、净利润、归母净利润、ROE、总资产、总负债、资产负债率… | Fast Path 条件满足 → 只读 `fast-report-period.md`；不满足/无法查询 → `global-rules.md` → `quick-report-period.md` |
 | 单股指标画像 / 个股综合分析 | 分析一下XX个股、看一下XX这只股票、个股画像、指标概览、估值财务资金走势综合看一下、基本面和估值怎么样… | `global-rules.md` → `stock-profile.md` |
+| 最新上市/退市/更名/换代码或资产状态冲突 | 现在上市了吗、最新代码、是否退市；或本地资产库命中但平台返回 `ASSET_NOT_FOUND` | `global-rules.md` → `external-fact-verification.md`；外部事实与 Quant Buddy 数据状态必须分开判断 |
 | K线图（可视化） | K线图、画图、图片、带成交量图…（用户明确要求可视化 artifact） | `global-rules.md` → `render-kline.md` |
 | 固定区间累计涨跌幅 | 从A到B、某年某月至某年某月、区间收益、累计涨跌幅、区间表现、多资产区间对比 | `global-rules-lite.md` → `period-return-compare.md` |
 | 数据下载 / 导出本地 CSV | 下载成CSV、导出到本地、保存到本地、下载历史数据 | `global-rules.md` → `recipes/download-data.md`；单资产单字段时序优先 `runMultiFormulaBatchStream` → `downloadData` → `write_skill_file`，禁止 Bash 兜底 |
@@ -410,6 +412,7 @@ SKILL_ROOT/
 2. **evidence-only 回答**：最终答案只输出本轮工具结果直接支持的数值、日期、排名、口径说明。未经工具验证，禁止默认输出宏观归因、政策归因、方向性判断（"通常""往往""偏正面"）。
 3. **去过程化交付**：禁止「已成功获取」「让我来」「按照流程」「Step 1/2/3」「根据 workflow」等过程性话术；禁止泄露 `_working/` 路径、checkpoint 名称、workflow 文件名。查到即答，不展示内部过程。
 4. **条件口径冻结**：用户条件必须原样执行，禁止任何改写（百分比↔小数、相对时间→年份区间、资产宇宙替换、卡片附加条件继承）。详见硬规则第 8 条。
+5. **时效性事实核验**：涉及最新上市/退市/更名/换代码，或本地资产库命中但平台返回 `ASSET_NOT_FOUND` 时，必须读 `external-fact-verification.md`。`ASSET_NOT_FOUND` 只表示当前接口未识别资产，不得推导为公司未上市。
 
 触发词参考：
 - 分析一下XX个股 / 看一下XX这只股票 / 个股画像 / 指标概览 / 估值财务资金走势综合看一下 → `stock-profile`
@@ -522,7 +525,7 @@ SKILL_ROOT/
 
 ## 前置条件（按需执行，不是简单查数的默认首步）
 
-> **凭据存储说明**：本 skill 的 quant-buddy API Key **默认存放在 skill 目录下的 `config.json` 的 `api_key` 字段**，日常以此为权威来源；`QUANT_BUDDY_API_KEY` 环境变量仅作最低优先级兜底（只在 config.json 也没有值时才生效，**不是**常规覆盖手段——config.json 已有默认 key 时设置它不会有任何效果）。仅可选的 `BOCHA_API_KEY`（事件新闻搜索）走环境变量。
+> **凭据存储说明**：本 skill 的 quant-buddy API Key **默认存放在 skill 目录下的 `config.json` 的 `api_key` 字段**，日常以此为权威来源；`QUANT_BUDDY_API_KEY` 环境变量仅作最低优先级兜底（只在 config.json 也没有值时才生效，**不是**常规覆盖手段——config.json 已有默认 key 时设置它不会有任何效果）。仅可选的 `BOCHA_API_KEY`（通用外部事实搜索，包括事件研究和资产状态核验）走环境变量。
 
 > **Playground 场景覆盖**：若本轮用户消息里含独立一行 `api_key=<value>`（这是 Playground 前端自动附带的、当前登录用户本人的凭据，不要转述/回显给用户），调用本 skill 任意工具时在其 JSON 参数里追加 `"api_key": "<value>"` 字段——这会临时覆盖 config.json，仅本次调用生效、不落盘、优先级最高。命中这种情况时直接用该值查数即可，不需要走下面"config.json 为空则停止查数"的新用户引导流程。手上是一份现成的 `@file` 参数、不方便现改这份文件塞 `api_key` 字段时，用环境变量 `QBS_API_KEY` 效果等价（同一优先级，**不要**跟 `QUANT_BUDDY_API_KEY` 混用）。
 
