@@ -86,7 +86,6 @@ future | 沪不锈钢主连 | SS.SHF |  | 不锈钢
 future | 沪不锈钢次主连 | SS_S.SHF |  | 不锈钢
 future | 沪低硫燃油主连 | LU.INE |  | 低硫燃料油
 future | 沪低硫燃油次主连 | LU_S.INE |  | 低硫燃料油
-future | 沪原油TAS主连 | SCTAS.INE |  |
 future | 沪原油TAS次主连 | SCTAS_S.INE |  |
 future | 沪原油主连 | SC.INE |  | 原油,INE原油
 future | 沪原油次主连 | SC_S.INE |  | 原油,INE原油
@@ -141,7 +140,6 @@ future | 纳斯达克100小型期货 | NQ.CME |  |
 future | 纳斯达克100微型迷你期货 | MNQ.CME |  |
 future | 美国天然气 | HH.NYM |  | 美国天然气
 future | 连PVC主连 | V.DCE |  | PVC
-future | 连PVC月均价主连 | V_F.DCE |  |
 future | 连PVC次主连 | V_S.DCE |  | PVC
 future | 连乙二醇主连 | EG.DCE |  | 乙二醇
 future | 连乙二醇次主连 | EG_S.DCE |  | 乙二醇
@@ -149,7 +147,6 @@ future | 连乙烯主连 | L.DCE |  | 塑料
 future | 连乙烯次主连 | L_S.DCE |  | 塑料
 future | 连原木主连 | LG.DCE |  |
 future | 连原木次主连 | LG_S.DCE |  |
-future | 连大豆主连 | S.DCE |  |
 future | 连大豆次主连 | S_S.DCE |  |
 future | 连棕油主连 | P.DCE |  | 棕榈油
 future | 连棕油次主连 | P_S.DCE |  | 棕榈油
@@ -172,9 +169,7 @@ future | 连纤维板次主连 | FB_S.DCE |  | 纤维板
 future | 连纯苯主连 | BZ.DCE |  |
 future | 连纯苯次主连 | BZ_S.DCE |  |
 future | 连聚丙烯主连 | PP.DCE |  | 聚丙烯
-future | 连聚丙烯月均价主连 | PP_F.DCE |  |
 future | 连聚丙烯次主连 | PP_S.DCE |  | 聚丙烯
-future | 连聚乙烯月均价主连 | L_F.DCE |  |
 future | 连胶合板主连 | BB.DCE |  | 胶合板
 future | 连胶合板次主连 | BB_S.DCE |  | 胶合板
 future | 连苯乙烯主连 | EB.DCE |  | 苯乙烯
@@ -196,7 +191,6 @@ future | 郑PTA主连 | TA.CZC |  | PTA
 future | 郑PTA次主连 | TA_S.CZC |  | PTA
 future | 郑丙烯主连 | PL.CZC |  |
 future | 郑丙烯次主连 | PL_S.CZC |  |
-future | 郑动力煤主连 | TC.CZC |  | 动力煤
 future | 郑动力煤主连（退） | ZC.CZC |  |
 future | 郑动力煤次主连 | TC_S.CZC |  | 动力煤
 future | 郑动力煤次主连（退） | ZC_S.CZC |  |
@@ -204,15 +198,12 @@ future | 郑对二甲苯主连 | PX.CZC |  | 对二甲苯
 future | 郑对二甲苯次主连 | PX_S.CZC |  | 对二甲苯
 future | 郑尿素主连 | UR.CZC |  | 尿素
 future | 郑尿素次主连 | UR_S.CZC |  | 尿素
-future | 郑强麦主连 | WS.CZC |  | 强麦
 future | 郑强麦主连（退） | WH.CZC |  |
 future | 郑强麦次主连 | WS_S.CZC |  | 强麦
 future | 郑强麦次主连（退） | WH_S.CZC |  |
-future | 郑早籼稻主连 | ER.CZC |  | 早籼稻
 future | 郑早籼稻主连（退） | RI.CZC |  |
 future | 郑早籼稻次主连 | ER_S.CZC |  | 早籼稻
 future | 郑早籼稻次主连（退） | RI_S.CZC |  |
-future | 郑晚籼稻主连 | LR.CZC |  | 晚籼稻
 future | 郑晚籼稻次主连 | LR_S.CZC |  | 晚籼稻
 future | 郑普麦主连（退） | PM.CZC |  | 普麦
 future | 郑普麦次主连（退） | PM_S.CZC |  | 普麦
@@ -229,7 +220,6 @@ future | 郑玻璃次主连 | FG_S.CZC |  | 玻璃
 future | 郑瓶片主连 | PR.CZC |  |
 future | 郑瓶片次主连 | PR_S.CZC |  |
 future | 郑甲醇主连 | MA.CZC |  | 甲醇
-future | 郑甲醇主连 | ME.CZC |  |
 future | 郑甲醇次主连 | MA_S.CZC |  | 甲醇
 future | 郑甲醇次主连 | ME_S.CZC |  |
 future | 郑白糖主连 | SR.CZC |  | 白糖,内糖,郑糖
@@ -238,7 +228,6 @@ future | 郑短纤主连 | PF.CZC |  | 短纤
 future | 郑短纤次主连 | PF_S.CZC |  | 短纤
 future | 郑硅铁主连 | SF.CZC |  | 硅铁
 future | 郑硅铁次主连 | SF_S.CZC |  | 硅铁
-future | 郑硬麦主连 | WT.CZC |  | 硬麦
 future | 郑硬麦次主连 | WT_S.CZC |  | 硬麦
 future | 郑粳稻主连（退） | JR.CZC |  | 粳稻
 future | 郑粳稻次主连（退） | JR_S.CZC |  | 粳稻
@@ -246,14 +235,12 @@ future | 郑红枣主连 | CJ.CZC |  | 红枣
 future | 郑红枣次主连 | CJ_S.CZC |  | 红枣
 future | 郑纯碱主连 | SA.CZC |  | 纯碱
 future | 郑纯碱次主连 | SA_S.CZC |  | 纯碱
-future | 郑绿豆主连 | GN.CZC |  |
 future | 郑绿豆次主连 | GN_S.CZC |  |
 future | 郑花生主连 | PK.CZC |  | 花生
 future | 郑花生次主连 | PK_S.CZC |  | 花生
 future | 郑苹果主连 | AP.CZC |  | 苹果
 future | 郑苹果次主连 | AP_S.CZC |  | 苹果
 future | 郑菜油主连 | OI.CZC |  | 菜油
-future | 郑菜油主连 | RO.CZC |  |
 future | 郑菜油次主连 | OI_S.CZC |  | 菜油
 future | 郑菜油次主连 | RO_S.CZC |  |
 future | 郑菜粕主连 | RM.CZC |  | 菜粕
