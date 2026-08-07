@@ -2,7 +2,7 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.24.2
+version: 4.24.4
 description: |
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据。
   查询最近N个交易日的价格序列、日涨跌幅序列、窗口最高价、最低价、振幅等短期统计。
@@ -15,7 +15,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.24.2
+  version: 4.24.4
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -178,11 +178,11 @@ runtimeRequirements:
 
 无论路由进入 `fast-snapshot` / `fast-window` / `fast-report-period` / `render-kline` / 任何 leaf workflow：
 
-1. 准备调用任何平台原生工具（`fast_query` / `renderKLine` / `stockProfile` / `selectByComposition` / `runMultiFormulaBatchStream` / `readData` / `downloadData` / `getCardFormulas` / `searchFunctions` / `searchSimilarCases` / `confirmDataMulti` / `scanDimensions` / `uploadData` / `renderChart` / `refreshSnapshotTime` / `resumeJob`）之前，**必须先调用 `newSession`**。
-2. **不允许**用"已读 SKILL.md 就跳过 newSession"或"已读 leaf workflow 就跳过 newSession"来豁免本条；这条规则不依赖 leaf 内是否再次重申。
-3. 同一对话追问可复用当前 session；但新的用户问题（含明显话题切换）必须重新 `newSession`，参数中 `user_query` 设为新问题原文。
-   - **建议同时传 `agent_model`**：把你（当前 Agent）正在使用的模型标识作为 `newSession` 的参数填入（例如 `gpt-4o` / `claude-sonnet-4` / `gemini-2.5-pro` 等，取你运行时的真实模型名），供后台在本次会话上统计当前用户使用的模型。**拿不准就留空，不要瞎填**（错误的模型名比没有更糟）。
-4. 跳过 `newSession` 直接调用平台工具 = `MISSING_NEW_SESSION` 契约失败（HIGH 级），评分必扣分。
+1. 当前 Skill Session 尚未建立时，调用任何平台原生工具前必须先调用 `newSession`；`newSession` 同时登记本 Session 的首个 Turn。
+2. 同一 Session 收到新的用户消息（包括追问）时，必须先调用 `beginTurn`，参数中的 `user_query` 必须是本轮原话；同一 Turn 内连续调用多个工具时复用当前上下文，不重复 `beginTurn`。
+3. 只有真正开始新的独立 Skill Session 才重新 `newSession`。不允许用“已读 SKILL.md / leaf workflow”跳过首个 `newSession`，也不允许用重复 `newSession` 代替追问的 `beginTurn`。
+   - **建议在 `newSession` 同时传 `agent_model`**：填入当前 Agent 的真实模型标识（例如 `gpt-4o` / `claude-sonnet-4` / `gemini-2.5-pro`）；拿不准就留空，禁止猜测。
+4. 未建立 Session 直接调用平台工具会返回 `MISSING_NEW_SESSION`；新问题未先 `beginTurn`、却显式传入不同 `user_query` 会返回 `TURN_CONTEXT_MISMATCH`。两者都必须先修复上下文，禁止静默覆盖历史问题。
 
 ## 最小充分原则（任何动作前自检）
 
@@ -276,17 +276,17 @@ SKILL_ROOT/
 │   ├── cases_index.yaml         106 张案例卡片目录（量化标准场景必读，快速查数无需）
 │   ├── assets.yaml              常用资产（99 行精选，可一次读完）
 │   ├── assets_db/               全量资产字典（按类型分文件，⚠️ 仅 grep 检索，禁止 read_file 整文件；不含指数成分股映射）
-│   │   ├── stock_a.yaml             A 股 5557 条（SH/SZ，含场内 ETF）
-│   │   ├── stock_hk.yaml            港股 3067 条（HK 前缀；行情优先，财务以 fast_query 返回为准）
-│   │   ├── stock_us.yaml            美股及境外ETF 1068 条（.N/.O/.A；行情优先，财务以 fast_query 返回为准）
-│   │   ├── index.yaml               指数 604 条
+│   │   ├── stock_a.yaml             A 股 5565 条（SH/SZ，含场内 ETF）
+│   │   ├── stock_hk.yaml            港股 3068 条（HK 前缀；行情优先，财务以 fast_query 返回为准）
+│   │   ├── stock_us.yaml            美股及境外ETF 1070 条（.N/.O/.A；行情优先，财务以 fast_query 返回为准）
+│   │   ├── index.yaml               指数 606 条
 │   │   └── future.yaml              期货 257 条
 │   ├── functions.yaml           常用函数（170 条）
 │   ├── data_catalog.yaml        常用精选数据集（高频 index_title）
-│   ├── index_info_catalog/      系统支持数据名全量索引（2355 条，按 provider 分 YAML，grep 检索）
+│   ├── index_info_catalog/      系统支持数据名全量索引（2357 条，按 provider 分 YAML，grep 检索）
 │   ├── dimensions.yaml          已物化维度目录本地快照，只含**综合指标**（维度分），用于 selectByComposition
 │   │                            ⚠️ 要看细分指标或指标口径公式，用 `listDimensionIndicators` / `getIndicatorFormulas` 在线查
-│   ├── sectors.yaml             行业板块
+│   ├── sectors.yaml             行业板块（741 条，10 个分类）
 │   └── themes.yaml              题材板块
 │
 ├── scripts/                 ← 执行脚本

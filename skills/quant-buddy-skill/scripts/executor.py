@@ -75,6 +75,9 @@ def _trace_headers(params=None, *, api_key=None, accept=None, content_type=None)
     task_id = str(params.get("task_id") or "").strip()
     if task_id:
         headers["x-task-id"] = task_id
+    turn_id = str(params.get("turn_id") or "").strip()
+    if turn_id:
+        headers["x-turn-id"] = turn_id
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     if accept:

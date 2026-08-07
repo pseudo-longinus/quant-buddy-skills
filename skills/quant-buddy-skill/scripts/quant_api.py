@@ -29,9 +29,12 @@ import uuid
 from task_context import (
     TaskContextError,
     build_new_session_context,
+    build_turn_context,
     inject_or_validate_task_id,
+    inject_or_validate_turn_context,
     may_replace_session_task_id,
     session_context_fields,
+    turn_session_fields,
 )
 
 __all__ = ["QuantAPI"]
@@ -95,6 +98,8 @@ class QuantAPI:
         self._api_key_override = str(api_key or "").strip()
         # in-memory task_id：一旦初始化后不再从文件重读，避免并发写入导致跨批次 task_id 漂移
         self._task_id: str = ""
+        self._turn_id: str = ""
+        self._user_query: str = ""
         # 配额累积器：跨工具调用累计本 session 消耗的 RU
         self._session_ru_cost: int = 0
         self._last_quota: dict = {}
@@ -128,48 +133,60 @@ class QuantAPI:
         except Exception:
             return {}
 
-    def _write_session(self, task_id: str, user_query: str = None, task_context: dict = None):
-        self._task_id = task_id          # 同步更新内存，保证同一进程内一致
-        os.makedirs(os.path.dirname(self._session_file), exist_ok=True)
-        data = {"task_id": task_id, "skill_version_at_creation": _read_skill_version(self.skill_root)}
+    def _write_session(self, task_id: str, user_query: str = None, task_context: dict = None, turn_context: dict = None):
+        previous = self._read_session_full()
+        same_task = str(previous.get("task_id") or "") == str(task_id or "")
+        data = dict(previous) if same_task and not task_context else {}
+        data.update({"task_id": task_id, "skill_version_at_creation": _read_skill_version(self.skill_root)})
         if user_query is not None:
             data["user_query"] = user_query
         if task_context:
             data.update(session_context_fields(task_context))
+        if turn_context:
+            data.update(turn_session_fields(turn_context, previous if same_task else {}))
+            data["user_query"] = turn_context.get("user_query")
+        os.makedirs(os.path.dirname(self._session_file), exist_ok=True)
         with open(self._session_file, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False)
+        self._task_id = task_id
+        self._turn_id = str(data.get("current_turn_id") or "")
+        self._user_query = str(data.get("current_user_query") or data.get("user_query") or "")
 
-    def _report_session_begin(self, task_id: str, user_query: str = None):
-        try:
-            if self._scripts_dir not in sys.path:
-                sys.path.insert(0, self._scripts_dir)
-            import executor as _ex  # noqa: PLC0415
-            import urllib.request
+    def _report_turn(self, path: str, turn_context: dict):
+        if self._scripts_dir not in sys.path:
+            sys.path.insert(0, self._scripts_dir)
+        import executor as _ex  # noqa: PLC0415
+        import urllib.request
 
-            cfg = _ex.load_config()
-            endpoint = (cfg.get("endpoint") or "").rstrip("/")
-            api_key = self._resolve_api_key(cfg)
-            if not endpoint or not api_key:
-                return
+        cfg = _ex.load_config()
+        endpoint = (cfg.get("endpoint") or "").rstrip("/")
+        api_key = self._resolve_api_key(cfg)
+        if not endpoint or not api_key:
+            raise RuntimeError("Turn 创建需要有效 endpoint 与 api_key")
+        payload = {key: value for key, value in turn_context.items() if value is not None}
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        headers = _ex._trace_headers(
+            turn_context, api_key=api_key, content_type="application/json"
+        )
+        req = urllib.request.Request(f"{endpoint}{path}", data=body, headers=headers, method="POST")
+        with urllib.request.urlopen(req, timeout=30) as response:
+            result = json.loads(response.read().decode("utf-8"))
+        if not isinstance(result, dict) or result.get("code") != 0 or not result.get("success"):
+            raise RuntimeError(f"Turn 创建失败: {result}")
+        if result.get("task_id") not in (None, "", turn_context["task_id"]):
+            raise RuntimeError(f"Turn 响应 task_id 不一致: {result}")
+        # message_id 幂等重试可返回首次写入的 canonical turn_id，后续上下文采用服务端值。
+        result["task_id"] = turn_context["task_id"]
+        result["turn_id"] = str(result.get("turn_id") or turn_context["turn_id"]).strip()
+        if not result["turn_id"]:
+            raise RuntimeError(f"Turn 响应缺少 turn_id: {result}")
+        return result
 
-            payload = json.dumps(
-                {"task_id": task_id, "user_query": user_query},
-                ensure_ascii=False,
-            ).encode("utf-8")
-            headers = _ex._trace_headers(
-                {"task_id": task_id},
-                api_key=api_key,
-                content_type="application/json",
-            )
-            req = urllib.request.Request(
-                f"{endpoint}/skill/session/begin",
-                data=payload,
-                headers=headers,
-                method="POST",
-            )
-            urllib.request.urlopen(req, timeout=3)
-        except Exception:
-            pass
+    def _report_session_begin(self, turn_context: dict):
+        return self._report_turn("/skill/session/begin", turn_context)
+
+    def _report_turn_begin(self, turn_context: dict):
+        return self._report_turn("/skill/session/turn", turn_context)
 
     def _check_skill_version(self) -> dict:
         """主动调用服务端 GET /skill/version/check，返回结构化升级元信息。
@@ -226,18 +243,26 @@ class QuantAPI:
             except TaskContextError as exc:
                 raise RuntimeError(f"{exc.code}: {exc.message}") from exc
             new_id = task_context["task_id"]
-            # 覆写前先读旧版本号
-            _prev_ver = None
+            _prev_session = self._read_session_full()
+            _prev_ver = _prev_session.get("skill_version_at_creation")
+            user_query = str(params.get("user_query") or "").strip()
+            if not user_query:
+                raise RuntimeError("USER_QUERY_REQUIRED: newSession 需要首轮用户原话 user_query")
+            turn_params = dict(params)
+            turn_params["task_id"] = new_id
             try:
-                with open(self._session_file, "r", encoding="utf-8") as _sf:
-                    _prev_ver = json.load(_sf).get("skill_version_at_creation")
-            except Exception:
-                pass
-            user_query = params.get("user_query")
-            self._write_session(new_id, user_query=user_query, task_context=task_context)
-            _cur_ver = _read_skill_version(self.skill_root)
+                turn_context = build_turn_context({}, turn_params, uuid_factory=_uuid.uuid4)
+            except TaskContextError as exc:
+                raise RuntimeError(f"{exc.code}: {exc.message}") from exc
             if task_context["report_session_begin"]:
-                self._report_session_begin(new_id, user_query=user_query)
+                turn_result = self._report_session_begin(turn_context)
+                server_turn_id = turn_result.get("turn_id") if isinstance(turn_result, dict) else None
+                canonical_turn_id = server_turn_id.strip() if isinstance(server_turn_id, str) else ""
+                turn_context = {**turn_context, "turn_id": canonical_turn_id or turn_context["turn_id"]}
+            self._write_session(
+                new_id, user_query=user_query, task_context=task_context, turn_context=turn_context
+            )
+            _cur_ver = _read_skill_version(self.skill_root)
             _changed = bool(_prev_ver and _prev_ver != _cur_ver)
 
             # 主动查询服务端版本，便于上层 Agent 在 newSession 时立即知道是否需要升级
@@ -245,6 +270,7 @@ class QuantAPI:
             _resp = {
                 "code": 0,
                 "task_id": new_id,
+                "turn_id": turn_context["turn_id"],
                 "task_mode": task_context["task_mode"],
                 "task_id_source": task_context["task_id_source"],
                 "task_source": task_context["task_source"],
@@ -256,7 +282,7 @@ class QuantAPI:
                     + (f"检测到 skill 从 {_prev_ver} 升级到 {_cur_ver}，"
                        "必须先重读 SKILL.md 再继续。"
                        if _changed else
-                       "task_id 已保存到 .session.json。")
+                       "task_id 与首个 turn_id 已保存到 .session.json。")
                 ),
             }
             if _ver_info.get("update_required"):
@@ -268,6 +294,27 @@ class QuantAPI:
                 _resp["reload_files"] = _ver_info.get("reload_files")
                 _resp["update_message"] = _ver_info.get("message")
             return _resp
+
+        if tool_name == "beginTurn":
+            session_data = self._read_session_full()
+            if self._task_id:
+                session_data["task_id"] = self._task_id
+            try:
+                turn_context = build_turn_context(session_data, params, uuid_factory=_uuid.uuid4)
+            except TaskContextError as exc:
+                raise RuntimeError(f"{exc.code}: {exc.message}") from exc
+            result = self._report_turn_begin(turn_context)
+            server_turn_id = result.get("turn_id") if isinstance(result, dict) else None
+            canonical_turn_id = server_turn_id.strip() if isinstance(server_turn_id, str) else ""
+            turn_context = {**turn_context, "turn_id": canonical_turn_id or turn_context["turn_id"]}
+            self._write_session(turn_context["task_id"], turn_context=turn_context)
+            return {
+                "code": 0, "success": True,
+                "task_id": turn_context["task_id"],
+                "turn_id": turn_context["turn_id"],
+                "created": bool(result.get("created")),
+                "user_query": turn_context["user_query"],
+            }
 
         # ── 版本守卫：检测旧会话与当前 skill 版本是否匹配 ─────────────
         _cur_ver = _read_skill_version(self.skill_root)
@@ -291,6 +338,7 @@ class QuantAPI:
             self._task_id = session_data["task_id"]
         try:
             inject_or_validate_task_id(session_data, params)
+            inject_or_validate_turn_context(session_data, params)
         except TaskContextError as exc:
             raise RuntimeError(f"{exc.code}: {exc.message}") from exc
 
@@ -400,6 +448,23 @@ class QuantAPI:
         if not task_id:
             raise RuntimeError(f"newSession 未返回 task_id: {r}")
         return task_id
+
+    def begin_turn(
+        self, user_query: str, turn_id: str = None, message_id: str = None,
+        parent_turn_id: str = None,
+    ) -> str:
+        """在当前 Session 登记一条新的用户消息，成功后才切换本地 Turn。"""
+        params = {"user_query": user_query}
+        if turn_id is not None:
+            params["turn_id"] = turn_id
+        if message_id is not None:
+            params["message_id"] = message_id
+        if parent_turn_id is not None:
+            params["parent_turn_id"] = parent_turn_id
+        result = self._call("beginTurn", params)
+        if not result.get("turn_id"):
+            raise RuntimeError(f"beginTurn 未返回 turn_id: {result}")
+        return result["turn_id"]
 
     # ────────────────────────────────────────────
     # 核心工具（与 SKILL.md 工具表一一对应）

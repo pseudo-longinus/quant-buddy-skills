@@ -1,4 +1,4 @@
-"""Shared task-id context rules for quant-buddy-skill entry points."""
+"""Shared task/turn context rules for quant-buddy-skill entry points."""
 
 import re
 import uuid
@@ -7,6 +7,7 @@ import uuid
 TASK_MODE_STANDALONE = "standalone"
 TASK_MODE_INHERIT = "inherit"
 _TASK_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+_TURN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 
 
 class TaskContextError(ValueError):
@@ -103,3 +104,91 @@ def may_replace_session_task_id(session, response_task_id):
     if not incoming or incoming == current:
         return False
     return not (session.get("task_id_locked") is True and current)
+
+
+def _validate_turn_id(value):
+    turn_id = str(value or "").strip()
+    if not turn_id or not _TURN_ID_RE.fullmatch(turn_id):
+        raise TaskContextError(
+            "INVALID_TURN_ID",
+            "turn_id 需要为 1-128 位字母、数字、点、下划线、冒号或短横线",
+        )
+    return turn_id
+
+
+def build_turn_context(session, params=None, uuid_factory=None):
+    """Build one immutable user-turn context without mutating the session."""
+    session = session if isinstance(session, dict) else {}
+    params = params if isinstance(params, dict) else {}
+    task_id = str(params.get("task_id") or session.get("task_id") or "").strip()
+    if not task_id:
+        raise TaskContextError("TASK_ID_REQUIRED", "beginTurn 前必须先调用 newSession")
+    session_task_id = str(session.get("task_id") or "").strip()
+    if session_task_id and task_id != session_task_id:
+        raise TaskContextError(
+            "TASK_ID_CONTEXT_MISMATCH",
+            f"当前 session 的 task_id={session_task_id}，拒绝为 {task_id} 创建 Turn",
+        )
+    user_query = str(params.get("user_query") or "").strip()
+    if not user_query:
+        raise TaskContextError("USER_QUERY_REQUIRED", "beginTurn 需要本轮用户原话 user_query")
+    factory = uuid_factory or uuid.uuid4
+    requested_turn_id = params.get("turn_id")
+    turn_id = _validate_turn_id(requested_turn_id) if requested_turn_id else str(factory())
+    parent_turn_id = str(
+        params.get("parent_turn_id") or session.get("current_turn_id") or ""
+    ).strip() or None
+    message_id = str(params.get("message_id") or "").strip() or None
+    return {
+        "task_id": task_id,
+        "turn_id": turn_id,
+        "user_query": user_query,
+        "message_id": message_id,
+        "parent_turn_id": parent_turn_id,
+    }
+
+
+def turn_session_fields(turn_context, previous_session=None):
+    """Return the non-overwriting session projection for a committed Turn."""
+    previous_session = previous_session if isinstance(previous_session, dict) else {}
+    initial = previous_session.get("initial_user_query")
+    if initial is None:
+        initial = turn_context.get("user_query")
+    return {
+        "current_turn_id": turn_context.get("turn_id"),
+        "current_user_query": turn_context.get("user_query"),
+        "previous_turn_id": turn_context.get("parent_turn_id"),
+        "initial_user_query": initial,
+    }
+
+
+def inject_or_validate_turn_context(session, params):
+    """Inject the committed Turn; reject silent query/turn changes."""
+    session = session if isinstance(session, dict) else {}
+    params = params if isinstance(params, dict) else {}
+    turn_id = str(session.get("current_turn_id") or "").strip()
+    current_query = str(session.get("current_user_query") or session.get("user_query") or "").strip()
+    request_turn_id = str(params.get("turn_id") or "").strip()
+    request_query = str(params.get("user_query") or params.get("userQuery") or "").strip()
+    if turn_id and request_turn_id and request_turn_id != turn_id:
+        raise TaskContextError(
+            "TURN_CONTEXT_MISMATCH",
+            f"当前 Turn 为 {turn_id}，拒绝直接切换到 {request_turn_id}；请先调用 beginTurn",
+        )
+    if turn_id and current_query and request_query and request_query != current_query:
+        raise TaskContextError(
+            "TURN_CONTEXT_MISMATCH",
+            "显式 user_query 与当前 Turn 不一致；请先调用 beginTurn 创建新 Turn",
+        )
+    changed = False
+    if turn_id and not request_turn_id:
+        params["turn_id"] = turn_id
+        changed = True
+    if current_query and not request_query:
+        params["user_query"] = current_query
+        changed = True
+    elif request_query and "user_query" not in params:
+        params["user_query"] = request_query
+        params.pop("userQuery", None)
+        changed = True
+    return changed

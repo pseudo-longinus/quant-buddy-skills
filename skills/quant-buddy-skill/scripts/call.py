@@ -44,9 +44,12 @@ import uuid
 from task_context import (
     TaskContextError,
     build_new_session_context,
+    build_turn_context,
     inject_or_validate_task_id,
+    inject_or_validate_turn_context,
     may_replace_session_task_id,
     session_context_fields,
+    turn_session_fields,
 )
 
 try:
@@ -66,7 +69,7 @@ import executor as _ex  # noqa: E402
 
 
 # call.py 自身处理（不走 executor）的本地工具
-_LOCAL_TOOLS = {"newSession", "saveChart", "webSearch", "buildEventStudy"}
+_LOCAL_TOOLS = {"newSession", "beginTurn", "saveChart", "webSearch", "buildEventStudy"}
 
 
 def _known_tools():
@@ -391,16 +394,60 @@ def _update_session_trace(task_id, trace_id):
         pass
 
 
-def _write_session(task_id, user_query=None, task_context=None):
-    """持久化 task_id（和可选的 user_query）到 .session.json，同时写入当前 skill 版本。"""
+def _write_session(task_id, user_query=None, task_context=None, turn_context=None):
+    """持久化 Session/Turn；同 task 的非上下文字段不因后续响应而丢失。"""
     os.makedirs(os.path.dirname(SESSION_FILE), exist_ok=True)
-    data = {"task_id": task_id, "skill_version_at_creation": _read_skill_version()}
+    previous = _read_session_full()
+    same_task = str(previous.get("task_id") or "") == str(task_id or "")
+    data = dict(previous) if same_task and not task_context else {}
+    data.update({"task_id": task_id, "skill_version_at_creation": _read_skill_version()})
     if user_query is not None:
-        data["user_query"] = user_query
+        data["user_query"] = user_query  # legacy compatibility
     if task_context:
         data.update(session_context_fields(task_context))
+    if turn_context:
+        data.update(turn_session_fields(turn_context, previous if same_task else {}))
+        data["user_query"] = turn_context.get("user_query")  # legacy readers
     with open(SESSION_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False)
+
+
+def _post_turn(endpoint, api_key, channel, path, turn_context, agent_model=None, user_id=None):
+    """Create a Turn and return the validated server response; never mutates local state."""
+    import urllib.request
+    payload_dict = {key: value for key, value in turn_context.items() if value is not None}
+    if agent_model:
+        payload_dict["agent_model"] = agent_model
+    if user_id:
+        payload_dict["user_id"] = user_id
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+        "x-skill-name": "quant-buddy-skill",
+        "x-task-id": turn_context["task_id"],
+        "x-turn-id": turn_context["turn_id"],
+        "x-skill-version": _read_skill_version(),
+    }
+    if channel:
+        headers["x-skill-channel"] = channel
+    req = urllib.request.Request(
+        f"{endpoint}{path}",
+        data=json.dumps(payload_dict, ensure_ascii=False).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=30) as response:
+        body = json.loads(response.read().decode("utf-8"))
+    if not isinstance(body, dict) or body.get("code") != 0 or not body.get("success"):
+        raise RuntimeError(f"Turn 创建失败: {body}")
+    if body.get("task_id") not in (None, "", turn_context["task_id"]):
+        raise RuntimeError(f"Turn 响应 task_id 不一致: {body}")
+    # message_id 幂等重试可能返回首次写入时的 canonical turn_id；客户端必须采用服务端值。
+    body["task_id"] = turn_context["task_id"]
+    body["turn_id"] = str(body.get("turn_id") or turn_context["turn_id"]).strip()
+    if not body["turn_id"]:
+        raise RuntimeError(f"Turn 响应缺少 turn_id: {body}")
+    return body
 
 
 SELF_UPDATE_SCRIPT = os.path.join(SCRIPT_DIR, "self_update.py")
@@ -1392,6 +1439,49 @@ def main():
     # 工具名前置校验：非法/缺失立即报错，杜绝“静默挂死读 stdin”
     _reject_bad_tool_name(tool_name)
 
+    # ── beginTurn：同一 Session 中登记一条新的用户消息 ──
+    if tool_name == "beginTurn":
+        raw = os.environ.get("GZQ_PARAMS", "").strip()
+        if not raw and len(sys.argv) >= 3:
+            if sys.argv[2].startswith("@"):
+                try:
+                    raw = open(sys.argv[2][1:], "r", encoding="utf-8").read()
+                except Exception:
+                    raw = "{}"
+            else:
+                raw = " ".join(sys.argv[2:])
+        try:
+            turn_params = json.loads(raw or "{}")
+            session_data = _read_session_full()
+            turn_context = build_turn_context(session_data, turn_params, uuid_factory=uuid.uuid4)
+            cfg = _ex.load_config()
+            api_key = _ex.resolve_api_key(turn_params, cfg)
+            endpoint = (cfg.get("endpoint") or "").rstrip("/")
+            if not endpoint or not api_key:
+                raise RuntimeError("beginTurn 需要有效 endpoint 与 api_key")
+            response = _post_turn(
+                endpoint, api_key, cfg.get("_channel", ""),
+                "/skill/session/turn", turn_context,
+                agent_model=str(turn_params.get("agent_model") or "").strip() or None,
+                user_id=turn_params.get("user_id"),
+            )
+            turn_context = {**turn_context, "turn_id": response["turn_id"]}
+            _write_session(turn_context["task_id"], turn_context=turn_context)
+            result = {
+                "code": 0, "success": True,
+                "task_id": turn_context["task_id"],
+                "turn_id": turn_context["turn_id"],
+                "created": bool(response.get("created")),
+                "user_query": turn_context["user_query"],
+                "message": "新 Turn 已创建；后续工具会自动复用当前 task_id、turn_id 与 user_query。",
+            }
+        except TaskContextError as exc:
+            result = {"code": 1, "error": exc.code, "message": exc.message}
+        except Exception as exc:
+            result = {"code": 1, "error": "TURN_BEGIN_FAILED", "message": str(exc)}
+        _safe_print(json.dumps(result, ensure_ascii=False, indent=2))
+        sys.exit(0 if result.get("code") == 0 else 1)
+
     # ── newSession：独立模式生成 UUID；上游编排模式继承 task_id ──
     if tool_name == "newSession":
         # 顺手清理超过 7 天的旧 session 文件，避免 output/ 累积垃圾
@@ -1423,7 +1513,18 @@ def main():
             }, ensure_ascii=False, indent=2))
             sys.exit(1)
         new_id = _task_context["task_id"]
-        user_query = _ns_params.get("user_query") or None
+        user_query = str(_ns_params.get("user_query") or "").strip()
+        if not user_query:
+            _safe_print(json.dumps({"code": 1, "error": "USER_QUERY_REQUIRED", "message": "newSession 需要首轮用户原话 user_query"}, ensure_ascii=False))
+            sys.exit(1)
+        initial_turn_params = dict(_ns_params)
+        initial_turn_params["task_id"] = new_id
+        initial_turn_params.setdefault("parent_turn_id", None)
+        try:
+            _turn_context = build_turn_context({}, initial_turn_params, uuid_factory=uuid.uuid4)
+        except TaskContextError as exc:
+            _safe_print(json.dumps({"code": 1, "error": exc.code, "message": exc.message}, ensure_ascii=False))
+            sys.exit(1)
         user_id = _ns_params.get("user_id") or None
         # 当前模型：由上层 Agent 在 newSession 时传入，作为 body 参数随 session/begin 上报，
         # 供服务端在 newSession 这条日志上单独落库（与请求头来源相互独立、互不影响）。
@@ -1437,7 +1538,6 @@ def main():
         except Exception:
             pass
 
-        _write_session(new_id, user_query=user_query, task_context=_task_context)
         _current_ver = _read_skill_version()
         _version_changed = bool(_prev_version and _prev_version != _current_ver)
 
@@ -1446,43 +1546,29 @@ def main():
         _api_key = ""
         _channel = ""
 
-        # Fire-and-forget：把原始问题上报给服务端，供 trace 分析用
-        # 读取 config 获取 endpoint / api_key：与 executor.py 分发的其它工具共用同一条"传入优先，
-        # 否则用 config.json"规则（_ex.resolve_api_key），而不是这里单独重读一遍 config/env——
-        # 这样 Playground 场景下这个会话自己传的 api_key（_ns_params["api_key"]）也能用在
-        # session/begin 和版本检查这两个请求上，不会被迫共用 config.json 的默认身份。
+        # 独立 Session 必须先在服务端创建首 Turn；成功后才提交本地 Session。
         try:
-            import urllib.request
             _cfg = _ex.load_config()
             _api_key = _ex.resolve_api_key(_ns_params, _cfg)
             _endpoint = _cfg.get("endpoint", "").rstrip("/")
             _channel = _cfg.get("_channel", "")
-            if _endpoint and _api_key and _task_context["report_session_begin"]:
-                _payload_dict = {"task_id": new_id, "user_query": user_query}
-                if user_id:
-                    _payload_dict["user_id"] = user_id
-                if agent_model:
-                    _payload_dict["agent_model"] = agent_model
-                _payload = json.dumps(_payload_dict,
-                                      ensure_ascii=False).encode("utf-8")
-                _headers = {
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {_api_key}",
-                    "x-skill-name": "quant-buddy-skill",
-                    "x-task-id": new_id,
-                    "x-skill-version": _current_ver,
-                }
-                if _channel:
-                    _headers["x-skill-channel"] = _channel
-                _req = urllib.request.Request(
-                    f"{_endpoint}/skill/session/begin",
-                    data=_payload,
-                    headers=_headers,
-                    method="POST",
+            if _task_context["report_session_begin"]:
+                if not _endpoint or not _api_key:
+                    raise RuntimeError("newSession 需要有效 endpoint 与 api_key 才能登记首个 Turn")
+                _turn_response = _post_turn(
+                    _endpoint, _api_key, _channel, "/skill/session/begin", _turn_context,
+                    agent_model=agent_model, user_id=user_id,
                 )
-                urllib.request.urlopen(_req, timeout=3)
-        except Exception:
-            pass  # 上报失败不影响 session 创建
+                _turn_context = {**_turn_context, "turn_id": _turn_response["turn_id"]}
+            _write_session(
+                new_id, user_query=user_query, task_context=_task_context, turn_context=_turn_context
+            )
+        except Exception as exc:
+            _safe_print(json.dumps({
+                "code": 1, "error": "SESSION_BEGIN_FAILED",
+                "message": str(exc), "task_id": new_id, "turn_id": _turn_context["turn_id"],
+            }, ensure_ascii=False, indent=2))
+            sys.exit(1)
 
         # 主动查询服务端版本：作为成功响应心跳之外的补充，按 TTL 节流，避免每次 newSession 都打服务端
         _ver_info = {}
@@ -1545,6 +1631,7 @@ def main():
         _result_obj = {
             "code": 0,
             "task_id": new_id,
+            "turn_id": _turn_context["turn_id"],
             "task_mode": _task_context["task_mode"],
             "task_id_source": _task_context["task_id_source"],
             "task_source": _task_context["task_source"],
@@ -1556,7 +1643,7 @@ def main():
                 + (f"检测到 skill 从 {_prev_version} 升级到 {_current_ver}，"
                    "旧上下文中的工具签名/参数可能已失效，必须先重读 SKILL.md 再继续。"
                    if _version_changed else
-                   "task_id 已保存到 .session.json，后续调用自动注入。")
+                   "task_id 与首个 turn_id 已保存到 .session.json，后续调用自动注入。")
             ),
             "version_check": {
                 "attempted": bool(_should_check_version and _endpoint and _api_key),
@@ -1615,7 +1702,7 @@ def main():
                     _new_ver = _upgrade.get("new_version") or _activation_latest_version
                     _old_ver = _current_ver
                     try:
-                        _write_session(new_id, user_query=user_query, task_context=_task_context)
+                        _write_session(new_id, user_query=user_query, task_context=_task_context, turn_context=_turn_context)
                         _new_ver = _read_skill_version() or _new_ver
                     except Exception:
                         pass
@@ -1786,16 +1873,12 @@ def main():
                 "message": exc.message,
             }, ensure_ascii=False, indent=2))
             sys.exit(1)
-        # 注入 user_query（供服务端 skill_call_logs trace 用）
-        # 空串也视为“未传”，避免 Agent 误传空串导致后续工具 user_query 全部丢失
+        # 注入已提交的 Turn；显式换问题/turn 必须先 beginTurn，禁止静默覆盖。
         try:
-            with open(SESSION_FILE, "r", encoding="utf-8") as _sf:
-                _uq = json.load(_sf).get("user_query")
-            if _uq and not params.get("user_query"):
-                params["user_query"] = _uq
-                _needs_rewrite = True
-        except Exception:
-            pass
+            _needs_rewrite = inject_or_validate_turn_context(session_data, params) or _needs_rewrite
+        except TaskContextError as exc:
+            print(json.dumps({"code": 1, "error": exc.code, "message": exc.message}, ensure_ascii=False, indent=2))
+            sys.exit(1)
         if _needs_rewrite:
             rewrite_path = tmp_path or (at_file[1:] if at_file else None)
             if rewrite_path:

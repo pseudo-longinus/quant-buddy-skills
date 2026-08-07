@@ -66,12 +66,12 @@
 
 ## 横截面/TopN 任务会话隔离（强制）
 
-> SKILL.md 硬规则已要求每个新问题必须 newSession。本节补充 quant-standard 特有的隔离约束。
+> SKILL.md 硬规则要求首次问题 newSession、每条追问 beginTurn。本节补充 quant-standard 特有的隔离约束。
 
 规则：
 1. 只允许读取本轮 session 中生成的结果
 2. 不得复用历史 session 的中间变量或结果 id
-3. 同一对话追问时，若追问涉及不同选股条件/资产池，也必须重新 newSession
+3. 同一 Session 追问时，无论是否涉及不同选股条件/资产池，都必须先 beginTurn；只有独立 Session 才重新 newSession
 
 ---
 

@@ -1,8 +1,8 @@
 # ============================================================
 # 板块与行业预设
-# 来源：板块_all_728.xlsx（2026-07-30 人工导出）
+# 来源：板块_all_741.xlsx（2026-08-07 人工导出）
 # 导出页面：http://dunhe.guanzhao12.com:8088/#/tagBoard/dashboard
-# 数据：728 条记录，724 个唯一名称，9 个分类
+# 数据：741 条记录，737 个唯一名称，10 个分类
 # 关键：公式中必须使用 name 字段，如 板块(万得全A)、板块(银行（申万）)
 #
 # 说明：
@@ -11,18 +11,19 @@
 # - 若此文件没有目标项，停止并向用户澄清，不再调用远程资产确认兜底。
 #
 # 分类目录：
-# - sectors: 板块 / 市场分类，22 条（源类型：板块(ban_kuai)）
+# - sectors: 板块 / 市场分类，24 条（源类型：板块(ban_kuai)）
 # - gics_primary_industries: GICS 一级行业（美股），25 条（源类型：GICS一级行业(gics_l1)）
 # - gics_sectors: GICS 板块（美股），11 条（源类型：GICS板块(gics_sector)）
 # - hang_seng_primary_industries: 恒生一级行业（港股），12 条（源类型：恒生一级行业(hsi_l1)）
 # - hang_seng_secondary_industries: 恒生二级行业（港股），31 条（源类型：恒生二级行业(hsi_l2)）
-# - concepts: 聚宽概念（A股），398 条（源类型：聚宽概念(jqc)）
+# - concepts: 聚宽概念（A股），399 条（源类型：聚宽概念(jqc)）
+# - kaipanla_themes: 开盘啦题材（A股），10 条（源类型：开盘啦题材(kplc)）
 # - market_connect: 沪港通 / 深港通，5 条（源类型：沪港通(market_tong)）
 # - primary_industries: 申万 / 万得一级行业（A股），42 条（源类型：申万一级行业(shenwan1)）
 # - secondary_industries: 申万二级行业（A股），182 条（源类型：申万二级行业(swl2)）
 # ============================================================
 
-# ── 板块 / 市场分类（22 条）────────────────────
+# ── 板块 / 市场分类（24 条）────────────────────
 sectors:
   - name: "全部资产"
     type: sector
@@ -78,10 +79,16 @@ sectors:
   - name: "中证800"
     type: sector
 
+  - name: "中证A500"
+    type: sector
+
   - name: "中证红利"
     type: sector
 
   - name: "创业板50"
+    type: sector
+
+  - name: "创业板指"
     type: sector
 
   - name: "沪深300"
@@ -340,7 +347,7 @@ hang_seng_secondary_industries:
     type: hang_seng_secondary_industry
 
 
-# ── 聚宽概念（A股）（398 条）────────────────────
+# ── 聚宽概念（A股）（399 条）────────────────────
 concepts:
   - name: "石墨烯"
     type: concept
@@ -1535,6 +1542,42 @@ concepts:
 
   - name: "26中报预增"
     type: concept
+
+  - name: "MLCC"
+    type: concept
+
+
+# ── 开盘啦题材（A股）（10 条）────────────────────
+kaipanla_themes:
+  - name: "AI硬件"
+    type: kaipanla_theme
+
+  - name: "AI低代码"
+    type: kaipanla_theme
+
+  - name: "AI营销"
+    type: kaipanla_theme
+
+  - name: "AI医疗"
+    type: kaipanla_theme
+
+  - name: "AIPC"
+    type: kaipanla_theme
+
+  - name: "AI安全"
+    type: kaipanla_theme
+
+  - name: "阿里AI"
+    type: kaipanla_theme
+
+  - name: "端侧AI"
+    type: kaipanla_theme
+
+  - name: "物理AI"
+    type: kaipanla_theme
+
+  - name: "腾讯AI"
+    type: kaipanla_theme
 
 
 # ── 沪港通 / 深港通（5 条）────────────────────

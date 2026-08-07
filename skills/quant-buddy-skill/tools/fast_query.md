@@ -167,7 +167,7 @@ asset_errors / field_errors / warnings
 
 ## ⚠️ 注意
 
-- **须先调 newSession**：每轮新问题都应先调 `newSession` 建立 session，`user_query` 再随 `fast_query` 参数一并传入
+- **须先建立 Turn**：首次问题调 `newSession`；同一 Session 的追问调 `beginTurn`。后续 `fast_query` 自动复用当前 `turn_id/user_query`
 - **涨跌幅**：返回值已是百分比数（如 `-2.74`），直接加 `%`，不再乘 100
 - **总市值/流通市值**：单位已是亿元
 - **result_mode**：默认 `value`；需要固定区间完整序列时才传 `result_mode="series"`
