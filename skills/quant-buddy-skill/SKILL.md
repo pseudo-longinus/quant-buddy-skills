@@ -2,10 +2,11 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.24.5
+version: 4.25.0
 description: |
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据。
   查询最近N个交易日的价格序列、日涨跌幅序列、窗口最高价、最低价、振幅等短期统计。
+  查询单个资产当前盘中或最近完整交易日的分钟频 OHLCVA 序列（开高低收、成交量、成交额）。
   查询上市公司最近报告期的营业收入、净利润、归母净利润、ROE、总资产、资产负债率等财务指标（A股及部分港/美股字段，以工具返回为准）。
   查询单只股票的预计算指标画像，按估值、财务分析、资金流向、波动率、宏观胜率背景、资产走势等维度返回最新值与上一期值。
   支持A股选股筛选、因子计算、策略回测、净值对比、行业聚合排名、上传自有因子CSV、渲染图表。
@@ -15,7 +16,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.24.5
+  version: 4.25.0
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -108,7 +109,7 @@ runtimeRequirements:
    - 同一对话追问可复用当前 session；新问题必须新建 session。
    - 所有业务 HTTP/SSE 请求统一携带 `x-skill-name: quant-buddy-skill` 与当前 `x-task-id`，用于跨 Skill Trace 聚合；quant-buddy-view 上游任务不得切换 task_id。
 2. **原生工具优先，禁止脚本包装**：
-   - 平台已有原生工具时，必须直接调用原生工具：`fast_query`、`confirmDataMulti`、`selectByComposition`、`runMultiFormulaBatchStream`、`resumeJob`、`readData`、`renderKLine`、`renderChart` 等。
+   - 平台已有原生工具时，必须直接调用原生工具：`fast_query`、`fast_query_minute`、`confirmDataMulti`、`selectByComposition`、`runMultiFormulaBatchStream`、`resumeJob`、`readData`、`renderKLine`、`renderChart` 等。
    - 禁止用 Bash / shell / Python / `scripts/call.py` / `run_skill_script` 包装已有原生平台工具。唯一编排例外是 quant-buddy-view 的 `qbs_bridge.py`，它只负责继承 task_id 和隔离 session，不改写业务参数或结果。
    - 只有平台明确不存在等价原生工具，且 workflow 明确允许脚本兜底时，才可使用本地脚本。
    - **许可例外（csv 解析）**：当 `fast_query` 返回 `mode:"csv"` + `csv_url`（数据点 > 500 的正常交付）时，调用 `python scripts/fetch_fastquery_csv.py "<csv_url>"` 下载并解析该 csv 属于**许可路径**——这是消费工具返回的 OSS 产物（平台无等价原生解析工具），不算"包装原生工具"。但仍禁止用裸 `curl` / 自写临时脚本替代该脚本。
@@ -252,6 +253,7 @@ SKILL_ROOT/
 ├── tools/                   ← API 工具完整参数文档（默认不读；workflow 标注「必读」或报错时再查）
 │   │                           ⚠️ 下表列出所有可用工具的**实际调用名**，调用时必须使用此名，不得变体
 │   ├── fast_query.md            → 工具名 `fast_query`          快速合并查询（行情/估值/财务，≤1000资产，支持CSV）
+│   ├── fast_query_minute.md     → 工具名 `fast_query_minute`   单资产当前盘中/最近完整日分钟 OHLCVA 序列
 │   ├── confirm_data_multi.md    → 工具名 `confirmDataMulti`    批量确认数据项存在性与维度（写公式前必查）
 │   ├── run_multi_formula.md     → 工具名 `runMultiFormulaBatchStream`  执行公式批次（选股/回测/因子计算）
 │   ├── read_data.md             → 工具名 `readData`            读取公式计算结果（需传 data_id，非 expression_id）
@@ -346,6 +348,7 @@ SKILL_ROOT/
 
 | 场景 | 触发词 | 目标 leaf workflow |
 |------|--------|----------|
+| 单资产日内分钟 / 分时序列 | 明确要求分钟、分时、1分钟、每分钟、日内 OHLCV、逐分钟开高低收/成交量；不含历史日期、区间或多资产 | 先按资产库规则确认唯一资产 → 直接调用 `fast_query_minute` → 成功即停 |
 | 最新时点行情 / 估值（快照） | 最新价、今日收盘、最新涨跌幅、当前换手率、最新PE/PB/市值… | Fast Path 条件满足 → 只读 `fast-snapshot.md`；不满足/无法查询 → `global-rules.md` → `quick-snapshot.md` |
 | 最近N日序列 / 窗口统计 | 最近5日、最近20日、近N个交易日、窗口最高/最低/振幅…（仅单资产、最近N日） | Fast Path 条件满足 → 只读 `fast-window.md`；不满足/无法查询 → `global-rules-lite.md` → `quick-window.md` |
 | 最近报告期财务 | 营收、净利润、归母净利润、ROE、总资产、总负债、资产负债率… | Fast Path 条件满足 → 只读 `fast-report-period.md`；不满足/无法查询 → `global-rules.md` → `quick-report-period.md` |
@@ -395,11 +398,12 @@ SKILL_ROOT/
 
 **快速查数路由（按优先级依次判断，首个匹配即停）：**
 
-0. 用户是开放式单股综合指标概览（如“分析一下XX个股”“看一下XX这只股票”“个股画像”“指标概览”“估值财务资金走势综合看一下”），且不是只问单字段/明确窗口/IC 预测力 → `workflows/global-rules.md` → `workflows/stock-profile.md`
-1. 时间锚点是"最近 N 日窗口/序列"，或用户明确给出起止日期要求返回区间序列（如"从X日到X日每日的…走势/序列/数据"），或用户只说"最近走势/看走势"但未明确要图片/K线 → Fast Path 条件满足时读 `workflows/fast-window.md`，不满足则 `workflows/global-rules-lite.md` → `workflows/quick-window.md`；未给 N 时默认按最近 20 个交易日
-2. 时间锚点是"最近报告期"且字段属于财务类 → Fast Path 条件满足时读 `workflows/fast-report-period.md`，不满足则 `workflows/global-rules.md` → `workflows/quick-report-period.md`
-3. 用户明确要"画图 / K线 / 图片 / 带成交量图" → 直接加载 `workflows/render-kline.md`
-4. 其余（明确是最近完成交易日或当日的行情/估值/多资产对比，且**不含** 排名/筛选/全市场 语义）→ Fast Path 条件满足时读 `workflows/fast-snapshot.md`，不满足则 `workflows/global-rules.md` → `workflows/quick-snapshot.md`
+0. 用户明确要**单资产**完整分钟/分时/逐分钟序列或分钟 OHLCVA，且未指定历史日期、日期区间、分钟聚合或多个资产 → 先按资产库规则确认唯一资产，调用 `fast_query_minute`；按索引配对返回的 `dates[]` 与 `fields.<name>[]`，保留 `data_scope/trade_date/timezone` 语义，成功即停。只问最新标量仍走 snapshot；历史/区间/多资产请求不得偷换为分钟工具。
+1. 用户是开放式单股综合指标概览（如“分析一下XX个股”“看一下XX这只股票”“个股画像”“指标概览”“估值财务资金走势综合看一下”），且不是只问单字段/明确窗口/IC 预测力 → `workflows/global-rules.md` → `workflows/stock-profile.md`
+2. 时间锚点是"最近 N 日窗口/序列"，或用户明确给出起止日期要求返回区间序列（如"从X日到X日每日的…走势/序列/数据"），或用户只说"最近走势/看走势"但未明确要图片/K线 → Fast Path 条件满足时读 `workflows/fast-window.md`，不满足则 `workflows/global-rules-lite.md` → `workflows/quick-window.md`；未给 N 时默认按最近 20 个交易日
+3. 时间锚点是"最近报告期"且字段属于财务类 → Fast Path 条件满足时读 `workflows/fast-report-period.md`，不满足则 `workflows/global-rules.md` → `workflows/quick-report-period.md`
+4. 用户明确要"画图 / K线 / 图片 / 带成交量图" → 直接加载 `workflows/render-kline.md`
+5. 其余（明确是最近完成交易日或当日的行情/估值/多资产对比，且**不含** 排名/筛选/全市场 语义）→ Fast Path 条件满足时读 `workflows/fast-snapshot.md`，不满足则 `workflows/global-rules.md` → `workflows/quick-snapshot.md`
    > **说明**：含"今天/今日/当日/当前/现在/实时/盘中"但仅查单资产行情字段，属于日内刷新场景，`fast_query snapshot` 已自动启用盘中刷新（等效 `use_minute_data: true`），应直接走 Fast Path；上方"路由硬排除"已拦截"今天 + 全市场/板块 + 排名/筛选"，此处无需重复排除。
 
 > 上述路由不需要先读 `workflows/quick-lookup.md`。

@@ -9,6 +9,18 @@
 
 ---
 
+## [4.25.0] — 2026-08-07
+
+### 原生日内分钟行情工具
+
+- 新增原生工具 `fast_query_minute`，调用单资产分钟行情接口；使用常规 API Key、trace 透传与共享 `ratePerMinute` 配额链路。
+- 工具契约严格限制为 `asset + fields`：不支持多资产、历史日期、区间、window 或分钟聚合；支持 OHLCVA canonical 字段与中文别名。
+- 返回共享 `dates[]` 与列式 `fields.<name>[]`，明确 `current_session` / `latest_completed`、交易日和市场时区语义。
+- 同步测试 Agent 的 executor/tool schema/tool contract/local-tool registry，防止用脚本包装原生接口。
+- 场景路由新增“单资产分钟/分时/逐分钟序列”优先分支；最新单点行情仍走 `fast_query(snapshot)`。
+
+**变更文件**：`SKILL.md`、`CHANGELOG.md`、`scripts/executor.py`、`tools/fast_query_minute.md`、`tests/test_fast_query_minute_contract.py`、`../agent/tools_schema.py`、`../agent/tool_contracts.py`、`../agent/local_tools.py`。
+
 ## [4.24.5] — 2026-08-07
 
 更新资产、系统数据名和板块预设。
