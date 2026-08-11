@@ -17,7 +17,6 @@
 - `guanzhao.yaml`：示例/宏观/策略类数据。
 - `rice_quant_fa.yaml`：A 股期权隐含波动率。
 - `fmp.yaml`：GICS 行业/板块所属指数。
-- `fa_jqdata.yaml`：旧 jqdata 财务字段。
 - `manifest.yaml`：导入来源、记录数、sha256 和列名校验结果。
 
 ## 查询示例
@@ -37,10 +36,9 @@ rg "GICS" presets/index_info_catalog
 http://dunhe.guanzhao12.com:8088/#/indexInfo/dashboard
 ```
 
-Provider 只选择以下 7 类：
+Provider 只选择以下 6 类：
 
 ```text
-fa_jqdata
 fmp
 fmp_fa
 guanzhao
@@ -49,7 +47,7 @@ join_quant_fa
 rice_quant_fa
 ```
 
-不要选择 `全部`，也不要导入 `dunhe`、`dunhe_custom_fa`、`dunhe_quant`、`fa_dunhe`、`mydata`、`wind_edb`、`wind_search` 等其它 Provider。筛选条件使用 `deleted = false`；其中 `guanzhao` 额外使用 `is_public = true`。
+不要选择 `全部`，也不要导入 `dunhe`、`dunhe_custom_fa`、`dunhe_quant`、`fa_dunhe`、`mydata`、`wind_edb`、`wind_search`、`fa_jqdata` 等其它 Provider。筛选条件使用 `deleted = false`；其中 `guanzhao` 额外使用 `is_public = true`。
 
 下载完成后，在仓库根目录运行开发维护脚本：
 

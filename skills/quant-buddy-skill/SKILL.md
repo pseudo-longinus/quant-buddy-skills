@@ -2,7 +2,7 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.25.0
+version: 4.25.1
 description: |
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据。
   查询最近N个交易日的价格序列、日涨跌幅序列、窗口最高价、最低价、振幅等短期统计。
@@ -16,7 +16,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.25.0
+  version: 4.25.1
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -609,7 +609,7 @@ GZQ_PARAMS='<JSON>' python scripts/call.py <工具名>
 
 > **简言之**：presets 是数据快照，recipes 是完整教程，tools 是参数字典。
 > `data_catalog.yaml` 只维护高频精选字段；`index_info_catalog/*.yaml` 承载全量系统数据名。高频且确认常用的数据名，再人工补进 `data_catalog.yaml`。
-> `index_info_catalog/` 的开发维护来源是后台手工筛选下载的 `indexInfo_*.xlsx`，只纳入 `fa_jqdata`、`fmp`、`fmp_fa`、`guanzhao`、`guanzhao_lhb`、`join_quant_fa`、`rice_quant_fa` 七类 Provider；不要用 `全部` Provider 导出。
+> `index_info_catalog/` 的开发维护来源是后台手工筛选下载的 `indexInfo_*.xlsx`，只纳入 `fmp`、`fmp_fa`、`guanzhao`、`guanzhao_lhb`、`join_quant_fa`、`rice_quant_fa` 六类 Provider；不要用 `全部` Provider 导出，也不要导入已停止支持的 `fa_jqdata`。
 
 ---
 
