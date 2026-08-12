@@ -25,8 +25,10 @@ If you're familiar with AI agent tools (Claude Code, Cursor, OpenClaw, etc.), ju
 > Install this skill for me:
 
 ```bash
-npx skills add pseudo-longinus/quant-buddy-skills -g -a claude-code -s quant-buddy-skill -y
+npx skills add pseudo-longinus/quant-buddy-skills -g -a claude-code --all -y
 ```
+
+We recommend installing both `quant-buddy-skill` (data and quantitative workflows) and `quant-buddy-view` (shareable real-time pages). If only QBS is installed, companion-aware versions can install or update QBV on the first `newSession`, subject to the server rollout policy. A QBV installation failure does not block QBS market-data, financial, formula, screening, or backtest workflows.
 
 Not sure how to use agents or skills? Follow the [step-by-step beginner guide](https://tcn8bvcbyokw.feishu.cn/wiki/E1zswck3oiiJjJkP07QcmSG3nle?from=from_copylink).
 

@@ -301,6 +301,32 @@ class QuantAPI:
                 _resp["try_order"] = _ver_info.get("try_order")
                 _resp["reload_files"] = _ver_info.get("reload_files")
                 _resp["update_message"] = _ver_info.get("message")
+            if isinstance(_ver_info.get("companions"), list) and _ver_info.get("companions"):
+                try:
+                    from companion_manager import reconcile_after_qbs_check  # noqa: PLC0415
+                    companion_result = reconcile_after_qbs_check(
+                        _ver_info.get("companions"),
+                        self.skill_root,
+                        _cur_ver,
+                        qbs_update_required=bool(_ver_info.get("update_required")),
+                    )
+                except Exception as exc:
+                    companion_result = {
+                        "name": "quant-buddy-view",
+                        "attempted": False,
+                        "ok": False,
+                        "reload_required": False,
+                        "error": str(exc),
+                    }
+                if companion_result:
+                    _resp["companion_update"] = companion_result
+                    if companion_result.get("reload_required"):
+                        _resp["reload_required"] = True
+                        _resp["reload_reason"] = "quant-buddy-view installed or updated"
+                        _resp["message"] += (
+                            " quant-buddy-view 已由 QBS 安装或更新；"
+                            "请重新加载 Agent 后再使用活页能力。"
+                        )
             return _resp
 
         if tool_name == "beginTurn":

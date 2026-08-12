@@ -503,8 +503,10 @@ def _write_version_check_state(skill_version, version_info=None, error=None):
     state = {
         "checked_at": int(_t.time()),
         "skill_version": skill_version,
+        "schema_version": (version_info or {}).get("schema_version"),
         "latest_version": (version_info or {}).get("latest_version"),
         "update_required": bool((version_info or {}).get("update_required")),
+        "companions": (version_info or {}).get("companions") if isinstance((version_info or {}).get("companions"), list) else [],
         "error": error,
     }
     try:
@@ -1706,6 +1708,10 @@ def main():
             _result_obj["self_update"] = _pending_self_update
             _result_obj["update_message"] = "检测到上一个 session 记录的待更新版本，正在 newSession 阶段安装新版。"
 
+        _companion_payloads = _ver_info.get("companions") if isinstance(_ver_info.get("companions"), list) else []
+        if not _companion_payloads and isinstance(_version_check_state.get("companions"), list):
+            _companion_payloads = _version_check_state.get("companions")
+
         if _activation_self_update:
             # 自动尝试本地 self_update（不依赖 Agent 阅读提示词），失败时保留升级元信息供上层兜底
             # newSession = 切换新会话：在上下文边界安装/激活新版，但仍遵守当日去重闸门
@@ -1745,6 +1751,35 @@ def main():
                     _result_obj["auto_upgrade_ok"] = False
                     _result_obj["auto_upgrade_error"] = _upgrade.get("error")
                     _result_obj["auto_upgrade_stderr"] = (_upgrade.get("stderr") or "")[-2000:]
+
+        # QBS 更新优先：只有当前 QBS 已是最新且没有待激活的 QBS 更新时，才处理 companions。
+        # Companion 失败始终旁路，不改变 newSession 的 code，也不阻断后续行情/公式/取数。
+        if _companion_payloads:
+            try:
+                from companion_manager import reconcile_after_qbs_check as _reconcile_after_qbs_check  # noqa: PLC0415
+                _companion_result = _reconcile_after_qbs_check(
+                    _companion_payloads,
+                    SKILL_ROOT,
+                    _current_ver,
+                    qbs_update_required=bool(_activation_self_update),
+                )
+            except Exception as _companion_exc:
+                _companion_result = {
+                    "name": "quant-buddy-view",
+                    "attempted": False,
+                    "ok": False,
+                    "reload_required": False,
+                    "error": str(_companion_exc),
+                }
+            if _companion_result:
+                _result_obj["companion_update"] = _companion_result
+                if _companion_result.get("reload_required"):
+                    _result_obj["reload_required"] = True
+                    _result_obj["reload_reason"] = "quant-buddy-view installed or updated"
+                    _result_obj["message"] += (
+                        " quant-buddy-view 已由 QBS 安装或更新；"
+                        "请重新加载 Agent 后再使用活页能力。"
+                    )
         result = json.dumps(_result_obj, ensure_ascii=False, indent=2)
         out_file = os.path.join(tempfile.gettempdir(), "gzq_out.txt")
         with open(out_file, "w", encoding="utf-8") as f:

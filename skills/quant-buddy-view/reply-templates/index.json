@@ -1,0 +1,222 @@
+{
+  "version": "reply_templates_v2",
+  "templates": [
+    {
+      "id": "meta_tooling_response_v1",
+      "title": "Meta Tooling Response",
+      "file": "meta_tooling_response_v1.md",
+      "source_playbooks": ["00_meta_tooling.md"],
+      "default_reply_scope": "full_answer",
+      "output_format": "markdown",
+      "status": "active",
+      "reply_render_policy": {
+        "version": "reply_render_policy_v1",
+        "required_sections": ["步骤 / 配置"],
+        "optional_sections": ["可参考链接", "可能的限制 / 已知问题"],
+        "at_least_one_groups": [],
+        "omit_all_missing_columns": true,
+        "omit_all_missing_rows": true,
+        "placeholder_policy": "partial_only"
+      }
+    },
+    {
+      "id": "single_stock_deep_dive_v1",
+      "title": "Single Stock Deep Dive",
+      "file": "single_stock_deep_dive_v1.md",
+      "source_playbooks": ["03_single_stock_deep_dive.md", "09_dashboard_guidance.md"],
+      "default_reply_scope": "full_answer",
+      "output_format": "markdown",
+      "status": "active",
+      "reply_data_policy_file": "reply-data-policies/single_stock_deep_dive_v1.json",
+      "reply_render_policy": {
+        "version": "reply_render_policy_v1",
+        "required_sections": ["一、行情与估值", "二、财务分析", "三、资金 / 交易特征", "四、计算维度", "五、波动率与风险", "六、消息面（近30日）", "七、综合观察"],
+        "optional_sections": [],
+        "at_least_one_groups": [],
+        "omit_all_missing_columns": true,
+        "omit_all_missing_rows": true,
+        "placeholder_policy": "partial_only"
+      }
+    },
+    {
+      "id": "single_stock_valuation_quality_v1",
+      "title": "Single Stock Valuation And Quality Report",
+      "file": "single_stock_valuation_quality_v1.md",
+      "source_playbooks": ["03_single_stock_deep_dive.md", "09_dashboard_guidance.md"],
+      "default_reply_scope": "full_answer",
+      "output_format": "markdown",
+      "status": "active",
+      "reply_render_policy": {
+        "version": "reply_render_policy_v1",
+        "required_sections": ["七、综合观察"],
+        "optional_sections": ["一、行情与估值", "二、财务分析", "三、资金 / 交易特征", "四、计算维度", "五、波动率与风险", "六、消息面（近 30 日）"],
+        "at_least_one_groups": [["一、行情与估值", "二、财务分析", "三、资金 / 交易特征", "四、计算维度", "五、波动率与风险", "六、消息面（近 30 日）"]],
+        "omit_all_missing_columns": true,
+        "omit_all_missing_rows": true,
+        "placeholder_policy": "partial_only"
+      }
+    },
+    {
+      "id": "market_event_impact_v1",
+      "title": "Macro Market And Event Impact Brief",
+      "file": "market_event_impact_v1.md",
+      "source_playbooks": ["01_macro_event.md", "09_dashboard_guidance.md"],
+      "default_reply_scope": "full_answer",
+      "output_format": "markdown",
+      "status": "active",
+      "reply_render_policy": {
+        "version": "reply_render_policy_v1",
+        "required_sections": ["事件解读", "风险"],
+        "optional_sections": ["指数表", "板块异动", "资金面", "操作框架"],
+        "at_least_one_groups": [],
+        "omit_all_missing_columns": true,
+        "omit_all_missing_rows": true,
+        "placeholder_policy": "partial_only"
+      }
+    },
+    {
+      "id": "sector_theme_opportunity_v1",
+      "title": "Sector Theme Opportunity Report",
+      "file": "sector_theme_opportunity_v1.md",
+      "source_playbooks": ["02_sector_theme.md", "09_dashboard_guidance.md"],
+      "default_reply_scope": "full_answer",
+      "output_format": "markdown",
+      "status": "active",
+      "reply_render_policy": {
+        "version": "reply_render_policy_v1",
+        "required_sections": ["赛道概览", "催化与风险", "声明"],
+        "optional_sections": ["核心标的池", "主线 / 子方向"],
+        "at_least_one_groups": [],
+        "omit_all_missing_columns": true,
+        "omit_all_missing_rows": true,
+        "placeholder_policy": "partial_only"
+      }
+    },
+    {
+      "id": "multi_asset_compare_v1",
+      "title": "Multi Asset Comparison Report",
+      "file": "multi_asset_compare_v1.md",
+      "source_playbooks": ["04_multi_asset_compare.md", "09_dashboard_guidance.md"],
+      "default_reply_scope": "full_answer",
+      "output_format": "markdown",
+      "status": "active",
+      "reply_render_policy": {
+        "version": "reply_render_policy_v1",
+        "required_sections": ["六、综合结论"],
+        "optional_sections": ["一、行情与估值对比", "二、财务质量对比", "三、资金 / 交易特征对比", "四、计算维度对比", "五、波动率与风险对比"],
+        "at_least_one_groups": [["一、行情与估值对比", "二、财务质量对比", "三、资金 / 交易特征对比", "四、计算维度对比", "五、波动率与风险对比"]],
+        "omit_all_missing_columns": true,
+        "omit_all_missing_rows": true,
+        "placeholder_policy": "partial_only"
+      }
+    },
+    {
+      "id": "capital_flow_quant_signal_v1",
+      "title": "Capital Flow Quant Signal Brief",
+      "file": "capital_flow_quant_signal_v1.md",
+      "source_playbooks": ["05_capital_flow_quant.md", "09_dashboard_guidance.md"],
+      "default_reply_scope": "full_answer",
+      "output_format": "markdown",
+      "status": "active",
+      "reply_render_policy": {
+        "version": "reply_render_policy_v1",
+        "required_sections": ["信号判定", "风险与声明"],
+        "optional_sections": ["资金流构成", "量价配合", "板块联动", "消息面", "筛选 / 排行结果（名单、TopN 或策略页面保留）"],
+        "at_least_one_groups": [],
+        "omit_all_missing_columns": true,
+        "omit_all_missing_rows": true,
+        "placeholder_policy": "partial_only"
+      }
+    },
+    {
+      "id": "fund_etf_bond_profile_v1",
+      "title": "Fund ETF Bond Profile",
+      "file": "fund_etf_bond_profile_v1.md",
+      "source_playbooks": ["06_fund_etf_bond.md", "09_dashboard_guidance.md"],
+      "default_reply_scope": "full_answer",
+      "output_format": "markdown",
+      "status": "active",
+      "reply_render_policy": {
+        "version": "reply_render_policy_v1",
+        "required_sections": ["核心数据", "风险"],
+        "optional_sections": ["收益对比", "估值定位", "持仓 / 行业分布", "可转债专项（仅可转债页面保留）", "建议"],
+        "at_least_one_groups": [],
+        "omit_all_missing_columns": true,
+        "omit_all_missing_rows": true,
+        "placeholder_policy": "partial_only"
+      }
+    },
+    {
+      "id": "hk_us_overseas_asset_v1",
+      "title": "HK US Overseas Asset Brief",
+      "file": "hk_us_overseas_asset_v1.md",
+      "source_playbooks": ["07_hk_us_overseas.md", "09_dashboard_guidance.md"],
+      "default_reply_scope": "full_answer",
+      "output_format": "markdown",
+      "status": "active",
+      "reply_render_policy": {
+        "version": "reply_render_policy_v1",
+        "required_sections": ["综合观察", "风险"],
+        "optional_sections": ["核心行情", "区间表现", "财务与业务信息", "K 线 / 趋势观察", "资金 / 交易特征", "计算维度", "波动率与风险", "消息面 / 披露"],
+        "at_least_one_groups": [["核心行情", "区间表现", "财务与业务信息", "K 线 / 趋势观察", "资金 / 交易特征", "计算维度", "波动率与风险", "消息面 / 披露"]],
+        "omit_all_missing_columns": true,
+        "omit_all_missing_rows": true,
+        "placeholder_policy": "partial_only"
+      }
+    },
+    {
+      "id": "dashboard_guidance_appendix_v1",
+      "title": "Realtime Dashboard Guidance Appendix",
+      "file": "dashboard_guidance_appendix_v1.md",
+      "source_playbooks": ["09_dashboard_guidance.md"],
+      "default_reply_scope": "hybrid",
+      "output_format": "markdown",
+      "status": "active",
+      "reply_render_policy": {
+        "version": "reply_render_policy_v1",
+        "required_sections": [],
+        "optional_sections": [],
+        "at_least_one_groups": [],
+        "omit_all_missing_columns": true,
+        "omit_all_missing_rows": true,
+        "placeholder_policy": "partial_only"
+      }
+    },
+    {
+      "id": "generic_live_page_delivery_v1",
+      "title": "Generic Live Page Delivery",
+      "file": "generic_live_page_delivery_v1.md",
+      "source_playbooks": [],
+      "default_reply_scope": "full_answer",
+      "output_format": "markdown",
+      "status": "active",
+      "reply_render_policy": {
+        "version": "reply_render_policy_v1",
+        "required_sections": ["这份活页做了什么", "核心模块", "重点怎么看", "能力边界", "公开链接"],
+        "optional_sections": [],
+        "at_least_one_groups": [],
+        "omit_all_missing_columns": true,
+        "omit_all_missing_rows": true,
+        "placeholder_policy": "partial_only"
+      }
+    },
+    {
+      "id": "global_asset_bubble_monitor_v1",
+      "title": "Global Asset Bubble Monitor",
+      "file": "global_asset_bubble_monitor_v1.md",
+      "source_playbooks": ["01_macro_event.md", "09_dashboard_guidance.md"],
+      "default_reply_scope": "full_answer",
+      "output_format": "markdown",
+      "status": "active",
+      "reply_render_policy": {
+        "version": "reply_render_policy_v1",
+        "required_sections": ["泡沫温度", "宏观压力", "风险与口径", "公开链接"],
+        "optional_sections": [],
+        "at_least_one_groups": [],
+        "omit_all_missing_columns": true,
+        "omit_all_missing_rows": true,
+        "placeholder_policy": "partial_only"
+      }
+    }
+  ]
+}

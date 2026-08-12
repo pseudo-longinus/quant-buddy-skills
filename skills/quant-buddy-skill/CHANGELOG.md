@@ -9,6 +9,15 @@
 
 ---
 
+## [4.25.3] — 2026-08-12
+
+### 单次版本检查与 QBV companion 管理
+
+- `newSession` 的一次 QBS 版本检查可接收服务端 `companions`，在 QBS 已最新时自动安装或更新 `quant-buddy-view`；QBS 自身需要更新时保持 QBS 优先，reload 后再处理 QBV，禁止旧进程同时替换两个 Skill。
+- 新增标准库实现的 Companion Manager：支持 canonical skills root、copy/symlink/junction、SemVer 防降级、三次下载、SHA-512、确定性 ZIP 路径、traversal/symlink 防护、共享锁、staging、原子替换、备份回滚和运行时文件保留。
+- QBV 安装写入 `.managed-install.json`，失败只记录 `output/.companion_state.json` 并旁路返回，不复制 QBS API Key，也不阻断行情、财务、公式、筛选和回测。
+- `call.py` 与 `QuantAPI.newSession` 复用同一 QBS-first companion 状态机，并增加环境禁用、显式 skills root 和强制 reconcile 开关。
+
 ## [4.25.2] — 2026-08-12
 
 ### Turn 追踪改为旁路软降级

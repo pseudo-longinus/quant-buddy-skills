@@ -25,8 +25,10 @@
 > 帮我安装这个 skill：
 
 ```bash
-npx skills add pseudo-longinus/quant-buddy-skills -g -a claude-code -s quant-buddy-skill -y
+npx skills add pseudo-longinus/quant-buddy-skills -g -a claude-code --all -y
 ```
+
+推荐同时安装 `quant-buddy-skill`（数据与量化能力）和 `quant-buddy-view`（可分享实时网页）。如果只安装 QBS，支持 companion 的新版本会在首次 `newSession` 时按服务端灰度策略自动补装或更新 QBV；QBV 安装失败不会影响 QBS 的行情、财务、公式、筛选和回测。
 
 如果你不懂如何使用 Agent 和 skill，可以按照[小白图文教程](https://tcn8bvcbyokw.feishu.cn/wiki/E1zswck3oiiJjJkP07QcmSG3nle?from=from_copylink)一步步展开。
 

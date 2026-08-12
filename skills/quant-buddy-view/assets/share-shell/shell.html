@@ -1,0 +1,61 @@
+<!-- QB_SHELL_HEADER_START -->
+<header class="qb-head" data-qb-live-page-header-host data-qb-share-shell>
+  <iframe id="qbLivePageHeaderFrame" title="QuantBuddy 活页页头" scrolling="no" referrerpolicy="strict-origin-when-cross-origin"></iframe>
+  <div class="qb-live-page-header-fallback" data-qb-live-page-header-fallback aria-hidden="true">
+    <button class="qb-header-fallback-brand" id="qbHeaderFallbackBrand" type="button">QuantBuddy · 宽宝</button>
+    <div class="qb-header-fallback-actions" aria-label="页面基本操作">
+      <button id="qbHeaderFallbackRefresh" type="button">刷新数据</button>
+      <button id="qbHeaderFallbackFavorite" type="button" aria-pressed="false">收藏</button>
+      <button id="qbHeaderFallbackShare" type="button">分享</button>
+      <button class="primary" id="qbHeaderFallbackAsk" type="button">问一问</button>
+    </div>
+  </div>
+</header>
+<!-- QB_SHELL_HEADER_END -->
+
+<!-- QB_SHELL_RESEARCH_WAREHOUSE_START -->
+<div class="qb-warehouse-modal" id="researchWarehouseModal" role="dialog" aria-modal="true" aria-label="收藏到投研仓" aria-hidden="true">
+  <iframe id="researchWarehouseFrame" title="收藏到投研仓" loading="eager" referrerpolicy="strict-origin-when-cross-origin"></iframe>
+</div>
+<div class="qb-auth-modal" id="authContinueModal" role="dialog" aria-modal="true" aria-label="登录 QuantBuddy 后继续" aria-hidden="true">
+  <iframe id="authContinueFrame" title="登录 QuantBuddy 后继续" loading="eager" referrerpolicy="strict-origin-when-cross-origin"></iframe>
+</div>
+<div class="qb-web-agent-modal" id="webAgentModal" role="dialog" aria-modal="true" aria-label="问一问当前活页" aria-hidden="true">
+  <div class="qb-web-agent-sheet">
+    <iframe id="webAgentFrame" title="问一问当前活页" loading="lazy" referrerpolicy="strict-origin-when-cross-origin"></iframe>
+  </div>
+</div>
+<!-- QB_SHELL_RESEARCH_WAREHOUSE_END -->
+
+<!-- QB_SHELL_FOOTER_START -->
+<footer class="qb-footer" data-qb-share-shell-footer>
+  <div class="qb-footer-inner">
+    <div>
+      <div class="qb-footer-brand">QuantBuddy · 宽宝</div>
+      <div class="qb-footer-note">页面仅作市场观察与数据展示，不构成投资建议。数据口径以页面实时取数结果为准。</div>
+    </div>
+    <a class="qb-footer-link" href="https://www.quantbuddy.cn" target="_blank" rel="noopener">www.quantbuddy.cn</a>
+  </div>
+</footer>
+<!-- QB_SHELL_FOOTER_END -->
+
+<!-- QB_SHELL_MODAL_START -->
+<div class="share-modal" id="sharePosterModal" role="dialog" aria-modal="true" aria-labelledby="sharePosterTitle" aria-hidden="true">
+  <div class="share-dialog" role="document">
+    <div class="share-preview">
+      <img id="sharePosterImage" data-qb-runtime-src alt="QuantBuddy 分享海报" />
+      <canvas id="sharePosterCanvas" width="900" height="1400" hidden></canvas>
+    </div>
+    <aside class="share-side">
+      <h2 id="sharePosterTitle">分享海报</h2>
+      <div class="share-status" id="sharePosterStatus">生成中</div>
+      <div class="share-tools">
+        <button class="share-tool" id="copyLink" type="button">复制链接</button>
+        <button class="share-tool primary" id="copyPoster" type="button">复制图片</button>
+        <button class="share-tool" id="downloadPoster" type="button">下载 PNG</button>
+        <button class="share-tool" id="closePoster" type="button">关闭</button>
+      </div>
+    </aside>
+  </div>
+</div>
+<!-- QB_SHELL_MODAL_END -->
