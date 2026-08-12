@@ -1454,18 +1454,25 @@ def main():
             turn_params = json.loads(raw or "{}")
             session_data = _read_session_full()
             turn_context = build_turn_context(session_data, turn_params, uuid_factory=uuid.uuid4)
-            cfg = _ex.load_config()
-            api_key = _ex.resolve_api_key(turn_params, cfg)
-            endpoint = (cfg.get("endpoint") or "").rstrip("/")
-            if not endpoint or not api_key:
-                raise RuntimeError("beginTurn 需要有效 endpoint 与 api_key")
-            response = _post_turn(
-                endpoint, api_key, cfg.get("_channel", ""),
-                "/skill/session/turn", turn_context,
-                agent_model=str(turn_params.get("agent_model") or "").strip() or None,
-                user_id=turn_params.get("user_id"),
-            )
-            turn_context = {**turn_context, "turn_id": response["turn_id"]}
+            response = {}
+            tracking_recorded = False
+            tracking_error = None
+            try:
+                cfg = _ex.load_config()
+                api_key = _ex.resolve_api_key(turn_params, cfg)
+                endpoint = (cfg.get("endpoint") or "").rstrip("/")
+                if not endpoint or not api_key:
+                    raise RuntimeError("缺少 endpoint 或 api_key")
+                response = _post_turn(
+                    endpoint, api_key, cfg.get("_channel", ""),
+                    "/skill/session/turn", turn_context,
+                    agent_model=str(turn_params.get("agent_model") or "").strip() or None,
+                    user_id=turn_params.get("user_id"),
+                )
+                turn_context = {**turn_context, "turn_id": response["turn_id"]}
+                tracking_recorded = True
+            except Exception as exc:
+                tracking_error = str(exc)
             _write_session(turn_context["task_id"], turn_context=turn_context)
             result = {
                 "code": 0, "success": True,
@@ -1473,7 +1480,13 @@ def main():
                 "turn_id": turn_context["turn_id"],
                 "created": bool(response.get("created")),
                 "user_query": turn_context["user_query"],
-                "message": "新 Turn 已创建；后续工具会自动复用当前 task_id、turn_id 与 user_query。",
+                "tracking_recorded": tracking_recorded,
+                "tracking_error": tracking_error,
+                "message": (
+                    "新 Turn 上下文已切换；后续工具会自动复用当前 task_id、turn_id 与 user_query。"
+                    if tracking_recorded else
+                    "Turn 记录失败，但本轮业务上下文已切换，后续工具可继续使用。"
+                ),
             }
         except TaskContextError as exc:
             result = {"code": 1, "error": exc.code, "message": exc.message}
@@ -1546,26 +1559,32 @@ def main():
         _api_key = ""
         _channel = ""
 
-        # 独立 Session 必须先在服务端创建首 Turn；成功后才提交本地 Session。
+        # Session/Turn 追踪为旁路：服务端登记失败不得阻断后续业务工具。
+        _tracking_recorded = not _task_context["report_session_begin"]
+        _tracking_error = None
         try:
-            _cfg = _ex.load_config()
-            _api_key = _ex.resolve_api_key(_ns_params, _cfg)
-            _endpoint = _cfg.get("endpoint", "").rstrip("/")
-            _channel = _cfg.get("_channel", "")
             if _task_context["report_session_begin"]:
-                if not _endpoint or not _api_key:
-                    raise RuntimeError("newSession 需要有效 endpoint 与 api_key 才能登记首个 Turn")
-                _turn_response = _post_turn(
-                    _endpoint, _api_key, _channel, "/skill/session/begin", _turn_context,
-                    agent_model=agent_model, user_id=user_id,
-                )
-                _turn_context = {**_turn_context, "turn_id": _turn_response["turn_id"]}
+                try:
+                    _cfg = _ex.load_config()
+                    _api_key = _ex.resolve_api_key(_ns_params, _cfg)
+                    _endpoint = _cfg.get("endpoint", "").rstrip("/")
+                    _channel = _cfg.get("_channel", "")
+                    if not _endpoint or not _api_key:
+                        raise RuntimeError("缺少 endpoint 或 api_key")
+                    _turn_response = _post_turn(
+                        _endpoint, _api_key, _channel, "/skill/session/begin", _turn_context,
+                        agent_model=agent_model, user_id=user_id,
+                    )
+                    _turn_context = {**_turn_context, "turn_id": _turn_response["turn_id"]}
+                    _tracking_recorded = True
+                except Exception as exc:
+                    _tracking_error = str(exc)
             _write_session(
                 new_id, user_query=user_query, task_context=_task_context, turn_context=_turn_context
             )
         except Exception as exc:
             _safe_print(json.dumps({
-                "code": 1, "error": "SESSION_BEGIN_FAILED",
+                "code": 1, "error": "SESSION_CONTEXT_FAILED",
                 "message": str(exc), "task_id": new_id, "turn_id": _turn_context["turn_id"],
             }, ensure_ascii=False, indent=2))
             sys.exit(1)
@@ -1632,6 +1651,8 @@ def main():
             "code": 0,
             "task_id": new_id,
             "turn_id": _turn_context["turn_id"],
+            "tracking_recorded": _tracking_recorded,
+            "tracking_error": _tracking_error,
             "task_mode": _task_context["task_mode"],
             "task_id_source": _task_context["task_id_source"],
             "task_source": _task_context["task_source"],
@@ -1873,12 +1894,15 @@ def main():
                 "message": exc.message,
             }, ensure_ascii=False, indent=2))
             sys.exit(1)
-        # 注入已提交的 Turn；显式换问题/turn 必须先 beginTurn，禁止静默覆盖。
-        try:
-            _needs_rewrite = inject_or_validate_turn_context(session_data, params) or _needs_rewrite
-        except TaskContextError as exc:
-            print(json.dumps({"code": 1, "error": exc.code, "message": exc.message}, ensure_ascii=False, indent=2))
-            sys.exit(1)
+        # Turn 追踪只做 best-effort 注入；上下文漂移时取消 Turn 关联，但业务继续执行。
+        _turn_warnings = []
+        _needs_rewrite = inject_or_validate_turn_context(
+            session_data, params, warnings=_turn_warnings
+        ) or _needs_rewrite
+        for _warning in _turn_warnings:
+            sys.stderr.write(
+                f"[quant-buddy-skill/turn-trace] {_warning['code']}: {_warning['message']}\n"
+            )
         if _needs_rewrite:
             rewrite_path = tmp_path or (at_file[1:] if at_file else None)
             if rewrite_path:

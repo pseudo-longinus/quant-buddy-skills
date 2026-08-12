@@ -9,6 +9,14 @@
 
 ---
 
+## [4.25.2] — 2026-08-12
+
+### Turn 追踪改为旁路软降级
+
+- Turn 只用于审计与分析：普通工具遇到 `turn_id` 串号、问题上下文漂移或服务端 Turn 记录失败时，不再抛出 `TURN_CONTEXT_MISMATCH` 阻断业务。
+- 不安全的 `turn_id` 会被取消，调用方本轮真实 `user_query` 继续随业务请求发送；诊断通过 warning / `tracking_recorded=false` 保留，禁止错误关联到其他 Session。
+- `newSession` / `beginTurn` 的服务端记录失败时仍提交本地 Session/Turn 上下文，后续行情、公式、取数和页面工具可继续执行；真正的业务参数、权限和锁定 `task_id` 错误仍保持硬失败。
+
 ## [4.25.1] — 2026-08-11
 
 ### 清理未支持的数据源

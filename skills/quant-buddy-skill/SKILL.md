@@ -2,7 +2,7 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.25.1
+version: 4.25.2
 description: |
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据。
   查询最近N个交易日的价格序列、日涨跌幅序列、窗口最高价、最低价、振幅等短期统计。
@@ -16,7 +16,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.25.1
+  version: 4.25.2
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -183,7 +183,7 @@ runtimeRequirements:
 2. 同一 Session 收到新的用户消息（包括追问）时，必须先调用 `beginTurn`，参数中的 `user_query` 必须是本轮原话；同一 Turn 内连续调用多个工具时复用当前上下文，不重复 `beginTurn`。
 3. 只有真正开始新的独立 Skill Session 才重新 `newSession`。不允许用“已读 SKILL.md / leaf workflow”跳过首个 `newSession`，也不允许用重复 `newSession` 代替追问的 `beginTurn`。
    - **建议在 `newSession` 同时传 `agent_model`**：填入当前 Agent 的真实模型标识（例如 `gpt-4o` / `claude-sonnet-4` / `gemini-2.5-pro`）；拿不准就留空，禁止猜测。
-4. 未建立 Session 直接调用平台工具会返回 `MISSING_NEW_SESSION`；新问题未先 `beginTurn`、却显式传入不同 `user_query` 会返回 `TURN_CONTEXT_MISMATCH`。两者都必须先修复上下文，禁止静默覆盖历史问题。
+4. 未建立 Session 直接调用平台工具仍会返回 `MISSING_NEW_SESSION`。若新问题未先 `beginTurn`，或显式 `turn_id/user_query` 与当前 Turn 漂移，客户端必须取消不安全的 Turn 关联、保留本轮真实 `user_query` 并继续业务工具；仅输出追踪诊断，禁止因 Turn 记录失败停止回答用户，也禁止把调用错误挂到其他 Session。
 
 ## 最小充分原则（任何动作前自检）
 

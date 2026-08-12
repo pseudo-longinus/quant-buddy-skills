@@ -254,11 +254,17 @@ class QuantAPI:
                 turn_context = build_turn_context({}, turn_params, uuid_factory=_uuid.uuid4)
             except TaskContextError as exc:
                 raise RuntimeError(f"{exc.code}: {exc.message}") from exc
+            tracking_recorded = not task_context["report_session_begin"]
+            tracking_error = None
             if task_context["report_session_begin"]:
-                turn_result = self._report_session_begin(turn_context)
-                server_turn_id = turn_result.get("turn_id") if isinstance(turn_result, dict) else None
-                canonical_turn_id = server_turn_id.strip() if isinstance(server_turn_id, str) else ""
-                turn_context = {**turn_context, "turn_id": canonical_turn_id or turn_context["turn_id"]}
+                try:
+                    turn_result = self._report_session_begin(turn_context)
+                    server_turn_id = turn_result.get("turn_id") if isinstance(turn_result, dict) else None
+                    canonical_turn_id = server_turn_id.strip() if isinstance(server_turn_id, str) else ""
+                    turn_context = {**turn_context, "turn_id": canonical_turn_id or turn_context["turn_id"]}
+                    tracking_recorded = True
+                except Exception as exc:
+                    tracking_error = str(exc)
             self._write_session(
                 new_id, user_query=user_query, task_context=task_context, turn_context=turn_context
             )
@@ -277,6 +283,8 @@ class QuantAPI:
                 "skill_version": _cur_ver,
                 "version_changed_from_last_session": _changed,
                 "previous_skill_version": _prev_ver if _changed else None,
+                "tracking_recorded": tracking_recorded,
+                "tracking_error": tracking_error,
                 "message": (
                     f"{'上游 task_id 已继承' if task_context['task_id_locked'] else '新 session 已创建'}（skill {_cur_ver}）。"
                     + (f"检测到 skill 从 {_prev_ver} 升级到 {_cur_ver}，"
@@ -303,10 +311,17 @@ class QuantAPI:
                 turn_context = build_turn_context(session_data, params, uuid_factory=_uuid.uuid4)
             except TaskContextError as exc:
                 raise RuntimeError(f"{exc.code}: {exc.message}") from exc
-            result = self._report_turn_begin(turn_context)
-            server_turn_id = result.get("turn_id") if isinstance(result, dict) else None
-            canonical_turn_id = server_turn_id.strip() if isinstance(server_turn_id, str) else ""
-            turn_context = {**turn_context, "turn_id": canonical_turn_id or turn_context["turn_id"]}
+            tracking_recorded = False
+            tracking_error = None
+            result = {}
+            try:
+                result = self._report_turn_begin(turn_context)
+                server_turn_id = result.get("turn_id") if isinstance(result, dict) else None
+                canonical_turn_id = server_turn_id.strip() if isinstance(server_turn_id, str) else ""
+                turn_context = {**turn_context, "turn_id": canonical_turn_id or turn_context["turn_id"]}
+                tracking_recorded = True
+            except Exception as exc:
+                tracking_error = str(exc)
             self._write_session(turn_context["task_id"], turn_context=turn_context)
             return {
                 "code": 0, "success": True,
@@ -314,6 +329,8 @@ class QuantAPI:
                 "turn_id": turn_context["turn_id"],
                 "created": bool(result.get("created")),
                 "user_query": turn_context["user_query"],
+                "tracking_recorded": tracking_recorded,
+                "tracking_error": tracking_error,
             }
 
         # ── 版本守卫：检测旧会话与当前 skill 版本是否匹配 ─────────────
@@ -338,9 +355,10 @@ class QuantAPI:
             self._task_id = session_data["task_id"]
         try:
             inject_or_validate_task_id(session_data, params)
-            inject_or_validate_turn_context(session_data, params)
         except TaskContextError as exc:
             raise RuntimeError(f"{exc.code}: {exc.message}") from exc
+        turn_warnings = []
+        inject_or_validate_turn_context(session_data, params, warnings=turn_warnings)
 
         # ── 确保 executor 在 sys.path 里，然后 import ───────────────
         if self._scripts_dir not in sys.path:
@@ -453,7 +471,7 @@ class QuantAPI:
         self, user_query: str, turn_id: str = None, message_id: str = None,
         parent_turn_id: str = None,
     ) -> str:
-        """在当前 Session 登记一条新的用户消息，成功后才切换本地 Turn。"""
+        """切换当前 Turn；服务端追踪失败时仍提交本地上下文并继续业务。"""
         params = {"user_query": user_query}
         if turn_id is not None:
             params["turn_id"] = turn_id

@@ -162,24 +162,36 @@ def turn_session_fields(turn_context, previous_session=None):
     }
 
 
-def inject_or_validate_turn_context(session, params):
-    """Inject the committed Turn; reject silent query/turn changes."""
+def inject_or_validate_turn_context(session, params, warnings=None):
+    """Best-effort Turn injection; tracing drift never blocks a business tool."""
     session = session if isinstance(session, dict) else {}
     params = params if isinstance(params, dict) else {}
+    warnings = warnings if isinstance(warnings, list) else []
     turn_id = str(session.get("current_turn_id") or "").strip()
     current_query = str(session.get("current_user_query") or session.get("user_query") or "").strip()
     request_turn_id = str(params.get("turn_id") or "").strip()
     request_query = str(params.get("user_query") or params.get("userQuery") or "").strip()
-    if turn_id and request_turn_id and request_turn_id != turn_id:
-        raise TaskContextError(
-            "TURN_CONTEXT_MISMATCH",
-            f"当前 Turn 为 {turn_id}，拒绝直接切换到 {request_turn_id}；请先调用 beginTurn",
-        )
-    if turn_id and current_query and request_query and request_query != current_query:
-        raise TaskContextError(
-            "TURN_CONTEXT_MISMATCH",
-            "显式 user_query 与当前 Turn 不一致；请先调用 beginTurn 创建新 Turn",
-        )
+
+    turn_mismatch = bool(turn_id and request_turn_id and request_turn_id != turn_id)
+    query_mismatch = bool(turn_id and current_query and request_query and request_query != current_query)
+    if turn_mismatch or query_mismatch:
+        warnings.append({
+            "code": "TURN_CONTEXT_MISMATCH",
+            "message": (
+                f"Turn 上下文不一致，已取消 Turn 关联并继续业务调用："
+                f"session_turn={turn_id or '-'}, request_turn={request_turn_id or '-'}"
+            ),
+        })
+        # Preserve the caller's real question, but never send a stale/mismatched
+        # turn_id that could attach this tool call to another Session.
+        changed = "turn_id" in params
+        params.pop("turn_id", None)
+        if request_query and "user_query" not in params:
+            params["user_query"] = request_query
+            params.pop("userQuery", None)
+            changed = True
+        return changed
+
     changed = False
     if turn_id and not request_turn_id:
         params["turn_id"] = turn_id
