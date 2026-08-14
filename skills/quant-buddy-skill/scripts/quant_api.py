@@ -322,9 +322,9 @@ class QuantAPI:
                     _resp["companion_update"] = companion_result
                     if companion_result.get("reload_required"):
                         _resp["reload_required"] = True
-                        _resp["reload_reason"] = "quant-buddy-view installed or updated"
+                        _resp["reload_reason"] = "quant-buddy-view installed, updated, or registered"
                         _resp["message"] += (
-                            " quant-buddy-view 已由 QBS 安装或更新；"
+                            " quant-buddy-view 已由 QBS 安装、更新或注册到当前 Agent；"
                             "请重新加载 Agent 后再使用活页能力。"
                         )
             return _resp

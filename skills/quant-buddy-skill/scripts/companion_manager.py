@@ -14,6 +14,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import tempfile
 import time
 import urllib.request
@@ -169,6 +170,185 @@ def resolve_skills_root(
         "skills_root": skills_root.resolve(strict=False),
         "dev_checkout": _has_git_ancestor(canonical),
     }
+
+
+def _normalized_absolute(path: Path) -> str:
+    return os.path.normcase(os.path.abspath(str(path)))
+
+
+def _is_directory_link(path: Path) -> bool:
+    if path.is_symlink():
+        return True
+    isjunction = getattr(os.path, "isjunction", None)
+    return bool(isjunction and isjunction(path))
+
+
+def _directory_link_points_to(link_path: Path, target_path: Path) -> bool:
+    try:
+        if link_path.exists() and target_path.exists() and os.path.samefile(link_path, target_path):
+            return True
+    except OSError:
+        pass
+    try:
+        return _normalized_absolute(link_path.resolve(strict=False)) == _normalized_absolute(
+            target_path.resolve(strict=False)
+        )
+    except OSError:
+        return False
+
+
+def _create_directory_link(link_path: Path, target_path: Path) -> None:
+    """Create a directory symlink, falling back to a Windows junction."""
+    if not target_path.is_dir():
+        raise CompanionError(f"agent registration target is not a directory: {target_path}")
+    if link_path.exists() or link_path.is_symlink() or _is_directory_link(link_path):
+        raise FileExistsError(f"agent registration path already exists: {link_path}")
+    link_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.symlink(target_path, link_path, target_is_directory=True)
+        return
+    except OSError as symlink_error:
+        if os.name != "nt":
+            raise CompanionError(f"cannot create agent skill link: {symlink_error}") from symlink_error
+
+    child_env = os.environ.copy()
+    child_env["QBS_COMPANION_LINK_PATH"] = str(link_path)
+    child_env["QBS_COMPANION_TARGET_PATH"] = str(target_path)
+    command = (
+        "$ErrorActionPreference='Stop'; "
+        "New-Item -ItemType Junction "
+        "-Path $env:QBS_COMPANION_LINK_PATH "
+        "-Target $env:QBS_COMPANION_TARGET_PATH | Out-Null"
+    )
+    completed = subprocess.run(
+        ["powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        env=child_env,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout or str(symlink_error)).strip()
+        raise CompanionError(f"cannot create agent skill junction: {detail}")
+
+
+def ensure_agent_registration(
+    resolved: Dict[str, object],
+    canonical_qbv_root: Path,
+    create: bool = True,
+) -> Dict[str, object]:
+    """Ensure the current Agent's logical skills root can discover canonical QBV.
+
+    Existing real directories and links to another target are never replaced.
+    """
+    logical_qbs_root = Path(resolved["logical_qbs_root"]).absolute()
+    logical_skills_root = logical_qbs_root.parent
+    canonical_qbv_root = Path(canonical_qbv_root).absolute()
+    logical_qbv_root = logical_skills_root / COMPANION_NAME
+    result = {
+        "ok": True,
+        "created": False,
+        "logical_root": str(logical_qbv_root),
+        "canonical_root": str(canonical_qbv_root),
+    }
+
+    if _normalized_absolute(logical_qbv_root) == _normalized_absolute(canonical_qbv_root):
+        return {**result, "status": "already_visible"}
+    if logical_skills_root.name.lower() != "skills":
+        return {
+            **result,
+            "ok": False,
+            "status": "agent_logical_root_unknown",
+            "reason": "agent_logical_root_unknown",
+        }
+
+    path_present = logical_qbv_root.exists() or logical_qbv_root.is_symlink() or _is_directory_link(logical_qbv_root)
+    if path_present:
+        if _directory_link_points_to(logical_qbv_root, canonical_qbv_root):
+            return {**result, "status": "already_registered"}
+        if _is_directory_link(logical_qbv_root):
+            return {
+                **result,
+                "ok": False,
+                "status": "agent_link_target_mismatch",
+                "reason": "agent_link_target_mismatch",
+            }
+        return {
+            **result,
+            "ok": False,
+            "status": "agent_registration_conflict",
+            "reason": "agent_registration_conflict",
+        }
+
+    if not create:
+        return {**result, "status": "missing"}
+
+    try:
+        _create_directory_link(logical_qbv_root, canonical_qbv_root)
+    except FileExistsError:
+        # Another updater may have won the race. Accept only the intended target.
+        if _directory_link_points_to(logical_qbv_root, canonical_qbv_root):
+            return {**result, "status": "already_registered"}
+        return {
+            **result,
+            "ok": False,
+            "status": "agent_registration_conflict",
+            "reason": "agent_registration_conflict",
+        }
+    except Exception as exc:
+        return {
+            **result,
+            "ok": False,
+            "status": "agent_registration_failed",
+            "reason": "agent_registration_failed",
+            "error": str(exc),
+        }
+    return {**result, "created": True, "status": "registered"}
+
+
+def _finish_without_package_update(
+    result: Dict[str, object],
+    resolved: Dict[str, object],
+    target: Path,
+    version_reason: str,
+    activation: object,
+) -> Dict[str, object]:
+    registration = ensure_agent_registration(resolved, target, create=True)
+    result.update({
+        "agent_registration": registration,
+        "agent_link_path": registration.get("logical_root"),
+        "canonical_root": registration.get("canonical_root"),
+        "agent_link_created": bool(registration.get("created")),
+    })
+    if not registration.get("ok"):
+        result.update({
+            "attempted": False,
+            "ok": False,
+            "skipped": True,
+            "reason": registration.get("reason") or "agent_registration_failed",
+            "error": registration.get("error"),
+        })
+    elif registration.get("created"):
+        result.update({
+            "attempted": True,
+            "ok": True,
+            "skipped": False,
+            "action": "register",
+            "reason": "agent_registration_created",
+            "reload_required": True,
+            "activation": activation or "next_agent_reload",
+        })
+    else:
+        result.update({
+            "attempted": False,
+            "ok": True,
+            "skipped": True,
+            "reason": version_reason,
+        })
+    return result
 
 
 def _normalize_preserve_files(values: object) -> Tuple[str, ...]:
@@ -451,18 +631,41 @@ def reconcile_companions(
         return result
 
     current_version = read_skill_version(target)
+    common = {
+        **base,
+        "current_version": current_version or None,
+        "target_version": target_version,
+        "skills_root": str(skills_root),
+        "target_root": str(target),
+    }
     try:
         compared = compare_semver(target_version, current_version) if current_version else 1
     except CompanionError as exc:
-        result = {**base, "ok": False, "skipped": True, "reason": str(exc), "current_version": current_version}
+        result = {**common, "ok": False, "skipped": True, "reason": str(exc)}
         _write_state(qbs_path, result)
         return result
-    if compared < 0:
-        result = {**base, "skipped": True, "reason": "local_version_is_newer", "current_version": current_version, "target_version": target_version}
+
+    if compared <= 0 and not force:
+        version_reason = "local_version_is_newer" if compared < 0 else "already_current"
+        result = _finish_without_package_update(
+            common, resolved, target, version_reason, companion.get("activation")
+        )
         _write_state(qbs_path, result)
         return result
-    if compared == 0 and not force:
-        result = {**base, "skipped": True, "reason": "already_current", "current_version": current_version, "target_version": target_version}
+
+    registration_preflight = ensure_agent_registration(resolved, target, create=False)
+    if not registration_preflight.get("ok"):
+        result = {
+            **common,
+            "ok": False,
+            "skipped": True,
+            "reason": registration_preflight.get("reason") or "agent_registration_failed",
+            "error": registration_preflight.get("error"),
+            "agent_registration": registration_preflight,
+            "agent_link_path": registration_preflight.get("logical_root"),
+            "canonical_root": registration_preflight.get("canonical_root"),
+            "agent_link_created": False,
+        }
         _write_state(qbs_path, result)
         return result
 
@@ -470,31 +673,25 @@ def reconcile_companions(
     qbs_lock = qbs_path / "output" / LOCK_FILENAME
     shared_lock = skills_root / SHARED_LOCK_FILENAME
     result = {
-        **base,
+        **common,
         "attempted": True,
         "ok": False,
         "action": "install" if not current_version else ("reconcile" if compared == 0 else "update"),
-        "current_version": current_version or None,
-        "target_version": target_version,
-        "skills_root": str(skills_root),
-        "target_root": str(target),
     }
     try:
         with _exclusive_lock(qbs_lock), _exclusive_lock(shared_lock):
             # Re-check inside the shared lock. Another QBS/QBV updater may have
             # completed after the optimistic check above; never overwrite it
-            # with the now-stale target.
+            # with the now-stale target. Registration must still be reconciled.
             locked_current = read_skill_version(target)
             if locked_current:
                 locked_compared = compare_semver(target_version, locked_current)
                 if locked_compared < 0 or (locked_compared == 0 and not force):
-                    result.update({
-                        "attempted": False,
-                        "ok": True,
-                        "skipped": True,
-                        "reason": "local_version_is_newer" if locked_compared < 0 else "already_current",
-                        "current_version": locked_current,
-                    })
+                    result.update({"current_version": locked_current})
+                    version_reason = "local_version_is_newer" if locked_compared < 0 else "already_current"
+                    result = _finish_without_package_update(
+                        result, resolved, target, version_reason, companion.get("activation")
+                    )
                     _write_state(qbs_path, result)
                     return result
 
@@ -521,13 +718,26 @@ def reconcile_companions(
                 _write_managed_marker(prepared, actual_version)
                 backup_root = skills_root.parent / "skill-backups"
                 backup = _atomic_install(prepared, target, backup_root)
+                registration = ensure_agent_registration(resolved, target, create=True)
                 result.update({
-                    "ok": True,
-                    "reload_required": True,
+                    "agent_registration": registration,
+                    "agent_link_path": registration.get("logical_root"),
+                    "canonical_root": registration.get("canonical_root"),
+                    "agent_link_created": bool(registration.get("created")),
                     "installed_version": actual_version,
                     "backup_path": str(backup) if backup else None,
                     "activation": companion.get("activation") or "next_agent_reload",
                 })
+                if not registration.get("ok"):
+                    result.update({
+                        "ok": False,
+                        "reason": registration.get("reason") or "agent_registration_failed",
+                        "error": registration.get("error"),
+                    })
+                else:
+                    if registration.get("created"):
+                        result["action"] = f"{result['action']}_and_register"
+                    result.update({"ok": True, "reload_required": True})
             finally:
                 shutil.rmtree(temp_root, ignore_errors=True)
     except LockBusy as exc:
@@ -544,5 +754,6 @@ __all__ = [
     "compare_semver",
     "read_skill_version",
     "resolve_skills_root",
+    "ensure_agent_registration",
     "reconcile_companions",
 ]

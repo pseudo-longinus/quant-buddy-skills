@@ -1775,9 +1775,9 @@ def main():
                 _result_obj["companion_update"] = _companion_result
                 if _companion_result.get("reload_required"):
                     _result_obj["reload_required"] = True
-                    _result_obj["reload_reason"] = "quant-buddy-view installed or updated"
+                    _result_obj["reload_reason"] = "quant-buddy-view installed, updated, or registered"
                     _result_obj["message"] += (
-                        " quant-buddy-view 已由 QBS 安装或更新；"
+                        " quant-buddy-view 已由 QBS 安装、更新或注册到当前 Agent；"
                         "请重新加载 Agent 后再使用活页能力。"
                     )
         result = json.dumps(_result_obj, ensure_ascii=False, indent=2)

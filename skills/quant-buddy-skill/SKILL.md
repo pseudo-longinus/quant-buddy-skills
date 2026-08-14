@@ -2,7 +2,7 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.25.3
+version: 4.25.4
 description: |
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据。
   查询最近N个交易日的价格序列、日涨跌幅序列、窗口最高价、最低价、振幅等短期统计。
@@ -16,7 +16,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.25.3
+  version: 4.25.4
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -182,7 +182,7 @@ runtimeRequirements:
 1. 当前 Skill Session 尚未建立时，调用任何平台原生工具前必须先调用 `newSession`；`newSession` 同时登记本 Session 的首个 Turn。
 2. 同一 Session 收到新的用户消息（包括追问）时，必须先调用 `beginTurn`，参数中的 `user_query` 必须是本轮原话；同一 Turn 内连续调用多个工具时复用当前上下文，不重复 `beginTurn`。
 3. 只有真正开始新的独立 Skill Session 才重新 `newSession`。不允许用“已读 SKILL.md / leaf workflow”跳过首个 `newSession`，也不允许用重复 `newSession` 代替追问的 `beginTurn`。
-   - 新版 `newSession` 的单次版本检查可能同时返回可选 companion（当前为 `quant-buddy-view`）：QBS 自身需要升级时必须先只升级 QBS 并 reload；QBS 已最新时才可安装/更新 companion。companion 失败属于旁路错误，不得阻断当前 QBS 数据业务；companion 成功后按返回的 `reload_required` 重新加载 Agent。
+   - 新版 `newSession` 的单次版本检查可能同时返回可选 companion（当前为 `quant-buddy-view`）：QBS 自身需要升级时必须先只升级 QBS 并 reload；QBS 已最新时才可安装、更新或补齐当前 Agent 的 companion 注册。companion 失败属于旁路错误，不得阻断当前 QBS 数据业务；只要返回 `reload_required=true`，最终回复必须明确提示用户重新加载 Agent，禁止忽略该提示后声称活页能力已在当前会话生效。
    - **建议在 `newSession` 同时传 `agent_model`**：填入当前 Agent 的真实模型标识（例如 `gpt-4o` / `claude-sonnet-4` / `gemini-2.5-pro`）；拿不准就留空，禁止猜测。
 4. 未建立 Session 直接调用平台工具仍会返回 `MISSING_NEW_SESSION`。若新问题未先 `beginTurn`，或显式 `turn_id/user_query` 与当前 Turn 漂移，客户端必须取消不安全的 Turn 关联、保留本轮真实 `user_query` 并继续业务工具；仅输出追踪诊断，禁止因 Turn 记录失败停止回答用户，也禁止把调用错误挂到其他 Session。
 

@@ -9,6 +9,15 @@
 
 ---
 
+## [4.25.4] — 2026-08-14
+
+### 修复 QBV 已安装但当前 Agent 无法发现
+
+- Companion Manager 在 canonical `~/.agents/skills/quant-buddy-view` 已是目标版本时，不再因 `already_current` 提前结束；仍会根据当前 QBS logical root 补齐同级 `quant-buddy-view` 注册。
+- Windows 优先创建目录 symlink，权限不足时安全回退为 Junction；正确链接保持 no-op，真实目录或指向其他目标的链接一律不覆盖。
+- QBV 更新与 Agent 注册拆成两个阶段：缺失或旧版本先维护 canonical QBV，再注册当前 Agent；注册成功返回 `reload_required=true`，注册失败旁路记录且不阻断 QBS 数据业务。
+- `newSession` 明确提示“安装、更新或注册”均需重新加载 Agent，避免安装成功后在旧会话中误判 QBV 已激活。
+
 ## [4.25.3] — 2026-08-12
 
 ### 单次版本检查与 QBV companion 管理
