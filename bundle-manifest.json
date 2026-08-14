@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "bundle_version": "4.25.3",
+  "bundle_version": "4.25.4",
   "components": {
     "quant-buddy-skill": {
-      "version": "4.25.3"
+      "version": "4.25.4"
     },
     "quant-buddy-view": {
       "version": "0.6.39",
