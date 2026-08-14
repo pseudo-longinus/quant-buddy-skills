@@ -9,6 +9,14 @@
 
 ---
 
+## [4.25.10] — 2026-08-14
+
+### 修复用户主目录 Git 仓库误判开发 checkout
+
+- 将 `.agents/skills`、`.claude/skills`、`.cursor/skills`、`.codex/skills` 明确认定为正常 Agent Skill 安装根，不再受更高层用户目录 `.git` 影响。
+- 普通 `repo/skills/quant-buddy-skill` 仍保留开发 checkout 保护，避免自动安装污染源码仓库。
+- 增加用户目录含 `.git`、canonical `.agents` 与 logical `.claude` 链接场景的 QBV 注册回归测试。
+
 ## [4.25.4] — 2026-08-14
 
 ### 修复 QBV 已安装但当前 Agent 无法发现

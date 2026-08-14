@@ -32,6 +32,7 @@ DEFAULT_PRESERVE = ("config.json", "config.local.json", "output", "logs")
 LOCK_STALE_SECONDS = 2 * 60 * 60
 DOWNLOAD_TIMEOUT_SECONDS = 300
 DOWNLOAD_ATTEMPTS = 3
+KNOWN_AGENT_SKILL_CONTAINERS = frozenset({".agents", ".claude", ".cursor", ".codex"})
 SEMVER_RE = re.compile(
     r"^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
     r"(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$"
@@ -118,6 +119,13 @@ def _has_git_ancestor(path: Path) -> bool:
         current = current.parent
 
 
+def _is_known_agent_skills_root(skills_root: Path) -> bool:
+    return (
+        skills_root.name.lower() == "skills"
+        and skills_root.parent.name.lower() in KNOWN_AGENT_SKILL_CONTAINERS
+    )
+
+
 def resolve_skills_root(
     qbs_root: Path,
     environ: Optional[Dict[str, str]] = None,
@@ -162,13 +170,18 @@ def resolve_skills_root(
             "canonical_qbs_root": canonical,
         }
 
+    resolved_skills_root = skills_root.resolve(strict=False)
     return {
         "ok": True,
         "source": source,
         "logical_qbs_root": logical_root,
         "canonical_qbs_root": canonical,
-        "skills_root": skills_root.resolve(strict=False),
-        "dev_checkout": _has_git_ancestor(canonical),
+        "skills_root": resolved_skills_root,
+        "dev_checkout": (
+            False
+            if _is_known_agent_skills_root(resolved_skills_root)
+            else _has_git_ancestor(canonical)
+        ),
     }
 
 
