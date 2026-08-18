@@ -139,6 +139,7 @@ contract.required=true 时，Agent 最终答复前必须读取本地回复模板
 
 import hashlib
 import html as html_lib
+from html.parser import HTMLParser
 import io
 import json
 import os
@@ -215,6 +216,36 @@ _VALIDATION_RECEIPT_VERSION = "qb_validation_receipt_v1"
 _GRANT_VALIDATION_RECEIPT_VERSION = "grant_validation_receipt_v1"
 _LIVE_DATA_ROUTE_RECEIPT_VERSION = "live_data_route_receipt_v1"
 _LIVE_DATA_MODES = {"live", "static_content_only", "static_after_live_probe"}
+_PRESERVE_HTML_QBS_LIVE_MODE = "preserve_html_qbs_live"
+_LIVE_INDICATOR_VERSION = "v2"
+_LIVE_INDICATOR_STYLE_V1 = """[data-qb-live-mode="live"][data-qb-live-tag~="qbs-formula-package"],
+[data-qb-live-mode="live"][data-qb-live-tag~="qbs-data-grant"]{position:relative}
+[data-qb-live-mode="live"][data-qb-live-tag~="qbs-formula-package"]::after,
+[data-qb-live-mode="live"][data-qb-live-tag~="qbs-data-grant"]::after{position:absolute;top:8px;right:8px;z-index:2147483000;box-sizing:border-box;max-width:calc(100% - 16px);padding:4px 8px;border:1px solid rgba(16,185,129,.32);border-radius:999px;background:rgba(6,78,59,.92);box-shadow:0 2px 8px rgba(6,78,59,.18);color:#ecfdf5;font:600 11px/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;letter-spacing:.02em;white-space:nowrap;pointer-events:none}
+[data-qb-live-mode="live"][data-qb-live-tag~="qbs-formula-package"]::after{content:"● LIVE · QBS 计算"}
+[data-qb-live-mode="live"][data-qb-live-tag~="qbs-data-grant"]::after{content:"● LIVE · QBS 取数"}
+@media(max-width:480px){[data-qb-live-mode="live"][data-qb-live-tag~="qbs-formula-package"]::after,[data-qb-live-mode="live"][data-qb-live-tag~="qbs-data-grant"]::after{top:6px;right:6px;max-width:calc(100% - 12px);padding:3px 6px;font-size:10px}}"""
+_LIVE_INDICATOR_STYLE = """[data-qb-live-mode="live"][data-qb-live-tag~="qbs-formula-package"],
+[data-qb-live-mode="live"][data-qb-live-tag~="qbs-data-grant"]{position:relative}
+[data-qb-live-mode="live"][data-qb-live-tag~="qbs-formula-package"]::after,
+[data-qb-live-mode="live"][data-qb-live-tag~="qbs-data-grant"]::after{position:absolute;top:6px;right:6px;z-index:2147483000;box-sizing:border-box;max-width:calc(100% - 12px);padding:2px 6px;border:1px solid rgba(100,116,139,.18);border-color:color-mix(in srgb,currentColor 16%,transparent);border-radius:999px;background:rgba(148,163,184,.08);background:color-mix(in srgb,currentColor 7%,transparent);box-shadow:none;color:inherit;opacity:.52;font:600 10px/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;letter-spacing:.04em;white-space:nowrap;pointer-events:auto;cursor:help;transition:opacity .16s ease,background-color .16s ease,border-color .16s ease}
+[data-qb-live-mode="live"][data-qb-live-tag~="qbs-formula-package"]::after,
+[data-qb-live-mode="live"][data-qb-live-tag~="qbs-data-grant"]::after{content:"● LIVE"}
+[data-qb-live-mode="live"][data-qb-live-tag~="qbs-formula-package"]:hover::after{content:"QBS 实时计算，刷新时更新"}
+[data-qb-live-mode="live"][data-qb-live-tag~="qbs-data-grant"]:hover::after{content:"QBS 实时取数，刷新时更新"}
+[data-qb-live-mode="live"][data-qb-live-tag~="qbs-formula-package"]:hover::after,
+[data-qb-live-mode="live"][data-qb-live-tag~="qbs-data-grant"]:hover::after{opacity:.86;background:rgba(148,163,184,.13);background:color-mix(in srgb,currentColor 11%,transparent);border-color:rgba(100,116,139,.26);border-color:color-mix(in srgb,currentColor 24%,transparent)}
+@media(max-width:480px){[data-qb-live-mode="live"][data-qb-live-tag~="qbs-formula-package"]::after,[data-qb-live-mode="live"][data-qb-live-tag~="qbs-data-grant"]::after{top:5px;right:5px;max-width:calc(100% - 10px);padding:2px 5px;font-size:9px}}
+@media(prefers-reduced-motion:reduce){[data-qb-live-mode="live"][data-qb-live-tag~="qbs-formula-package"]::after,[data-qb-live-mode="live"][data-qb-live-tag~="qbs-data-grant"]::after{transition:none}}"""
+_LIVE_INDICATOR_STYLES = {
+    "v1": _LIVE_INDICATOR_STYLE_V1,
+    _LIVE_INDICATOR_VERSION: _LIVE_INDICATOR_STYLE,
+}
+_LIVE_INDICATOR_STYLE_TAG = (
+    f'<style data-qb-live-indicator-runtime="{_LIVE_INDICATOR_VERSION}">\n'
+    f'{_LIVE_INDICATOR_STYLE}\n'
+    '</style>'
+)
 _PROGRESS_SHELL_THEME = {
     "chrome_bg": "#ffffff",
     "header_bg": "#ffffff",
@@ -261,6 +292,12 @@ _GENERIC_LIVE_PAGE_REPLY_TEMPLATE = {
     "reply_scope": "full_answer",
     "output_format": "markdown",
 }
+_PRESERVE_HTML_QBS_LIVE_REPLY_TEMPLATE = {
+    "version": "reply_template_v2",
+    "template_ref": "preserve_html_qbs_live_delivery_v1",
+    "reply_scope": "full_answer",
+    "output_format": "markdown",
+}
 _REPLY_FOCUS = {
     "global_asset_bubble_monitor_v1": "先比较七个指数的区间位置与偏离度，再结合本轮实际返回的宏观压力变量解释结构性高温。",
     "market_event_impact_v1": "先给出事件结论，再解释传导链、受益受损方向和验证指标。",
@@ -272,6 +309,7 @@ _REPLY_FOCUS = {
     "fund_etf_bond_profile_v1": "先说明产品定位与风险收益特征，再解释持仓、流动性和适用场景。",
     "hk_us_overseas_asset_v1": "先说明海外资产核心驱动，再覆盖估值、汇率、流动性与事件风险。",
     "generic_live_page_delivery_v1": "概括活页用途、核心模块、当前可见结论、使用方法和能力边界。",
+    "preserve_html_qbs_live_delivery_v1": "只说明本地 HTML 的结构保真、QBS 数据链替换、实时刷新状态和交付信息，不扩写业务研究结论。",
 }
 _PAGE_CONTEXT_SUMMARY = {
     "global_asset_bubble_monitor_v1": "用于持续监测七个全球主要股票指数的泡沫温度及利率、美元、波动率与流动性压力。",
@@ -284,6 +322,7 @@ _PAGE_CONTEXT_SUMMARY = {
     "fund_etf_bond_profile_v1": "用于呈现基金、ETF或债券产品的收益、估值、持仓与风险活页。",
     "hk_us_overseas_asset_v1": "用于呈现港股、美股或海外资产的行情、财务、估值与事件活页。",
     "generic_live_page_delivery_v1": "用于呈现当前页面的核心模块、实时输出与能力边界。",
+    "preserve_html_qbs_live_delivery_v1": "用于交付保持原页面结构和内容不变、仅将数据链替换为 QBS 的实时活页。",
 }
 
 
@@ -613,6 +652,13 @@ def _bool_param(value):
 
 def _resolve_publish_agent_reply_template(params, *, html=None):
     resolved = dict(params or {})
+    preserve_html_qbs_live = (
+        str(resolved.get("transformation_mode") or "").strip() == _PRESERVE_HTML_QBS_LIVE_MODE
+    )
+    if preserve_html_qbs_live:
+        # This migration is an implementation delivery, not a new research report.
+        # Force the dedicated contract even if a caller supplied the generic fallback.
+        resolved["agent_reply_template"] = dict(_PRESERVE_HTML_QBS_LIVE_REPLY_TEMPLATE)
     explicit_template = "agent_reply_template" in resolved
     explicit_clear = explicit_template and resolved.get("agent_reply_template") in (None, {})
     required = _bool_param(resolved.get("require_agent_reply_template"))
@@ -627,8 +673,12 @@ def _resolve_publish_agent_reply_template(params, *, html=None):
     meta, meta_error = _normalize_agent_reply_template(resolved.get("agent_reply_template"))
     if meta_error:
         return resolved, {"mode": "invalid", "source_template_id": ""}, meta_error
-    mode = "explicit" if isinstance(meta, dict) and meta.get("template_ref") else ""
-    source_template_id = (
+    mode = (
+        _PRESERVE_HTML_QBS_LIVE_MODE
+        if preserve_html_qbs_live
+        else ("explicit" if isinstance(meta, dict) and meta.get("template_ref") else "")
+    )
+    source_template_id = "" if preserve_html_qbs_live else (
         resolved.get("source_template_id")
         or resolved.get("source_template_page_id")
         or ""
@@ -749,6 +799,7 @@ def _agent_reply_template_contract(record, *, operation=None):
         "required": bool(template_ref),
         "page_context": page_context,
         "public_url": _delivery_public_url(public_url),
+        "require_page_id_in_reply": template_ref == "preserve_html_qbs_live_delivery_v1",
     }
     _apply_delivery_policy(contract)
     if template_ref:
@@ -768,6 +819,7 @@ def _agent_reply_template_contract(record, *, operation=None):
             "Use page_context to understand what this page does; for hybrid replies also follow hybrid_composition.",
             "When reply_data_evidence_file is present, read that hash-bound evidence before drafting.",
             "Include public_url.",
+            "When require_page_id_in_reply=true, include the exact page_id in the final reply.",
             "Use reply_data_availability to identify fields that actually exist in this delivery; every available template field must be rendered.",
             "For single_stock_deep_dive_v1 keep all seven section headings; a section with no evidence must use its standard no-data sentence.",
             "When delivery_policy.max_markdown_tables is present, keep the complete reply within that Markdown table limit and render overflow structures as lists or inline text.",
@@ -1232,6 +1284,8 @@ def _has_research_warehouse_modal(html):
 
 def _ensure_share_shell(html, params):
     """Preflight static-page HTML so published pages always carry the public shell."""
+    if str(params.get("transformation_mode") or "").strip() == _PRESERVE_HTML_QBS_LIVE_MODE:
+        return html, {"checked": False, "skipped": True, "reason": "preserve_html_qbs_live"}
     if params.get("ensure_share_shell") is False:
         return html, {"checked": False, "skipped": True}
 
@@ -2118,6 +2172,24 @@ def cmd_upload(params):
     html, err = _read_html(params)
     if err:
         return err
+    transformation_validation, transformation_error = _validate_transformation_contract(params, html, endpoint=endpoint)
+    transformation_fallback = None
+    if transformation_error:
+        transformation_fallback, fallback_error = _prepare_preserve_html_fallback(params, transformation_error)
+        if fallback_error:
+            return fallback_error
+        html = transformation_fallback["html"]
+        transformation_validation = transformation_fallback["validation"]
+    if (
+        not transformation_fallback
+        and transformation_validation
+        and transformation_validation.get("mode") == _PRESERVE_HTML_QBS_LIVE_MODE
+    ):
+        html, visible_live_indicator = _inject_visible_live_indicator(
+            html, transformation_validation.get("div_live_check")
+        )
+        transformation_validation = dict(transformation_validation)
+        transformation_validation["visible_live_indicator"] = visible_live_indicator
     reply_resolution = None
     if not params.get("_suppress_agent_reply_fallback"):
         params, reply_resolution, reply_error = _resolve_publish_agent_reply_template(params, html=html)
@@ -2159,10 +2231,22 @@ def cmd_upload(params):
     if isinstance(out, dict):
         if reply_resolution:
             out["agent_reply_template_resolution"] = reply_resolution
+            if transformation_validation and transformation_validation.get("mode") == _PRESERVE_HTML_QBS_LIVE_MODE:
+                if isinstance(params.get("agent_reply_template"), dict):
+                    out.setdefault("agent_reply_template", params["agent_reply_template"])
+                if isinstance(params.get("page_context"), dict):
+                    out.setdefault("page_context", params["page_context"])
+        _attach_transformation_outcome(
+            out,
+            params=params,
+            validation=transformation_validation,
+            error=transformation_error,
+            fallback=transformation_fallback,
+        )
         out["share_shell"] = shell_check
         if card_runtime_verification:
             out["card_runtime_verification"] = card_runtime_verification
-        if out.get("code") == 0 or _server_mentions_package_issue(out):
+        if not transformation_fallback and (out.get("code") == 0 or _server_mentions_package_issue(out)):
             out["_package_runtime_check"] = _package_runtime_check(
                 endpoint,
                 html,
@@ -2184,6 +2268,29 @@ def cmd_update(params):
     html, err = _read_html(params)
     if err:
         return err
+    transformation_validation, transformation_error = _validate_transformation_contract(params, html, endpoint=endpoint)
+    transformation_fallback = None
+    if transformation_error:
+        transformation_fallback, fallback_error = _prepare_preserve_html_fallback(params, transformation_error)
+        if fallback_error:
+            return fallback_error
+        html = transformation_fallback["html"]
+        transformation_validation = transformation_fallback["validation"]
+    if (
+        not transformation_fallback
+        and transformation_validation
+        and transformation_validation.get("mode") == _PRESERVE_HTML_QBS_LIVE_MODE
+    ):
+        html, visible_live_indicator = _inject_visible_live_indicator(
+            html, transformation_validation.get("div_live_check")
+        )
+        transformation_validation = dict(transformation_validation)
+        transformation_validation["visible_live_indicator"] = visible_live_indicator
+    reply_resolution = None
+    if str(params.get("transformation_mode") or "").strip() == _PRESERVE_HTML_QBS_LIVE_MODE:
+        params, reply_resolution, reply_error = _resolve_publish_agent_reply_template(params, html=html)
+        if reply_error:
+            return reply_error
     try:
         html, shell_check = _ensure_share_shell(html, params)
     except ValueError as e:
@@ -2219,10 +2326,24 @@ def cmd_update(params):
     out = C.http_json("POST", C.api_url(endpoint, _PATH["update"]),
                       C.headers(api_key), body, timeout=_UPLOAD_TIMEOUT)
     if isinstance(out, dict):
+        if reply_resolution:
+            out["agent_reply_template_resolution"] = reply_resolution
+            if transformation_validation and transformation_validation.get("mode") == _PRESERVE_HTML_QBS_LIVE_MODE:
+                if isinstance(params.get("agent_reply_template"), dict):
+                    out.setdefault("agent_reply_template", params["agent_reply_template"])
+                if isinstance(params.get("page_context"), dict):
+                    out.setdefault("page_context", params["page_context"])
+        _attach_transformation_outcome(
+            out,
+            params=params,
+            validation=transformation_validation,
+            error=transformation_error,
+            fallback=transformation_fallback,
+        )
         out["share_shell"] = shell_check
         if card_runtime_verification:
             out["card_runtime_verification"] = card_runtime_verification
-        if out.get("code") == 0 or _server_mentions_package_issue(out):
+        if not transformation_fallback and (out.get("code") == 0 or _server_mentions_package_issue(out)):
             out["_package_runtime_check"] = _package_runtime_check(
                 endpoint,
                 html,
@@ -2524,6 +2645,708 @@ def _validate_publish_data_evidence(params, *, source_credential_count=0):
     if mode == "static_after_live_probe":
         return _validate_static_after_probe(params, route)
     return _validate_live_receipts(params, route)
+
+
+class _PreserveHtmlParser(HTMLParser):
+    """Capture user-owned DOM/layout/content while ignoring replaceable runtime code."""
+
+    _IGNORED_CONTENT_TAGS = {"script", "style", "template", "noscript"}
+    _IGNORED_TAGS = {"script", "style", "meta", "link", "base", "noscript"}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self._ignored_depth = 0
+        self.dom = []
+        self.text = []
+
+    @staticmethod
+    def _stable_attrs(attrs):
+        stable = []
+        for name, value in attrs:
+            key = str(name or "").lower()
+            # data-* and inline event handlers are allowed to change because
+            # they are part of the data/runtime binding, not the page layout.
+            if key.startswith("data-") or key.startswith("on"):
+                continue
+            stable.append((key, "" if value is None else str(value)))
+        return tuple(sorted(stable))
+
+    def handle_starttag(self, tag, attrs):
+        name = str(tag or "").lower()
+        if name in self._IGNORED_CONTENT_TAGS:
+            self._ignored_depth += 1
+        if self._ignored_depth or name in self._IGNORED_TAGS:
+            return
+        self.dom.append(("start", name, self._stable_attrs(attrs)))
+
+    def handle_startendtag(self, tag, attrs):
+        name = str(tag or "").lower()
+        if self._ignored_depth or name in self._IGNORED_TAGS:
+            return
+        stable_attrs = self._stable_attrs(attrs)
+        self.dom.append(("start", name, stable_attrs))
+        self.dom.append(("end", name))
+
+    def handle_endtag(self, tag):
+        name = str(tag or "").lower()
+        if name in self._IGNORED_CONTENT_TAGS:
+            if self._ignored_depth:
+                self._ignored_depth -= 1
+            return
+        if self._ignored_depth or name in self._IGNORED_TAGS:
+            return
+        self.dom.append(("end", name))
+
+    def handle_data(self, data):
+        if self._ignored_depth:
+            return
+        text = re.sub(r"\s+", " ", str(data or "")).strip()
+        if text:
+            self.text.append(text)
+
+
+class _DivLiveTagParser(HTMLParser):
+    """Inspect rendered div declarations without treating runtime text as HTML."""
+
+    _IGNORED_CONTENT_TAGS = {"script", "style", "template", "noscript"}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self._ignored_stack = []
+        self.divs = []
+
+    @staticmethod
+    def _tag_tokens(value):
+        return {
+            token
+            for token in re.split(r"[\s,]+", str(value or "").strip().lower())
+            if token
+        }
+
+    def handle_starttag(self, tag, attrs):
+        name = str(tag or "").lower()
+        if self._ignored_stack:
+            if name in self._IGNORED_CONTENT_TAGS:
+                self._ignored_stack.append(name)
+            return
+        if name in self._IGNORED_CONTENT_TAGS:
+            self._ignored_stack.append(name)
+            return
+        if name != "div":
+            return
+        attr_map = {}
+        duplicate_attrs = set()
+        for raw_name, raw_value in attrs:
+            key = str(raw_name or "").lower()
+            if key in attr_map:
+                duplicate_attrs.add(key)
+            attr_map[key] = "" if raw_value is None else str(raw_value)
+        mode = str(attr_map.get("data-qb-live-mode") or "").strip().lower()
+        self.divs.append({
+            "index": len(self.divs),
+            "mode": mode,
+            "live_tags": sorted(self._tag_tokens(attr_map.get("data-qb-live-tag"))),
+            "duplicate_attrs": sorted(duplicate_attrs),
+        })
+
+    def handle_startendtag(self, tag, attrs):
+        self.handle_starttag(tag, attrs)
+        name = str(tag or "").lower()
+        if name in self._IGNORED_CONTENT_TAGS and self._ignored_stack:
+            self._ignored_stack.pop()
+
+    def handle_endtag(self, tag):
+        name = str(tag or "").lower()
+        if self._ignored_stack and name == self._ignored_stack[-1]:
+            self._ignored_stack.pop()
+
+
+def _inspect_div_live_tags(html):
+    parser = _DivLiveTagParser()
+    parser.feed(html or "")
+    parser.close()
+    invalid = [
+        item for item in parser.divs
+        if item["mode"] not in {"static", "live"}
+        or "data-qb-live-mode" in item["duplicate_attrs"]
+        or "data-qb-live-tag" in item["duplicate_attrs"]
+    ]
+    formula_live = [
+        item for item in parser.divs
+        if item["mode"] == "live" and "qbs-formula-package" in item["live_tags"]
+    ]
+    grant_live = [
+        item for item in parser.divs
+        if item["mode"] == "live" and "qbs-data-grant" in item["live_tags"]
+    ]
+    return {
+        "div_count": len(parser.divs),
+        "invalid_divs": invalid,
+        "formula_live_div_count": len(formula_live),
+        "grant_live_div_count": len(grant_live),
+        "ok": not invalid,
+    }
+
+
+def _find_html_tag_end(html, start):
+    quote = None
+    index = start + 1
+    while index < len(html):
+        char = html[index]
+        if quote:
+            if char == quote:
+                quote = None
+        elif char in {'"', "'"}:
+            quote = char
+        elif char == ">":
+            return index
+        index += 1
+    return -1
+
+
+def _strip_div_runtime_attrs(attrs):
+    """Remove the two QBV div runtime attributes while preserving other bytes."""
+    output = []
+    index = 0
+    length = len(attrs)
+    while index < length:
+        token_start = index
+        while index < length and attrs[index].isspace():
+            index += 1
+        if index >= length:
+            output.append(attrs[token_start:])
+            break
+        name_start = index
+        while index < length and not attrs[index].isspace() and attrs[index] not in "=/>":
+            index += 1
+        if index == name_start:
+            output.append(attrs[token_start:index + 1])
+            index += 1
+            continue
+        name = attrs[name_start:index].lower()
+        while index < length and attrs[index].isspace():
+            index += 1
+        if index < length and attrs[index] == "=":
+            index += 1
+            while index < length and attrs[index].isspace():
+                index += 1
+            if index < length and attrs[index] in {'"', "'"}:
+                quote = attrs[index]
+                index += 1
+                while index < length:
+                    if attrs[index] == quote:
+                        index += 1
+                        break
+                    index += 1
+            else:
+                while index < length and not attrs[index].isspace() and attrs[index] not in "/>":
+                    index += 1
+        if name not in {"data-qb-live-mode", "data-qb-live-tag"}:
+            output.append(attrs[token_start:index])
+    return "".join(output)
+
+
+def _rewrite_div_start_tag_static(raw_tag):
+    match = re.match(r"(?is)<\s*div\b", raw_tag or "")
+    if not match:
+        return raw_tag
+    close_start = len(raw_tag) - 1
+    if close_start < 0 or raw_tag[close_start] != ">":
+        return raw_tag
+    slash_index = close_start - 1
+    while slash_index >= match.end() and raw_tag[slash_index].isspace():
+        slash_index -= 1
+    suffix_start = slash_index if slash_index >= match.end() and raw_tag[slash_index] == "/" else close_start
+    attrs = raw_tag[match.end():suffix_start]
+    cleaned = _strip_div_runtime_attrs(attrs)
+    trimmed = cleaned.rstrip()
+    trailing = cleaned[len(trimmed):]
+    return (
+        raw_tag[:match.end()]
+        + trimmed
+        + ' data-qb-live-mode="static"'
+        + trailing
+        + raw_tag[suffix_start:]
+    )
+
+
+def _mark_source_html_static(html):
+    """Add a non-visual static declaration to every rendered div in source HTML."""
+    source = str(html or "")
+    output = []
+    ignored_stack = []
+    ignored_tags = {"script", "style", "template", "noscript"}
+    index = 0
+    while index < len(source):
+        if source.startswith("<!--", index):
+            end = source.find("-->", index + 4)
+            end = len(source) if end < 0 else end + 3
+            output.append(source[index:end])
+            index = end
+            continue
+        if source[index] != "<":
+            output.append(source[index])
+            index += 1
+            continue
+        end = _find_html_tag_end(source, index)
+        if end < 0:
+            output.append(source[index:])
+            break
+        raw_tag = source[index:end + 1]
+        identity = re.match(r"(?is)<\s*(/?)\s*([a-z][a-z0-9:-]*)\b", raw_tag)
+        if not identity:
+            output.append(raw_tag)
+            index = end + 1
+            continue
+        closing = bool(identity.group(1))
+        name = identity.group(2).lower()
+        self_closing = bool(re.search(r"/\s*>$", raw_tag))
+        if ignored_stack:
+            if closing and name == ignored_stack[-1]:
+                ignored_stack.pop()
+            elif not closing and not self_closing and name in ignored_tags:
+                ignored_stack.append(name)
+            output.append(raw_tag)
+        else:
+            if not closing and not self_closing and name in ignored_tags:
+                ignored_stack.append(name)
+                output.append(raw_tag)
+            elif not closing and name == "div":
+                output.append(_rewrite_div_start_tag_static(raw_tag))
+            else:
+                output.append(raw_tag)
+        index = end + 1
+    return "".join(output)
+
+
+def _preserve_html_signatures(html):
+    parser = _PreserveHtmlParser()
+    parser.feed(html or "")
+    parser.close()
+    return parser.dom, parser.text
+
+
+def _style_attr_value(attrs, name):
+    match = re.search(
+        rf"(?is)(?:^|\s){re.escape(name)}\s*=\s*(?:\"([^\"]*)\"|'([^']*)'|([^\s>]+))",
+        attrs or "",
+    )
+    if not match:
+        return None
+    return next((value for value in match.groups() if value is not None), None)
+
+
+def _standard_live_indicator_style_version(attrs, css):
+    version = _style_attr_value(attrs, "data-qb-live-indicator-runtime")
+    expected = _LIVE_INDICATOR_STYLES.get(version)
+    if expected is None or str(css or "").strip() != expected:
+        return None
+    return version
+
+
+def _is_standard_live_indicator_style(attrs, css):
+    return _standard_live_indicator_style_version(attrs, css) is not None
+
+
+def _live_indicator_style_count(html, *, version=None):
+    return sum(
+        1
+        for match in re.finditer(r"(?is)<style\b(?P<attrs>[^>]*)>(?P<css>.*?)</style\s*>", html or "")
+        if _standard_live_indicator_style_version(match.group("attrs"), match.group("css"))
+        == (version or _LIVE_INDICATOR_VERSION)
+    )
+
+
+def _strip_standard_live_indicator_styles(html):
+    def replace(match):
+        if _is_standard_live_indicator_style(match.group("attrs"), match.group("css")):
+            return ""
+        return match.group(0)
+
+    return re.sub(
+        r"(?is)<style\b(?P<attrs>[^>]*)>(?P<css>.*?)</style\s*>",
+        replace,
+        str(html or ""),
+    )
+
+
+def _visible_live_indicator_result(html, div_live_check=None):
+    div_check = div_live_check or _inspect_div_live_tags(html)
+    formula_count = int(div_check.get("formula_live_div_count") or 0)
+    grant_count = int(div_check.get("grant_live_div_count") or 0)
+    return {
+        "version": _LIVE_INDICATOR_VERSION,
+        "enabled": _live_indicator_style_count(html) == 1 and (formula_count + grant_count) > 0,
+        "formula_live_div_count": formula_count,
+        "grant_live_div_count": grant_count,
+    }
+
+
+def _inject_visible_live_indicator(html, div_live_check=None):
+    source = str(html or "")
+    div_check = div_live_check or _inspect_div_live_tags(source)
+    if not (div_check.get("formula_live_div_count") or div_check.get("grant_live_div_count")):
+        return source, _visible_live_indicator_result(source, div_check)
+    if _live_indicator_style_count(source) == 1:
+        return source, _visible_live_indicator_result(source, div_check)
+    source = _strip_standard_live_indicator_styles(source)
+    head_close = re.search(r"(?is)</head\s*>", source)
+    if head_close:
+        source = source[:head_close.start()] + "\n" + _LIVE_INDICATOR_STYLE_TAG + "\n" + source[head_close.start():]
+    else:
+        body_open = re.search(r"(?is)<body\b", source)
+        insert_at = body_open.start() if body_open else 0
+        source = source[:insert_at] + _LIVE_INDICATOR_STYLE_TAG + "\n" + source[insert_at:]
+    return source, _visible_live_indicator_result(source, div_check)
+
+
+def _preserve_html_style_sha256(html):
+    blocks = []
+    for match in re.finditer(r"(?is)<style\b(?P<attrs>[^>]*)>(?P<css>.*?)</style\s*>", html or ""):
+        if _is_standard_live_indicator_style(match.group("attrs"), match.group("css")):
+            continue
+        blocks.append(match.group("css").strip())
+    canonical = "\n\n".join(blocks)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _has_qbs_runtime_call(html, *, packages, grants):
+    source = html or ""
+    package_runtime = bool(re.search(r"(?:\bQB\s*\.\s*(?:query|queryMany)\s*\(|/skill/queryFormulaPackage\b|\bqueryFormulaPackage\s*\()", source, flags=re.I))
+    grant_runtime = bool(re.search(r"(?:\bQB\s*\.\s*queryGrant\s*\(|/skill/queryDataGrant\b|\bqueryDataGrant\s*\()", source, flags=re.I))
+    return {
+        "package_runtime": package_runtime if packages else None,
+        "grant_runtime": grant_runtime if grants else None,
+        "ok": (not packages or package_runtime) and (not grants or grant_runtime),
+    }
+
+
+def _has_live_refresh_binding(html):
+    source = html or ""
+    shell_refresh = bool(re.search(
+        r"QBShareShell\s*\.\s*init\s*\(\s*\{[\s\S]{0,16000}?\bonRefresh\s*:\s*(?!null\b|undefined\b|false\b)",
+        source,
+        flags=re.I,
+    ))
+    marked_control = bool(re.search(r"\bdata-qb-live-refresh(?:\s|=|>)", source, flags=re.I))
+    click_binding = bool(re.search(r"addEventListener\s*\(\s*['\"]click['\"]", source, flags=re.I))
+    return {
+        "share_shell_on_refresh": shell_refresh,
+        "marked_refresh_control": marked_control,
+        "click_binding": click_binding,
+        "ok": shell_refresh or (marked_control and click_binding),
+    }
+
+
+def _validate_registered_qbs_credentials(endpoint, packages, grants):
+    checks = []
+    if packages:
+        import formula_package as FP
+        for item in packages:
+            try:
+                response = FP.query_package(endpoint, item["package_id"], item["signature"])
+            except Exception as exc:
+                response = {"code": 1, "error": "QUERY_EXCEPTION", "message": str(exc)}
+            ok = isinstance(response, dict) and response.get("code") == 0
+            checks.append({"kind": "package", "credential_id": item["package_id"], "ok": ok})
+            if not ok:
+                return checks, _evidence_error(
+                    "PRESERVE_HTML_QBS_CREDENTIAL_QUERY_FAILED",
+                    f"公式包 {item['package_id']} 无法用页面 signature 查询，拒绝把页面标记为 QBS 活页",
+                    credential_kind="package",
+                    credential_id=item["package_id"],
+                    details=response,
+                )
+    if grants:
+        import data_grant as DG
+        for item in grants:
+            try:
+                response = DG.query_grant(endpoint, item["grant_id"], item["signature"])
+            except Exception as exc:
+                response = {"code": 1, "error": "QUERY_EXCEPTION", "message": str(exc)}
+            ok = isinstance(response, dict) and response.get("code") == 0
+            checks.append({"kind": "grant", "credential_id": item["grant_id"], "ok": ok})
+            if not ok:
+                return checks, _evidence_error(
+                    "PRESERVE_HTML_QBS_CREDENTIAL_QUERY_FAILED",
+                    f"Data Grant {item['grant_id']} 无法用页面 signature 查询，拒绝把页面标记为 QBS 活页",
+                    credential_kind="grant",
+                    credential_id=item["grant_id"],
+                    details=response,
+                )
+    return checks, None
+
+
+
+def _read_verified_preserve_source(params):
+    params = params if isinstance(params, dict) else {}
+    source_file = _fork_path(params.get("source_html_file"))
+    expected_sha256 = str(params.get("source_html_sha256") or "").strip().lower()
+    if not source_file or not os.path.isfile(source_file):
+        return None, _evidence_error(
+            "PRESERVE_HTML_SOURCE_REQUIRED",
+            "preserve_html_qbs_live 必须提供可读取的 source_html_file",
+            source_html_file=source_file,
+        )
+    if not re.fullmatch(r"[0-9a-f]{64}", expected_sha256):
+        return None, _evidence_error(
+            "PRESERVE_HTML_SOURCE_SHA256_REQUIRED",
+            "source_html_sha256 必须是来源 HTML 文件的 64 位 SHA256",
+        )
+    try:
+        source_bytes = Path(source_file).read_bytes()
+        source_html = source_bytes.decode("utf-8-sig")
+    except (OSError, UnicodeError) as exc:
+        return None, _evidence_error("PRESERVE_HTML_SOURCE_INVALID", f"读取来源 HTML 失败: {exc}")
+    actual_sha256 = hashlib.sha256(source_bytes).hexdigest()
+    if not secrets.compare_digest(actual_sha256, expected_sha256):
+        return None, _evidence_error(
+            "PRESERVE_HTML_SOURCE_SHA256_MISMATCH",
+            "source_html_sha256 与来源 HTML 文件不一致",
+            expected_sha256=expected_sha256,
+            actual_sha256=actual_sha256,
+        )
+    return {
+        "source_file": source_file,
+        "source_html": source_html,
+        "source_html_sha256": actual_sha256,
+    }, None
+
+
+def _preserve_fallback_status(params):
+    route, error = _read_evidence_receipt((params or {}).get("route_receipt_file"), "live data route receipt")
+    if error or not isinstance(route, dict):
+        return "failed"
+    selected = route.get("selected_routes") if isinstance(route.get("selected_routes"), list) else []
+    if route.get("status") == "incomplete":
+        return "partial"
+    if selected and route.get("required_roles_complete") is not True:
+        return "partial"
+    return "failed"
+
+
+def _prepare_preserve_html_fallback(params, transformation_error):
+    if str((params or {}).get("transformation_mode") or "").strip() != _PRESERVE_HTML_QBS_LIVE_MODE:
+        return None, transformation_error
+    source, source_error = _read_verified_preserve_source(params)
+    if source_error:
+        return None, source_error
+    fallback_html = _mark_source_html_static(source["source_html"])
+    source_structure, source_content = _preserve_html_signatures(source["source_html"])
+    fallback_structure, fallback_content = _preserve_html_signatures(fallback_html)
+    source_style = _preserve_html_style_sha256(source["source_html"])
+    fallback_style = _preserve_html_style_sha256(fallback_html)
+    if (
+        source_structure != fallback_structure
+        or source_content != fallback_content
+        or source_style != fallback_style
+        or _page_headings(source["source_html"]) != _page_headings(fallback_html)
+    ):
+        return None, _evidence_error(
+            "PRESERVE_HTML_STATIC_FALLBACK_CHANGED",
+            "静态回退标记意外改变了来源 HTML 的结构、正文或样式",
+        )
+    div_check = _inspect_div_live_tags(fallback_html)
+    if not div_check["ok"]:
+        return None, _evidence_error(
+            "PRESERVE_HTML_STATIC_FALLBACK_TAGGING_FAILED",
+            "来源 HTML 无法安全标记为静态内容",
+            div_check=div_check,
+        )
+    return {
+        "html": fallback_html,
+        "status": _preserve_fallback_status(params),
+        "validation": {
+            "mode": _PRESERVE_HTML_QBS_LIVE_MODE,
+            "source_html_file": source["source_file"],
+            "source_html_sha256": source["source_html_sha256"],
+            "content_structure_preserved": True,
+            "layout_preserved": True,
+            "live_data_mode": "static",
+            "div_live_mode": "static",
+            "div_count": div_check["div_count"],
+        },
+    }, None
+
+
+def _attach_transformation_outcome(out, *, params, validation, error, fallback):
+    if not isinstance(out, dict):
+        return
+    if str((params or {}).get("transformation_mode") or "").strip() != _PRESERVE_HTML_QBS_LIVE_MODE:
+        return
+    out["transformation_status"] = fallback["status"] if fallback else "complete"
+    out["source_html_fallback_published"] = bool(fallback and out.get("code") == 0)
+    if validation:
+        out["transformation_validation"] = validation
+    if error:
+        out["transformation_error"] = error
+
+def _validate_transformation_contract(params, html, *, endpoint):
+    """Fail closed for local HTML -> QBS live migration, without affecting static uploads."""
+    params = params if isinstance(params, dict) else {}
+    mode = str(params.get("transformation_mode") or "").strip()
+    if not mode:
+        return None, None
+    if mode != _PRESERVE_HTML_QBS_LIVE_MODE:
+        return None, _evidence_error(
+            "TRANSFORMATION_MODE_UNSUPPORTED",
+            f"transformation_mode 仅支持 {_PRESERVE_HTML_QBS_LIVE_MODE}",
+        )
+    if params.get("content_structure_preserved") is not True or params.get("layout_preserved") is not True:
+        return None, _evidence_error(
+            "PRESERVE_HTML_CONTRACT_REQUIRED",
+            "preserve_html_qbs_live 必须显式声明 content_structure_preserved=true 且 layout_preserved=true",
+        )
+    if str(params.get("live_data_mode") or "").strip() != "live":
+        return None, _evidence_error(
+            "PRESERVE_HTML_LIVE_MODE_REQUIRED",
+            "preserve_html_qbs_live 只允许 live_data_mode=live",
+        )
+    if params.get("ensure_share_shell") is True or params.get("refresh_share_shell") is True:
+        return None, _evidence_error(
+            "PRESERVE_HTML_SHELL_MUTATION_FORBIDDEN",
+            "preserve_html_qbs_live 不允许自动注入或刷新 Share Shell；这会改变用户原始 DOM/CSS",
+        )
+
+    source, source_error = _read_verified_preserve_source(params)
+    if source_error:
+        return None, source_error
+    source_file = source["source_file"]
+    source_html = source["source_html"]
+    actual_sha256 = source["source_html_sha256"]
+
+    source_endpoints = _unique_strings(params.get("source_data_endpoints"))
+    if not source_endpoints:
+        return None, _evidence_error(
+            "PRESERVE_HTML_SOURCE_ENDPOINTS_REQUIRED",
+            "必须声明来源 HTML 使用的非 QBS 数据接口 source_data_endpoints",
+        )
+    missing_from_source = [value for value in source_endpoints if value not in source_html]
+    still_in_target = [value for value in source_endpoints if value in (html or "")]
+    if missing_from_source:
+        return None, _evidence_error(
+            "PRESERVE_HTML_SOURCE_ENDPOINT_NOT_FOUND",
+            "source_data_endpoints 中的接口未在来源 HTML 出现",
+            endpoints=missing_from_source,
+        )
+    if still_in_target:
+        return None, _evidence_error(
+            "PRESERVE_HTML_NON_QBS_ENDPOINT_REMAINS",
+            "目标 HTML 仍引用来源非 QBS 接口，尚未完成 QBS 活页化",
+            endpoints=still_in_target,
+        )
+
+    source_structure, source_content = _preserve_html_signatures(source_html)
+    target_structure, target_content = _preserve_html_signatures(html)
+    if source_structure != target_structure:
+        return None, _evidence_error(
+            "PRESERVE_HTML_STRUCTURE_CHANGED",
+            "目标 HTML 的非运行时 DOM 结构或稳定属性与来源 HTML 不一致；只允许替换数据获取和绑定逻辑",
+            source_node_count=len(source_structure),
+            target_node_count=len(target_structure),
+        )
+    if source_content != target_content:
+        return None, _evidence_error(
+            "PRESERVE_HTML_CONTENT_CHANGED",
+            "目标 HTML 的可见静态正文与来源 HTML 不一致，不得删减、改写或简化用户内容",
+            source_text_node_count=len(source_content),
+            target_text_node_count=len(target_content),
+        )
+    source_style_sha256 = _preserve_html_style_sha256(source_html)
+    target_style_sha256 = _preserve_html_style_sha256(html)
+    if source_style_sha256 != target_style_sha256:
+        return None, _evidence_error(
+            "PRESERVE_HTML_LAYOUT_CHANGED",
+            "目标 HTML 的内联 CSS 与来源 HTML 不一致；preserve_html_qbs_live 不允许重做页面布局",
+            source_style_sha256=source_style_sha256,
+            target_style_sha256=target_style_sha256,
+        )
+    if _page_headings(source_html) != _page_headings(html):
+        return None, _evidence_error(
+            "PRESERVE_HTML_HEADINGS_CHANGED",
+            "目标 HTML 的标题层级文案与来源 HTML 不一致，不得简化用户内容",
+        )
+
+    evidence_error = _validate_publish_data_evidence(params)
+    if evidence_error:
+        return None, evidence_error
+    route, route_error = _read_evidence_receipt(params.get("route_receipt_file"), "live data route receipt")
+    if route_error:
+        return None, route_error
+    selected_routes = route.get("selected_routes") if isinstance(route.get("selected_routes"), list) else []
+    needs_package = any(str(item.get("kind") or "") == "formula" for item in selected_routes if isinstance(item, dict))
+    needs_grant = any(str(item.get("kind") or "") != "formula" for item in selected_routes if isinstance(item, dict))
+
+    packages = _extract_package_credentials(html)
+    grants = _extract_grant_credentials(html)
+    if needs_package and not packages:
+        return None, _evidence_error(
+            "PRESERVE_HTML_FORMULA_PACKAGE_REQUIRED",
+            "QBS 路由包含计算指标，但目标 HTML 没有公式包凭证",
+        )
+    if needs_grant and not grants:
+        return None, _evidence_error(
+            "PRESERVE_HTML_DATA_GRANT_REQUIRED",
+            "QBS 路由包含直取数据，但目标 HTML 没有 Data Grant 凭证",
+        )
+    if not packages and not grants:
+        return None, _evidence_error(
+            "PRESERVE_HTML_QBS_CREDENTIALS_REQUIRED",
+            "目标 HTML 必须包含已注册公式包或 Data Grant 的 credential/signature",
+        )
+
+    div_live_check = _inspect_div_live_tags(html)
+    if not div_live_check["ok"]:
+        return None, _evidence_error(
+            "PRESERVE_HTML_DIV_LIVE_MODE_REQUIRED",
+            "目标 HTML 的每个可渲染 div 都必须声明 data-qb-live-mode=static|live",
+            div_live_check=div_live_check,
+        )
+    if needs_package and div_live_check["formula_live_div_count"] < 1:
+        return None, _evidence_error(
+            "PRESERVE_HTML_FORMULA_LIVE_TAG_REQUIRED",
+            "公式包驱动的实时区域必须在 live div 上声明 data-qb-live-tag=qbs-formula-package",
+            div_live_check=div_live_check,
+        )
+    if needs_grant and div_live_check["grant_live_div_count"] < 1:
+        return None, _evidence_error(
+            "PRESERVE_HTML_GRANT_LIVE_TAG_REQUIRED",
+            "Data Grant 驱动的实时区域必须在 live div 上声明 data-qb-live-tag=qbs-data-grant",
+            div_live_check=div_live_check,
+        )
+
+    runtime_check = _has_qbs_runtime_call(html, packages=packages, grants=grants)
+    if not runtime_check["ok"]:
+        return None, _evidence_error(
+            "PRESERVE_HTML_QBS_RUNTIME_REQUIRED",
+            "目标 HTML 有 QBS 凭证但没有对应 queryFormulaPackage/queryDataGrant 运行时调用",
+            runtime_check=runtime_check,
+        )
+    refresh_check = _has_live_refresh_binding(html)
+    if not refresh_check["ok"]:
+        return None, _evidence_error(
+            "PRESERVE_HTML_REFRESH_BINDING_REQUIRED",
+            "目标 HTML 必须把刷新按钮或 Share Shell onRefresh 绑定到实时加载逻辑",
+            refresh_check=refresh_check,
+        )
+
+    credential_checks, credential_error = _validate_registered_qbs_credentials(endpoint, packages, grants)
+    if credential_error:
+        return None, credential_error
+    return {
+        "mode": _PRESERVE_HTML_QBS_LIVE_MODE,
+        "source_html_file": source_file,
+        "source_html_sha256": actual_sha256,
+        "content_structure_preserved": True,
+        "layout_preserved": True,
+        "source_data_endpoints_removed": source_endpoints,
+        "package_ids": sorted({item["package_id"] for item in packages}),
+        "grant_ids": sorted({item["grant_id"] for item in grants}),
+        "runtime_check": runtime_check,
+        "refresh_check": refresh_check,
+        "credential_checks": credential_checks,
+        "div_live_check": div_live_check,
+    }, None
 
 
 def _validate_progress_evidence(params):

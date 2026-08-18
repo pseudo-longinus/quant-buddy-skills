@@ -21,6 +21,19 @@ bespoke 页面不得直接引用本地路径、HTTP 图片或其他 page_id 的�
 > 所以单独抽了一份同口径的 **取数内核** `assets/data-kernel.js` 给手搓页用——**别再自己抄 `fetch`/解包逻辑**。
 > 手搓只负责主体内容。公共 shell 不是页面模板；不要复制 demo 样式或另起一套页头、页尾、二维码、刷新按钮。
 
+## 例外路线：用户已经提供本地 HTML，只把数据链活页化
+
+当输入是用户自己的完整 HTML，且页面已经有确定的 DOM、CSS、SVG、表格、响应式布局和刷新交互，只是数据来自用户自己的非 QBS 接口时，**不要重新套在线模板、不要重做 bespoke 版式，也不要求 QBS Handoff**。此时来源 HTML 就是展示合同：
+
+1. 原样保存来源文件并计算文件字节 SHA256。
+2. 盘点来源非 QBS 接口和每个动态字段的原始计算口径；正文、章节顺序、标题、DOM、内联 CSS、SVG 与表格布局不变。
+3. 能由 QBS 直接提供的字段先验证再注册 Data Grant；需要计算的字段先在 QBS 验证公式，再注册公式包。无法恢复原始口径时返回 `waiting_input`，不得猜测或用近似指标替代。
+4. 只替换取数函数及现有节点的数据绑定，让刷新按钮或 `QBShareShell.init({onRefresh: ...})` 真正再次调用 QBS。每个可渲染 `<div>` 都声明 `data-qb-live-mode="static|live"`；公式包实时区域增加 `data-qb-live-tag="qbs-formula-package"`，Data Grant 实时区域增加 `data-qb-live-tag="qbs-data-grant"`。不要手写徽标；完整成功时发布器会在实时区域右上角低对比度显示 `● LIVE`，悬浮后再提示该区域由 QBS 实时计算或实时取数、刷新时更新。
+5. `upload/update` 显式传 `transformation_mode:"preserve_html_qbs_live"`。门禁会验证来源 SHA256、非 QBS 接口已移除、DOM 与稳定属性、可见静态正文、内联 CSS 和标题未被重写，并且不会自动注入或刷新 Share Shell、实时收据齐全、div live 声明完整、页面凭证可查询、QBS Runtime 调用存在且刷新有绑定。
+6. 完全成功时发布带 QBS 实时取数的目标 HTML；路由只覆盖部分角色或任一转换门禁失败时，只要原始 `source_html_file` 仍可读取且 SHA256 一致，就为来源 HTML 的每个可渲染 div 添加 `data-qb-live-mode="static"`，移除已有 `data-qb-live-tag`，并继续 `upload` 或更新原 `page_id`。这一步不改可见正文、CSS、布局、SVG、表格或脚本；来源缺失/哈希不匹配时仍 fail closed，不覆盖活页。
+
+这一模式当前增加 **div 级 live/static 元数据与标准可见 LIVE 徽标**，不要求 Block Runtime、`data-qb-block-id` 或 Block 持久化。标准徽标绝对定位于区域右上角、不进入文档流，颜色继承当前主题；partial/failed 的静态回退不显示 LIVE。
+
 ## 统一原则：配置活在声明式结构里，不要写死进某次 JS 调用参数
 
 不管接下来选哪种呈现方式，判断"这段以后好不好定点编辑"只看一件事：**这个组件用哪个 output、显示哪些行/颜色/参数这类绑定关系，是不是能从结构化的地方（BOOT.packages/panels 或 HTML 的 `data-*` 属性）读出来，而不是硬编码在某一次 JS 函数调用的参数里**。按组件类型分两种做法：

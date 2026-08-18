@@ -322,6 +322,13 @@ def validate_reply(contract_payload, draft):
     elif public_url not in draft:
         errors.append({"code": "PUBLIC_URL_MISSING", "message": "最终回复未包含终态 public_url"})
 
+    if contract.get("require_page_id_in_reply") is True:
+        page_id = str(contract.get("page_id") or "").strip()
+        if not page_id:
+            errors.append({"code": "PAGE_ID_REQUIRED", "message": "终态 contract 要求回传 page_id，但 contract 缺少 page_id"})
+        elif page_id not in draft.replace(public_url, ""):
+            errors.append({"code": "PAGE_ID_MISSING", "message": "最终回复未在公开链接之外单独包含终态 page_id"})
+
     sections = _section_bodies(draft)
     actual = [item["heading"] for item in sections]
     render_policy = contract.get("reply_render_policy")

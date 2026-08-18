@@ -2,7 +2,7 @@
 name: quant-buddy-view
 slug: quant-buddy-view
 author: guanzhao
-version: 0.6.39
+version: 0.6.43
 description: |
   QBV / quant-buddy-view（用户可能写成 /quant-buddy-view、/qbv、qbv 或 QBV）用于把量化数据做成「公开可分享、实时取数」的网页看板/落地页。
   Use this skill when the user asks to create, update, publish, verify, retrofit, or reuse a Quant Buddy dashboard/static page/template, including shareable pages, public URLs, formula packages, share shell, cover/essence cards, poster/share behavior, single-stock profile pages, valuation/financial profile pages, index-anomaly boards, multi-factor screeners, and commodity daily pages.
@@ -12,7 +12,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 0.6.39
+  version: 0.6.43
   author: guanzhao
   category: quant-finance
   tags: [quant, dashboard, formula-package, static-page, publish, visualization]
@@ -264,7 +264,8 @@ npx skills update pseudo-longinus/quant-buddy-skills -y
 11. **普通建页前必须先查范式卡并显式确认路由**：`new_page` 会校验当前任务已用 `templates(recommend="all")` 查过完整范式池，并要求 Agent 根据 `items_summary` 传 `routing_decision`。未查模板返回 `ROUTING_TEMPLATES_REQUIRED`；未提交决定返回 `ROUTING_DECISION_REQUIRED`；fork 引用的来源或 unmatched 的最接近候选必须属于本次结果。范式相同仅标的/范围不同时使用 fork reason，不得以此判 unmatched。`publish_final` 发现已选 fork 却没有 fork task binding 时，在网络写入前返回可恢复的 `ROUTING_RECONFIRM_REQUIRED`；只有确认存在实质能力缺口时才用 `routing_override` 显式改判。`new_asset_page` 是服务端固定单股场景，不调用 `new_page`，因此不进入该 templates/routing gate；`build_dashboard` 不受限制，direct 不建页，也不受影响。
 12. **本地验收与公网验收分责**：`fork-local` 在本地 `file://`（origin=null）下用放开同源策略的测试浏览器跑真实取数渲染（`security_mode:"disabled-web-security"`），布局/占位符/运行时错误/图片/Card Runtime 门禁照常执行；`public-smoke` 保持浏览器默认安全策略，数据接口 CORS/`Failed to fetch`/运行时失败仍严格拦截。平台注入的 `/webapi/skill/track` 分析埋点是 fire-and-forget，其 CORS/网络失败降为 `non_core_console_warnings`，不再让成功页面发布失败；数据接口（`queryDataGrant`/`queryFormulaPackage`）的失败仍是阻塞性核心错误。
 13. **Fork 数据通道必须继承来源合同**：fork 的目标是替换标的并保持来源范式运行合同，不是重新设计数据层。来源模板某一角色使用公式包，目标页同一角色继续使用公式包；来源使用 `fast_query` / `stock_profile` / `composition_select` 数据授权，目标页继续使用同 kind、同 query_type、同响应形状的数据授权。禁止仅因“财务数据通常可走 fast_query(report)”就在 fork 中把来源财务公式包改成 grant，也禁止反向把来源 grant 改成公式包。只有 `unmatched` / 明确从零重建时才重新做通道选择；此时平台白名单报告期财务优先 `fast_query(query_type="report")`。
-14. **CHANGELOG 仅作为版本审计**：维护、升级或排查历史行为变化时，先阅读 `CHANGELOG.md` 中最新版本及与问题相关的历史条目；执行页面任务时，当前规则仍以 `SKILL.md` + `workflows/**` + `tools/**` + `guides/**` 为准。CHANGELOG 可能包含已被后续版本反转或废弃的旧口径，禁止用历史条目覆盖当前规则。
+14. **用户本地 HTML 活页化优先保真接入 QBS**：当用户说“把这个本地 HTML/页面活页化、标准化处理”，且来源页调用用户自己的非 QBS 服务接口时，不走在线模板 fork，也不要求 `qbs_qbv_handoff_v1`。先把来源 HTML 作为不可重写的展示合同：保留正文、DOM 顺序、内联 CSS、标题层级、SVG、表格与响应式布局，只替换数据获取和已有动态字段绑定；不得为了省事改造成通用 dashboard。直取数据先由 QBS 验证并注册 Data Grant，需要计算的口径先验证公式再注册公式包；目标 HTML 的每个可渲染 `<div>` 必须声明 `data-qb-live-mode="static|live"`，公式包驱动的实时区域再声明 `data-qb-live-tag="qbs-formula-package"`，Data Grant 区域声明 `data-qb-live-tag="qbs-data-grant"`。发布器会为完整成功的实时区域自动注入标准、幂等且不参与文档流布局的可见徽标：默认只在区域右上角低对比度显示 `● LIVE`，颜色继承当前页面主题；悬浮时再说明该区域由 QBS 实时计算或实时取数、刷新时更新。不要由 Agent 自行设计另一套样式。发布时显式使用 `transformation_mode:"preserve_html_qbs_live"`、来源文件 SHA256、非 QBS 接口清单和实时数据收据：完全成功则发布 QBS 实时版本；部分成功或失败时，只要来源文件可读且 SHA256 一致，就把来源 HTML 的可渲染 div 标记为 `static` 后更新到同一 `page_id`，视觉、正文、布局和原脚本保持不变，且不得显示 LIVE 徽标；来源缺失或哈希不一致仍拒绝覆盖。终态自动使用 `preserve_html_qbs_live_delivery_v1`，必须按 `transformation_status` 如实说明当前是实时版还是静态回退版，并单独回传 `page_id` 和公开链接。本阶段只增加 div 级 live/static 声明与标准可见徽标，不引入 `data-qb-block-id`、Block Runtime 或 Block 持久化。
+15. **CHANGELOG 仅作为版本审计**：维护、升级或排查历史行为变化时，先阅读 `CHANGELOG.md` 中最新版本及与问题相关的历史条目；执行页面任务时，当前规则仍以 `SKILL.md` + `workflows/**` + `tools/**` + `guides/**` 为准。CHANGELOG 可能包含已被后续版本反转或废弃的旧口径，禁止用历史条目覆盖当前规则。
 
 
 ## 工具一览

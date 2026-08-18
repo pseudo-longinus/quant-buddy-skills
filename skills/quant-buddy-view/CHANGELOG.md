@@ -9,6 +9,44 @@
 
 ---
 
+## [0.6.43] — 2026-08-18
+
+### 本地 HTML QBS 活页增加可见 LIVE 徽标
+
+- `preserve_html_qbs_live` 完整成功后由 `static_page.py` 自动注入标准可见徽标：默认仅在实时区域右上角显示低对比度 `● LIVE`，悬浮后再展开“QBS 实时计算/取数，刷新时更新”的说明；绝对定位且不进入文档流，避免挤压用户原页面布局。
+- 徽标样式升级为 `<style data-qb-live-indicator-runtime="v2">`：颜色继承当前区域文字颜色，以低透明度背景/边框适配浅色和深色主题；同页重复 update 保持幂等，并可安全替换已知的 v1 标准样式。终态 `transformation_validation.visible_live_indicator` 返回版本、启用状态和两类 live div 数量。
+- 保真 CSS 校验只忽略 marker 与内容都完全匹配的 QBV 标准样式；任意伪造 marker 或修改过的 CSS 仍按布局变化拒绝，不能绕过来源 CSS 合同。
+- `partial` / `failed` 继续发布原页静态回退，但不会注入可见 LIVE 徽标，避免把静态内容冒充为实时区域。
+
+## [0.6.42] — 2026-08-17
+
+### 本地 HTML 活页化失败也保留原页，并声明 div 实时状态
+
+- `preserve_html_qbs_live` 的目标 HTML 现在要求每个可渲染 `<div>` 声明 `data-qb-live-mode="static|live"`；公式包和 Data Grant 实时区域分别使用 `data-qb-live-tag="qbs-formula-package"` / `qbs-data-grant`，避免把静态内容误报为实时。
+- 完全成功继续发布 QBS 实时版本；路由部分成功或转换/凭证门禁失败时，不再直接丢失交付，而是重新校验 `source_html_file` SHA256，把来源 HTML 的可渲染 div 标记为 static 后继续 upload，或更新原 `page_id`。来源文件缺失、不可读或哈希不一致仍拒绝覆盖。
+- 静态回退只改 div 的运行时声明属性并移除错误 live tag，不改可见正文、CSS、布局、SVG、表格或脚本；`script/style/template/noscript` 与注释中的 `<div>` 文本不会被误写。
+- 终态响应新增 `transformation_status: complete|partial|failed` 与 `source_html_fallback_published`；partial/failed 保留 `transformation_error`。专用回复模板按真实状态区分“QBS 实时版”和“原页静态回退版”。
+
+## [0.6.41] — 2026-08-17
+
+### 本地 HTML QBS 活页化使用专用终态交付合同
+
+- `preserve_html_qbs_live` 无条件选用 `preserve_html_qbs_live_delivery_v1`，即使调用方显式传入通用模板，也不再把一次结构保真的数据链迁移扩写成行业研究报告。
+- 新模板只交付结构/样式保真、非 QBS 数据链替换、QBS 实时刷新状态、`page_id` 与公开链接，不输出未绑定回复证据的业务数值、趋势、分位或投资判断。
+- 该模式的终态 contract 新增 `require_page_id_in_reply:true`；validator 要求最终回复在公开 URL 之外单独包含准确 `page_id`，缺失时分别返回 `PAGE_ID_REQUIRED` / `PAGE_ID_MISSING`。
+- `static_page.py update` 与 `upload/publish_final` 对齐：直接更新本地 HTML 时也会解析并返回专用回复模板合同，同时保持原 HTML、DOM、CSS 和可见正文不变。
+
+## [0.6.40] — 2026-08-17
+
+### 保持用户本地 HTML 不变的数据链 QBS 活页化
+
+- `static_page.py upload/update` 新增显式 `transformation_mode:"preserve_html_qbs_live"`：用于用户已有本地 HTML 调用非 QBS 服务接口的场景，不走在线模板 fork，也不要求 QBS Handoff。
+- 发布前校验来源 HTML 的文件 SHA256、非 QBS 接口已移除、非运行时 DOM/稳定属性、可见静态正文、内联 CSS 和标题文案未变，并复用实时路由、公式验证与 Grant 验证收据；直取数据使用 Data Grant，需要计算时要求已验证并注册公式包。
+- 该模式自动禁用 Share Shell 注入/刷新，确保校验后的 HTML 就是最终上传 HTML；目标 HTML 必须包含可实际查询的 QBS package/grant 凭证、对应 Runtime 调用以及真实刷新绑定；失败在页面托管写请求前拒绝，成功响应附加不含 signature 的 `transformation_validation`。
+- 测试覆盖本地 HTML 调用非 QBS 接口并动态刷新的最小场景；本版本暂不引入 Block Runtime 标记或 Block 持久化。
+- `qbs_bridge.py validate_package_set` 在 QBS `summary` 输出只返回 `expression_id/data_id/status` 时，按同批公式顺序恢复 `variable_name` 并校验数量/名称冲突，避免成功公式被误判为 `REQUIRED_OUTPUT_MISSING` 而跳过注册与上传。
+- QBV 验证切批与 QBS 工具合同统一为单批最多 **20 条公式**；21 条及以上必须拆批。
+
 ## [0.6.39] — 2026-08-12
 
 - 增加 QBS companion 托管安装协调：检测到 `.managed-install.json` 且 manager/channel 为 `quant-buddy-skill/companion` 时，QBV 不再触发独立 GitHub tag 自更新，由 QBS 在 `newSession` 阶段统一管理。

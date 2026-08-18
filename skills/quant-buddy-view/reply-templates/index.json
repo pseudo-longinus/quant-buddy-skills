@@ -183,6 +183,24 @@
       }
     },
     {
+      "id": "preserve_html_qbs_live_delivery_v1",
+      "title": "Preserve HTML QBS Live Delivery",
+      "file": "preserve_html_qbs_live_delivery_v1.md",
+      "source_playbooks": [],
+      "default_reply_scope": "full_answer",
+      "output_format": "markdown",
+      "status": "active",
+      "reply_render_policy": {
+        "version": "reply_render_policy_v1",
+        "required_sections": ["活页化结果", "交付信息"],
+        "optional_sections": [],
+        "at_least_one_groups": [],
+        "omit_all_missing_columns": true,
+        "omit_all_missing_rows": true,
+        "placeholder_policy": "partial_only"
+      }
+    },
+    {
       "id": "generic_live_page_delivery_v1",
       "title": "Generic Live Page Delivery",
       "file": "generic_live_page_delivery_v1.md",

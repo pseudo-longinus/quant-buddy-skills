@@ -159,6 +159,56 @@ def _formula_validation_batches(formulas, requested_force_reusable=None):
     return batches
 
 
+def _bind_formula_validation_outputs(formulas, outputs):
+    """Restore formula output names removed by QBS summary mode, preserving batch order."""
+    if not isinstance(outputs, list):
+        return None, {
+            "error": "FORMULA_RESULTS_INVALID",
+            "message": "QBS summary results must be an array",
+        }
+    if len(formulas) != len(outputs):
+        return None, {
+            "error": "FORMULA_RESULT_COUNT_MISMATCH",
+            "message": "QBS summary result count does not match the submitted formula batch",
+            "formula_count": len(formulas),
+            "result_count": len(outputs),
+        }
+
+    bound = []
+    for index, (formula, output) in enumerate(zip(formulas, outputs)):
+        if not isinstance(output, dict):
+            return None, {
+                "error": "FORMULA_RESULT_INVALID",
+                "message": "Each QBS summary result must be an object",
+                "result_index": index,
+            }
+        expected = FRC.formula_output(formula)
+        if not expected:
+            return None, {
+                "error": "FORMULA_OUTPUT_NAME_INVALID",
+                "message": "Cannot derive a valid output name from the submitted formula",
+                "formula_index": index,
+                "formula": formula,
+            }
+        actual = str(
+            output.get("variable_name")
+            or output.get("leftName")
+            or output.get("output_name")
+            or output.get("output")
+            or ""
+        ).strip()
+        if actual and actual != expected:
+            return None, {
+                "error": "FORMULA_OUTPUT_NAME_MISMATCH",
+                "message": "QBS result output name conflicts with the submitted formula",
+                "formula_index": index,
+                "expected": expected,
+                "actual": actual,
+            }
+        bound.append({**output, "variable_name": expected})
+    return bound, None
+
+
 def _file_sha256(path):
     digest = hashlib.sha256()
     with Path(path).open("rb") as handle:
@@ -454,7 +504,19 @@ def _validate_package_set(call_script, params, env):
             batch_receipts.append(receipt)
             data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
             batch_summaries.append(data.get("summary") if isinstance(data.get("summary"), dict) else {})
-            validation_outputs.extend(data.get("results") if isinstance(data.get("results"), list) else [])
+            bound_outputs, output_error = _bind_formula_validation_outputs(batch["formulas"], data.get("results"))
+            if output_error:
+                return {
+                    "code": 1,
+                    "error": "PACKAGE_VALIDATION_OUTPUT_CONTRACT_INVALID",
+                    "success": False,
+                    "task_id": task_id,
+                    "failed_package": item["name"],
+                    "failed_batch_index": batch_index,
+                    "details": output_error,
+                    "packages": results,
+                }
+            validation_outputs.extend(bound_outputs)
 
         package_receipt = batch_receipts[0]
         contract_fingerprint = item["contract_fingerprint"]
