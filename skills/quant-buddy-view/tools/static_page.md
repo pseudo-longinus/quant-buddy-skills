@@ -510,34 +510,49 @@ python scripts/publish_workflow.py '@output/forks/page_xxx/page_xxx.publish-plan
 
 ### 用户本地 HTML → QBS 活页化参数（upload / update 共用）
 
-只有调用方显式传 `transformation_mode:"preserve_html_qbs_live"` 时启用下列门禁；普通静态上传和一般页面更新不受影响。该模式针对“保留用户本地 HTML 的原结构与布局，只把非 QBS 数据链接入 QBS”的迁移，不是在线模板 fork，也不要求 Handoff。
+只有调用方显式传 `transformation_mode:"preserve_html_qbs_live"` 时启用；普通静态上传和一般页面更新不受影响。该模式针对“保留用户本地 HTML 的原结构、当前数据和布局，只把可成功迁移的数据链接入 QBS”，不是在线模板 fork，也不要求 Handoff。
 
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `transformation_mode` | string | ✅ | 固定 `preserve_html_qbs_live` |
 | `source_html_file` | string | ✅ | 迁移前原始 HTML；相对路径按 skill 根解析 |
-| `source_html_sha256` | string | ✅ | 原始文件 bytes 的 64 位 SHA256；防止迁移过程中来源被悄悄替换 |
+| `source_html_sha256` | string | ✅ | 原始文件 bytes 的 64 位 SHA256；用于验证旧接口和来源身份 |
+| `source_snapshot_html_file` | string | 异步页必填 | 页面当前数据渲染完成后的冻结快照；纯静态来源可省略并直接使用 source |
+| `source_snapshot_html_sha256` | string | 与快照文件同时 | 快照文件 bytes 的 64 位 SHA256 |
 | `source_data_endpoints` | string[] | ✅ | 来源 HTML 中实际使用的非 QBS 接口；目标 HTML 必须全部移除 |
 | `content_structure_preserved` | bool | ✅ | 必须为 `true` |
 | `layout_preserved` | bool | ✅ | 必须为 `true` |
 | `live_data_mode` | string | ✅ | 必须为 `live` |
 | `task_id` | string | ✅ | 与 QBS 验证和路由收据一致 |
-| `route_receipt_file` | string | ✅ | `live_data_route_receipt_v1` 路由收据 |
-| `validation_receipt_files` | string[] | 按路线 | 公式包路线的成功验证收据 |
-| `grant_validation_receipt_files` | string[] | 按路线 | Data Grant 路线的成功验证收据 |
+| `route_receipt_file` | string | ✅ | `live_data_route_receipt_v1`；允许完整 `live` 或至少一条成功路线的 `incomplete` |
+| `validation_receipt_files` | string[] | 按所选路线 | 仅提交 `selected_routes` 中公式包路线的成功验证收据 |
+| `grant_validation_receipt_files` | string[] | 按所选路线 | 仅提交 `selected_routes` 中 Data Grant 路线的成功验证收据 |
 
-门禁在托管写请求之前完成，并检查：来源文件哈希；来源接口确实存在且目标不再引用；非运行时 DOM 与稳定属性、可见静态正文、内联 CSS 和标题文案保持一致；每个可渲染 `<div>` 都有 `data-qb-live-mode="static|live"`；公式包实时区域有 `data-qb-live-tag="qbs-formula-package"`，Data Grant 实时区域有 `data-qb-live-tag="qbs-data-grant"`；路由所需凭证已写入目标 HTML；页面实际调用 QBS Runtime；刷新控件或 Share Shell `onRefresh` 已绑定；最后使用页面中的 signature 查询已注册凭证。该模式默认跳过 Share Shell 自动注入；显式要求 `ensure_share_shell:true` 或 `refresh_share_shell:true` 会使实时转换判失败。
+异步来源必须先捕获当前页面快照：
 
-写入策略不是“一失败就没有活页链接”：
+```powershell
+node scripts/capture_rendered_html.mjs C:\path\source.html --output C:\path\source.snapshot.html --wait-ms 1500
+```
 
-- `transformation_status:"complete"`：上传/更新已通过全部门禁的 QBS 实时 HTML，`source_html_fallback_published:false`。
-- `transformation_status:"partial"`：路由已有部分 `selected_routes`，但 `status=incomplete` 或核心角色未完整；改为写入经过 SHA256 验证的来源 HTML，并将每个可渲染 div 标记为 `static`。
-- `transformation_status:"failed"`：其他转换或凭证门禁失败；同样写入经过验证的静态来源 HTML。
+也可以把第一个参数换成本地服务 URL。捕获器等待页面渲染后保存当前 DOM，固化 canvas、表单和 details 状态，并把旧 script/inline handler 冻结，避免快照托管后再次调用非 QBS 接口。调用方随后计算快照 SHA256 并传入上述两个 snapshot 字段。
 
-`update` 的 partial/failed 回退仍使用传入的原 `page_id`，不会创建替代页面；`upload` 会返回新建静态页的 `page_id`/公开链接。静态回退只添加/覆盖 `data-qb-live-mode="static"` 并移除可渲染 div 上的 `data-qb-live-tag`，不会修改可见正文、CSS、布局或脚本。若 `source_html_file` 缺失、不可读或 `source_html_sha256` 不匹配，仍在写请求前拒绝，避免用不可信来源覆盖页面。
+**固定写入顺序**：
 
-响应会附加 `transformation_status`、`source_html_fallback_published`、`transformation_validation`；partial/failed 还会附加 `transformation_error`。complete 时发布器自动注入唯一的 `<style data-qb-live-indicator-runtime="v2">`：公式包与 Data Grant live div 默认都只在右上角低对比度显示 `● LIVE`，颜色继承当前区域的主题文字色；悬浮后分别提示“QBS 实时计算，刷新时更新”或“QBS 实时取数，刷新时更新”。`transformation_validation.visible_live_indicator` 返回 `version`、`enabled`、`formula_live_div_count`、`grant_live_div_count`。样式绝对定位且幂等，重复 update 不重复添加；已知 v1 标准样式会升级为 v2，CSS 保真校验只忽略内容完全匹配的标准样式，任意伪造 marker 仍会失败。partial/failed 静态回退不注入 LIVE。signature 不回显。当前不实现 `data-qb-block-id`、Block Runtime 或 Block 持久化。
+1. 在首次托管写入前验证来源文件与快照文件的 SHA256。含 `fetch/axios/XMLHttpRequest/EventSource/WebSocket` 的来源缺少显式渲染快照时直接拒绝。
+2. `upload` 用快照调用 `uploadStaticPage` 创建稳定 `page_id`；`update` 先用快照更新传入的原 `page_id`。
+   preserve 入口不会在这一步之前预读 QBS 目标 HTML；目标缺失或不可读时仍保留已写入的快照，并返回 `PRESERVE_HTML_TARGET_READ_FAILED`。
+3. 快照已成功写入后，才验证 QBS 目标：目标必须移除旧接口，并与**渲染快照**保持非运行时 DOM/稳定属性、可见正文、内联 CSS 和标题一致；只允许成功区域增加 live 属性、替换运行时脚本和数据绑定。
+4. QBS complete/partial 时调用 `updateStaticPage` 写回同一个 `page_id`；全部失败时不做第二次写入。第二次写入失败也返回首次快照的可交付页面，不生成通用错误页或替代链接。
 
+live tag 规则：未声明 `data-qb-live-mode` 的 div 默认就是未转换的快照静态区域，允许且不改写；只有成功 QBS 区域声明 `data-qb-live-mode="live"`，并按通道声明 `data-qb-live-tag="qbs-formula-package"` 或 `qbs-data-grant`。显式 mode 非法、重复属性或未知 live tag 仍拒绝。只有 live 区域会自动获得唯一的 `<style data-qb-live-indicator-runtime="v2">` 和右上角低干扰 `● LIVE`。
+
+结果语义：
+
+- `complete`：首次快照已发布，随后同页写回完整 QBS 实时 HTML；`source_html_fallback_published:false`。
+- `partial`：首次快照已发布，随后同页写回混合 HTML；成功区域 live，失败区域保持快照；`source_html_fallback_published:true`。
+- `failed`：QBS 门禁失败或第二次写回失败，当前同一链接继续显示完整首次快照；`source_html_fallback_published:true`。
+
+响应附加 `snapshot_published_first`、`source_snapshot_published`、`publish_sequence`、`transformation_status`、`source_html_fallback_published` 和 `transformation_validation`；partial/failed 还附加 `transformation_error`。`transformation_validation` 记录来源/快照哈希和 live 区域数量但不回显 signature。当前不实现 `data-qb-block-id`、Block Runtime 或 Block 持久化。
 
 > `refresh_share_shell:true` 只适用于已经在本地编译出稳定 marker 的 HTML。旧线上 HTML 没有 marker 时会拒绝更新；先下载并在本地重建为 marker 版本，浏览器验收后再对指定 `page_id` 做同链接 update。该参数不用于批量迁移。新 shell 页头为 `刷新数据 / 收藏 / 分享 / 问一问`，“问一问”动态打开当前页对应 Web Agent，投研仓 iframe 无法通信时降级为官网新窗口。
 

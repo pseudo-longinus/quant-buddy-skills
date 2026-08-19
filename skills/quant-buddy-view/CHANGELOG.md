@@ -9,6 +9,17 @@
 
 ---
 
+## [0.6.44] — 2026-08-18
+
+### 本地 HTML 活页化先发布渲染快照，再同页渐进增强 QBS
+
+- `preserve_html_qbs_live` 改为两阶段写入：`upload` 先用来源页渲染快照创建稳定 `page_id`，`update` 先把快照写入原 `page_id`；随后才执行 QBS 路由、凭证、Runtime 和保真门禁，complete/partial 均通过 `updateStaticPage` 写回同一链接。
+- 新增 `source_snapshot_html_file/source_snapshot_html_sha256` 合同和 `scripts/capture_rendered_html.mjs`。异步来源必须提供渲染完成且已冻结旧脚本的快照；捕获器保留当前 DOM/SVG/表格/表单状态并固化 canvas，避免托管后重新调用旧接口覆盖快照。
+- partial 不再整页降级：已成功路线对应区域继续使用 QBS live，失败区域保持首次快照；全部失败或第二阶段更新失败时，活页仍显示完整快照，不再生成通用错误页或替代链接。
+- 未转换 div 不再强制注入 `data-qb-live-mode="static"`；只有 QBS 成功区域需要 `data-qb-live-mode="live"` 和公式包/Data Grant tag，并显示低干扰 `● LIVE`。保真基线从未渲染 source 调整为渲染 snapshot，动态数值、表格和 SVG 不会因来源占位符而被误判为内容篡改。
+- 响应新增 `snapshot_published_first`、`source_snapshot_published` 与 `publish_sequence`；保留 `transformation_status/source_html_fallback_published` 兼容字段，并增加快照哈希审计。普通 upload/update 和非 preserve 模式不受影响。
+- preserve 入口不再预读 QBS 目标 HTML：即使目标文件尚未生成、缺失或不可读，也先完成快照 upload/update，再以 `PRESERVE_HTML_TARGET_READ_FAILED` 记录增强失败，确保链接仍展示原页面快照。
+
 ## [0.6.43] — 2026-08-18
 
 ### 本地 HTML QBS 活页增加可见 LIVE 徽标

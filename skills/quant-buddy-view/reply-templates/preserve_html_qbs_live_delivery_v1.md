@@ -14,7 +14,8 @@ source_playbooks: []
 
 - 必须先读取 `transformation_status` 和 `source_html_fallback_published`，不得统一声称“已完成 QBS 活页化”。
 - `transformation_status=complete`：可以说明当前链接已使用 QBS 实时取数，并按 `transformation_validation` 描述刷新状态；只有 `visible_live_indicator.enabled=true` 时才说明页面实时区域会显示标准 LIVE 徽标。
-- `transformation_status=partial|failed` 且 `source_html_fallback_published=true`：必须明确说明实时转换部分成功或失败，当前链接已更新为与用户来源页面视觉/正文/布局一致的静态回退版本；不得把静态 div 描述为实时数据。
+- `transformation_status=partial` 且 `source_html_fallback_published=true`：说明同一链接已保留首次快照，成功区域已接入 QBS 并显示 LIVE，其余区域继续使用快照；不得把未标记区域描述为实时数据。
+- `transformation_status=failed` 且 `source_html_fallback_published=true`：说明 QBS 增强未完成，但当前链接已经保留来源页渲染快照；不得声称整页实时。
 - `source_html_fallback_published=false`：不得声称页面已更新，需简要说明托管写入也未成功。
 - 只陈述已经由终态响应和 contract 验证的迁移结果，不扩写页面业务数据、趋势、分位或投资判断。
 - 不改写或概括用户页面正文，不把原页面重新描述成通用 dashboard。
@@ -40,7 +41,7 @@ source_playbooks: []
 - [打开实时活页]({public_url})
 ```
 
-### partial / failed，静态回退写入成功
+### partial / failed，快照保底写入成功
 
 ```markdown
 **实时活页化未完全成功，已保留原页面交付**
@@ -48,8 +49,9 @@ source_playbooks: []
 ## 活页化结果
 
 - 本次 QBS 转换为部分成功或失败，未把未通过验证的区域冒充为实时内容。
-- 当前活页链接已更新为静态回退版本；可见正文、样式、布局和原脚本保持与来源页面一致。
-- 页面中的可渲染 div 已标记为 static；待 QBS 数据链修复后可继续在同一 `page_id` 更新为实时版本。
+- 当前活页链接先写入了来源页渲染快照；可见正文、数据、样式和布局已保留。
+- 若状态为 partial，只有带 `● LIVE` 的区域已接入 QBS，其余区域仍显示首次快照；若状态为 failed，则整个页面继续显示快照。
+- 未转换区域没有被强行添加 static tag；待 QBS 数据链修复后仍可在同一 `page_id` 渐进增强。
 
 ## 交付信息
 

@@ -2165,10 +2165,319 @@ def _required_package_outputs_check(endpoint, html, required_outputs):
     }
 
 
+
+def _is_preserve_html_qbs_live(params):
+    return str((params or {}).get("transformation_mode") or "").strip() == _PRESERVE_HTML_QBS_LIVE_MODE
+
+
+def _publish_html_error(html):
+    size = len(str(html or "").encode("utf-8"))
+    if size > _MAX_HTML_BYTES:
+        return {"code": 1, "message": f"HTML 体积 {size} 字节，超过单页上限 2MB（请精简内联数据/资源）"}
+    head = str(html or "").lstrip()[:64].lower()
+    if not (head.startswith("<!doctype html") or head.startswith("<html")):
+        return {"code": 1, "message": "内容不是 HTML 文档（需以 <!doctype html> 或 <html> 开头）"}
+    return None
+
+
+def _publish_body(params, html, *, page_id=None, snapshot_stage=False):
+    body = {"html": html}
+    if page_id:
+        body["page_id"] = page_id
+    fields = (
+        "title", "description", "ttl_days", "scene_tags", "paradigm_tags", "user_query",
+        "tagging_method", "tagging_source", "tagging_meta", "page_context",
+        "agent_reply_template", "reply_contract_binding", "trace_evidence",
+    )
+    if page_id:
+        fields += ("change_note", "change_aspect")
+    for key in fields:
+        if params.get(key) is not None:
+            body[key] = params[key]
+    for key in ("page_context", "reply_contract_binding", "agent_reply_template"):
+        if key in params and params.get(key) is None:
+            body[key] = None
+    if page_id:
+        if snapshot_stage:
+            body["change_note"] = "先发布本地 HTML 渲染快照，作为 QBS 转换保底"
+        else:
+            body.setdefault("change_note", "更新页面内容")
+    return body
+
+
+def _merge_preserve_response(base_out, newer_out, *, page_id=None):
+    base = dict(base_out) if isinstance(base_out, dict) else {"code": 1, "message": str(base_out)}
+    if isinstance(newer_out, dict):
+        merged = dict(newer_out)
+        for key in ("page_id", "public_url", "url"):
+            if not merged.get(key) and base.get(key):
+                merged[key] = base[key]
+    else:
+        merged = base
+    if page_id and not merged.get("page_id"):
+        merged["page_id"] = page_id
+    return merged
+
+
+def _finalize_preserve_response(
+    out, *, params, validation, error, status, snapshot_published_first,
+    source_html_fallback_published, publish_sequence, shell_check,
+    reply_resolution=None, card_runtime_verification=None, endpoint=None,
+    final_html=None,
+):
+    if not isinstance(out, dict):
+        return out
+    out["transformation_status"] = status
+    out["source_html_fallback_published"] = bool(source_html_fallback_published and out.get("code") == 0)
+    out["snapshot_published_first"] = bool(snapshot_published_first)
+    out["source_snapshot_published"] = bool(snapshot_published_first)
+    out["publish_sequence"] = list(publish_sequence or [])
+    if validation:
+        out["transformation_validation"] = validation
+    if error:
+        out["transformation_error"] = error
+    if reply_resolution:
+        out["agent_reply_template_resolution"] = reply_resolution
+        if isinstance(params.get("agent_reply_template"), dict):
+            out.setdefault("agent_reply_template", params["agent_reply_template"])
+        if isinstance(params.get("page_context"), dict):
+            out.setdefault("page_context", params["page_context"])
+    out["share_shell"] = shell_check
+    if card_runtime_verification:
+        out["card_runtime_verification"] = card_runtime_verification
+    if out.get("code") == 0 and final_html and endpoint and status in {"complete", "partial"}:
+        out["_package_runtime_check"] = _package_runtime_check(
+            endpoint,
+            final_html,
+            force=bool(params.get("verify_packages")),
+            publish_out=out,
+        )
+    if out.get("code") == 0:
+        _attach_agent_reply_contract(out, operation="update" if params.get("page_id") else "upload")
+    return out
+
+
+def _prepare_preserve_snapshot_stage(params):
+    fallback, fallback_error = _prepare_preserve_html_fallback(params, None)
+    if fallback_error:
+        return None, None, fallback_error
+    snapshot_html = fallback["html"]
+    resolved_params, reply_resolution, reply_error = _resolve_publish_agent_reply_template(params, html=snapshot_html)
+    if reply_error:
+        return None, None, reply_error
+    try:
+        snapshot_html, shell_check = _ensure_share_shell(snapshot_html, resolved_params)
+    except ValueError as exc:
+        return None, None, {"code": 1, "message": str(exc)}
+    html_error = _publish_html_error(snapshot_html)
+    if html_error:
+        return None, None, html_error
+    metadata_error = _validate_reply_metadata_pair(resolved_params)
+    if metadata_error:
+        return None, None, metadata_error
+    return {
+        "params": resolved_params,
+        "html": snapshot_html,
+        "validation": fallback["validation"],
+        "shell_check": shell_check,
+    }, reply_resolution, None
+
+
+def _prepare_preserve_live_stage(params, target_html, *, endpoint):
+    validation, validation_error = _validate_transformation_contract(params, target_html, endpoint=endpoint)
+    if validation_error:
+        return None, validation, validation_error
+    live_html, indicator = _inject_visible_live_indicator(target_html, validation.get("div_live_check"))
+    validation = dict(validation)
+    validation["visible_live_indicator"] = indicator
+    try:
+        live_html, shell_check = _ensure_share_shell(live_html, params)
+    except ValueError as exc:
+        return None, validation, {"code": 1, "error": "PRESERVE_HTML_SHELL_INVALID", "message": str(exc)}
+    html_error = _publish_html_error(live_html)
+    if html_error:
+        return None, validation, html_error
+    card_runtime_verification = _maybe_verify_card_runtime(live_html, params)
+    if isinstance(card_runtime_verification, dict) and not card_runtime_verification.get("ok"):
+        return None, validation, {
+            "code": 1,
+            "error": "PRESERVE_HTML_CARD_RUNTIME_INVALID",
+            "message": card_runtime_verification.get("message") or "card runtime artifact 验收未通过",
+            "card_runtime_verification": card_runtime_verification,
+        }
+    return {
+        "html": live_html,
+        "validation": validation,
+        "shell_check": shell_check,
+        "card_runtime_verification": card_runtime_verification,
+    }, validation, None
+
+
+def _preserve_live_update_error(response):
+    safe = {}
+    if isinstance(response, dict):
+        for key in ("code", "error", "message"):
+            if response.get(key) is not None:
+                safe[key] = response.get(key)
+    return _evidence_error(
+        "PRESERVE_HTML_LIVE_UPDATE_FAILED",
+        "快照已发布，但 QBS 增强版本写回失败；当前活页继续保留首次快照",
+        details=safe,
+    )
+
+
+def _preserve_target_read_error(error):
+    details = error if isinstance(error, dict) else {"message": str(error)}
+    return _evidence_error(
+        "PRESERVE_HTML_TARGET_READ_FAILED",
+        "快照已发布，但 QBS 目标 HTML 缺失或不可读；当前活页继续保留首次快照",
+        details=details,
+    )
+
+
+def _cmd_upload_preserve(params, *, endpoint, api_key):
+    snapshot, reply_resolution, error = _prepare_preserve_snapshot_stage(params)
+    if error:
+        return error
+    resolved_params = snapshot["params"]
+    upload_body = _publish_body(resolved_params, snapshot["html"])
+    snapshot_out = C.http_json(
+        "POST", C.api_url(endpoint, _PATH["upload"]), C.headers(api_key), upload_body,
+        timeout=_UPLOAD_TIMEOUT,
+    )
+    snapshot_ok = isinstance(snapshot_out, dict) and snapshot_out.get("code") == 0
+    sequence = ["snapshot_upload"] if snapshot_ok else []
+    if not snapshot_ok:
+        return _finalize_preserve_response(
+            snapshot_out, params=resolved_params, validation=snapshot["validation"], error=None,
+            status="failed", snapshot_published_first=False,
+            source_html_fallback_published=False, publish_sequence=sequence,
+            shell_check=snapshot["shell_check"], reply_resolution=reply_resolution,
+        )
+    page_id = str(snapshot_out.get("page_id") or "").strip()
+    target_html, target_error = _read_html(resolved_params)
+    if target_error:
+        return _finalize_preserve_response(
+            snapshot_out, params=resolved_params, validation=snapshot["validation"],
+            error=_preserve_target_read_error(target_error), status="failed",
+            snapshot_published_first=True, source_html_fallback_published=True,
+            publish_sequence=sequence, shell_check=snapshot["shell_check"],
+            reply_resolution=reply_resolution,
+        )
+    live_stage, validation, validation_error = _prepare_preserve_live_stage(
+        resolved_params, target_html, endpoint=endpoint
+    )
+    if validation_error or not page_id:
+        if not validation_error:
+            validation_error = _evidence_error(
+                "PRESERVE_HTML_PAGE_ID_MISSING",
+                "首次快照已上传，但服务端未返回 page_id，无法在同一链接继续 QBS 增强",
+            )
+        status = _preserve_fallback_status(resolved_params)
+        return _finalize_preserve_response(
+            snapshot_out, params=resolved_params, validation=snapshot["validation"], error=validation_error,
+            status=status, snapshot_published_first=True,
+            source_html_fallback_published=True, publish_sequence=sequence,
+            shell_check=snapshot["shell_check"], reply_resolution=reply_resolution,
+        )
+    update_body = _publish_body(resolved_params, live_stage["html"], page_id=page_id)
+    live_out = C.http_json(
+        "POST", C.api_url(endpoint, _PATH["update"]), C.headers(api_key), update_body,
+        timeout=_UPLOAD_TIMEOUT,
+    )
+    if not isinstance(live_out, dict) or live_out.get("code") != 0:
+        return _finalize_preserve_response(
+            snapshot_out, params=resolved_params, validation=snapshot["validation"],
+            error=_preserve_live_update_error(live_out), status="failed",
+            snapshot_published_first=True, source_html_fallback_published=True,
+            publish_sequence=sequence + ["qbs_live_update_failed"],
+            shell_check=snapshot["shell_check"], reply_resolution=reply_resolution,
+        )
+    status = validation.get("transformation_status") or "complete"
+    final_out = _merge_preserve_response(snapshot_out, live_out, page_id=page_id)
+    return _finalize_preserve_response(
+        final_out, params=resolved_params, validation=validation, error=None, status=status,
+        snapshot_published_first=True, source_html_fallback_published=(status == "partial"),
+        publish_sequence=sequence + ["qbs_live_update"], shell_check=live_stage["shell_check"],
+        reply_resolution=reply_resolution,
+        card_runtime_verification=live_stage.get("card_runtime_verification"),
+        endpoint=endpoint, final_html=live_stage["html"],
+    )
+
+
+def _cmd_update_preserve(params, *, endpoint, api_key):
+    snapshot, reply_resolution, error = _prepare_preserve_snapshot_stage(params)
+    if error:
+        return error
+    resolved_params = snapshot["params"]
+    page_id = str(params.get("page_id") or "").strip()
+    snapshot_body = _publish_body(resolved_params, snapshot["html"], page_id=page_id, snapshot_stage=True)
+    snapshot_out = C.http_json(
+        "POST", C.api_url(endpoint, _PATH["update"]), C.headers(api_key), snapshot_body,
+        timeout=_UPLOAD_TIMEOUT,
+    )
+    snapshot_ok = isinstance(snapshot_out, dict) and snapshot_out.get("code") == 0
+    sequence = ["snapshot_update"] if snapshot_ok else []
+    if not snapshot_ok:
+        return _finalize_preserve_response(
+            snapshot_out, params=resolved_params, validation=snapshot["validation"], error=None,
+            status="failed", snapshot_published_first=False,
+            source_html_fallback_published=False, publish_sequence=sequence,
+            shell_check=snapshot["shell_check"], reply_resolution=reply_resolution,
+        )
+    target_html, target_error = _read_html(resolved_params)
+    if target_error:
+        return _finalize_preserve_response(
+            _merge_preserve_response(snapshot_out, None, page_id=page_id),
+            params=resolved_params, validation=snapshot["validation"],
+            error=_preserve_target_read_error(target_error), status="failed",
+            snapshot_published_first=True, source_html_fallback_published=True,
+            publish_sequence=sequence, shell_check=snapshot["shell_check"],
+            reply_resolution=reply_resolution,
+        )
+    live_stage, validation, validation_error = _prepare_preserve_live_stage(
+        resolved_params, target_html, endpoint=endpoint
+    )
+    if validation_error:
+        status = _preserve_fallback_status(resolved_params)
+        return _finalize_preserve_response(
+            _merge_preserve_response(snapshot_out, None, page_id=page_id),
+            params=resolved_params, validation=snapshot["validation"], error=validation_error,
+            status=status, snapshot_published_first=True,
+            source_html_fallback_published=True, publish_sequence=sequence,
+            shell_check=snapshot["shell_check"], reply_resolution=reply_resolution,
+        )
+    live_body = _publish_body(resolved_params, live_stage["html"], page_id=page_id)
+    live_out = C.http_json(
+        "POST", C.api_url(endpoint, _PATH["update"]), C.headers(api_key), live_body,
+        timeout=_UPLOAD_TIMEOUT,
+    )
+    if not isinstance(live_out, dict) or live_out.get("code") != 0:
+        return _finalize_preserve_response(
+            _merge_preserve_response(snapshot_out, None, page_id=page_id),
+            params=resolved_params, validation=snapshot["validation"],
+            error=_preserve_live_update_error(live_out), status="failed",
+            snapshot_published_first=True, source_html_fallback_published=True,
+            publish_sequence=sequence + ["qbs_live_update_failed"],
+            shell_check=snapshot["shell_check"], reply_resolution=reply_resolution,
+        )
+    status = validation.get("transformation_status") or "complete"
+    final_out = _merge_preserve_response(snapshot_out, live_out, page_id=page_id)
+    return _finalize_preserve_response(
+        final_out, params=resolved_params, validation=validation, error=None, status=status,
+        snapshot_published_first=True, source_html_fallback_published=(status == "partial"),
+        publish_sequence=sequence + ["qbs_live_update"], shell_check=live_stage["shell_check"],
+        reply_resolution=reply_resolution,
+        card_runtime_verification=live_stage.get("card_runtime_verification"),
+        endpoint=endpoint, final_html=live_stage["html"],
+    )
+
 def cmd_upload(params):
     cfg = C.load_config_require_key()
     endpoint, api_key = C.endpoint_of(cfg), cfg.get("api_key", "")
 
+    if _is_preserve_html_qbs_live(params):
+        return _cmd_upload_preserve(params, endpoint=endpoint, api_key=api_key)
     html, err = _read_html(params)
     if err:
         return err
@@ -2265,6 +2574,8 @@ def cmd_update(params):
     if not params.get("page_id"):
         return {"code": 1, "message": "update 需要 page_id（要替换哪个已发布页面）"}
 
+    if _is_preserve_html_qbs_live(params):
+        return _cmd_update_preserve(params, endpoint=endpoint, api_key=api_key)
     html, err = _read_html(params)
     if err:
         return err
@@ -2544,19 +2855,36 @@ def _validate_static_after_probe(params, route):
     return None
 
 
-def _validate_live_receipts(params, route):
+def _validate_live_receipts(params, route, *, allow_partial=False):
     identity_error = _validate_route_identity(route, params)
     if identity_error:
         return identity_error
-    if route.get("status") != "live" or route.get("required_roles_complete") is not True or route.get("static_fallback_allowed") is not False:
-        return _evidence_error("LIVE_DATA_ROUTE_INCOMPLETE", "实时发布只接受 status=live 且核心角色完整的路由收据")
     required_roles = route.get("required_roles") if isinstance(route.get("required_roles"), list) else []
     attempted_roles = route.get("attempted_roles") if isinstance(route.get("attempted_roles"), list) else []
     selected = route.get("selected_routes") if isinstance(route.get("selected_routes"), list) else []
+    selected_roles = {str(item.get("role") or "") for item in selected if isinstance(item, dict)}
+    complete = (
+        route.get("status") == "live"
+        and route.get("required_roles_complete") is True
+        and route.get("static_fallback_allowed") is False
+    )
+    partial = (
+        allow_partial
+        and route.get("status") == "incomplete"
+        and route.get("required_roles_complete") is False
+        and route.get("static_fallback_allowed") is False
+    )
+    if not complete and not partial:
+        return _evidence_error(
+            "LIVE_DATA_ROUTE_INCOMPLETE",
+            "实时发布只接受完整 live 路由；preserve_html_qbs_live 额外允许已有成功路线的 incomplete 路由",
+        )
     if not required_roles or set(required_roles) != set(attempted_roles) or not selected:
-        return _evidence_error("LIVE_DATA_ROUTE_INCOMPLETE", "实时路由收据必须覆盖全部核心角色并选择至少一条实时路线")
-    if not set(required_roles).issubset({str(item.get("role") or "") for item in selected if isinstance(item, dict)}):
+        return _evidence_error("LIVE_DATA_ROUTE_INCOMPLETE", "实时路由收据必须探测全部核心角色并选择至少一条成功实时路线")
+    if complete and not set(required_roles).issubset(selected_roles):
         return _evidence_error("LIVE_DATA_ROUTE_INCOMPLETE", "selected_routes 未覆盖全部核心角色")
+    if partial and (not selected_roles.issubset(set(required_roles)) or set(required_roles).issubset(selected_roles)):
+        return _evidence_error("LIVE_DATA_ROUTE_INCOMPLETE", "partial 路由必须只选择已成功的部分核心角色，未成功角色继续使用快照")
 
     task_id = _fork_task_id(params)
     formula_files = _receipt_files(params.get("validation_receipt_files"))
@@ -2620,7 +2948,7 @@ def _validate_live_receipts(params, route):
     return None
 
 
-def _validate_publish_data_evidence(params, *, source_credential_count=0):
+def _validate_publish_data_evidence(params, *, source_credential_count=0, allow_partial=False):
     params = params or {}
     if str(params.get("validation_not_required_reason") or "").strip():
         return _evidence_error("LEGACY_VALIDATION_WAIVER_FORBIDDEN", "自由文本 validation_not_required_reason 已停用；必须使用结构化 live_data_mode 和收据")
@@ -2644,7 +2972,7 @@ def _validate_publish_data_evidence(params, *, source_credential_count=0):
         return _evidence_error("LIVE_DATA_ROUTE_RECEIPT_REQUIRED", "live/static_after_live_probe 模式必须提供可读取的 live_data_route_receipt_v1", details=error)
     if mode == "static_after_live_probe":
         return _validate_static_after_probe(params, route)
-    return _validate_live_receipts(params, route)
+    return _validate_live_receipts(params, route, allow_partial=allow_partial)
 
 
 class _PreserveHtmlParser(HTMLParser):
@@ -2765,11 +3093,15 @@ def _inspect_div_live_tags(html):
     parser = _DivLiveTagParser()
     parser.feed(html or "")
     parser.close()
+    # 未声明 data-qb-live-mode 的区域就是快照静态区域，必须保持原 DOM，
+    # 不再为了声明 static 而改写用户 HTML。只有显式 live 区域受 QBS tag 合同约束。
     invalid = [
         item for item in parser.divs
-        if item["mode"] not in {"static", "live"}
+        if (item["mode"] and item["mode"] not in {"static", "live"})
         or "data-qb-live-mode" in item["duplicate_attrs"]
         or "data-qb-live-tag" in item["duplicate_attrs"]
+        or (item["mode"] == "live" and not item["live_tags"])
+        or (item["mode"] != "live" and bool(item["live_tags"]))
     ]
     formula_live = [
         item for item in parser.divs
@@ -2779,12 +3111,20 @@ def _inspect_div_live_tags(html):
         item for item in parser.divs
         if item["mode"] == "live" and "qbs-data-grant" in item["live_tags"]
     ]
+    unknown_live_tags = [
+        item for item in parser.divs
+        if item["mode"] == "live"
+        and any(tag not in {"qbs-formula-package", "qbs-data-grant"} for tag in item["live_tags"])
+    ]
     return {
         "div_count": len(parser.divs),
+        "unmarked_static_div_count": sum(1 for item in parser.divs if not item["mode"]),
+        "explicit_static_div_count": sum(1 for item in parser.divs if item["mode"] == "static"),
         "invalid_divs": invalid,
+        "unknown_live_tag_divs": unknown_live_tags,
         "formula_live_div_count": len(formula_live),
         "grant_live_div_count": len(grant_live),
-        "ok": not invalid,
+        "ok": not invalid and not unknown_live_tags,
     }
 
 
@@ -3078,38 +3418,99 @@ def _validate_registered_qbs_credentials(endpoint, packages, grants):
 
 
 
-def _read_verified_preserve_source(params):
-    params = params if isinstance(params, dict) else {}
-    source_file = _fork_path(params.get("source_html_file"))
-    expected_sha256 = str(params.get("source_html_sha256") or "").strip().lower()
-    if not source_file or not os.path.isfile(source_file):
+def _read_verified_html_file(path_value, sha_value, *, prefix, label):
+    file_path = _fork_path(path_value)
+    expected_sha256 = str(sha_value or "").strip().lower()
+    if not file_path or not os.path.isfile(file_path):
         return None, _evidence_error(
-            "PRESERVE_HTML_SOURCE_REQUIRED",
-            "preserve_html_qbs_live 必须提供可读取的 source_html_file",
-            source_html_file=source_file,
+            f"{prefix}_REQUIRED",
+            f"preserve_html_qbs_live 必须提供可读取的 {label}",
+            **{label: file_path},
         )
     if not re.fullmatch(r"[0-9a-f]{64}", expected_sha256):
         return None, _evidence_error(
-            "PRESERVE_HTML_SOURCE_SHA256_REQUIRED",
-            "source_html_sha256 必须是来源 HTML 文件的 64 位 SHA256",
+            f"{prefix}_SHA256_REQUIRED",
+            f"{label.replace('_file', '_sha256')} 必须是文件的 64 位 SHA256",
         )
     try:
-        source_bytes = Path(source_file).read_bytes()
-        source_html = source_bytes.decode("utf-8-sig")
+        raw_bytes = Path(file_path).read_bytes()
+        html = raw_bytes.decode("utf-8-sig")
     except (OSError, UnicodeError) as exc:
-        return None, _evidence_error("PRESERVE_HTML_SOURCE_INVALID", f"读取来源 HTML 失败: {exc}")
-    actual_sha256 = hashlib.sha256(source_bytes).hexdigest()
+        return None, _evidence_error(f"{prefix}_INVALID", f"读取 {label} 失败: {exc}")
+    actual_sha256 = hashlib.sha256(raw_bytes).hexdigest()
     if not secrets.compare_digest(actual_sha256, expected_sha256):
         return None, _evidence_error(
-            "PRESERVE_HTML_SOURCE_SHA256_MISMATCH",
-            "source_html_sha256 与来源 HTML 文件不一致",
+            f"{prefix}_SHA256_MISMATCH",
+            f"{label.replace('_file', '_sha256')} 与文件不一致",
             expected_sha256=expected_sha256,
             actual_sha256=actual_sha256,
         )
     return {
-        "source_file": source_file,
-        "source_html": source_html,
-        "source_html_sha256": actual_sha256,
+        "file": file_path,
+        "html": html,
+        "sha256": actual_sha256,
+    }, None
+
+
+def _read_verified_preserve_source(params):
+    params = params if isinstance(params, dict) else {}
+    source, error = _read_verified_html_file(
+        params.get("source_html_file"),
+        params.get("source_html_sha256"),
+        prefix="PRESERVE_HTML_SOURCE",
+        label="source_html_file",
+    )
+    if error:
+        return None, error
+    return {
+        "source_file": source["file"],
+        "source_html": source["html"],
+        "source_html_sha256": source["sha256"],
+    }, None
+
+
+def _source_html_has_async_runtime(html):
+    return bool(re.search(
+        r"(?:\bfetch\s*\(|\baxios\s*(?:\.|\()|\bXMLHttpRequest\b|\bEventSource\s*\(|\bWebSocket\s*\()",
+        html or "",
+        flags=re.I,
+    ))
+
+
+def _read_verified_preserve_snapshot(params, source=None):
+    params = params if isinstance(params, dict) else {}
+    source = source or _read_verified_preserve_source(params)[0]
+    snapshot_file = params.get("source_snapshot_html_file")
+    snapshot_sha256 = params.get("source_snapshot_html_sha256")
+    if snapshot_file or snapshot_sha256:
+        snapshot, error = _read_verified_html_file(
+            snapshot_file,
+            snapshot_sha256,
+            prefix="PRESERVE_HTML_SOURCE_SNAPSHOT",
+            label="source_snapshot_html_file",
+        )
+        if error:
+            return None, error
+        return {
+            "snapshot_file": snapshot["file"],
+            "snapshot_html": snapshot["html"],
+            "snapshot_html_sha256": snapshot["sha256"],
+            "snapshot_kind": "rendered",
+        }, None
+    if source is None:
+        source, source_error = _read_verified_preserve_source(params)
+        if source_error:
+            return None, source_error
+    if _source_html_has_async_runtime(source["source_html"]):
+        return None, _evidence_error(
+            "PRESERVE_HTML_SOURCE_SNAPSHOT_REQUIRED",
+            "来源 HTML 包含异步接口；必须先捕获渲染完成且已冻结旧脚本的页面快照，并传 source_snapshot_html_file/source_snapshot_html_sha256",
+        )
+    return {
+        "snapshot_file": source["source_file"],
+        "snapshot_html": source["source_html"],
+        "snapshot_html_sha256": source["source_html_sha256"],
+        "snapshot_kind": "source_static",
     }, None
 
 
@@ -3126,33 +3527,16 @@ def _preserve_fallback_status(params):
 
 
 def _prepare_preserve_html_fallback(params, transformation_error):
-    if str((params or {}).get("transformation_mode") or "").strip() != _PRESERVE_HTML_QBS_LIVE_MODE:
+    if not _is_preserve_html_qbs_live(params):
         return None, transformation_error
     source, source_error = _read_verified_preserve_source(params)
     if source_error:
         return None, source_error
-    fallback_html = _mark_source_html_static(source["source_html"])
-    source_structure, source_content = _preserve_html_signatures(source["source_html"])
-    fallback_structure, fallback_content = _preserve_html_signatures(fallback_html)
-    source_style = _preserve_html_style_sha256(source["source_html"])
-    fallback_style = _preserve_html_style_sha256(fallback_html)
-    if (
-        source_structure != fallback_structure
-        or source_content != fallback_content
-        or source_style != fallback_style
-        or _page_headings(source["source_html"]) != _page_headings(fallback_html)
-    ):
-        return None, _evidence_error(
-            "PRESERVE_HTML_STATIC_FALLBACK_CHANGED",
-            "静态回退标记意外改变了来源 HTML 的结构、正文或样式",
-        )
-    div_check = _inspect_div_live_tags(fallback_html)
-    if not div_check["ok"]:
-        return None, _evidence_error(
-            "PRESERVE_HTML_STATIC_FALLBACK_TAGGING_FAILED",
-            "来源 HTML 无法安全标记为静态内容",
-            div_check=div_check,
-        )
+    snapshot, snapshot_error = _read_verified_preserve_snapshot(params, source=source)
+    if snapshot_error:
+        return None, snapshot_error
+    # 快照保底必须字节语义不变：不注入 static tag、不注入 LIVE、不重做错误页。
+    fallback_html = snapshot["snapshot_html"]
     return {
         "html": fallback_html,
         "status": _preserve_fallback_status(params),
@@ -3160,11 +3544,13 @@ def _prepare_preserve_html_fallback(params, transformation_error):
             "mode": _PRESERVE_HTML_QBS_LIVE_MODE,
             "source_html_file": source["source_file"],
             "source_html_sha256": source["source_html_sha256"],
+            "source_snapshot_html_file": snapshot["snapshot_file"],
+            "snapshot_html_sha256": snapshot["snapshot_html_sha256"],
+            "snapshot_kind": snapshot["snapshot_kind"],
+            "snapshot_preserved_byte_for_byte": True,
             "content_structure_preserved": True,
             "layout_preserved": True,
-            "live_data_mode": "static",
-            "div_live_mode": "static",
-            "div_count": div_check["div_count"],
+            "live_data_mode": "static_snapshot",
         },
     }, None
 
@@ -3214,6 +3600,10 @@ def _validate_transformation_contract(params, html, *, endpoint):
     source_file = source["source_file"]
     source_html = source["source_html"]
     actual_sha256 = source["source_html_sha256"]
+    snapshot, snapshot_error = _read_verified_preserve_snapshot(params, source=source)
+    if snapshot_error:
+        return None, snapshot_error
+    snapshot_html = snapshot["snapshot_html"]
 
     source_endpoints = _unique_strings(params.get("source_data_endpoints"))
     if not source_endpoints:
@@ -3236,7 +3626,7 @@ def _validate_transformation_contract(params, html, *, endpoint):
             endpoints=still_in_target,
         )
 
-    source_structure, source_content = _preserve_html_signatures(source_html)
+    source_structure, source_content = _preserve_html_signatures(snapshot_html)
     target_structure, target_content = _preserve_html_signatures(html)
     if source_structure != target_structure:
         return None, _evidence_error(
@@ -3252,7 +3642,7 @@ def _validate_transformation_contract(params, html, *, endpoint):
             source_text_node_count=len(source_content),
             target_text_node_count=len(target_content),
         )
-    source_style_sha256 = _preserve_html_style_sha256(source_html)
+    source_style_sha256 = _preserve_html_style_sha256(snapshot_html)
     target_style_sha256 = _preserve_html_style_sha256(html)
     if source_style_sha256 != target_style_sha256:
         return None, _evidence_error(
@@ -3261,13 +3651,13 @@ def _validate_transformation_contract(params, html, *, endpoint):
             source_style_sha256=source_style_sha256,
             target_style_sha256=target_style_sha256,
         )
-    if _page_headings(source_html) != _page_headings(html):
+    if _page_headings(snapshot_html) != _page_headings(html):
         return None, _evidence_error(
             "PRESERVE_HTML_HEADINGS_CHANGED",
             "目标 HTML 的标题层级文案与来源 HTML 不一致，不得简化用户内容",
         )
 
-    evidence_error = _validate_publish_data_evidence(params)
+    evidence_error = _validate_publish_data_evidence(params, allow_partial=True)
     if evidence_error:
         return None, evidence_error
     route, route_error = _read_evidence_receipt(params.get("route_receipt_file"), "live data route receipt")
@@ -3298,8 +3688,8 @@ def _validate_transformation_contract(params, html, *, endpoint):
     div_live_check = _inspect_div_live_tags(html)
     if not div_live_check["ok"]:
         return None, _evidence_error(
-            "PRESERVE_HTML_DIV_LIVE_MODE_REQUIRED",
-            "目标 HTML 的每个可渲染 div 都必须声明 data-qb-live-mode=static|live",
+            "PRESERVE_HTML_DIV_LIVE_MODE_INVALID",
+            "目标 HTML 的显式 live/static 声明含非法 mode、重复属性或未知 QBS live tag",
             div_live_check=div_live_check,
         )
     if needs_package and div_live_check["formula_live_div_count"] < 1:
@@ -3337,6 +3727,11 @@ def _validate_transformation_contract(params, html, *, endpoint):
         "mode": _PRESERVE_HTML_QBS_LIVE_MODE,
         "source_html_file": source_file,
         "source_html_sha256": actual_sha256,
+        "source_snapshot_html_file": snapshot["snapshot_file"],
+        "snapshot_html_sha256": snapshot["snapshot_html_sha256"],
+        "snapshot_kind": snapshot["snapshot_kind"],
+        "snapshot_preserved_byte_for_byte": True,
+        "transformation_status": "complete" if route.get("required_roles_complete") is True else "partial",
         "content_structure_preserved": True,
         "layout_preserved": True,
         "source_data_endpoints_removed": source_endpoints,
