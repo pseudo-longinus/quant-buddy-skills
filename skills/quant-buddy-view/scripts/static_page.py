@@ -162,6 +162,7 @@ import card_runtime_retrofit as CRT
 import common as C
 import fork_runtime_contract as FRC
 import progress_page as PP
+import qbs_job_lifecycle as QJL
 import reply_data_evidence as RDE
 import reply_template_registry as RTR
 import share_shell_contract as SSC
@@ -214,6 +215,7 @@ _MANAGED_IMAGE_RE = re.compile(
 _IMAGE_MARKER_RE = re.compile(r"__QB_IMAGE_[A-Z0-9_]+__")
 _VALIDATION_RECEIPT_VERSION = "qb_validation_receipt_v1"
 _GRANT_VALIDATION_RECEIPT_VERSION = "grant_validation_receipt_v1"
+_QBS_HANDOFF_VALIDATION_RECEIPT_VERSION = "qbs_handoff_validation_receipt_v1"
 _LIVE_DATA_ROUTE_RECEIPT_VERSION = "live_data_route_receipt_v1"
 _LIVE_DATA_MODES = {"live", "static_content_only", "static_after_live_probe"}
 _PRESERVE_HTML_QBS_LIVE_MODE = "preserve_html_qbs_live"
@@ -612,6 +614,14 @@ def _infer_agent_reply_template_from_publish_params(params):
     scene_tags = _tag_names(params.get("scene_tags"))
     paradigm_tags = _tag_names(params.get("paradigm_tags"))
     text = " ".join(str(params.get(key) or "") for key in ("title", "description", "user_query"))
+    # 横截面选股/榜单即使同时含 PE、ROE、盈利、估值，也不是“单只股票估值质量”页面。
+    # 必须先截断到通用交付骨架，避免标题关键词把 TopN 页面误绑到七节单股回复合同。
+    screening_signal = (
+        any(token in text for token in ("选股", "榜单", "排行榜", "排名", "全A", "全 A", "因子筛选"))
+        or re.search(r"TOP\s*(?:N|\d+)", text, flags=re.IGNORECASE) is not None
+    )
+    if screening_signal:
+        return dict(_GENERIC_LIVE_PAGE_REPLY_TEMPLATE)
     valuation_signal = any(token in text for token in ("估值", "PE", "PB", "PCF", "市盈率", "市净率"))
     quality_signal = any(token in text for token in ("财务", "质量", "盈利", "ROE", "现金流", "负债率"))
     valuation_paradigm = bool(paradigm_tags & {"盈利质量", "价值陷阱"})
@@ -1559,6 +1569,30 @@ def _signature_hashes(html):
         for item in FRC.discover_credential_pairs(html, reject_ambiguous=False)
         if item.get("signature")
     })
+
+def _replace_fork_metadata(value, replacements):
+    """Apply the same asset substitutions used by fork HTML to publish metadata."""
+    if isinstance(value, str):
+        updated = value
+        for source_value, target_value in sorted(
+            (replacements or {}).items(), key=lambda item: len(str(item[0])), reverse=True
+        ):
+            source_text = str(source_value or "")
+            if source_text:
+                updated = updated.replace(source_text, str(target_value or ""))
+        return updated
+    if isinstance(value, list):
+        return [_replace_fork_metadata(item, replacements) for item in value]
+    if isinstance(value, dict):
+        return {key: _replace_fork_metadata(item, replacements) for key, item in value.items()}
+    return value
+
+
+def _fork_metadata_residual_tokens(metadata, source_identity):
+    serialized = json.dumps(metadata or {}, ensure_ascii=False, sort_keys=True)
+    tokens = [source_identity.get("name")] + list(source_identity.get("present_code_variants") or [])
+    return [str(token) for token in tokens if token and str(token) in serialized]
+
 
 def _unique_strings(values):
     if values is None:
@@ -2816,6 +2850,60 @@ def _valid_grant_receipt(receipt, task_id):
     )
 
 
+def _valid_qbs_handoff_receipt(receipt, task_id, turn_id):
+    if not (
+        isinstance(receipt, dict)
+        and receipt.get("schema") == _QBS_HANDOFF_VALIDATION_RECEIPT_VERSION
+        and receipt.get("version") == _QBS_HANDOFF_VALIDATION_RECEIPT_VERSION
+        and str(receipt.get("task_id") or "") == task_id
+        and str(receipt.get("turn_id") or "") == turn_id
+        and receipt.get("source_skill_name") == "quant-buddy-skill"
+        and receipt.get("kind") == "handoff_materialized"
+        and receipt.get("status") == "completed"
+        and receipt.get("success") is True
+        and receipt.get("coverage") == "covered"
+        and isinstance(receipt.get("row_count"), int)
+        and receipt.get("row_count") > 0
+        and bool(str(receipt.get("role") or "").strip())
+        and bool(str(receipt.get("package_id") or "").strip())
+        and bool(str(receipt.get("package_output") or "").strip())
+    ):
+        return False
+    source_id_status = str(receipt.get("source_skill_id_status") or "").strip()
+    if source_id_status not in {"available", "unavailable"}:
+        return False
+    if source_id_status == "available" and not str(receipt.get("source_skill_id") or "").strip():
+        return False
+    for key in ("contract_fingerprint", "reference_hash", "rows_sha256", "package_contract_fingerprint"):
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", str(receipt.get(key) or "")):
+            return False
+    if not re.fullmatch(r"[0-9a-f]{64}", str(receipt.get("package_signature_sha256") or "")):
+        return False
+    evidence_files = receipt.get("evidence_files")
+    required = {"handoff", "materialized", "package_contract", "package_query", "package_manifest"}
+    if not isinstance(evidence_files, dict) or set(evidence_files) != required:
+        return False
+    seen = set()
+    for entry in evidence_files.values():
+        if not isinstance(entry, dict):
+            return False
+        raw_path = str(entry.get("file") or "").strip()
+        expected_sha256 = str(entry.get("sha256") or "").strip().lower()
+        if not raw_path or not re.fullmatch(r"[0-9a-f]{64}", expected_sha256):
+            return False
+        path_key = _normalized_evidence_path(raw_path)
+        if not path_key or path_key in seen:
+            return False
+        seen.add(path_key)
+        try:
+            actual_sha256 = hashlib.sha256(Path(_fork_path(raw_path)).read_bytes()).hexdigest()
+        except OSError:
+            return False
+        if not secrets.compare_digest(actual_sha256, expected_sha256):
+            return False
+    return True
+
+
 def _validate_route_identity(route, params):
     task_id = _fork_task_id(params)
     asset = str((params or {}).get("asset") or "").strip()
@@ -2823,6 +2911,11 @@ def _validate_route_identity(route, params):
         return _evidence_error("LIVE_DATA_ROUTE_RECEIPT_INVALID", "路由收据 schema/version 无效")
     if str(route.get("task_id") or "") != task_id:
         return _evidence_error("LIVE_DATA_ROUTE_TASK_MISMATCH", "路由收据 task_id 与当前发布任务不一致")
+    route_turn_id = str(route.get("turn_id") or "").strip()
+    if route_turn_id:
+        turn_id = str((params or {}).get("turn_id") or "").strip()
+        if not turn_id or route_turn_id != turn_id:
+            return _evidence_error("LIVE_DATA_ROUTE_TURN_MISMATCH", "路由收据 turn_id 与当前发布任务不一致")
     route_asset = str(route.get("asset") or "").strip()
     if asset and route_asset != asset:
         return _evidence_error("LIVE_DATA_ROUTE_ASSET_MISMATCH", "路由收据资产与当前页面资产不一致", expected_asset=asset, receipt_asset=route_asset)
@@ -2887,10 +2980,13 @@ def _validate_live_receipts(params, route, *, allow_partial=False):
         return _evidence_error("LIVE_DATA_ROUTE_INCOMPLETE", "partial 路由必须只选择已成功的部分核心角色，未成功角色继续使用快照")
 
     task_id = _fork_task_id(params)
+    turn_id = str(params.get("turn_id") or "").strip()
     formula_files = _receipt_files(params.get("validation_receipt_files"))
     grant_files = _receipt_files(params.get("grant_validation_receipt_files"))
+    handoff_files = _receipt_files(params.get("handoff_validation_receipt_files"))
     formula_receipts = {}
     grant_receipts = {}
+    handoff_receipts = {}
     invalid = []
     for raw_path in formula_files:
         receipt, error = _read_evidence_receipt(raw_path, "formula receipt")
@@ -2906,11 +3002,19 @@ def _validate_live_receipts(params, route, *, allow_partial=False):
             invalid.append({"file": str(raw_path), "kind": "grant"})
         else:
             grant_receipts[path_key] = receipt
+    for raw_path in handoff_files:
+        receipt, error = _read_evidence_receipt(raw_path, "QBS handoff receipt")
+        path_key = _normalized_evidence_path(raw_path)
+        if error or not _valid_qbs_handoff_receipt(receipt, task_id, turn_id):
+            invalid.append({"file": str(raw_path), "kind": "handoff_materialized"})
+        else:
+            handoff_receipts[path_key] = receipt
     if invalid:
-        return _evidence_error("LIVE_DATA_RECEIPT_INVALID", "Grant/公式验证收据无效、未完成或与当前 task_id 不一致", invalid_receipts=invalid)
+        return _evidence_error("LIVE_DATA_RECEIPT_INVALID", "Grant/公式/QBS Handoff 验证收据无效、未完成或与当前 task_id/turn_id 不一致", invalid_receipts=invalid)
 
     selected_formula = set()
     selected_grant = set()
+    selected_handoff = set()
     selected_receipt_paths = set()
     for index, item in enumerate(selected):
         if not isinstance(item, dict):
@@ -2928,6 +3032,19 @@ def _validate_live_receipts(params, route, *, allow_partial=False):
             receipt = formula_receipts.get(path_key)
             if receipt is None:
                 return _evidence_error("LIVE_DATA_ROUTE_RECEIPT_MISSING", f"公式路线 {item.get('role')} 缺少对应 qb_validation_receipt_v1")
+        elif kind == "handoff_materialized":
+            selected_handoff.add(path_key)
+            receipt = handoff_receipts.get(path_key)
+            if receipt is None:
+                return _evidence_error("LIVE_DATA_ROUTE_RECEIPT_MISSING", f"QBS Handoff 路线 {item.get('role')} 缺少对应 qbs_handoff_validation_receipt_v1")
+            if str(receipt.get("contract_fingerprint") or "") != str(item.get("contract_fingerprint") or ""):
+                return _evidence_error("LIVE_DATA_ROUTE_FINGERPRINT_MISMATCH", f"QBS Handoff 路线 {item.get('role')} 的合同指纹与验证收据不一致")
+            if str(receipt.get("role") or "").strip() != str(item.get("role") or "").strip():
+                return _evidence_error("LIVE_DATA_ROUTE_ROLE_MISMATCH", f"QBS Handoff 路线 {item.get('role')} 的角色与验证收据不一致")
+            if str(receipt.get("package_id") or "").strip() != str(item.get("package_id") or "").strip():
+                return _evidence_error("LIVE_DATA_ROUTE_PACKAGE_MISMATCH", f"QBS Handoff 路线 {item.get('role')} 的 package_id 与验证收据不一致")
+            if str(receipt.get("package_output") or "").strip() != str(item.get("output") or "").strip():
+                return _evidence_error("LIVE_DATA_ROUTE_OUTPUT_MISMATCH", f"QBS Handoff 路线 {item.get('role')} 的输出与验证收据不一致")
         else:
             selected_grant.add(path_key)
             receipt = grant_receipts.get(path_key)
@@ -2943,8 +3060,8 @@ def _validate_live_receipts(params, route, *, allow_partial=False):
                 return _evidence_error("LIVE_DATA_ROUTE_ROLE_MISMATCH", f"Grant 路线 {item.get('role')} 的角色与验证收据不一致")
     if len(selected) != len(selected_receipt_paths):
         return _evidence_error("LIVE_DATA_RECEIPT_SET_MISMATCH", "selected_routes 必须与验证收据一一对应")
-    if selected_formula != set(formula_receipts) or selected_grant != set(grant_receipts):
-        return _evidence_error("LIVE_DATA_RECEIPT_SET_MISMATCH", "提交的 Grant/公式收据必须与 selected_routes 逐项完全对应")
+    if selected_formula != set(formula_receipts) or selected_grant != set(grant_receipts) or selected_handoff != set(handoff_receipts):
+        return _evidence_error("LIVE_DATA_RECEIPT_SET_MISMATCH", "提交的 Grant/公式/QBS Handoff 收据必须与 selected_routes 逐项完全对应")
     return None
 
 
@@ -2964,7 +3081,7 @@ def _validate_publish_data_evidence(params, *, source_credential_count=0, allow_
             )
         if params.get("market_data_required") is not False or str(params.get("asset") or "").strip():
             return _evidence_error("STATIC_CONTENT_ONLY_FORBIDDEN", "资产分析、行情、估值、财务或计算指标页面不得使用 static_content_only")
-        if params.get("route_receipt_file") or _receipt_files(params.get("validation_receipt_files")) or _receipt_files(params.get("grant_validation_receipt_files")):
+        if params.get("route_receipt_file") or _receipt_files(params.get("validation_receipt_files")) or _receipt_files(params.get("grant_validation_receipt_files")) or _receipt_files(params.get("handoff_validation_receipt_files")):
             return _evidence_error("STATIC_CONTENT_ONLY_EVIDENCE_CONFLICT", "纯静态模式不得混入实时路由或实时验证收据")
         return None
     route, error = _read_evidence_receipt(params.get("route_receipt_file"), "live data route receipt")
@@ -4316,6 +4433,8 @@ def _publish_final_progress_params(params, *, page_status, message):
         "route_receipt_file",
         "validation_receipt_files",
         "grant_validation_receipt_files",
+        "handoff_validation_receipt_files",
+        "turn_id",
         "validation_not_required_reason",
     ):
         if params.get(key) is not None:
@@ -4706,7 +4825,10 @@ def _verified_trace_evidence(params, *, browser_precheck_passed):
     receipts = params.get("validation_receipt_files")
     if isinstance(receipts, str):
         receipts = [receipts]
-    receipt_count = len(receipts) if isinstance(receipts, list) else 0
+    handoff_receipts = params.get("handoff_validation_receipt_files")
+    if isinstance(handoff_receipts, str):
+        handoff_receipts = [handoff_receipts]
+    receipt_count = (len(receipts) if isinstance(receipts, list) else 0) + (len(handoff_receipts) if isinstance(handoff_receipts, list) else 0)
     expected_skills = ["quant-buddy-view"]
     if receipt_count:
         expected_skills.append("quant-buddy-skill")
@@ -4821,6 +4943,8 @@ def cmd_publish_verified(params):
                         "verified": False,
                         "contract_artifact_error": str(exc),
                     })
+        if result.get("code") == 0 and result.get("published") is True and result.get("verified") is True:
+            result["qbv_job_lifecycle"] = QJL.complete_job_from_publish_result(params, result)
         return result
     finally:
         if temp_path:
@@ -4850,14 +4974,44 @@ def _atomic_write_bytes(path, data_bytes):
         raise
 
 
+def _redact_persisted_secrets(value):
+    """Return a JSON-safe copy with execution-only validator env values removed.
+
+    ``reply_validation_env`` may contain the task owner's API key so an in-process
+    caller can pass it to the one-shot validator. It must never cross a CLI or
+    persisted-report boundary. Keep only variable names plus an explicit redacted
+    marker so operators can see which environment must be forwarded.
+    """
+    if isinstance(value, list):
+        return [_redact_persisted_secrets(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+
+    sanitized = {}
+    for key, item in value.items():
+        if key == "reply_validation_env":
+            names = sorted(
+                str(name).strip()
+                for name in (item.keys() if isinstance(item, dict) else [])
+                if str(name).strip()
+            )
+            sanitized[key] = {name: "[REDACTED]" for name in names}
+            if names:
+                sanitized["reply_validation_env_keys"] = names
+            continue
+        sanitized[key] = _redact_persisted_secrets(item)
+    return sanitized
+
+
 def _publish_verified_cli_result(result, task_id):
     result = result if isinstance(result, dict) else {"code": 1, "message": str(result)}
+    persisted_result = _redact_persisted_secrets(result)
     report_file = str(C.task_temp_path(task_id, "publish-verified-report.json", create_parent=True))
     with open(report_file, "w", encoding="utf-8", newline="\n") as handle:
-        json.dump(result, handle, ensure_ascii=False, indent=2)
+        json.dump(persisted_result, handle, ensure_ascii=False, indent=2)
 
     stage_summaries = {}
-    for name, stage in (result.get("stages") or {}).items():
+    for name, stage in (persisted_result.get("stages") or {}).items():
         if not isinstance(stage, dict):
             continue
         stage_summaries[name] = {
@@ -4866,16 +5020,16 @@ def _publish_verified_cli_result(result, task_id):
             if stage.get(key) not in (None, "")
         }
     summary = {
-        key: result[key]
+        key: persisted_result[key]
         for key in (
             "code", "published", "verified", "page_id", "public_url", "timing",
             "agent_reply_contract_file", "agent_reply_contract_sha256",
             "reply_draft_file", "reply_validation_params_file", "reply_validation_command",
-            "reply_validation_env",
+            "reply_validation_env", "reply_validation_env_keys",
             "reply_data_evidence_file", "reply_data_evidence_sha256", "reply_data_availability",
-            "agent_reply_template_file", "contract_artifact_error",
+            "agent_reply_template_file", "contract_artifact_error", "qbv_job_lifecycle",
         )
-        if result.get(key) is not None
+        if persisted_result.get(key) is not None
     }
     summary["stages"] = stage_summaries
     summary["full_report_file"] = report_file
@@ -5803,13 +5957,13 @@ def _write_agent_reply_artifacts(task_id, finalized):
     }
     with open(params_file, "w", encoding="utf-8", newline="\n") as handle:
         json.dump(validator_params, handle, ensure_ascii=False, indent=2)
-    # validator 是独立子进程，进程内的 api_key 覆盖不会跟过去；没有它就会兜底到 config.json 的默认
-    # 账号，终态埋点便记成了错的用户。这里显式把本次任务的 key 带出来，让调用方作为 env 传入。
-    # 只放 env、不拼进命令串：exec 日志里 env 会被脱敏，命令串是原样记录的，拼进去等于泄露凭证。
+    # 默认 config.json/config.local.json 由 validator 子进程自行发现，绝不能把默认 key 返回给 Agent。
+    # 只有调用方显式覆盖了本次任务身份时，才保留进程内 env 合同；CLI/持久化边界仍会统一脱敏。
+    # 无论哪种情况都禁止把 key 拼进命令串或参数文件。
     validation_env = {}
-    task_api_key = str(C.load_config().get("api_key") or "").strip()
-    if task_api_key:
-        validation_env["QBV_API_KEY"] = task_api_key
+    explicit_api_key = str(getattr(C, "_API_KEY_OVERRIDE", None) or "").strip()
+    if explicit_api_key:
+        validation_env["QBV_API_KEY"] = explicit_api_key
     return {
         "agent_reply_contract_file": contract_file,
         "agent_reply_contract_sha256": contract_sha256,
@@ -5942,6 +6096,61 @@ def _run_direct_deliver(task_id, page_id, expected_revision):
     return out
 
 
+def _direct_job_lineage(params, task_id):
+    """Recover optional QBS Job identity without coupling standalone QBV to QBS."""
+    persisted = C.read_task_trace_context(task_id) if task_id else {}
+    handoff_context = persisted.get("handoff_context") if isinstance(persisted, dict) else None
+    has_explicit_job = any(
+        str(params.get(key) or "").strip()
+        for key in ("qbv_job_id", "qbv_job_file", "job_file")
+    )
+    has_handoff = (
+        isinstance(handoff_context, dict)
+        and handoff_context.get("schema_version") == "qbs_qbv_handoff_v1"
+    )
+    if not has_explicit_job and not has_handoff:
+        return None
+    return {
+        "turn_id": str(
+            params.get("turn_id")
+            or C.current_trace_context().get("turn_id")
+            or persisted.get("current_turn_id")
+            or ""
+        ).strip(),
+        "handoff_context": handoff_context if has_handoff else None,
+    }
+
+
+def _complete_direct_job(params, task_id, result):
+    """Close a QBS-created Job after a strong direct_finalize terminal contract."""
+    lineage = _direct_job_lineage(params, task_id)
+    if lineage is None:
+        return result
+    contract = result.get("agent_reply_contract") if isinstance(result.get("agent_reply_contract"), dict) else {}
+    terminal_verified = (
+        result.get("operation") == "direct_finalize"
+        and result.get("orchestration") == "direct_deliver"
+        and contract.get("terminal") is True
+        and contract.get("page_id") == result.get("page_id")
+        and contract.get("public_url") == result.get("public_url")
+    )
+    terminal_result = {
+        "code": result.get("code"),
+        "published": terminal_verified,
+        "verified": terminal_verified,
+        "page_id": result.get("page_id"),
+        "public_url": result.get("public_url"),
+    }
+    lifecycle_params = dict(params)
+    lifecycle_params["task_id"] = task_id
+    if lineage.get("turn_id"):
+        lifecycle_params["turn_id"] = lineage["turn_id"]
+    result["qbv_job_lifecycle"] = QJL.complete_job_from_publish_result(
+        lifecycle_params, terminal_result
+    )
+    return result
+
+
 def cmd_direct_deliver(params):
     """Execute the evidence-producing portion of a direct delivery exactly once.
 
@@ -5960,14 +6169,28 @@ def cmd_direct_deliver(params):
             "DIRECT_DELIVER_PARAMS_REQUIRED",
             "direct_deliver 需要 task_id、page_id、template_revision",
         )
-    C.configure_trace_context({"task_id": task_id, "user_query": previous_context.get("user_query")})
+    context_params = {"task_id": task_id, "user_query": previous_context.get("user_query")}
+    explicit_turn_id = str(params.get("turn_id") or "").strip()
+    if not explicit_turn_id and str(previous_context.get("task_id") or "").strip() == task_id:
+        explicit_turn_id = str(previous_context.get("turn_id") or "").strip()
+    if explicit_turn_id:
+        context_params["turn_id"] = explicit_turn_id
+    C.configure_trace_context(context_params)
     try:
-        return _run_direct_deliver(task_id, page_id, expected_revision)
+        result = _run_direct_deliver(task_id, page_id, expected_revision)
+        if isinstance(result, dict) and result.get("code") == 0:
+            result = _complete_direct_job(params, task_id, result)
+        return result
     finally:
-        # configure_trace_context（不是 set_trace_context）：恢复原 task_id/user_query 时同样不能把
-        # 当前已生效的 api_key 覆盖清空——这次临时切换全程本就没改过它（上面的 configure_trace_context
-        # 调用同样没带 api_key，按同一条规则保留），这里用 set_trace_context 会在切回来的一刻把它冲掉。
-        C.configure_trace_context({"task_id": previous_context.get("task_id"), "user_query": previous_context.get("user_query")})
+        # configure_trace_context（不是 set_trace_context）：恢复原 Trace Context 时同样不能把
+        # 当前已生效的 api_key 覆盖清空——这次临时切换全程本就没改过它。
+        C.configure_trace_context({
+            "task_id": previous_context.get("task_id"),
+            "turn_id": previous_context.get("turn_id"),
+            "user_query": previous_context.get("user_query"),
+            "previous_turn_id": previous_context.get("previous_turn_id"),
+            "agent_model": previous_context.get("agent_model"),
+        })
 
 
 def _exchange_for_code(code):
@@ -6490,6 +6713,48 @@ def cmd_fork_prepare(params):
     trace = C.current_trace_context()
     user_query = str(params.get("user_query") or trace.get("user_query") or "").strip()
     target_page_id = str(params.get("target_page_id") or "").strip()
+
+    # new_page 已经为目标页写入了用户意图标题。fork_prepare 不能在调用方没有
+    # 再传 title 时回退到来源范式标题，否则异资产 fork 会在正式发布时把目标页
+    # metadata 覆盖回来源资产。目标页详情读取失败时仍可用替换后的来源 metadata
+    # 安全降级，不能因为一次只读请求阻断整个 fork。
+    target_record = {}
+    if target_page_id and target_page_id != str(source_template_id) and not params.get("title"):
+        target_result = cmd_template({"page_id": target_page_id})
+        if isinstance(target_result, dict) and target_result.get("code") == 0:
+            target_record = _template_record(target_result)
+
+    resolved_title = _replace_fork_metadata(
+        params.get("title") or target_record.get("title") or record.get("title"),
+        replacements,
+    )
+    resolved_description = _replace_fork_metadata(
+        params.get("description") or record.get("description"),
+        replacements,
+    )
+    resolved_page_context = (
+        _replace_fork_metadata(params.get("page_context"), replacements)
+        if isinstance(params.get("page_context"), dict)
+        else None
+    )
+    resolved_metadata = {
+        "title": resolved_title,
+        "description": resolved_description,
+        "page_context": resolved_page_context,
+    }
+    if not same_asset and source_identity.get("name"):
+        metadata_residual = _fork_metadata_residual_tokens(resolved_metadata, source_identity)
+        if metadata_residual:
+            return {
+                "code": 1,
+                "error": "FORK_METADATA_SOURCE_ASSET_RESIDUAL",
+                "message": (
+                    f"异资产 fork 的发布 metadata 仍残留来源资产「{source_identity['name']}」："
+                    f"{metadata_residual}。已在正式发布前中止，避免目标页标题或描述回退来源范式。"
+                ),
+                "residual_tokens": metadata_residual,
+            }
+
     manifest = {
         "version": _FORK_MANIFEST_VERSION,
         "prepared_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
@@ -6536,8 +6801,9 @@ def cmd_fork_prepare(params):
         "page_id": target_page_id,
         "source_template_id": manifest["source_template_id"],
         "fork_manifest_file": manifest_file,
-        "title": params.get("title") or record.get("title"),
-        "page_context": params.get("page_context") if isinstance(params.get("page_context"), dict) else None,
+        "title": resolved_title,
+        "description": resolved_description,
+        "page_context": resolved_page_context,
         "agent_reply_template": record.get("agent_reply_template"),
         "require_agent_reply_template": True,
     }

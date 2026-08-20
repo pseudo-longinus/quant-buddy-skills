@@ -1,4 +1,4 @@
-﻿# Leaf Workflow — 直接运行用户给定的公式链文件
+# Leaf Workflow — 直接运行用户给定的公式链文件
 
 > **场景**：用户提供一个本地文件（`.md` / `.txt` / `.json`），里面已写好编号公式链，要求"直接运行 / 跑一遍 / 执行"文件里的全部公式，并按最末公式的语义给出最终结果。
 >
@@ -60,12 +60,13 @@ node -e "require('child_process').execSync('python scripts/call.py runMultiFormu
 {
   "formulas": ["...", "..."],
   "force_reusable_array": ["需保活的变量名", "..."],
-  "use_minute_data": true,
+  "use_minute_data": "<仅盘中/当前分钟为 true；历史日频为 false>",
   "execution_profile": "research_24h",
   "user_query": "用户原始问题"
 }
 ```
 
+- `use_minute_data`：整条公式链先按用户时间意图判定；仅盘中/当前分钟链为 `true`，历史区间收益、回测、净值、回撤、波动率或历史日线为 `false` 或省略；拆批后每批保持一致
 - `execution_profile` + `user_query`：按 global-rules 规则 15 判定 `is_research_job`，若为 true 则**每批**都带这两个字段
 - 跨批联动：组装第 K 批的 `force_reusable_array` 前，先扫描第 `K+1..N` 批的右侧引用，凡被后续引用的本批左侧变量必须写入数组
 

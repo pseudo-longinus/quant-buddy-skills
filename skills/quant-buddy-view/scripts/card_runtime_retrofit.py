@@ -382,6 +382,41 @@ def _numeric_focus_card(page_id, title, contract):
     ), "numeric-focus"
 
 
+def _industry_ranking_card(page_id, title, contract):
+    output = str(contract.get("output") or "").strip()
+    if not output:
+        raise ValueError("CARD_VISUAL_INVALID: industry-ranking 缺少 output")
+    fmt = str(contract.get("format") or "signed-pct").strip()
+    top_count = max(2, min(4, int(contract.get("top_count") or 3)))
+    bottom_count = max(2, min(4, int(contract.get("bottom_count") or 3)))
+    core = """    <div class="qb-industry-ranking" data-qb-card-visual data-qb-ranking-output="{output}">
+      <div class="qb-ranking-side is-strong" data-qb-ranking-list="top" data-output="{output}" data-format="{fmt}" data-limit="{top_count}">
+        <div class="qb-ranking-side__head"><span>强势端</span><b>TOP {top_count}</b></div>
+        <div class="qb-ranking-rows"><div class="qb-ranking-placeholder">实时排名加载中</div></div>
+      </div>
+      <div class="qb-ranking-spine" aria-hidden="true">
+        <span>强</span><i></i><b>20D</b><i></i><span>弱</span>
+      </div>
+      <div class="qb-ranking-side is-weak" data-qb-ranking-list="bottom" data-output="{output}" data-format="{fmt}" data-limit="{bottom_count}">
+        <div class="qb-ranking-side__head"><span>弱势端</span><b>BOTTOM {bottom_count}</b></div>
+        <div class="qb-ranking-rows"><div class="qb-ranking-placeholder">实时排名加载中</div></div>
+      </div>
+    </div>""".format(
+        output=_e(output),
+        fmt=_e(fmt),
+        top_count=top_count,
+        bottom_count=bottom_count,
+    )
+    return [output], _card(
+        page_id,
+        contract.get("title") or title or "行业强弱排名",
+        contract.get("description") or "同一口径横向比较行业强弱，打开即刷新。",
+        core,
+        contract.get("theme") or "red",
+        "industry-ranking",
+    ), "industry-ranking"
+
+
 def _build_page_card(page_id, title, keys, visual_contract=None):
     contract = visual_contract or PAGE_VISUAL_DEFAULTS.get(page_id)
     if not isinstance(contract, dict) or not str(contract.get("kind") or "").strip():
@@ -393,6 +428,9 @@ def _build_page_card(page_id, title, keys, visual_contract=None):
 
     if visual_kind == "numeric-focus":
         return _numeric_focus_card(page_id, title, contract)
+
+    if visual_kind == "industry-ranking":
+        return _industry_ranking_card(page_id, title, contract)
 
     if visual_kind == "event-flow" and page_id == "page_13e5b862a47135363442bf54":
         required = ["VIX_px", "KWEB_ret", "GREATSTAR_ret"]
@@ -620,6 +658,12 @@ STYLE = r"""
 .qb-top-list-body>div{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;border-top:1px solid rgba(0,0,0,.06);padding-top:5px}
 .qb-top-list-body span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:clamp(10px,2.3cqw,12px);font-weight:820}
 .qb-top-list-body b{font-size:clamp(12px,3.1cqw,16px);font-weight:950;color:var(--accent)}
+.qb-industry-ranking{min-height:0;display:grid;grid-template-columns:minmax(0,1fr) clamp(34px,9cqw,52px) minmax(0,1fr);gap:clamp(7px,1.9cqw,11px);align-items:stretch}
+.qb-ranking-side{min-width:0;border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.78);padding:clamp(7px,1.8cqw,10px);display:grid;grid-template-rows:auto minmax(0,1fr);gap:clamp(5px,1.4cqw,8px)}
+.qb-ranking-side.is-strong{border-top:3px solid #d71920}.qb-ranking-side.is-weak{border-top:3px solid #16865c}
+.qb-ranking-side__head{display:flex;justify-content:space-between;gap:8px;align-items:baseline}.qb-ranking-side__head span{font-size:clamp(10px,2.2cqw,13px);font-weight:950;color:var(--ink)}.qb-ranking-side__head b{font-size:clamp(8px,1.85cqw,10px);letter-spacing:.08em;color:var(--muted)}
+.qb-ranking-rows{min-height:0;display:grid;align-content:center;gap:clamp(5px,1.35cqw,8px)}.qb-ranking-row{min-width:0;display:grid;grid-template-columns:clamp(15px,4cqw,22px) minmax(0,1fr) auto;gap:clamp(4px,1.2cqw,7px);align-items:center}.qb-ranking-row>i{display:grid;place-items:center;width:100%;aspect-ratio:1;border-radius:50%;background:#f2e9df;color:var(--muted);font-size:clamp(8px,1.8cqw,10px);font-style:normal;font-weight:950}.qb-ranking-row>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink);font-size:clamp(9px,2.15cqw,12px);font-weight:900}.qb-ranking-row>b{font-size:clamp(10px,2.45cqw,14px);font-weight:950}.qb-ranking-row>b.is-positive{color:#d71920}.qb-ranking-row>b.is-negative{color:#16865c}.qb-ranking-row>b.is-flat{color:var(--muted)}
+.qb-ranking-spine{min-height:0;display:grid;grid-template-rows:auto 1fr auto 1fr auto;place-items:center;color:var(--muted);font-size:clamp(8px,1.8cqw,10px);font-weight:950}.qb-ranking-spine i{width:1px;height:100%;background:linear-gradient(180deg,transparent,var(--line),transparent)}.qb-ranking-spine b{display:grid;place-items:center;width:100%;aspect-ratio:1;border-radius:50%;background:var(--ink);color:#fff;font-size:clamp(9px,2.2cqw,12px);letter-spacing:-.03em}.qb-ranking-placeholder{color:var(--muted);font-size:clamp(9px,2cqw,11px);font-weight:800}
 .qb-card-dashboard,.qb-alert-board,.qb-basis-board,.qb-limit-structure,.qb-valuation-waterline{min-height:0;display:grid;gap:8px}
 .qb-card-dashboard{grid-template-columns:.8fr 1.2fr;align-items:stretch}
 .qb-score-orbit,.qb-alert-score,.qb-basis-main{display:grid;place-items:center;text-align:center;border:1px solid var(--line);border-radius:12px;background:radial-gradient(circle at 50% 40%,rgba(255,255,255,.98),var(--soft));padding:10px}
@@ -1076,6 +1120,23 @@ RUNTIME = r"""<script id="qb-card-runtime-v1" data-qb-card-runtime>
     if (!rows.length) return;
     el.textContent = fmt(rows[0].value, format);
   }
+  function renderRankingList(el, outputs){
+    var key = el.getAttribute("data-output");
+    var format = el.getAttribute("data-format") || "signed-pct";
+    var order = el.getAttribute("data-qb-ranking-list") || "top";
+    var limit = Math.max(2, Math.min(4, Number(el.getAttribute("data-limit") || 3)));
+    var rows = topValues(outputs[key]);
+    if (order === "bottom") rows = rows.slice().reverse();
+    rows = rows.slice(0, limit);
+    var body = el.querySelector(".qb-ranking-rows");
+    if (!body || !rows.length) return;
+    body.innerHTML = rows.map(function(row, idx){
+      var value = Number(row.value);
+      var sign = value > 0 ? "is-positive" : (value < 0 ? "is-negative" : "is-flat");
+      var name = String(row.name || row.asset || ("#" + (idx + 1))).replace(/（申万）/g, "").replace(/[<>&]/g, "");
+      return '<div class="qb-ranking-row"><i>' + (idx + 1) + '</i><span>' + name + '</span><b class="' + sign + '">' + fmt(value, format) + '</b></div>';
+    }).join("");
+  }
   function hydrate(root, outputs){
     if (!root) return;
     outputs = outputs || {};
@@ -1107,6 +1168,7 @@ RUNTIME = r"""<script id="qb-card-runtime-v1" data-qb-card-runtime>
     Array.prototype.forEach.call(root.querySelectorAll("[data-qb-top-value]"), function(el){ renderTopValue(el, outputs); });
     Array.prototype.forEach.call(root.querySelectorAll("[data-qb-industry-top-list]"), function(el){ renderIndustryTopList(el, outputs); });
     Array.prototype.forEach.call(root.querySelectorAll("[data-qb-industry-top-value]"), function(el){ renderIndustryTopValue(el, outputs); });
+    Array.prototype.forEach.call(root.querySelectorAll("[data-qb-ranking-list]"), function(el){ renderRankingList(el, outputs); });
     Array.prototype.forEach.call(root.querySelectorAll("[data-qb-meter-bar]"), function(el){
       var key = el.getAttribute("data-output");
       var format = el.getAttribute("data-format") || "";

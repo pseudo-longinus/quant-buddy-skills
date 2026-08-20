@@ -9,6 +9,134 @@
 
 ---
 
+## [4.25.24] — 2026-08-20
+
+### 修复 QBS 物化结果到 QBV 发布证据的确定性绑定
+
+- `runMultiFormulaBatchStream / resumeJob` 的 compact 结果若只返回不透明 `expression_id`，仅在结果数量与已提交公式数量完全一致时，按后端保序合同恢复 `index_title`，并将可信原始公式写入 Validation Receipt；数量不一致时不猜测绑定。
+- 当同一已验证角色同时具有 `data_id` 与本地 `artifact_file` 时，Computation Capsule 优先交付可被 QBV 发布链路消费的 `quant_buddy_data_id`，并用 Receipt、runtime formulas 与 reads 三方校验 `data_id / index_title / formula`。
+- 缺少或冲突的绑定在 QBS `prepare-validated-page` 阶段以 `DATA_REFERENCE_BINDING_REQUIRED` 等受控错误快速失败，不再让 QBV 运行到发布证据阶段才报 `HANDOFF_DATA_REFERENCE_MISSING`。
+- 新增真实 `A股低PE高ROE选股Top20` 响应形态的跨 Skill 合同回归，验证 QBS Handoff 能直接通过 QBV `build_publish_evidence`；该 QBS 修复不要求 QBV 重算已验证结果。
+
+## [4.25.23] — 2026-08-20
+
+### 委派合同显式传递 Job 文件并使用 QBV 自动终态回写
+
+- 子 Agent 提示合同新增绝对 `job_file`，QBV Adapter 消费 Handoff 时自动进入 `running`，无需模型手改 Job JSON。
+- 页面通过 `publish_verified` 的发布与公网验收后由 QBV 自动写回 `completed`；确定终止时统一调用 Adapter `fail-job`。
+- QBS 独立回答、QBV 独立建页和页面 ownership SOP 均不改变；本次只收紧增值链路的审计闭环。
+
+## [4.25.22] — 2026-08-20
+
+### 修复低 PE 高 ROE Top20 的 Next10 资产对齐
+
+- 将固定 11 条公式中的 `Next10Score` 改为 `Next10掩码 * 排序值`，与 `Next10PE`、`Next10ROE` 复用同一资产掩码，避免 `Top20 返回数值 - Top10 返回数值` 因资产轴不稳定而触发第二次修正计算。
+- 保持六个物化输出、`last_day_stats` reads、Handoff 角色和 QBV Adapter 合同不变；QBV 继续使用 `covered / skip / register_exact`，不重复调用 QBS。
+- 新增权威 workflow 回归断言，明确禁止恢复旧的差分数值公式；QBS/QBV 独立路径不变。
+
+## [4.25.21] — 2026-08-20
+
+### 保留 deferred 公式任务的精确页面运行合同
+
+- `runMultiFormulaBatchStream` 返回 `deferred` 时，按 `task_id + trace_id` 原子保存已脱敏的 `qbs_formula_runtime_contract_v1` 草稿；只包含公式、执行参数、受支持 reads 与 fingerprint，不落盘 API Key 或 Authorization。
+- `resumeJob` 成功后只从完全相同的 `task_id + trace_id` 恢复该合同并写入完成 Receipt，使 `prepare-validated-page` 能继续把 QBS 已验证公式交给 QBV `register_exact`，避免 QBV 重复计算。
+- 不同 trace、缺失上下文、篡改 fingerprint 或无界输出继续失败关闭；QBS/QBV standalone 路径和 QBV `0.6.47` SOP 不变。
+
+## [4.25.20] — 2026-08-20
+
+### 修复低 PE 高 ROE Top20 的实时页面复用合同
+
+- 将 `A股低PE高ROE选股Top20` 的可复用输出从单个无界 Top20 数组改为 `Top10 + Next10` 两段：11 条原始公式物化 Score、PE、ROE 共六个最多 10 行的输出，QBS 合并并按 Score 降序返回完整 20 行。
+- Validation Receipt 只在公式结构可证明每个输出不超过 10 个资产时附加 `qbs_formula_runtime_contract_v1`；支持直接 `取前(...,10)`、同源 `Top20-Top10` 以及有界掩码乘指标。普通单输出 Top20 失败关闭，不伪造页面运行合同。
+- QBV Formula Package 复用六个受支持的 `last_day_stats` reads，不再尝试服务端不支持的 `last_column_full`；QBV 主 SOP 与独立使用路径不变，版本保持 `0.6.47`。
+- 页面交接固定使用 `ranking_top10/ranking_next10/pe_top10/pe_next10/roe_top10/roe_next10` 六个角色，避免把只有 10 行的结果误标为 Top20；标题与元数据必须为当前低 PE 高 ROE榜单，不得继承来源模板资产名。
+
+## [4.25.19] — 2026-08-20
+
+### 接受顶层 Receipt 文件路径，消除真实 Agent 的一次无效重试
+
+- `prepare-validated-page` 的顶层 `validation_receipts` 现在同时接受内联 Receipt 对象与 Receipt 文件路径字符串；真实 Agent 可直接复用 `runMultiFormulaBatchStream` 返回的 `validation_receipt_file`，无需了解 Receipt 内部对象结构。
+- 保持 Receipt 文件的 task/turn/query lineage、SHA256 与公式运行合同校验不变；Receipt 文件内部禁止继续嵌套引用其它文件，避免递归加载。
+- 针对 `A股低PE高ROE选股Top20` 的真实 GPT-5.5 回放补齐相同输入形状的回归测试，避免首次 `INVALID_VALIDATION_RECEIPTS[0]` 后再删字段重试。
+
+## [4.25.18] — 2026-08-20
+
+### 补齐真实 Agent 路径的公式 Receipt 与自动交接
+
+- 修复真实 Agent 通过 `QuantAPI._call()` 执行 `runMultiFormulaBatchStream` 时绕过 `call.py`、导致成功公式没有 Validation Receipt 的问题；compact SSE 结果会规范为统一信封、映射 `indexinfo_id → data_id` 并落盘脱敏后的精确运行合同。
+- `prepare-validated-page` 在未显式传 Receipt 时，可按同一 `task_id` 与全部已验证 `data_id` 自动发现唯一匹配 Receipt；跨任务、输出不完整或多个不同运行合同同时命中时均拒绝复用。
+- 真实问题 `A股低PE高ROE选股Top20` 已验证生成包含五条原始公式和三个读取合同的 Handoff；QBV Adapter 对三个角色返回 `coverage=covered`、`qbs_action=skip`、`formula_runtime_action=register_exact`。同时收紧交接请求为最小 JSON：Receipt 已含公式时不再手抄 `validated_roles[].formula` 或按 role 重复 Receipt，避免双引号转义失败造成额外重试。
+- 保持 QBS 与 QBV standalone 路径不变；当前无子 Agent 委派能力的测试宿主仍以 `DELEGATION_UNAVAILABLE` 终止后台 Job，不伪造已生成页面。QBV 本轮不升级版本。
+
+## [4.25.17] — 2026-08-20
+
+### QBS → QBV 原样复用已验证公式执行合同
+
+- `runMultiFormulaBatchStream` 成功 Receipt 新增 `qbs_formula_runtime_contract_v1`，只保存脱敏后的精确公式、执行参数、物化输出读取方式和 SHA256 fingerprint，不记录 API Key 或 Authorization。
+- computation capsule 与 `prepare-validated-page` 可从 Receipt 自动提取该合同；显式合同与 Receipt 不一致、输出左值缺失或 fingerprint 被篡改时失败关闭。
+- 修复 `A股低PE高ROE选股Top20` 交接时把五条已跑通平台公式缩写成不可解析单式的问题；QBV thin adapter 返回 `register_exact`，要求 Formula Package 原样注册，不再重复计算 covered 角色。
+- 保持 QBS standalone 行为不变；没有公式运行时合同的旧 Handoff 继续兼容。
+
+## [4.25.16] — 2026-08-19
+
+### 同步 iter-017 的 A 股所属行业快照字段
+
+- 合入 `iter-017` 提交 `76a63afa26751d687b7e05b5f95921e29591462b`：`fast_query(snapshot/value)` 新增 A 股股票 `所属行业`，仅支持 `type=stock` 且 `market_id=1/2`。
+- 返回结构按申万一级 `swl1`、申万二级 `swl2` 和概念列表 `jqc` 展示；同步根路由、Fast Path 字段映射、工具说明及发布热更新文件清单。
+- 保留 4.25.15 的低 PE 高 ROE TopN 活页路由、QBS→QBV Handoff 与 Job 终态合同；QBV 版本保持 0.6.45。
+
+## [4.25.15] — 2026-08-19
+
+### 支持低 PE 高 ROE TopN 的默认口径与活页增值路由
+
+- 将线上高频自然语言 `A股低PE高ROE选股Top20` 识别为结构稳定的因子榜单，确定性路由为 `create`，同时保留“只要表格/不要网页”的显式退出。
+- 为未指定阈值和主排序字段的“低PE高ROE TopN”定义默认执行口径：全A股、PE(TTM)>0、ROE>0、按 ROE/PE 降序，并展示代码、名称、PE、ROE、比值和数据日期，避免不必要的澄清轮次。
+- 将该高频稳定榜单加入真实 Agent 的强制路由硬闸门：QBS 验证 TopN 后必须执行 route，并用 Score/PE/ROE 三个已物化 `data_id` 一次准备 Capsule、Handoff 与幂等 Job；无内部委派工具时写入 `DELEGATION_UNAVAILABLE`，不遗留假 queued 状态。
+- 低 PE 高 ROE 首次公式窗口默认覆盖当前自然年，避免把报告期 ROE 按当天窗口查询而产生一次全 0 的无效计算。
+- 普通一次性条件选股仍保持 `none`；本次只扩展已确认高频且页面 schema 稳定的榜单，不把所有 TopN 查询强制活页化。
+- QBV 保持独立，版本仍为 `0.6.45`；QBS 只负责文本答案、结构化产物和 Handoff，页面构建/发布/验收继续由 QBV SOP 完成。
+
+## [4.25.14] — 2026-08-19
+
+### 收紧 QBS、图表产物与 QBS → QBV Job 终态合同
+
+- 修复长任务恢复请求：`QuantAPI._call("resumeJob")` 改走专用 SSE 调用并发送正确的 `Accept` Header，避免普通 GET 路径触发 HTTP 406，同时保留 `task_id` / `turn_id`。
+- 修复图表产物合同：`renderChart` / `renderKLine` 返回的 base64 会解码并写入 `quant-buddy-skill/output` 的真实文件；用户明确要求 PNG 时可传 `output_format=png` 并在本地完成真实格式转换，写入或转换失败返回 `artifact_error`，不再生成不存在的 `sandbox:/mnt/data/...` 路径。
+- 修正公式频率路由：盘中、当前分钟和当日未收盘行情才启用分钟数据；历史收益、回测、净值、回撤、波动率、历史日线与财务计算默认保持日频或报告期频率，图表意图本身不再误开分钟模式。
+- 将 QBS → QBV Job 升级为 `qbs_qbv_job_v2`，补充 `published`、`public_verified`、Worker 超时和终态时间字段；只有真实 `target_skill_id`、`target_page_id`、公开链接、发布成功及公网验收同时成立时才允许 `completed`。
+- 新增 `expire-stale` watchdog，将超时的 `queued` / `running` Job 写为可重试失败，避免非终态永久悬挂；生产宿主仍须负责定时调用，本 Skill 不冒充后台调度器。
+- QBV 未改动，版本保持 `0.6.45`；本版本只收紧 QBS standalone 与 QBS → QBV 增值交接边界。
+
+## [4.25.13] — 2026-08-19
+
+### 在 iter-017 基线上集成 QBS → QBV 快速并行交接
+
+- 以 `iter-017` 的 QBS 4.25.10 与 QBV 0.6.44 为基线，合入活页路由、`qbs_computation_capsule_v1`、`qbs_qbv_handoff_v1`、幂等 Job 和已物化结果复用能力，不再依赖旧功能分支运行。
+- 明确图表、排名、对比、回测等强活页场景可在 QBS 正常首答后交接 QBV；一次性查数、普通分析和弱图表表达继续停留在 QBS，高风险持久状态未确认时禁止入队。
+- 行业排名和单资产多指标快路径继续复用 QBS 已验证的 `data_id`、公式合同、artifact 与 receipt；QBV 只补缺失角色，证据不可用时才回退独立 SOP。
+- 保留当前 Agent 注册、单批最多 20 条公式和 Windows UTF-8/幂等保护，并增加合并后的合同与回归测试。
+- 根据真实 Skill Trace 收紧单资产多指标快路径：CSV 脚本自行创建输出目录，紧凑 receipt 增加 `series_summaries`（首末值、区间收益与极值）；生成 Handoff 后禁止额外 `mkdir`、重复下载或重读 artifact，减少无效工具轮次并保持完整序列只在 QBS → QBV artifact 中复用。
+
+## [4.25.12] — 2026-08-14
+
+### 行业排名图直接复用已物化结果生成 QBV Handoff
+
+- 新增 `industry-ranking-fast.md`，明确“申万一级行业最近 N 日涨跌幅排名图”只读窄流程，不再加载 `global-rules.md`、`quant-standard.md` 与 255 行行业 recipe。
+- 固定为一次行业聚合公式、一次 `readData(last_column_full)`；强制使用 `indexinfo_id`，禁止误读 `expression_id`，也不再由 QBS 调用 `renderChart`。
+- 新增 `prepare-industry-ranking-page`，从当前 Session 自动补齐 lineage，一次绑定已物化 `data_id`、实时刷新公式、横向排名图视觉合同、Handoff 与幂等 QBV Job。
+- QBV 仍执行独立完整 SOP；本快路径只让 QBV 读取现有 `data_id`，不重复运行相同公式。
+- 增加窄路由、公式/引用合同、CLI、幂等、宿主 Bash 白名单与文档预算回归测试；真实 Skill Trace 与页面质量验收留待打包后的端到端实测。
+
+## [4.25.11] — 2026-08-14
+
+### 通用已验证结果一键交接给 QBV
+
+- 新增 `live_page_routing.py prepare-validated-page @request.json`，将排名、对比、回测、热力图等 QBS 结构化结果一次性转换为 hash-bound computation capsule、Handoff 和幂等 QBV Job。
+- 输入改为面向业务 role 的紧凑合同；脚本自动生成 contract fingerprint、artifact SHA256、receipt SHA256，并校验 receipt 中的 task/turn/query lineage。
+- 分类器结果不能被请求中的 `route` 强行覆盖；高风险持久状态未确认时禁止准备 Job。
+- 更新测试宿主 Bash 白名单与说明，使真实 Skill Agent 可从 `skill/output` 安全调用新命令。
+- 新增一键准备、UTF-8 无 BOM、幂等复用、route 冲突、高风险确认和 receipt lineage 回归测试；QBV 核心 SOP 与版本保持不变。
+
 ## [4.25.10] — 2026-08-14
 
 ### 修复用户主目录 Git 仓库误判开发 checkout
@@ -17,14 +145,70 @@
 - 普通 `repo/skills/quant-buddy-skill` 仍保留开发 checkout 保护，避免自动安装污染源码仓库。
 - 增加用户目录含 `.git`、canonical `.agents` 与 logical `.claude` 链接场景的 QBV 注册回归测试。
 
-## [4.25.4] — 2026-08-14
+## [4.25.9] — 2026-08-14
 
-### 修复 QBV 已安装但当前 Agent 无法发现
+### 收紧活页快路径的终态交接
 
-- Companion Manager 在 canonical `~/.agents/skills/quant-buddy-view` 已是目标版本时，不再因 `already_current` 提前结束；仍会根据当前 QBS logical root 补齐同级 `quant-buddy-view` 注册。
-- Windows 优先创建目录 symlink，权限不足时安全回退为 Junction；正确链接保持 no-op，真实目录或指向其他目标的链接一律不覆盖。
-- QBV 更新与 Agent 注册拆成两个阶段：缺失或旧版本先维护 canonical QBV，再注册当前 Agent；注册成功返回 `reload_required=true`，注册失败旁路记录且不阻断 QBS 数据业务。
-- `newSession` 明确提示“安装、更新或注册”均需重新加载 Agent，避免安装成功后在旧会话中误判 QBV 已激活。
+- 消除测试宿主固定 cwd 与“必须先 cd”的冲突：宿主已定位 Skill 根目录时直接运行相对命令，避免一次无效 Bash 重试。
+- `prepare-fast-query-page` 成功后明确禁止再次调用 `handoff` / `prepare`；新增 `mark-delegation-unavailable` 低自由度命令，委派能力缺失时写入可重试失败终态，不遗留 queued Job。
+- 测试 Agent 的 `fast_query` Schema 增加 `user_query`，并强制子进程使用 UTF-8 stdout，避免 Windows 中文 receipt 乱码。
+- 新版开发 checkout 高于服务端已发布版本时，忽略过期的 `update_required`，避免错误提示降级并继续正常处理 QBV companion。
+- 收紧分析措辞：价格与 PE 高相关必须提示指标定义中的机械关系，禁止把同步性写成估值驱动价格的因果结论。
+- 增加 cwd、重复交接、委派失败终态、Schema、中文 stdout、版本倒挂和因果措辞回归测试。
+
+### 合入线上 QBV Agent 注册热修复
+
+- canonical QBV 已是目标版本时仍检查当前 Agent 注册，不再因 `already_current` 提前结束。
+- Windows symlink 权限不足时安全回退 Junction；正确链接保持 no-op，真实目录或错误链接不覆盖。
+- QBV 安装或更新后继续注册当前 Agent；安装、更新或注册成功均返回 `reload_required=true` 并提示重新加载 Agent。
+- Agent 注册失败作为旁路错误记录，不阻断 QBS 数据业务。
+
+
+## [4.25.8] — 2026-08-14
+
+### 单资产多指标活页快路径
+
+- 新增 `visual-page-fast-path.md`：一个资产的 2～4 个标准历史字段明确要求同图时，路由提前到取数前，并固定为一次 `fast_query`；禁止进入 `quant-standard`、公式引擎、`renderChart` 或 `renderKLine`。
+- `fetch_fastquery_csv.py` 支持把完整 CSV 序列安全写入 `skill/output` artifact，stdout 仅返回 SHA256、字段摘要和价格/估值对齐分析，避免完整时间序列占满模型上下文。
+- `live_page_routing.py prepare-fast-query-page` 一次完成 hash-bound computation capsule、QBV Handoff 与幂等 Job，减少模型手工拼装和重复读取。
+- 测试 Agent 放行上述两个受控入口，并限制 CSV URL 为 HTTPS、artifact 路径位于 `skill/output`；增加快路径、artifact、路径边界和真实用户表达回归测试。
+
+## [4.25.7] — 2026-08-14
+
+### QBS 计算胶囊复用到独立 QBV SOP
+
+- 新增 `qbs_computation_capsule_v1` 构建/校验脚本，把用户核心问题、主图意图、资产映射、可复现合同、合同 fingerprint、结果 artifact SHA256、字段映射、结论和收据一起交给 QBV，禁止只传 PNG 或一句总结。
+- `qbs_qbv_handoff_v1` 增加可选 `computation_capsule`，并校验 task/turn/query lineage 与 artifact hash；旧 Handoff 字段保持兼容。
+- 明确 `covered/partial/unusable` 复用边界：只跳过已覆盖的资产识别、同字段取数和同公式计算；QBV 的页面路由、ownership、构建、运行时注册、发布及验收保持独立。
+- 增加长鑫科技价格/成交量/PE 同图真实句式的胶囊合同、篡改检测和 Handoff 回归测试。
+
+## [4.25.6] — 2026-08-13
+
+### 修复 QBV 路由成功但未启动子 Agent
+
+- 将 QBV 交接从写死的 OpenClaw `sessions_spawn` 改为宿主通用内部子 Agent 委派合同，优先使用 `spawn_agent`，兼容真实存在的等价委派工具；明确禁止用 `create_thread/fork_thread` 或口头声明代替真实工具调用。
+- `source_skill_id` 调整为可空审计字段：有真实值时标记 `available`，缺失时记录 `unavailable + source_skill_name + source_skill_version`，不再阻断 Handoff、Job 和 QBV 委派。
+- Job 增加通用 `delegation_tool/delegation_id` 回执字段；委派不可用或失败时必须写入 `DELEGATION_UNAVAILABLE` 可重试终态，不再静默留下未启动链路。
+- 更新图表/K线工作流和合同测试，覆盖缺失运行时 Skill ID、真实子 Agent 委派提示、通用委派回执及用户可见新任务误用防护。
+
+## [4.25.5] — 2026-08-13
+
+### 修复真实图表表达漏触发 QBV
+
+- 路由分类器支持“放在一张图里”“画成一张图”“同一个图里比较”“做成图”“绘制成图表”等真实自然表达，同时保持普通查数、表格输出、弱“看看走势”和明确 PNG-only 为 `none`。
+- 图表工作流新增低自由度硬闸门：数据/图片验证后、QBS 首答前必须实际执行 `live_page_routing.py route` 并保留 JSON；新增 PowerShell 安全的 `route --user-query` 调用，避免内联 JSON 引号被 Shell 改写；不得只读规则、仅生成 PNG 或由 Agent 自行口头判定。
+- `create|existing_page` 必须继续 handoff → prepare → 非阻塞 spawn，仅等待 `accepted`；路由或交接失败仍软降级，不阻断 QBS 首答。
+- 增加宁德时代价格、成交量、PE 同图比较等真实用户句式及表格/不要图反例回归测试。
+
+## [4.25.4] — 2026-08-13
+
+### QBS → QBV 非阻塞活页触发合同
+
+- 新增 `workflows/live-page-routing.md` 与 `scripts/live_page_routing.py`，QBS 统一输出 `none / suggest / create / existing_page`；明确 K 线、分时、收益/净值/回撤曲线、多资产对比、排名图、热力图和动态看板进入强活页路由，弱“看看走势”和只要 PNG 保持 QBS。
+- 新增 `qbs_qbv_handoff_v1`，强制保留真实 `source_skill_id + task_id + turn_id`，复用已验证输出/收据，禁止把 ownership、direct/fork/unmatched 等 QBV SOP 泄漏到 QBS。
+- 新增本地持久 QBV Job registry，按 `task_id + turn_id + route + normalized_page_reference` 幂等，支持 queued/running/completed/failed、终态链接和可重试失败，避免同一 Turn 重复建页。
+- 明确 OpenClaw `sessions_spawn` 非阻塞交接：只有真实 accepted 才提示“正在生成”，QBS 不等待 QBV；spawn 或页面失败不影响第一条业务答案。
+- 持仓、成本、股数、止损/减仓和自动化条件未经确认时仅 `suggest`，禁止入队或持久化。
 
 ## [4.25.3] — 2026-08-12
 

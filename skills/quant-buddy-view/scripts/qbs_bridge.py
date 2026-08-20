@@ -652,7 +652,7 @@ def _asset_matches(value, asset):
 def _entry_asset(entry):
     if not isinstance(entry, dict):
         return ""
-    for key in ("asset", "ticker", "code", "symbol", "wind_code", "security_code"):
+    for key in ("_intent", "asset", "ticker", "code", "symbol", "wind_code", "security_code"):
         value = entry.get(key)
         if isinstance(value, dict):
             value = value.get("ticker") or value.get("code") or value.get("symbol")

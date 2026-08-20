@@ -1,4 +1,4 @@
-﻿# 全局执行规则
+# 全局执行规则
 
 > 本文件从 SKILL.md 拆出，包含所有 leaf workflow 必须遵守的执行合同、证据分级、简答模式、参数规范等。
 > 进入 leaf workflow 前，由 leaf workflow 按需引用本文件中的规则。
@@ -97,10 +97,10 @@ quant_buddy_data_status: available | unavailable | blocked
 2. **删无证据归因**：删除所有不能追溯到本次工具调用结果的背景解释（"受疫情冲击""政策宽松预期""市场恐慌""风格轮动""利好出尽""OPEC+减产"等）
 3. **校验汇总数值**：若输出均值/合计，用表中数值手算验证；不一致则修正或删除汇总行
 4. **核对 Working State**：最终表格中的事件日/区间/口径是否与 `_working/` 文件中的冻结值一致；不一致 = 必须修正
-5. **时间口径一致性**：`use_minute_data: true` 已是全局业务默认参数（所有 `runMultiFormulaBatchStream` 调用都应传），因此盘中查询通常能拿到当日数据。但仍须在输出前**验证实际日期**：检查 `description` 或 `readData` 返回的 `effective_matches_date` / `last_column_full.date`，确认确实生效到了当日。若结果日期早于当前交易日（如用户 4 月 13 日问"现在"，结果显示 4 月 10 日），则：(a) 禁止将结果表述为"当前/现在/今天"的答案；(b) 必须明确声明"以下为最后可得交易日 YYYY-MM-DD 的结果，非实时数据"。
+5. **时间口径一致性**：`use_minute_data` 不是全局默认。仅盘中、当前分钟或当日未收盘请求设为 `true`；历史日频、回测、净值、回撤、波动率和财务请求设为 `false` 或省略。无论选择哪种频率，仍须在输出前**验证实际日期**：检查 `description` 或 `readData` 返回的 `effective_matches_date` / `last_column_full.date`，确认确实生效到了当日。若结果日期早于当前交易日（如用户 4 月 13 日问"现在"，结果显示 4 月 10 日），则：(a) 禁止将结果表述为"当前/现在/今天"的答案；(b) 必须明确声明"以下为最后可得交易日 YYYY-MM-DD 的结果，非实时数据"。
 6. **资产范围校验与资产宇宙污染回退（硬规则）**：若用户指定了市场/板块范围（如"A股""A股主板""沪深300成分股"），逐条检查结果名单中的资产是否全部属于该范围。发现以下任一情况即判定为"范围未对齐"，禁止输出名单：(a) 出现港股代码（HKxxxx）；(b) 出现美股代码（xxx.N / xxx.O）；(c) 出现指数/基金/期货（如xx主连、xx.SHF、xx.CFE、xx.DCE）；(d) 用户说"主板"但结果含创业板（300xxx）或科创板（688xxx）。范围未对齐时只能说明"筛选范围未成功限定，暂不能给出可信名单"。**特别注意**：`description` 中的 `其中十个分别名称` 是快速排查资产范围的捷径——若样本中出现 HK/期货/指数代码，说明公式中缺少资产宇宙掩码，必须回退修正公式后重跑。
    **资产宇宙污染回退规则**：对股票筛选/股票名单/股票TopN题，若中间或最终结果中出现指数、基金、期货、债券、港股、美股等非目标资产证据，视为"资产宇宙未对齐"，不得直接回答——必须回退并补加股票资产宇宙掩码后重跑。不得在自然语言层把"全市场资产结果"口头解释成"股票结果"。常见污染信号：description 中出现指数名称/主连合约/基金名称、readData 返回中出现 .CFE/.DCE/.SHF 等代码模式、用户问"普通股票"但结果覆盖了非股票资产
-7. **多数据源日期一致性**：当本次任务使用了多个数据源（如涨跌幅、PE、非ST 等），检查各数据源 `readData` / `description` 返回的 `effective_date`（或 `effective_matches_date` / `last_column_full.date`）是否一致。若不同数据源的有效日期不同（如涨幅数据 = 0410、PE 数据 = 0407、非ST 数据 = 0413），则：(a) **禁止**将结果表述为"今天/当前/最新"——必须逐项列出各数据源的实际日期；(b) 优先尝试对齐日期：使用 `begin_date` 参数或 `use_minute_data: true` 将所有数据源拉齐到同一交易日；(c) 若无法对齐，最终答案必须明确声明"以下结果基于不同日期的数据（涨幅: YYYY-MM-DD, PE: YYYY-MM-DD），仅供参考"。**实测教训**：T-029 涨幅(0410) + PE(0407) + 非ST(0413) 三个日期不一致却声称"今天"，属于严重误导
+7. **多数据源日期一致性**：当本次任务使用了多个数据源（如涨跌幅、PE、非ST 等），检查各数据源 `readData` / `description` 返回的 `effective_date`（或 `effective_matches_date` / `last_column_full.date`）是否一致。若不同数据源的有效日期不同（如涨幅数据 = 0410、PE 数据 = 0407、非ST 数据 = 0413），则：(a) **禁止**将结果表述为"今天/当前/最新"——必须逐项列出各数据源的实际日期；(b) 优先尝试对齐日期：历史任务使用一致的 `begin_date`/报告期；只有明确盘中行情任务才可对支持映射的数据源使用 `use_minute_data: true`；(c) 若无法对齐，最终答案必须明确声明"以下结果基于不同日期的数据（涨幅: YYYY-MM-DD, PE: YYYY-MM-DD），仅供参考"。**实测教训**：T-029 涨幅(0410) + PE(0407) + 非ST(0413) 三个日期不一致却声称"今天"，属于严重误导
 8. **表格完整性自检**：若最终答案包含表格，扫描每列的缺失值（`-` / `0` / `NaN` / 空值）。若任一展示列缺失率 > 20%，不得使用"完整""已获取全部""以下为完整结果"等确定性陈述——必须声明缺失比例或标注哪些字段暂不可得
 9. **配额状态输出**：在最终答案正文后**空一行**，再输出配额摘要（不加分隔线）。从本轮**最后一次**工具返回的 `_quota` 字段提取数据；多次工具调用时取 `session_total_cost`（由 SDK 累加注入），无该字段则手动累加各次 `_quota.cost`。
    - **正常格式**：`⏱ {总cost} RU · 4h余{window.remaining}/{window.limit} · 今日余{daily.remaining}/{daily.limit}`
@@ -303,7 +303,7 @@ B 级证据中附带的任何数值（如 description 里的 last_value）不得
 
 ### runMultiFormulaBatchStream
 ```json
-{"formulas": ["..."], "begin_date": "<T-N>", "include_description": true, "use_minute_data": true, "force_reusable_array": ["变量名2"]}
+{"formulas": ["..."], "begin_date": "<T-N>", "include_description": true, "use_minute_data": "<仅盘中为 true；历史为 false 或省略>", "force_reusable_array": ["变量名2"]}
 ```
 - `begin_date` **必须传**——begin_date 越晚返回越快。原则：取最小够用的起点。
   - 公式含滚动窗口 N（`平均(…,N)` / `涨跌幅(…,N)` / `最大/最小/标准差(…,N)` / `EMA(…,N)` / `MACD` 默认 N=35 / `同比` N=365 等）→ `T - N 自然日`
@@ -312,7 +312,7 @@ B 级证据中附带的任何数值（如 description 里的 last_value）不得
   - 无法判定 N / 单点快照 / 仅取最新值 → 直接 `T`（今日）
   - 详细分档见 `tools/run_multi_formula.md` § begin_date 分档方案
 - `include_description` **必须传** `true`，确保返回 description 供后续判断
-- `use_minute_data` 默认传 `true`；财务报告期查询按 leaf workflow 规则省略或设为 `false`
+- `use_minute_data` 按时间意图选择：仅盘中、当前分钟或当日未收盘行情传 `true`；历史日频、回测、净值、回撤、波动率和财务报告期省略或设为 `false`
 - **`force_reusable_array` 在 `formulas.length ≥ 2` 时必须主动评估并按需传递（硬规则）**：
   - 评估方法：对每条公式问一句「这个左侧变量名，会被本批后续公式引用，又会被 `readData` / 最终业务步骤读取吗？」
     - 仅被本批后续公式引用、**不会**被 `readData` 读 → 不要写入数组

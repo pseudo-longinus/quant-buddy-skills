@@ -1,5 +1,8 @@
 # static_page — 静态页托管（上传 / 替换 HTML → 公开可分享链接）
 
+
+> QBS→QBV 旁路：`publish_verified` 可显式传 `qbv_job_id`、`qbv_job_file`、`turn_id`（或 `qbv_job_dir`）；`direct_deliver` 则可从 `beginHandoff` 持久化的 task-scoped Trace Context 恢复 Turn lineage。公网验收成功，或 direct 取得字段一致的强终态 `direct_finalize` contract 后，脚本自动把对应 `qbs_qbv_job_v2` 写为 `completed`；QBV standalone 没有 Handoff/Job 时行为完全不变。
+
 ## 正文图片命令（0.6.15）
 
 先有目标 `page_id`，再上传图片：
@@ -147,6 +150,7 @@ python scripts/static_page.py verify_card_runtime '{"page_ids":["page_xxx","page
 - `publish_final` 会先把进度推进到 `final_publish`；若正式 HTML 更新失败，它会把同一个 `page_id` 回写成 `failed` 进度页，避免用户刷新后长期停在上一阶段。
 - `publish_final` 在进度更新和正式上传前复核路由：已选 fork 但没有 `fork_prepare` task binding 时返回可恢复的 `ROUTING_RECONFIRM_REQUIRED`；确认模板不适用时可传一次 `routing_override` 改判 unmatched。该检查不限制 `build_dashboard`，旧任务无决定记录时保持兼容。
 - 复用在线模板时，用同一 `task_id` 调 `fork_prepare` 生成 `fork_manifest_v2`、脱敏 HTML、`fork-review.json`、`publish-plan.json` 和任务级 `fork_task_binding_v1`。新流程由 publish plan 调用 `publish_workflow.py`；已准备的 v1 manifest 仍兼容。脚本继承来源模板的 `agent_reply_template`，manifest 负责校验来源 HTML SHA、来源凭证残留、核心栏目、必需输出与 Card Runtime。
+- 异资产 `fork_prepare` 的正式发布标题按“显式 `title` → `new_page` 已创建目标页的现有标题 → 完成资产替换后的来源标题”解析；描述和显式 `page_context` 同步替换主资产。若 publish metadata 仍含来源主资产，返回 `FORK_METADATA_SOURCE_ASSET_RESIDUAL`，禁止覆盖目标页。
 - 个股估值、宏观事件、行业主题、多资产比较、资金量化、基金产品、海外资产会按高置信 metadata 匹配专业骨架；无法匹配的新活页使用 `generic_live_page_delivery_v1`，不再退化成一句发布摘要。
 - `reply_template_v2 + hybrid` 必须同时具备当前活页 `page_context` 和 `hybrid_composition`，缺一项正式发布直接失败；旧 v1 hybrid 兼容。
 - `update_progress` 优先只传 `current_step + message`，脚本会自动把前序阶段标为 `done`、当前阶段标为 `running`、后序阶段标为 `pending`；不要在每次更新里复制一份可能过期的完整 `steps`。未传 `change_note` 时，页面历史版本会按“状态 + 中文阶段标题 + 用户可见 message”自动生成修改描述，最长 200 字；显式传入的 `change_note` 优先。
@@ -197,7 +201,7 @@ python scripts/publish_workflow.py '@output/forks/page_template_xxx/page_templat
 
 新 fork 默认改用 `publish_verified`，由脚本一次完成发布前后验收。它在启动浏览器前完成 fork 来源、凭证 tuple、最终公式包输出和分位语义预检。manifest 的 `required_outputs` 必须真实存在于最终 HTML 所绑定公式包的输出 union 中；仅在 HTML 中声明 `QB_REQUIRED_OUTPUTS` 或其他同名字符串不能通过。若同一 `package_id` 对应多个 signature，则以 `credential_ambiguity` 拒绝发布。
 
-成功结果会返回 `agent_reply_contract_file + agent_reply_contract_sha256`、`reply_draft_file`、`reply_validation_params_file` 和 `reply_validation_command`。严格数据模板还返回 `reply_data_evidence_file + reply_data_evidence_sha256 + reply_data_availability`。只把最终 Markdown 写入 draft 并执行返回的命令一次；validator 不接受手工重建的 contract。`valid=true` 时使用返回的 `validated_markdown` 原样交付。CLI stdout 只保留阶段摘要，完整结果写入返回的 `full_report_file`。
+成功结果会返回 `agent_reply_contract_file + agent_reply_contract_sha256`、`reply_draft_file`、`reply_validation_params_file` 和 `reply_validation_command`。严格数据模板还返回 `reply_data_evidence_file + reply_data_evidence_sha256 + reply_data_availability`。只把最终 Markdown 写入 draft 并执行返回的命令一次；validator 不接受手工重建的 contract。未显式覆盖账号时，validator 自行读取 `config.json/config.local.json`，发布器返回、命令串与参数文件均不得携带默认配置 key；显式覆盖只允许保留在进程内环境合同，CLI 与持久化结果统一脱敏。`valid=true` 时使用返回的 `validated_markdown` 原样交付。CLI stdout 只保留阶段摘要，完整结果写入返回的 `full_report_file`。
 
 浏览器 profile：
 

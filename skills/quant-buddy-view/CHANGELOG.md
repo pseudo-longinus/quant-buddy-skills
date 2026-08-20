@@ -9,6 +9,56 @@
 
 ---
 
+## [0.6.50] — 2026-08-20
+
+### TopN 回复合同纠偏与 validator 凭证收口
+
+- TopN、选股、榜单、排名、全 A 与因子筛选页面优先使用 `generic_live_page_delivery_v1`，避免标题中的 PE、ROE、盈利或估值关键词误绑到单股七节回复模板。
+- 默认 `config.json/config.local.json` 凭证改由 validator 子进程自行发现，`direct_deliver/publish_verified` 返回不再携带真实默认 key；仅显式本次调用覆盖保留进程内 `reply_validation_env` 合同。
+- 新增 Top20/选股路由与默认配置、显式覆盖、命令串、参数文件凭证边界回归测试。
+
+## [0.6.49] — 2026-08-20
+
+### Direct 范式交付同步闭环 QBS→QBV Job
+
+- `direct_deliver` 在取得字段一致的强终态 `direct_finalize` contract 后，从 QBS Handoff 的 task-scoped Trace Context 恢复真实 `turn_id`，自动写回 `target_skill_id + target_page_id + public_url` 并将匹配 Job 置为 `completed`。
+- 没有 QBS Handoff 或显式 Job 身份的 QBV standalone 不查询、不修改 Job，返回合同保持不变；direct 数据查询失败也不会提前关闭 Job。
+- 重复 direct 终态返回 `already_completed`，身份不完整、冲突或不唯一时继续失败关闭，避免网络重试重复创建或错误归档页面。
+
+## [0.6.48] — 2026-08-20
+
+### QBS→QBV Job 生命周期由确定性脚本自动闭环
+
+- `qbs_handoff_adapter.py evaluate` 在发现匹配的 `qbs_qbv_job_v2` 时自动把 Job 从 `queued` 写为 `running`；没有 QBS Job 的 QBV standalone 保持无副作用。
+- `publish_verified` 只有在页面已发布且公网验收通过后，才自动写回真实 `target_skill_id + target_page_id + public_url` 并置为 `completed`；重复回调幂等，Task 匹配不唯一时失败关闭。
+- 新增显式 `fail-job` 终态入口和本地原子写入/锁，避免依赖 Agent 记忆手工调用 QBS 更新命令。
+
+## [0.6.47] — 2026-08-20
+
+### 薄适配器原样消费 QBS 已验证公式合同
+
+- `qbs_handoff_adapter.py` 校验可选 `qbs_formula_runtime_contract_v1` 的公式左值、reads、执行参数和 fingerprint；有效时返回 `formula_runtime_action=register_exact`。
+- QBV 页面 SOP 仍保持独立：只禁止重算 covered 公式；direct/fork/unmatched、ownership、Formula Package 注册、构建、发布与公网验收均不改变。
+- 合同缺失时兼容旧 Handoff；合同被篡改时标记 unusable 并安全回退，不注册猜测或缩写后的公式。
+
+## [0.6.46] — 2026-08-19
+
+### 异资产 Fork 不再把目标页元数据覆盖回来源范式
+
+- `fork_prepare` 在调用方未重复传 `title` 时，优先读取 `new_page` 已创建目标页的现有标题；目标页详情读取失败才使用完成资产替换后的来源标题，避免宁德时代页面被正式发布为“长江电力”元数据。
+- 正式发布的 `description` 同步应用主资产替换，不再让进度页临时描述或来源资产文案残留；显式 `page_context` 也使用相同替换规则。
+- 异资产 Fork 在生成 publish plan 前新增 `FORK_METADATA_SOURCE_ASSET_RESIDUAL` 门禁，标题、描述或显式页面上下文仍含来源主资产时拒绝发布。
+- 新增真实故障回归测试，覆盖目标页标题保留、来源描述替换和 metadata 无来源资产残留。
+
+## [0.6.45] — 2026-08-19
+
+### 在 0.6.44 活页流水线上接入 QBS 已验证结果
+
+- 新增薄适配器校验 `qbs_computation_capsule_v1` 与 `qbs_qbv_handoff_v1` 的 task/turn lineage、合同 fingerprint、artifact SHA256、receipt 和 role 覆盖度，输出 `covered/partial/unusable`。
+- `covered` 直接复用 QBS 已物化结果，`partial` 只补缺失角色，`unusable` 无损回退 QBV 原有 QBS bridge；QBV 的 direct/fork/unmatched、ownership、构建、发布和公开验收职责保持独立。
+- Handoff 恢复原 `task_id + turn_id`，避免同一用户问题重复创建 Turn；发布门禁继续验证实时查询结果，跨 Turn、缺失或篡改证据失败关闭。
+- 完整保留 0.6.44 的本地 HTML 快照优先发布、同页 QBS 渐进增强、LIVE marker 与 Card Runtime 能力；合并不回退现有 preserve-HTML 流程。
+
 ## [0.6.44] — 2026-08-18
 
 ### 本地 HTML 活页化先发布渲染快照，再同页渐进增强 QBS

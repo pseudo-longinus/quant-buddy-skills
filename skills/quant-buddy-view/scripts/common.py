@@ -291,8 +291,9 @@ def read_task_agent_model(task_id):
     return _normalize_agent_model(read_task_trace_context(task_id).get("agent_model"))
 
 
-def persist_task_trace_context(task_id, turn_id, user_query, previous_turn_id=None, agent_model=None):
-    """原子保存当前 Turn；只有服务端成功后调用。"""
+def persist_task_trace_context(task_id, turn_id, user_query, previous_turn_id=None, agent_model=None,
+                               handoff_context=None):
+    """原子保存当前 Turn；可附带 QBS Handoff lineage，供独立 QBV 进程恢复。"""
     if not task_id or not turn_id or not str(user_query or "").strip():
         return False
     temp_path = None
@@ -308,6 +309,9 @@ def persist_task_trace_context(task_id, turn_id, user_query, previous_turn_id=No
             "initial_user_query": previous.get("initial_user_query") or str(user_query).strip(),
             "agent_model": _normalize_agent_model(agent_model) or _normalize_agent_model(previous.get("agent_model")),
         }
+        effective_handoff = handoff_context if isinstance(handoff_context, dict) else previous.get("handoff_context")
+        if isinstance(effective_handoff, dict):
+            payload["handoff_context"] = effective_handoff
         fd, temp_path = tempfile.mkstemp(prefix=".trace-context-", suffix=".json", dir=str(path.parent))
         with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
             json.dump(payload, handle, ensure_ascii=False, indent=2)

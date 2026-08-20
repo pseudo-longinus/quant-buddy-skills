@@ -896,7 +896,8 @@ def run_workflow(params):
 
 def _persist_workflow_report(result, task_id):
     path = C.task_temp_path(task_id, "publish-workflow-report.json", create_parent=True)
-    path.write_text(json.dumps(result, ensure_ascii=False, indent=2, default=str) + "\n", encoding="utf-8")
+    persisted_result = SP._redact_persisted_secrets(result)
+    path.write_text(json.dumps(persisted_result, ensure_ascii=False, indent=2, default=str) + "\n", encoding="utf-8")
     return str(path), hashlib.sha256(path.read_bytes()).hexdigest()
 
 def main():

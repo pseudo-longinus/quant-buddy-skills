@@ -1,7 +1,9 @@
-﻿# K 线图渲染流程
+# K 线图渲染流程
 
-> **适用范围**：用户明确要求画 K 线图、图片、带成交量行情图等**可视化 artifact** 需求。
+> **适用范围**：用户明确要求 K 线、蜡烛图、OHLC、开高低收或带成交量的 K 线 artifact。普通“股价、成交量、PE 放在一张图”不是 K 线，必须改走 `visual-page-fast-path.md`。
 > **本流程不提供精确数值**——K 线图是 artifact 交付，不是查数工具；用户只说“看走势/最近走势”且未明确要图片时，应改走 `fast-window.md` 数值走势。
+>
+> **并行活页硬闸门**：明确 K 线/带成交量图属于 `create` 强触发。PNG 验证完成后、展示第一条回答前，必须实际执行 `live_page_routing.py route`；不得只读规则、不得自行口头判定、不得因 PNG 已生成而跳过。`create` 时继续 handoff → prepare → 调用宿主内部子 Agent 委派工具（优先 `spawn_agent`），只等待即时成功回执，不在首答前等待页面完成；不得用 `create_thread/fork_thread` 代替。用户明确说“只要 PNG / 不要网页 / 不要活页”时仍要执行 route 并得到 `none`；弱“看看走势”走数值窗口，不进入本流程。
 
 ---
 
@@ -19,14 +21,17 @@
 | K1 | 时间窗口已解析 | begin_date 已计算 | "最近 N 月"转为 YYYYMMDD；未指定时默认近 6 个月 |
 | **K1.5** | **日期锚点已获取** | **当前日期来自可靠来源** | 当前日期锚点来自**系统上下文 或 工具返回**（非模型猜测）；begin_date 基于该锚点计算得出。**未通过 K1.5 = 禁止调用 renderKLine** |
 | K2 | K 线图已渲染 | renderKLine 成功 | 返回 base64 图片，data_points > 0 |
-| K3 | 交付完成 | 图片已展示 + 简短说明 | 无多余文字，无目测数值 |
+| **K2.5** | **活页路由已执行** | 已运行 `live_page_routing.py route` 并保留 JSON | `create` 已完成非阻塞 handoff/prepare/spawn accepted，或 `none/suggest` 有明确返回；命令失败已记录为软降级 |
+| K3 | 交付完成 | 图片已展示 + 简短说明 | 无多余文字，无目测数值；不等待 QBV 完成 |
 
 ### 首选路径
 0. `newSession`（若本轮尚未调用；不可省略，K-1 未通过则禁止往下做任何平台工具调用）
 1. `presets/assets_db/{类型}.yaml`→ 获得 ticker
 2. 解析用户时间描述 → 计算 `begin_date`
-3. `renderKLine(ticker, begin_date, ...)` → 获得图片
-4. 展示图片 + 一句话说明
+3. `renderKLine(ticker, begin_date, ...)` → 获得图片并验证；用户明确要求 PNG 时必须传 `output_format="png"`，直接使用返回的 `artifact_file`，禁止再调用 Bash/Python 转换格式
+4. 读取 `live-page-routing.md`，实际执行 `python scripts/live_page_routing.py route --user-query "用户本轮原话"`
+5. `create|existing_page`：继续 handoff → prepare → 调用宿主内部子 Agent 委派工具（优先 `spawn_agent`），只等待即时成功回执；`none|suggest`：直接继续；委派不可用或失败：把 Job 更新为 `DELEGATION_UNAVAILABLE` 后软降级
+6. 展示图片 + 一句话说明；不等待 QBV 完成
 
 ### Backward Recovery
 

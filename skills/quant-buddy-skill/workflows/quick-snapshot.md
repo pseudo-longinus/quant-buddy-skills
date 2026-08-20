@@ -1,4 +1,4 @@
-﻿# 快速查数 · 最新时点快照
+# 快速查数 · 最新时点快照
 
 > **适用范围**：单资产或少量资产，查询**最新交易日**的行情/估值少量字段，最终拼出若干标量。  
 > 本流程定义本场景的专用执行步骤；全局执行合同、证据分级、禁语、精度与回答边界仍以 `workflows/global-rules.md` 为准。
@@ -114,17 +114,17 @@ Step 1 确认资产（硬门槛）
 ], "begin_date": 20240101}
 ```
 
-**runMultiFormulaBatchStream 默认参数（本流程固定）**：
+**runMultiFormulaBatchStream 参数（按用户时间意图选择）**：
 ```json
 {
   "begin_date": "<T>",
   "include_description": true,
-  "use_minute_data": true
+  "use_minute_data": "<盘中/当前分钟为 true；历史或收盘快照为 false>"
 }
 ```
 - `begin_date` 直接取**今日**（`T`，YYYYMMDD 整数）。快照场景公式无滚动窗口、只取最新值，begin_date 越晚返回越快。
 - **禁止**固定写 `20240101` / `T-90日` 等远期锚点；除非用户明确指定起点，否则一律 `T`
-- `use_minute_data: true` 是全局业务默认值，本流程同样遵守。开启后最新列自动使用"最后一分钟更新版"，收盘后与日频结果一致，无副作用
+- 仅当用户明确要求盘中、当前分钟或当日未收盘数据时使用 `use_minute_data: true`；历史或收盘快照使用 `false` 或省略。不得因为“快照”二字自动开启分钟模式
 - 若用户问题含名单/排名/选股/筛选/TopN/信号等横截面需求，应改走 `quant-standard` 的对应微流程，quick-snapshot 只处理单资产或少量资产的静态快照
 
 > ⚠️ 429 错误不受本流程 Retry Budget 约束——按 global-rules.md 第 12 条「429 前置拦截」规则处理。

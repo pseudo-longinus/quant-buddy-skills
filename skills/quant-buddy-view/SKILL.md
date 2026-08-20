@@ -2,7 +2,7 @@
 name: quant-buddy-view
 slug: quant-buddy-view
 author: guanzhao
-version: 0.6.44
+version: 0.6.50
 description: |
   QBV / quant-buddy-view（用户可能写成 /quant-buddy-view、/qbv、qbv 或 QBV）用于把量化数据做成「公开可分享、实时取数」的网页看板/落地页。
   Use this skill when the user asks to create, update, publish, verify, retrofit, or reuse a Quant Buddy dashboard/static page/template, including shareable pages, public URLs, formula packages, share shell, cover/essence cards, poster/share behavior, single-stock profile pages, valuation/financial profile pages, index-anomaly boards, multi-factor screeners, and commodity daily pages.
@@ -12,7 +12,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 0.6.44
+  version: 0.6.50
   author: guanzhao
   category: quant-finance
   tags: [quant, dashboard, formula-package, static-page, publish, visualization]
@@ -76,6 +76,8 @@ runtimeRequirements:
 
 > **多轮追问**：首次用户消息运行 `scripts/trace_context.py begin`；同一 `task_id` 的每条后续用户消息先运行 `scripts/trace_context.py beginTurn`。一轮内所有 QBV/QBS 工具共享同一 `turn_id`。Turn 是审计旁路：服务端记录失败会返回 `tracking_recorded:false`，但不得阻断建页、更新、取数或发布；本地上下文仍切换并继续。更新既有活页必须继续复用原 `page_id` 与公开 URL。
 
+> **QBS 并行 Handoff**：收到 `qbs_qbv_handoff_v1` 时运行 `scripts/trace_context.py beginHandoff`（兼容 `begin-handoff`），传入 Handoff object 或绝对 `handoff_file`。必须原样复用其中真实 `task_id + turn_id + source_skill_id`，不得再次 `begin/beginTurn`、不得在 QBV 重做 QBS 路由分类。`create/existing_page` 之后仍进入本 Skill 完整 SOP，由 QBV 判断 direct/fork/unmatched、查询 ownership 并执行本人原位更新或他人复制；高风险持久状态未确认时 `beginHandoff` 必须拒绝。
+
 
 ## 何时用本技能 vs quant-buddy-skill
 
@@ -96,6 +98,25 @@ QBV_API_KEY=<本次任务的 key> python scripts/trace_context.py begin '{"user_
 保存返回的 `task_id`，并把它加入本次任务后续每个 `static_page.py`、`formula_package.py`、`data_grant.py` 参数。脚本会通过 `x-task-id` 请求头透传，使后台能从提问一直聚合到最终活页链接。`new_asset_page` / `templates` / `upload` / `update` / `publish_final` / `publish_verified` 缺少 Trace Context 时必须停止执行。QBV 编排中的 quant-buddy-skill 工具统一通过 `scripts/qbs_bridge.py <tool> @params.json` 调用，并显式传同一 `task_id + user_query`；bridge 会用 task-scoped session 继承 task_id，禁止生成第二个 session id。
 
 **具体资产证据闸门**：除 `new_asset_page` 固定场景外，只要用户点名具体资产，就在 Trace 后、解释资产身份或提交 `routing_decision` 前，按「Trace → 资产映射 → 最小接口验证 → 页面路由」的顺序完成验证：调用 `scripts/qbs_bridge.py resolve_asset_data` 得到平台 ticker 映射，并按页面实际需要探测所需数据角色是否可取数，只记录接口成功/失败、可用字段和结构化错误。页面结构与 direct/fork/unmatched 判断只依据"用户所需能力 × 已验证的平台能力"，不得依据 Agent 对公司上市状态、所有权、资产名称或市场惯例的记忆。验证前不得引入"上市/未上市、公开/私营、代理资产、无行情、只能静态"等限制性前提；若用户没有询问这些身份属性，也不要把它们扩展成分析主线。
+
+
+### 从 QBS 并行交接进入（薄适配，不改变 QBV 独立 SOP）
+
+当父任务提供 `qbs_qbv_handoff_v1` 文件时，不再执行 `begin`，而是：
+
+```powershell
+python scripts/trace_context.py beginHandoff '{"handoff_file":"D:/.../handoff.json"}'
+python scripts/qbs_handoff_adapter.py evaluate '{"handoff_file":"D:/.../handoff.json","qbv_job_id":"qbvjob_xxx","qbv_job_file":"D:/.../job.json"}'
+```
+
+`trace_context.py` 原样复用 QBS 的 `task_id + turn_id`；Adapter 校验可选 `qbs_computation_capsule_v1`，并在发现对应 `qbs_qbv_job_v2` 时确定性把 Job 从 `queued` 写为 `running`。QBV standalone 没有该 Job 时为无副作用 no-op：
+
+- `coverage=covered`：禁止再次调用 `resolve_asset_data` 或其它 QBS 工具重算 `covered_roles`；直接消费胶囊里的资产映射、合同、artifact、字段映射、结论和收据，然后继续 QBV 页面 SOP。
+- `coverage=partial`：只允许通过 `qbs_bridge.py` 补 `missing_roles`，不得重复已覆盖 role。
+- `coverage=unusable`：无损回退本节原有 Trace → `qbs_bridge` → 路由流程，不得降低验证门禁。
+- Adapter 返回 `formula_runtime_action=register_exact` 时：把 `formula_runtime_contract.formulas` 按原顺序、原字面注册为 Formula Package，并按合同中的 `reads` 首次查询；禁止缩写指标名、合并公式、重新推导或再次调用 QBS 验证 covered 公式。fingerprint、左值或 reads 校验失败时按 `coverage=unusable` 安全回退，不得注册被篡改合同。旧 Handoff 没有 `formula_runtime_contract` 时保持原 standalone/兼容流程。
+
+这里跳过的只是**本轮重复计算**。direct/fork/unmatched、本人原位更新/他人复制、Grant/Package 注册、运行时首次查询、页面构建、Card Runtime、发布和公网验收仍由 QBV 完整执行。QBS Job 只做旁路审计：`publish_verified` 同时取得 `published=true + verified=true + page_id + public_url`，或 `direct_deliver` 取得字段一致的强终态 `direct_finalize` contract 后，会自动写回 `completed`；无法继续且确定终止时执行 `python scripts/qbs_handoff_adapter.py fail-job '{"qbv_job_id":"qbvjob_xxx","qbv_job_file":"D:/.../job.json","failure_code":"<CODE>","retryable":true}'`，不得手改 Job JSON。用户直接使用 QBV 时没有 Handoff，继续走原 SOP，不依赖 QBS 胶囊。`source_skill_id=null + source_skill_id_status=unavailable` 是合法审计状态，不得阻断页面流程，也不得猜测历史 `skill_*`。
 
 ### 单一 A 股简单分析快速通道
 
@@ -159,7 +180,7 @@ python scripts/static_page.py new_asset_page '{"task_id":"task_xxx","asset":"贵
 - prepared fork task 禁止 `build_dashboard`；v2只填写生成的 review-update 决策文件，依次运行 `review_update_command` 和 `publish_command`。只有旧 v1任务继续使用手工 `fork_validate` 路径。
 - 带 `task_id` 的进度从 `package_register` 起必须传同任务的结构化验证证据：实时页提交 `route_receipt`、`grant_receipts`、`formula_receipts`，且 `selected_routes` 必须逐项对应实际注册凭证；自由文本 `validation_not_required_reason` 不再放行。纯静态内容只能用 `static_content_only`；资产实时探测全部数据级失败时只能凭 `live_data_route_receipt_v1` 使用 `static_after_live_probe`。
 - 最终回复必须按回复模板输出并且只能使用 contract 的 `public_url`；`feishu-group` 下该字段必须是 `https://www.quantbuddy.cn/playground/<owner>/<page_id>`。一般模板依据 `reply_render_policy` 与 `reply_data_availability` 删除结构性不存在的字段、整列、整行和空可选章节。`single_stock_deep_dive_v1` 还必须读取 SHA256 绑定的 `reply_data_evidence_file`，保留全部七节标题，有数据的模板字段全部输出，整节无数据使用标准说明；只有有效结构中的偶发缺值才写 `--`。若 `delivery_policy.max_markdown_tables` 存在，整篇不得超过该表格数，超出的结构改用列表或行内文本且不得丢数据。validator 返回 `valid=true` 后原样发送 `validated_markdown`，不得再次压缩或改写，也不得暴露原始托管 URL、本地路径、凭证或内部日志。
-- 除 `new_asset_page` 的单链接快速终态外，最终回复前只运行一次发布器返回的 `reply_validation_command`，并把同时返回的 `reply_validation_env`（形如 `{"QBV_API_KEY": "..."}`）原样作为该次执行的环境变量传入——validator 是独立子进程，不传会退回 `config.json` 的默认账号，任务终态被记成错误的用户。禁止把该 key 拼进命令串：命令在日志里原样记录，只有 env 会脱敏。validator 必须读取发布器生成的 `contract_file + contract_sha256`，不得手工重建精简 contract。direct 使用 `direct_deliver` 返回的完整 task ID 路径和命令，成功后自动清理。`valid=true` 后不再执行任何工具调用。
+- 除 `new_asset_page` 的单链接快速终态外，最终回复前只运行一次发布器返回的 `reply_validation_command`。`reply_validation_env` 是进程内执行专用值，CLI 与持久化报告只允许返回 `[REDACTED]` 和 `reply_validation_env_keys`，禁止输出真实凭证。若发布时显式设置了 `QBV_API_KEY`，validator 命令必须继承同一个现有环境变量；未显式覆盖时由 `config.json/config.local.json` 解析默认账号，发布器返回中不携带默认配置 key。禁止把 key 拼进命令串或另写参数文件。validator 必须读取发布器生成的 `contract_file + contract_sha256`，不得手工重建精简 contract。direct 使用 `direct_deliver` 返回的完整 task ID 路径和命令，成功后自动清理。`valid=true` 后不再执行任何工具调用。
 - 没有 terminal contract 禁止完成任务。唯一例外是成功的 `waiting_input` checkpoint。
 - 性能门槛：普通渠道模板命中到首链不超过 5 秒；所有渠道 terminal 到最终回复不超过 45 秒，完整活页任务以 10 分钟内完成为常态目标，用户可见消息间隔不超过 60 秒。回复证据补读不设额外人工截止时间，但必须按模板字段过滤、相同模式批量读取且每批最多10个；禁止公式重算和 package/grant 重查。
 - 逐指标声明最新可得日期和实际覆盖范围。未做浏览器验收时，只能声明公开 URL 和实时接口可访问。
@@ -282,6 +303,7 @@ npx skills update pseudo-longinus/quant-buddy-skills -y
 | `scripts/retrofit_share_shell.py` | （单命令） | **【shell 处理脚本】** 旧 HTML/已发布页面 → 删除旧二维码/旧页头/旧页尾，套入公共 share shell（`assets/share-shell/`），可原链接 update | [tools/retrofit_share_shell.md](tools/retrofit_share_shell.md) |
 | `scripts/data_kernel_retrofit.py` | （单命令） | 按 `QB_DATA_KERNEL` marker 或严格旧内核指纹，只替换页面中的 data-kernel；零个/多个命中均拒绝写回 | [tools/data_grant.md](tools/data_grant.md) |
 | `scripts/static_page.py` | `new_asset_page` / `templates` / `direct_deliver` / `new_page` / `update_progress` / `publish_final` / `publish_verified` / `upload` / `update` / `download` / `image_upload` / `image_list` / `fork_prepare` / `fork_review_update` / `fork_validate` / `retrofit_card_runtime` / 其他管理命令 | 简单单股快速返回、范式路由、正文图片、direct 确定性交付、首链进度、分级浏览器门禁和页面发布管理 | [tools/static_page.md](tools/static_page.md) |
+| `scripts/qbs_handoff_adapter.py` | `@handoff.json` | 校验 QBS computation capsule 的 lineage、合同 fingerprint 与 artifact hash，输出 covered/partial/unusable；不负责路由、ownership、构建或发布 | 本节“从 QBS 并行交接进入” |
 | `scripts/qbs_bridge.py` | `resolve_asset_data` / `<quant-buddy-skill tool> @params.json` / `validate_package_set` / `validate_grant_set` | 统一实时路由探测并继承 QBV→QBS task_id；按最终 package/Grant 合同生成 route/grant/formula fingerprint 绑定收据 | 本节“新会话路由” |
 | `scripts/publish_workflow.py` | `@publish-plan.json` | manifest v2驱动 review/合同预检、package+Grant验证、每role一次注册、多Marker扇出替换和单次 `publish_verified`；v1 JSON兼容 | [tools/publish_workflow.md](tools/publish_workflow.md) |
 | `scripts/validate_agent_reply.py` | （单命令） | 校验发布器 SHA256 绑定的终态 contract 与 Markdown 草稿，并检查公开 URL、章节结构和敏感信息；可在成功后清理任务临时参数文件 | — |

@@ -1,4 +1,6 @@
-﻿# 量化标准流程
+# 量化标准流程
+
+> **路由排除**：若请求是“单资产 + 2～4 个 `fast_query` 标准历史字段 + 明确放在同一张图”，不得使用本 workflow；返回 `visual-page-fast-path.md`。该场景禁止 `searchFunctions` 和公式引擎。
 
 > 本文档是量化选股/回测/因子/图表场景的完整流程规范——唯一权威来源。
 > 所有 workflow 文件中涉及量化公式执行的步骤，都遵循本文档的流程和规则。
@@ -128,6 +130,42 @@
 - 若用户指定了具体板块（如"银行股""沪深300"），则使用用户指定的板块掩码即可，无需额外加全A掩码
 - 资产宇宙掩码必须在排序公式中生效（通过乘法或布尔过滤），不能仅作为 readData 后的文本过滤
 - **掩码必须在排序之前施加**：正确写法是 `排序值="全市场每日回报率"*板块(万得全A)` → 再 `取前("排序值",N,...)`。禁止先 `取前("全市场每日回报率",N,...)` 再事后过滤——这会导致前 N 中混入指数/港股/期货等非目标资产
+
+## 高频默认口径：低 PE + 高 ROE TopN（强制）
+
+用户只说“低PE高ROE选股TopN / 低市盈率高净资产收益率排名前N”，但没有给阈值或主排序字段时，**这不是需要反问的歧义场景**。该表达已具备稳定、可解释的默认口径，直接执行，避免线上高频问题被澄清轮次阻断：
+
+1. 资产池：用户说 A股/股票且未指定板块时，使用 `板块(万得全A)`。
+2. 指标：PE 默认使用最新 `PE(TTM)`；ROE 使用平台确认到的最新 ROE 报告期字段。
+3. 有效样本：`PE(TTM) > 0` 且 `ROE > 0`，并排除缺失值；不得擅自追加非ST、市值、流动性或行业条件。
+4. 默认排序：计算 `ROE / PE(TTM)`，从高到低取用户指定的 TopN。
+5. 默认展示：排名、股票代码、名称、PE(TTM)、ROE、ROE/PE、数据日期。
+6. 答案必须披露“ROE 为百分比展示值，ROE/PE 按平台返回 ROE 数值直接除以 PE(TTM)”以及未附加其它过滤条件。
+7. 用户一旦给出阈值、权重、主排序字段或其它过滤条件，必须完全按用户口径执行，禁止套用本默认值。
+8. **首次公式调用的 `begin_date` 不得设为当天**：ROE 是报告期数据，默认至少覆盖当前自然年；例如当前日期为 2026-08-19 时使用 `begin_date=20260101`。如果跨年后当前自然年尚无有效 ROE，则只把窗口扩到最近 12～18 个月并重试一次。不得先用当天窗口制造全 0/无数据，再做第二次相同计算。
+9. 完成 `readData` 的 TopN 对齐与排序验证后、输出首答前，必须执行本文件“最终回答合同”的 durable 路由硬闸门；用户没有说“图/网页/活页”不是跳过理由。
+10. 本轮 `runMultiFormulaBatchStream` 成功后，必须复用 Validation Receipt 自动保存的 `qbs_formula_runtime_contract_v1`。Top20 不得作为一个无界数组交给 Formula Package；固定拆为 Top10 + Next10，完整执行以下 11 条公式：
+
+```text
+低PE高ROE_条件=("A股市盈率（PE, TTM）〔估值数据〕">0)
+              *("A股净资产收益率ROE">0)
+              *板块(万得全A)
+低PE高ROE_排序值="低PE高ROE_条件"
+                 *("A股净资产收益率ROE"/"A股市盈率（PE, TTM）〔估值数据〕")
+低PE高ROE_Top10掩码=取前("低PE高ROE_排序值",10)
+低PE高ROE_Top20掩码=取前("低PE高ROE_排序值",20)
+低PE高ROE_Next10掩码="低PE高ROE_Top20掩码"-"低PE高ROE_Top10掩码"
+低PE高ROE_Top10Score=取前("低PE高ROE_排序值",10,返回数值)
+低PE高ROE_Next10Score="低PE高ROE_Next10掩码"*"低PE高ROE_排序值"
+低PE高ROE_Top10PE="低PE高ROE_Top10掩码"*"A股市盈率（PE, TTM）〔估值数据〕"
+低PE高ROE_Next10PE="低PE高ROE_Next10掩码"*"A股市盈率（PE, TTM）〔估值数据〕"
+低PE高ROE_Top10ROE="低PE高ROE_Top10掩码"*"A股净资产收益率ROE"
+低PE高ROE_Next10ROE="低PE高ROE_Next10掩码"*"A股净资产收益率ROE"
+```
+
+`force_reusable_array` 只包含六个最终输出：`Top10Score/Next10Score/Top10PE/Next10PE/Top10ROE/Next10ROE`。QBS 为本轮文本回答可对六个物化 `data_id` 使用 `readData(mode="last_column_full")`，按资产对齐后合并两段并按 Score 降序输出完整 20 行；页面运行合同则必须使用六个受支持的 `last_day_stats` reads。禁止把 QBS 的 `readData` mode 复制成 Formula Package read mode，也禁止只返回 Top10 却把标题写成 Top20。
+
+该默认值只解决高频短语的执行口径，不代表投资建议或投资置信度。
 
 ## TopN 结果表生成（强制）
 
@@ -302,7 +340,36 @@
 
 ### 最终回答合同（强制）
 
-若已拿到满足上述证据门禁的数据，**直接输出结果并停止**。最终答案的第一个字必须是数据表格或结论本身（如"符合条件的股票共N只："或直接输出表格），不得以任何过程性陈述开头。
+**图表与 durable 场景路由硬闸门**：只要本轮用户要求任何图表 artifact（包括“放在一张图里”“画成一张图”“同图比较”“绘制成图表”），或命中已登记的高频稳定榜单“低 PE + 高 ROE + 选股/排名 + TopN”，在数据/图片验证完成后、输出 QBS 第一条回答前，必须：
+
+1. 读取 `live-page-routing.md`；
+2. 实际执行 `python scripts/live_page_routing.py route --user-query "用户本轮原话"`；
+3. 保留 route JSON；不得仅凭模型判断，也不得因为已生成 PNG 而跳过；
+4. `create|existing_page` 且本流程已有经过证据门禁的排名、对比、回测或其它结构化 artifact 时，把最小 `page_intent + validated_roles` 请求写入 `output/_working/<task_id>/prepare-page.json`，执行一次 `python scripts/live_page_routing.py prepare-validated-page @output/_working/<task_id>/prepare-page.json`；成功后禁止再手工 build capsule / handoff / prepare。只有没有结构化 artifact 的兼容场景才继续 handoff → prepare。随后调用宿主内部子 Agent 委派工具（优先 `spawn_agent`），只等待即时成功回执；不得使用 `create_thread/fork_thread` 或只口头声明。宿主没有内部委派工具时，立即执行 `python scripts/live_page_routing.py mark-delegation-unavailable --qbv-job-id <ID>`，不得遗留 queued Job 或声称正在生成。`source_skill_id` 缺失时标记 `unavailable`，不阻断交接。`none|suggest` 按返回结果继续；任何路由/委派失败必须写入 Job 失败终态，但不阻断本轮答案。
+
+“低 PE 高 ROE TopN”命中 `create` 时，优先直接复用本轮三个已验证 `data_id`，不要为了建页重复下载或重算。请求至少包含：
+
+```json
+{
+  "page_intent": {
+    "question_to_answer": "当前全A股中，哪些股票兼具较低PE和较高ROE？",
+    "recommended_page_type": "equity_factor_screening_ranking",
+    "primary_visualization": "sortable_topn_table",
+    "required_roles": ["factor_screening_ranking", "pe_values", "roe_values"]
+  },
+  "validated_roles": [
+    {"role": "factor_screening_ranking", "data_id": "<TopN Score data_id>", "row_count": 20, "date": "<共同数据日期>", "universe": "万得全A", "value_semantics": "ROE/PE descending"},
+    {"role": "pe_values", "data_id": "<TopN PE data_id>", "row_count": 20, "date": "<共同数据日期>", "value_semantics": "PE(TTM)"},
+    {"role": "roe_values", "data_id": "<TopN ROE data_id>", "row_count": 20, "date": "<共同数据日期>", "value_semantics": "ROE percent display value"}
+  ]
+}
+```
+
+`task_id`、`turn_id`、`user_query`、`source_skill_version` 同时写入请求。若 run 返回 `validation_receipt_file`，优先只在请求顶层写 `"validation_receipts": ["<validation_receipt_file>"]` 一次；该数组同时兼容内联 Receipt 对象。也可以完全省略，由 `prepare-validated-page` 按同一 `task_id + 全部 data_id` 自动发现。**不要把 Receipt 中含双引号的原始公式再手抄进 `validated_roles[].formula`，也不要把同一 Receipt 重复塞进三个 role**；运行公式合同由 Receipt 原样注入，role 只描述已物化数据的业务语义。请求必须由 `write_skill_file` 写成合法 JSON，首次解析失败后只允许修正该文件一次，不得改写公式合同或重跑数据。`prepare-validated-page` 成功输出的 `qbv_job_id` 和 `handoff_file` 必须保留在 Trace。
+
+只有用户明确说“只要 PNG / 本地图片 / 表格 / 不要网页”时，分类器才应返回 `none`。弱“看看走势”且没有明确图表 artifact 也保持 `none`。
+
+完成上述硬闸门（非图表且非已登记 durable 场景无需执行）后，若已拿到满足证据门禁的数据，**直接输出结果并停止**。最终答案的第一个字必须是数据表格或结论本身（如"符合条件的股票共N只："或直接输出表格），不得以任何过程性陈述开头。QBS 不等待 QBV 页面完成。
 
 ✅ **正确示范**（第一句话即数据结论）：
 ```
@@ -409,7 +476,7 @@ PE条件 = ("PE数据" < 20)
 规则：
 1. 若 `cases_index.yaml` 命中实时 TopN 卡片，优先执行卡片原公式或 skill 内显式允许的等价模板；
 2. 命中卡片后，禁止自行改写核心口径（如"昨收到当前分钟"改成"开盘到当前时点"）；
-3. 全局业务默认参数 `use_minute_data: true` 已覆盖；
+3. 这是明确的实时横截面场景，必须显式传 `use_minute_data: true`；
 4. 若用户只问"哪些股票"，优先使用 description 中的名单直接回答，不强制补取数值；
 5. 最终名单、数值、口径说明必须三者一致。
 
@@ -421,7 +488,7 @@ PE条件 = ("PE数据" < 20)
   - **未来未知场景（首批保守 + 后续修正）**：当用户第一轮只给出部分链、明确说"后面还会加新需求"时，首批可以仅把"末输出 + 跨批引用"写入数组，其余省略（不要为保险把全部变量都列进去）；当后续轮次新公式回引到首批某个早期、当时未列入的变量时，**必须先调用修正接口**（如 `markReusable` / `updateForceReusable` / 同义接口）把目标变量加入复用集合，再继续后续 batch；切勿假设变量还在缓存里、也勿一次性把首批全列入。若当前后端**尚未提供修正接口**，应在最终答案中明确说明"此次需要重新计算前置变量"，而不是默默兜底。
   - **⚠️ 全列 = 规则退化**：若某批 `force_reusable_array` 列出了本批全部左侧变量名（且公式数 > 5），说明未做跨批依赖分析，应回退重新扫描依赖边再标注。这与"未传 `force_reusable_array`"等价，**不能视为已正确使用**。
   - **⚠️ 缓存兜底成功 ≠ 数组用对**：服务端缓存层会自动兜底，所以数组标错时最终结果也常常能跑出来。这是误导信号，必须独立检查每条公式的变量名是否按上述规则正确加入或省略，不能以"是否能拿到结果"作为评判标准。
-  - **分批切点原则**：优先在依赖图弱耦合处切分（即切点跨过的引用边数最少）。一般而言，公式链的依赖层级从下到上是：基础行情/掩码层 → 中间因子/统计层 → 合成评分层 → 最终输出层；在层与层的边界处切批，可最小化跨批写入数组的变量数，降低服务端缓存压力。**单批不超过 10 条（所有 tier 一律 10，保守模板）**。
+  - **分批切点原则**：优先在依赖图弱耦合处切分（即切点跨过的引用边数最少）。一般而言，公式链的依赖层级从下到上是：基础行情/掩码层 → 中间因子/统计层 → 合成评分层 → 最终输出层；在层与层的边界处切批，可最小化跨批写入数组的变量数，降低服务端缓存压力。**单批不超过 20 条（所有 tier 一律 20）**。
 
 `refresh_snapshot_time` 已从 `runMultiFormulaBatchStream` 移除，禁止传入。若 freshness guard 失败且需要推进同一 session 的分钟数据截止时间，先调用独立 `refreshSnapshotTime`，再重跑公式。
 
@@ -476,7 +543,7 @@ PE条件 = ("PE数据" < 20)
 - 与实时TopN不同，此类题不需排名，只需满足阈值条件的完整名单
 
 规则：
-3. 全局业务默认参数 `use_minute_data: true` 已覆盖，无需额外声明；
+1. 这是明确的盘中阈值场景，必须显式传 `use_minute_data: true`；
 2. 条件掩码严格来自用户原始条件，不得扩展或收窄；
 3. description 中的 `全部名称` 和 `effective_matches` 即为最终结果；
 4. 若 `effective_matches` ≤ 20，直接用 description 名单回答即可，不必 readData；
@@ -545,24 +612,23 @@ python scripts/call.py newSession
 | 昨日、日频、收盘后、复盘、历史 | 日频 `[freq:daily]` | 排除含 `[freq:minute]` 的卡片 |
 | 未明确说明 | 默认日频 | 按日频处理 |
 
-> ⚠️ **频率识别只影响卡片匹配**，不影响 `use_minute_data` 参数。`use_minute_data: true` 是全局业务默认值，**所有 `runMultiFormulaBatchStream` 调用都应传**，无论识别出什么频率。
+> ⚠️ **频率识别同时决定卡片匹配和 `use_minute_data` 参数。**只有盘中、当前分钟或当日未收盘请求设为 `true`；历史、复盘、回测、净值、回撤、波动率、历史日线及财务报告期设为 `false` 或省略。
 >
-> 频率识别的唯一作用是决定从 `cases_index.yaml` 里匹配日频卡片还是分钟频卡片（分钟频卡片使用原生分钟数据名，日频卡片使用日频数据名 + 服务端自动映射）。
+> 卡片频率和执行参数必须一致：分钟频场景匹配分钟卡片并开启盘中映射；日频场景匹配日频卡片且不得开启分钟模式。
 
 ### 频率→参数注入（强制）
 
-`use_minute_data: true` 是全局业务默认值，**无论日频还是分钟频场景都应传**：
+参数按频率条件注入：分钟频场景传 `true`，历史日频计算传 false 或省略：
 
 ```json
-{
-  "formulas": ["..."],
-  "use_minute_data": true
-}
+// 盘中/当前分钟
+{"formulas": ["..."], "use_minute_data": true}
+
+// 历史日频/回测/净值/回撤/波动率/财务
+{"formulas": ["..."], "use_minute_data": false}
 ```
 
-> `use_minute_data: true` 的效果是把 7 个日频行情数据名的最新列替换为"最后一分钟更新版"。盘中 = 实时价，收盘后 = 收盘价（与不传时结果一致）。历史数据不变。
->
-> `use_minute_data: true` 模式下，主动新写公式时优先使用日频数据名（服务端自动映射）。PE、换手率、财务等非行情数据不受影响。
+> `use_minute_data: true` 会把 7 个日频行情数据名的最新列替换为“最后一分钟更新版”，所以只能用于需要当前盘中截面的请求。主动写盘中公式时仍优先使用日频数据名，由服务端自动映射；历史计算和财务计算不要开启。
 
 ### 分钟频场景强制卡片路由（硬规则）
 
@@ -780,7 +846,7 @@ PE数据="A股市盈率（PE, TTM）〔估值数据〕"
 | 1c | `searchSimilarCases` | `{"query": "资产名+操作/机制"}` | **fallback**：1a→1b 未找到时才调 | — |
 | 2 | `searchFunctions` | `{"query": "函数关键词", "top_k": 3}` | 确认函数参数格式 | — |
 | 4 | `confirmDataMulti` | `{"data_desc": "换手率,市盈率"}` — **逗号分隔字符串** | 确认平台数据项，获取 index_title | — |
-| 5 | `runMultiFormulaBatchStream` | `{"formulas": ["变量名=公式", ...]}` — **字符串数组**。begin_date **整数** YYYYMMDD。**始终传 `"use_minute_data": true`**。**多公式（≥ 2 条）必须同步评估并按需传 `force_reusable_array`**（字符串数组，元素是公式左侧变量名）：把会被 `readData` 读取或后续 batch 引用的变量名写进数组，纯中间变量不要写。⚠️ **每条公式必须独占数组的一个元素**，禁止用逗号把多条公式拼在同一个字符串中（如 `"A=X","B=Y"` 写成 `"A=X,B=Y"` 会导致 PARTIAL_SUCCESS）。多批回测/策略任务须按 global-rules 规则 15 每批带 `execution_profile`+`user_query`，收到 `deferred` 须 `resumeJob` 续传（规则 16） | 执行公式；同批必须同一 task_id | 公式语法报错 → `tools/run_multi_formula.md` |
+| 5 | `runMultiFormulaBatchStream` | `{"formulas": ["变量名=公式", ...]}` — **字符串数组**。begin_date **整数** YYYYMMDD。`use_minute_data` 按频率选择：仅盘中/当前分钟请求设为 true；历史日频计算传 false 或省略。**多公式（≥ 2 条）必须同步评估并按需传 `force_reusable_array`**（字符串数组，元素是公式左侧变量名）：把会被 `readData` 读取或后续 batch 引用的变量名写进数组，纯中间变量不要写。⚠️ **每条公式必须独占数组的一个元素**，禁止用逗号把多条公式拼在同一个字符串中（如 `"A=X","B=Y"` 写成 `"A=X,B=Y"` 会导致 PARTIAL_SUCCESS）。多批回测/策略任务须按 global-rules 规则 15 每批带 `execution_profile`+`user_query`，收到 `deferred` 须 `resumeJob` 续传（规则 16） | 执行公式；同批必须同一 task_id | 公式语法报错 → `tools/run_multi_formula.md` |
 | 6 | `readData` | `{"ids": ["hex_id", ...], "mode": "smart_sample"}` — **hex data_id**，最多 10 个 | **不可跳过**：验证 NaN率、净值方向、覆盖率。⚠️ `ids` 必须是 `runMultiFormulaBatchStream` 返回的 hex `_id`，**不能传中文变量名**（如 `"A股收盘价"`） | mode 不是 smart_sample → **必读 `tools/read_data.md`** |
 | 7 | `renderChart` | `{"lines": [{"id":"hex_id","name":"图例名"}]}` — 双轴加 `"axis":"right"` | 渲染图表，自动保存 PNG 到 output/。**仅一维数据** | 画 K线/面积图/多轴 → **必读 `tools/render_chart.md`** |
 | 7b | `renderKLine` | `{"ticker": "SH600519", "begin_date": 20240101}` — **SH/SZ 前缀6位** | K线图快捷工具，无需 runMultiFormulaBatchStream | 叠加技术指标 → **必读 `tools/render_kline.md`** |

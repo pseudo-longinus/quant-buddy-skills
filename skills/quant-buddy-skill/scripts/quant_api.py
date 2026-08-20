@@ -20,6 +20,8 @@
 依赖：仅 Python 标准库（json, os, re, sys, uuid）。
 """
 
+import base64
+import io
 import json
 import os
 import re
@@ -58,6 +60,96 @@ def _read_skill_version(skill_root: str = _SKILL_ROOT) -> str:
     return ""
 
 
+def _materialize_chart_artifact(raw: dict, params: dict, skill_root: str) -> dict:
+    """Persist renderChart/renderKLine base64 as a real local artifact.
+
+    The programmable QuantAPI path bypasses call.py, so it must perform the same
+    materialization itself. Failures stay non-fatal for the data response but are
+    made explicit through ``artifact_error``; a path is returned only after the
+    file exists and is non-empty.
+    """
+    if not isinstance(raw, dict) or raw.get("code") != 0:
+        return raw
+    data = raw.get("data")
+    if not isinstance(data, dict):
+        return raw
+    encoded = data.get("base64")
+    if not isinstance(encoded, str) or not encoded.strip():
+        return raw
+
+    value = encoded.strip()
+    mime = ""
+    payload = value
+    if value.startswith("data:") and "," in value:
+        header, payload = value.split(",", 1)
+        mime = header[5:].split(";", 1)[0].lower()
+    if not mime:
+        mime = str(data.get("mime_type") or "").strip().lower()
+    source_format = str(data.get("format") or "").strip().lower().lstrip(".")
+    extension = {
+        "image/png": ".png",
+        "image/jpeg": ".jpg",
+        "image/jpg": ".jpg",
+        "image/webp": ".webp",
+        "image/gif": ".gif",
+    }.get(mime, {
+        "png": ".png",
+        "jpeg": ".jpg",
+        "jpg": ".jpg",
+        "webp": ".webp",
+        "gif": ".gif",
+    }.get(source_format, ".png"))
+    payload += "=" * ((4 - len(payload) % 4) % 4)
+
+    requested_format = str(params.get("output_format") or "").strip().lower().lstrip(".")
+    requested_format = {"jpeg": "jpg"}.get(requested_format, requested_format)
+    if requested_format and requested_format not in {"png", "jpg", "webp"}:
+        data["artifact_error"] = "CHART_ARTIFACT_FORMAT_UNSUPPORTED: output_format 仅支持 png/jpg/webp"
+        return raw
+
+    title = str(params.get("title") or params.get("name") or "chart").strip()
+    safe_name = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in title).strip("_")
+    safe_name = safe_name[:120] or "chart"
+    output_dir = os.path.abspath(os.path.join(skill_root, "output"))
+    os.makedirs(output_dir, exist_ok=True)
+    artifact_file = os.path.abspath(os.path.join(output_dir, safe_name + extension))
+    try:
+        image_bytes = base64.b64decode(payload, validate=False)
+        if not image_bytes:
+            raise ValueError("decoded chart is empty")
+        if requested_format:
+            target_extension = {"png": ".png", "jpg": ".jpg", "webp": ".webp"}[requested_format]
+            if extension != target_extension:
+                try:
+                    from PIL import Image
+                    source = io.BytesIO(image_bytes)
+                    target = io.BytesIO()
+                    with Image.open(source) as image:
+                        if requested_format == "jpg" and image.mode not in {"RGB", "L"}:
+                            image = image.convert("RGB")
+                        image.save(target, format={"png": "PNG", "jpg": "JPEG", "webp": "WEBP"}[requested_format])
+                    image_bytes = target.getvalue()
+                except Exception as exc:
+                    raise RuntimeError(f"explicit {requested_format} conversion failed: {exc}") from exc
+            extension = target_extension
+            artifact_file = os.path.abspath(os.path.join(output_dir, safe_name + extension))
+        with open(artifact_file, "wb") as handle:
+            handle.write(image_bytes)
+        if not os.path.isfile(artifact_file) or os.path.getsize(artifact_file) <= 0:
+            raise OSError("chart artifact was not written")
+    except Exception as exc:
+        data["artifact_error"] = f"CHART_ARTIFACT_SAVE_FAILED: {exc}"
+        return raw
+
+    data["base64"] = f"<{len(encoded)} chars>"
+    final_format = {".png": "png", ".jpg": "jpg", ".webp": "webp", ".gif": "gif"}.get(extension, extension.lstrip("."))
+    data["format"] = final_format
+    data["mime_type"] = {"png": "image/png", "jpg": "image/jpeg", "webp": "image/webp", "gif": "image/gif"}.get(final_format, data.get("mime_type"))
+    data["artifact_file"] = artifact_file
+    data["saved_to"] = artifact_file
+    return raw
+
+
 def _resolve_session_file(skill_root: str) -> str:
     """按优先级解析 session 文件路径，支持多会话并行：
     1) QBS_SESSION_FILE 环境变量直接指定路径
@@ -72,6 +164,86 @@ def _resolve_session_file(skill_root: str) -> str:
         safe_key = re.sub(r"[^A-Za-z0-9_\-]", "_", key)[:64]
         return os.path.join(skill_root, "output", f".session.{safe_key}.json")
     return os.path.join(skill_root, "output", ".session.json")
+
+
+def _normalize_compact_formula_payload(raw: dict, task_id: str) -> dict:
+    """Normalize the SSE compact terminal payload to the documented envelope."""
+    if not isinstance(raw, dict):
+        return raw
+    if (
+        "data" not in raw
+        and isinstance(raw.get("results"), list)
+        and raw.get("status") is not None
+        and raw.get("status") != "deferred"
+    ):
+        status = raw.get("status")
+        results = []
+        for item in raw.get("results", []):
+            if not isinstance(item, dict):
+                results.append(item)
+                continue
+            normalized = dict(item)
+            if normalized.get("indexinfo_id") is not None and normalized.get("data_id") is None:
+                normalized["data_id"] = normalized.get("indexinfo_id")
+            results.append(normalized)
+        envelope = {
+            "code": 0,
+            "success": status == "ok",
+            "task_id": str(task_id or raw.get("task_id") or "").strip(),
+            "data": {
+                "status": status,
+                "summary": raw.get("summary") or {},
+                "results": results,
+            },
+        }
+        for field in ("request_id", "trace_id"):
+            if raw.get(field) is not None:
+                envelope[field] = raw[field]
+        if status != "ok":
+            failed = [item for item in results if isinstance(item, dict) and item.get("status") != "success"]
+            envelope["message"] = "runMultiFormulaBatchStream 未全部成功，失败详情见 errors。"
+            envelope["errors"] = [
+                {
+                    "leftName": item.get("leftName") or item.get("expression_id"),
+                    "formula": item.get("formula"),
+                    "errorCode": item.get("errorCode"),
+                    "category": item.get("category"),
+                    "retryable": item.get("retryable"),
+                    "guidance": item.get("guidance"),
+                    "message": item.get("message"),
+                }
+                for item in failed
+            ]
+        return envelope
+    return dict(raw)
+
+
+def _finalize_formula_execution_payload(
+    tool_name: str,
+    params: dict,
+    raw: dict,
+    *,
+    task_id: str = "",
+) -> dict:
+    """Persist successful formula receipts on the programmable QuantAPI path.
+
+    ``agent/test_agent.py`` and other Python hosts call :class:`QuantAPI`
+    directly and therefore bypass ``call.py``.  This function keeps that path's
+    terminal envelope, receipt, and summary-output contracts identical without
+    making receipt failures block an otherwise valid market-data result.
+    """
+    if tool_name not in {"runMultiFormulaBatchStream", "resumeJob"} or not isinstance(raw, dict):
+        return raw
+    payload = _normalize_compact_formula_payload(raw, task_id or params.get("task_id"))
+    try:
+        from validation_receipt import apply_output_mode, write_receipt  # noqa: PLC0415
+
+        receipt_file = write_receipt(tool_name, params or {}, payload)
+        if receipt_file:
+            payload["validation_receipt_file"] = receipt_file
+        return apply_output_mode(payload, (params or {}).get("output_mode", "full"))
+    except Exception:
+        return payload
 
 
 class QuantAPI:
@@ -224,6 +396,24 @@ class QuantAPI:
         except Exception:
             return {}
 
+    @staticmethod
+    def _effective_update_required(version_info: dict, current_version: str) -> bool:
+        """Ignore a stale server update flag when the local SemVer is already newer."""
+        requested = bool((version_info or {}).get("update_required"))
+        if not requested:
+            return False
+        target = (
+            ((version_info or {}).get("package") or {}).get("required_version")
+            or (version_info or {}).get("latest_version")
+        )
+        if not current_version or not target:
+            return requested
+        try:
+            from companion_manager import compare_semver  # noqa: PLC0415
+            return compare_semver(current_version, target) < 0
+        except Exception:
+            return requested
+
     # ────────────────────────────────────────────
     # 底层调用（直接 HTTP，不走 subprocess）
     # ────────────────────────────────────────────
@@ -273,6 +463,7 @@ class QuantAPI:
 
             # 主动查询服务端版本，便于上层 Agent 在 newSession 时立即知道是否需要升级
             _ver_info = self._check_skill_version()
+            _qbs_update_required = self._effective_update_required(_ver_info, _cur_ver)
             _resp = {
                 "code": 0,
                 "task_id": new_id,
@@ -293,7 +484,7 @@ class QuantAPI:
                        "task_id 与首个 turn_id 已保存到 .session.json。")
                 ),
             }
-            if _ver_info.get("update_required"):
+            if _qbs_update_required:
                 _resp["update_required"] = True
                 _resp["latest_version"] = _ver_info.get("latest_version")
                 _resp["package"] = _ver_info.get("package")
@@ -308,7 +499,7 @@ class QuantAPI:
                         _ver_info.get("companions"),
                         self.skill_root,
                         _cur_ver,
-                        qbs_update_required=bool(_ver_info.get("update_required")),
+                        qbs_update_required=_qbs_update_required,
                     )
                 except Exception as exc:
                     companion_result = {
@@ -410,6 +601,11 @@ class QuantAPI:
                 except _ex._StreamUnsupportedError:
                     raw = _ex.call_post(cfg["endpoint"], api_key, path, params,
                                         timeout=self.timeout)
+            elif tool_name == "resumeJob":
+                # deferred 任务续传是 SSE GET，必须带 Accept: text/event-stream；
+                # 不能落入普通 call_get，否则服务端会返回 HTTP 406。
+                raw = _ex.call_resume_job(
+                    cfg["endpoint"], api_key, params, timeout=self.timeout)
             elif method == "GET":
                 raw = _ex.call_get(cfg["endpoint"], api_key, path, params,
                                    timeout=self.timeout)
@@ -428,6 +624,13 @@ class QuantAPI:
                 if code_m:
                     return {"code": int(code_m.group(1)), "_raw_yaml": raw}
                 return {"code": -1, "_raw": raw[:2000]}
+
+        if tool_name in ("renderChart", "renderKLine"):
+            raw = _materialize_chart_artifact(raw, params, self.skill_root)
+        if tool_name in ("runMultiFormulaBatchStream", "resumeJob"):
+            raw = _finalize_formula_execution_payload(
+                tool_name, params, raw, task_id=self._task_id or params.get("task_id", "")
+            )
 
         # 服务端有时在响应里带新的 task_id：
         #   - 只更新文件（供 call.py / 外部工具读取）

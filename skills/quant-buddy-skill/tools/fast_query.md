@@ -1,7 +1,7 @@
 ﻿# fast_query — 快速查询（单次合并接口）
 
 一次调用完成资产解析 + 字段解析 + 公式执行 + 取值。  
-适用：≤1000 资产，标准字段，行情/估值/财务标量、固定区间序列或窗口序列；期货仅尝试行情字段，是否可得以工具返回为准。
+适用：≤1000 资产，标准字段，行情/估值/财务标量、A 股所属行业基础信息、固定区间序列或窗口序列；期货仅尝试行情字段，是否可得以工具返回为准。
 **不适用**：选股、回测、行业聚合、事件研究、K线、开放式个股指标画像或全维度指标概览（此类走 `stockProfile`）；期货估值/财务/K线不在本接口承诺范围内。
 
 ## 参数
@@ -45,6 +45,10 @@
 - A/US/HK 均支持（港美股专用单季口径）：`PE_单季` `PB_单季` `PS_单季` `股息率_单季`（显式查询季频数据时使用）
 - PE（静态）：A 股用静态 PE，港美股自动映射到 TTM 版（HK/US 无静态 PE）
 
+**所属行业基础信息**（仅 `snapshot` + `value`）：
+- 仅 A 股股票：`所属行业`。资产必须满足 `type=stock` 且 `market_id=1/2`；港股、美股、指数及其他资产返回暂不支持。
+- 返回结构化分类：`swl1`（申万一级）、`swl2`（申万二级）、`jqc`（概念列表）。无单位、无交易日/报告期；直接按 `swl1.name`、`swl2.name`、`jqc[].name` 展示，不能将整个对象作为文本或数值格式化。
+
 **财务**（report，所有财务字段统一返回**单季**数据，A/US/HK 一致）：
 - A/US/HK 均支持：`营业收入` `净利润` `归母净利润` `营业成本` `总资产` `净资产` `ROE`（`roe`）`净利率` `毛利率`（`gross_margin`）；现金流：`经营现金流`（`operating_cashflow`）`投资活动现金流`（`investing_cashflow`）`筹资活动现金流`（`financing_cashflow`）；英文：`revenue` `net_profit` `cogs` `total_assets` `equity`
 
@@ -66,7 +70,7 @@
 
 > **单位按品种下沉**：同一字段多品种单位不一致时，`fields_meta[字段].unit_per_asset=true`，单位下沉到每个资产值：value 模式 `{v, unit}`，series 模式 `{unit, values}`（主轴）。单位一致时仍在 `fields_meta`、值为标量/数组。读值时优先看资产内联 `unit`，没有再读 `fields_meta.unit`。
 
-不在白名单 → 服务端自动调 confirmDataMulti 解析（+2s）；无法解析则 FIELD_UNRESOLVABLE。
+除 `所属行业` 这一专用 A 股资产元数据字段外，不在白名单 → 服务端自动调 confirmDataMulti 解析（+2s）；无法解析则 FIELD_UNRESOLVABLE。
 
 ## 限流
 
