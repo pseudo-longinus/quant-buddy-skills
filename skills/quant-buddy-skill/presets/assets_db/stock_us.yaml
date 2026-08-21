@@ -64,7 +64,6 @@ stock | Billcom_Holdings_Inc | BILL.N |  |
 stock | Bio-Techne_Corporation | TECH.O |  |
 stock | BioMarin_Pharmaceutical_Inc | BMRN.O |  |
 stock | BJs_Wholesale_Club_Holdings_Inc | BJ.N |  |
-stock | Block_Inc | SQ.N |  |
 stock | Block_Inc | XYZ.N |  |
 stock | Blue_Owl_Capital_Inc | OWL.N |  |
 stock | BOK_Financial_Corporation | BOKF.O |  |
@@ -88,7 +87,6 @@ stock | Carpenter_Technology_Corporation | CRS.N |  |
 stock | Carvana_Co | CVNA.N |  |
 stock | Caseys_General_Stores_Inc | CASY.O |  |
 stock | CAVA_Group_Inc | CAVA.N |  |
-stock | CCC_Intelligent_Solutions_Holdings_Inc | CCCS.O |  |
 stock | CDW_Corporation | CDW.O |  |
 stock | Celsius_Holdings_Inc | CELH.O |  |
 stock | Cencora_Inc | COR.N |  |
@@ -160,7 +158,6 @@ stock | Eagle_Materials_Inc | EXP.N |  |
 stock | EastGroup_Properties_Inc | EGP.N |  |
 stock | Elastic_NV | ESTC.N |  |
 stock | Element_Solutions_Inc | ESI.N |  |
-stock | Elevance_Health_Inc | ANTM.N |  |
 stock | Elevance_Health_Inc | ELV.N |  |
 stock | elf_Beauty_Inc | ELF.N |  |
 stock | EMCOR_Group_Inc | EME.N |  |
@@ -202,7 +199,6 @@ stock | First_Citizens_BancShares_Inc | FCNCA.O |  |
 stock | First_Hawaiian_Inc | FHB.O |  |
 stock | First_Horizon_Corporation | FHN.N |  |
 stock | First_Industrial_Realty_Trust_Inc | FR.N |  |
-stock | First_Trust_Dorsey_Wright_Peoples_Portfolio_ETF | DWPP.O |  |
 stock | Five_Below_Inc | FIVE.O |  |
 stock | Floor__Decor_Holdings_Inc | FND.N |  |
 stock | Flowers_Foods_Inc | FLO.N |  |
@@ -330,7 +326,6 @@ stock | Nexstar_Media_Group_Inc | NXST.O |  |
 stock | NIQ_Global_Intelligence_Plc | NIQ.N |  |
 stock | NiSource_Inc | NI.N |  |
 stock | NNN_REIT_Inc | NNN.N |  |
-stock | NortonLifeLock_Inc | NLOK.O |  |
 stock | NOV_Inc | NOV.N |  |
 stock | NRG_Energy_Inc | NRG.N |  |
 stock | Nutanix_Inc | NTNX.O |  |
@@ -367,6 +362,7 @@ stock | Pinnacle_Financial_Partners_Inc | PNFP.O |  |
 stock | Pinnacle_West_Capital_Corporation | PNW.N |  |
 stock | Pinterest_Inc | PINS.N |  |
 stock | Planet_Fitness_Inc | PLNT.N |  |
+stock | POET_Technologies_Inc | POET.N |  |
 stock | Pool_Corporation | POOL.O |  |
 stock | Popular_Inc | BPOP.O |  |
 stock | Post_Holdings_Inc | POST.N |  |
@@ -487,6 +483,7 @@ stock | Thor_Industries_Inc | THO.N |  |
 stock | TKO_Group_Holdings_Inc | TKO.N |  |
 stock | Toast_Inc | TOST.N |  |
 stock | TopBuild_Corp | BLD.N |  |
+stock | Tower半导体 | TSEM.N |  |
 stock | TPG_Inc | TPG.O |  |
 stock | Tractor_Supply_Company | TSCO.O |  |
 stock | Tradeweb_Markets_Inc | TW.O |  |
@@ -498,7 +495,6 @@ stock | Trump_Media__Technology_Group_Corp | DJT.O |  |
 stock | Twilio_Inc | TWLO.N |  |
 stock | Tyler_Technologies_Inc | TYL.N |  |
 stock | U-Haul_Holding_Company | UHAL.N |  |
-stock | U-Haul_Holding_Company | UHALB.O |  |
 stock | Ubiquiti_Inc | UI.N |  |
 stock | UDR_Inc | UDR.N |  |
 stock | UGI_Corporation | UGI.N |  |
@@ -517,7 +513,6 @@ stock | VanEck半导体ETF | SMH.O |  |
 stock | Veeva_Systems_Inc | VEEV.N |  |
 stock | Ventas_Inc | VTR.N |  |
 stock | Veralto_Corporation | VLTO.N |  |
-stock | Versant_Media_Group_Inc_Class_A_Common_Stock_When-Issued | VSNTV.O |  |
 stock | VICI_Properties_Inc | VICI.N |  |
 stock | Viking_Holdings_Ltd | VIK.N |  |
 stock | Viking_Therapeutics_Inc | VKTX.O |  |
@@ -549,13 +544,13 @@ stock | YETI_Holdings_Inc | YETI.N |  |
 stock | Zillow_Group_Inc_Class_A | ZG.O |  |
 stock | Zillow_Group_Inc_Class_C | Z.O |  |
 stock | Zions_Bancorporation_National_Association | ZION.O |  |
-stock | ZoomInfo_Technologies_Inc | ZI.O |  |
 stock | Zoom_Communications_Inc | ZM.O |  |
 stock | Zscaler_Inc | ZS.O |  |
 stock | 万事达 | MA.N |  |
 stock | 万宝盛华 | MAN.N |  |
 stock | 万豪国际 | MAR.O |  |
 stock | 三井住友金融集团 | SMFG.N |  |
+stock | 三倍做多纳斯达克100ETF-ProShare | TQQQ.O |  |
 stock | 三菱日联金融集团 | MUFG.N |  |
 stock | 世邦魏理仕 | CBRE.N |  |
 stock | 丘博 | CB.N |  |
@@ -669,7 +664,6 @@ stock | 威廉姆斯索诺玛 | WSM.N |  |
 stock | 威德福 | WFRD.O |  |
 stock | 威瑞信 | VRSN.O |  |
 stock | 威瑞森 | VZ.N |  |
-stock | 威达信 | MMC.N |  |
 stock | 威达信 | MRSH.N |  |
 stock | 孩之宝 | HAS.O |  |
 stock | 安姆科 | AMCR.N |  |
@@ -700,7 +694,6 @@ stock | 实耐宝 | SNA.N |  |
 stock | 家得宝 | HD.N |  |
 stock | 宾利系统 | BSY.O |  |
 stock | 宾士域 | BC.N |  |
-stock | 富俊品牌 | FBHS.N |  |
 stock | 富兰克林资源 | BEN.N |  |
 stock | 富国银行 | WFC.N |  |
 stock | 富美实 | FMC.N |  |
@@ -712,6 +705,7 @@ stock | 希捷科技 | STX.O |  |
 stock | 帕卡 | PCAR.O |  |
 stock | 广达服务 | PWR.N |  |
 stock | 库珀 | COO.O |  |
+stock | 应用光电 | AAOI.N |  |
 stock | 应用材料 | AMAT.O |  |
 stock | 废物管理 | WM.N |  |
 stock | 康卡斯特 | CMCSA.O |  |
@@ -816,7 +810,6 @@ stock | 泛林 | LRCX.O |  |
 stock | 波士顿啤酒 | SAM.N |  |
 stock | 波士顿科学 | BSX.N |  |
 stock | 波尔 | BALL.N |  |
-stock | 波尔 | BLL.N |  |
 stock | 波音 | BA.N |  |
 stock | 泰佩思琪 | TPR.N |  |
 stock | 泰利福 | TFX.N |  |
@@ -847,7 +840,6 @@ stock | 特斯拉 | TSLA.O |  |
 stock | 特灵科技 | TT.N |  |
 stock | 环球支付 | GPN.N |  |
 stock | 环联 | TRU.N |  |
-stock | 珀金埃尔默 | PKI.N |  |
 stock | 理想汽车 | LI.O |  |
 stock | 瑞思迈 | RMD.N |  |
 stock | 瑞杰金融 | RJF.N |  |
@@ -1000,7 +992,6 @@ stock | 贝宝 | PYPL.O |  |
 stock | 贝莱德 | BLK.N |  |
 stock | 财捷 | INTU.O |  |
 stock | 贰陆 | COHR.N |  |
-stock | 费哲金融 | FI.N |  |
 stock | 费哲金融 | FISV.O |  |
 stock | 费埃哲 | FICO.N |  |
 stock | 赛富时 | CRM.N |  |
