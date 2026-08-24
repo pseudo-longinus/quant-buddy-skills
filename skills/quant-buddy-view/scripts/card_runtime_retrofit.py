@@ -9,6 +9,7 @@ import urllib.error
 import urllib.request
 
 import common as C
+from card_runtime_visuals import render_visual
 from card_runtime_contract import (
     CARD_RUNTIME_KIND,
     CARD_RUNTIME_VERSION,
@@ -275,10 +276,6 @@ def query_all_outputs(manifest):
     return all_outputs
 
 
-def _e(text):
-    return _html.escape(str(text or ""), quote=True)
-
-
 def _title_from_html(html):
     match = re.search(r"<title[^>]*>([\s\S]*?)</title>", html or "", re.I)
     if not match:
@@ -290,265 +287,11 @@ def _sort_keys(keys):
     return sorted(set(keys), key=lambda k: (k.lower(), k))
 
 
-def _card(page_id, title, description, core, theme="orange", visual_kind=""):
-    return """<section class="qb-card-artifact" data-qb-live-card data-theme="{theme}" data-qb-card-visual-kind="{visual_kind}">
-  <div class="qb-card-meta">
-    <span data-qb-live-card-brand></span>
-    <time data-qb-live-card-date data-qb-bind="date" datetime="">待更新</time>
-  </div>
-  <h1 data-qb-live-card-title>{title}</h1>
-  <p data-qb-live-card-description>{description}</p>
-  <section class="qb-card-core" data-qb-live-card-core data-card-page="{page_id}">
-{core}
-  </section>
-</section>""".format(
-        theme=_e(theme),
-        visual_kind=_e(visual_kind),
-        page_id=_e(page_id),
-        title=_e(title),
-        description=_e(description),
-        core=core,
-    )
-
-
-def _metric(label, output, fmt="number", klass=""):
-    return """    <div class="qb-mini-metric {klass}">
-      <span>{label}</span>
-      <b data-qb-value data-output="{output}" data-format="{fmt}">0</b>
-    </div>""".format(label=_e(label), output=_e(output), fmt=_e(fmt), klass=_e(klass))
-
-
-PAGE_VISUAL_DEFAULTS = {
-    "page_13e5b862a47135363442bf54": {"kind": "event-flow"},
-    "page_1256a77743fab9aa39838ce9": {"kind": "basis-structure"},
-    "page_a130c11588ffb3e5e50787f1": {"kind": "event-pulse"},
-    "page_6325ee8277a2455c76f3a480": {"kind": "rotation-wheel"},
-}
-
-
-def _numeric_focus_card(page_id, title, contract):
-    metrics = contract.get("metrics")
-    if not isinstance(metrics, list) or not 1 <= len(metrics) <= 3:
-        raise ValueError("CARD_VISUAL_INVALID: numeric-focus 需要 1-3 个显式 metrics")
-    normalized = []
-    for index, metric in enumerate(metrics):
-        if not isinstance(metric, dict):
-            raise ValueError("CARD_VISUAL_INVALID: metrics[%d] 必须是 object" % index)
-        label = str(metric.get("label") or "").strip()
-        output = str(metric.get("output") or "").strip()
-        if not label or not output:
-            raise ValueError("CARD_VISUAL_INVALID: metrics[%d] 缺少 label/output" % index)
-        normalized.append({
-            "label": label,
-            "output": output,
-            "format": str(metric.get("format") or "number1").strip(),
-        })
-    required = []
-    for metric in normalized:
-        if metric["output"] not in required:
-            required.append(metric["output"])
-    primary = normalized[0]
-    secondary = "\n".join(
-        """        <div><span>{label}</span><b data-qb-value data-output="{output}" data-format="{format}">待更新</b></div>""".format(
-            label=_e(metric["label"]),
-            output=_e(metric["output"]),
-            format=_e(metric["format"]),
-        )
-        for metric in normalized[1:]
-    )
-    solo_class = " is-solo" if len(normalized) == 1 else ""
-    core = """    <div class="qb-numeric-focus{solo_class}" data-qb-card-numeric-focus>
-      <div class="qb-numeric-hero">
-        <span>{primary_label}</span>
-        <b data-qb-value data-output="{primary_output}" data-format="{primary_format}">待更新</b>
-      </div>
-      <div class="qb-numeric-context">
-{secondary}
-      </div>
-    </div>""".format(
-        primary_label=_e(primary["label"]),
-        primary_output=_e(primary["output"]),
-        primary_format=_e(primary["format"]),
-        secondary=secondary,
-        solo_class=solo_class,
-    )
-    return required, _card(
-        page_id,
-        contract.get("title") or title or "实时指标",
-        contract.get("description") or "主指标实时刷新，解释项只服务于核心判断。",
-        core,
-        contract.get("theme") or "orange",
-        "numeric-focus",
-    ), "numeric-focus"
-
-
-def _industry_ranking_card(page_id, title, contract):
-    output = str(contract.get("output") or "").strip()
-    if not output:
-        raise ValueError("CARD_VISUAL_INVALID: industry-ranking 缺少 output")
-    fmt = str(contract.get("format") or "signed-pct").strip()
-    top_count = max(2, min(4, int(contract.get("top_count") or 3)))
-    bottom_count = max(2, min(4, int(contract.get("bottom_count") or 3)))
-    core = """    <div class="qb-industry-ranking" data-qb-card-visual data-qb-ranking-output="{output}">
-      <div class="qb-ranking-side is-strong" data-qb-ranking-list="top" data-output="{output}" data-format="{fmt}" data-limit="{top_count}">
-        <div class="qb-ranking-side__head"><span>强势端</span><b>TOP {top_count}</b></div>
-        <div class="qb-ranking-rows"><div class="qb-ranking-placeholder">实时排名加载中</div></div>
-      </div>
-      <div class="qb-ranking-spine" aria-hidden="true">
-        <span>强</span><i></i><b>20D</b><i></i><span>弱</span>
-      </div>
-      <div class="qb-ranking-side is-weak" data-qb-ranking-list="bottom" data-output="{output}" data-format="{fmt}" data-limit="{bottom_count}">
-        <div class="qb-ranking-side__head"><span>弱势端</span><b>BOTTOM {bottom_count}</b></div>
-        <div class="qb-ranking-rows"><div class="qb-ranking-placeholder">实时排名加载中</div></div>
-      </div>
-    </div>""".format(
-        output=_e(output),
-        fmt=_e(fmt),
-        top_count=top_count,
-        bottom_count=bottom_count,
-    )
-    return [output], _card(
-        page_id,
-        contract.get("title") or title or "行业强弱排名",
-        contract.get("description") or "同一口径横向比较行业强弱，打开即刷新。",
-        core,
-        contract.get("theme") or "red",
-        "industry-ranking",
-    ), "industry-ranking"
-
-
 def _build_page_card(page_id, title, keys, visual_contract=None):
-    contract = visual_contract or PAGE_VISUAL_DEFAULTS.get(page_id)
-    if not isinstance(contract, dict) or not str(contract.get("kind") or "").strip():
-        raise ValueError(
-            "CARD_VISUAL_REQUIRED: 页面 %s 没有显式视觉合同；禁止自动选择前三个 outputs 生成三指标卡"
-            % (page_id or "<unknown>")
-        )
-    visual_kind = str(contract.get("kind") or "").strip()
-
-    if visual_kind == "numeric-focus":
-        return _numeric_focus_card(page_id, title, contract)
-
-    if visual_kind == "industry-ranking":
-        return _industry_ranking_card(page_id, title, contract)
-
-    if visual_kind == "event-flow" and page_id == "page_13e5b862a47135363442bf54":
-        required = ["VIX_px", "KWEB_ret", "GREATSTAR_ret"]
-        core = """    <div class="qb-taco-flow" data-qb-card-visual>
-      <div class="qb-taco-track" aria-label="TACO五步逻辑链">
-        <div class="qb-taco-stage"><b>威胁</b><span>Tariff</span></div>
-        <div class="qb-taco-stage"><b>抛售</b><span>Selloff</span></div>
-        <div class="qb-taco-stage"><b>施压</b><span>Pressure</span></div>
-        <div class="qb-taco-stage"><b>退路</b><span>Off-ramp</span></div>
-        <div class="qb-taco-stage"><b>反弹</b><span>Rebound</span></div>
-      </div>
-      <div class="qb-taco-metrics">
-        <div><b data-qb-value data-output="VIX_px" data-format="number1">待更新</b><span>VIX</span></div>
-        <div><b data-qb-value data-output="KWEB_ret" data-format="signed-pct">待更新</b><span>KWEB日涨跌</span></div>
-        <div><b data-qb-value data-output="GREATSTAR_ret" data-format="signed-pct">待更新</b><span>A股敏感资产</span></div>
-      </div>
-    </div>"""
-        return required, _card(
-            page_id,
-            contract.get("title") or "关税冲击是否正在走TACO剧本？",
-            contract.get("description") or "对照美股波动率与两地敏感资产，判断冲击、缓和还是分化。",
-            core,
-            contract.get("theme") or "orange",
-            "event-flow",
-        ), "event-flow"
-
-    if visual_kind == "basis-structure" and page_id == "page_1256a77743fab9aa39838ce9":
-        required = ["IC_C0_fut_px", "IC_C1_fut_px", "IC_spot_px"]
-        core = """    <div class="qb-basis-structure" data-qb-card-visual>
-      <div class="qb-basis-hero">
-        <span>主连基差</span>
-        <b data-qb-spread data-a="IC_C0_fut_px" data-b="IC_spot_px">待更新</b>
-        <small>负值为贴水 · 正值为升水</small>
-      </div>
-      <div class="qb-basis-axis" aria-label="主连与次主连相对现货的位置">
-        <div class="qb-basis-scale"><span>贴水</span><b>现货锚</b><span>升水</span></div>
-        <i class="qb-basis-zero"></i>
-        <div class="qb-basis-marker is-front" data-qb-spread-marker data-a="IC_C0_fut_px" data-b="IC_spot_px">
-          <b>主连</b><em></em>
-        </div>
-        <div class="qb-basis-marker is-next" data-qb-spread-marker data-a="IC_C1_fut_px" data-b="IC_spot_px">
-          <b>次主连</b><em></em>
-        </div>
-      </div>
-      <div class="qb-basis-anchor"><span>现货锚</span><b data-qb-value data-output="IC_spot_px" data-format="number1">待更新</b></div>
-    </div>"""
-        return required, _card(
-            page_id,
-            contract.get("title") or "股指期货基差监控",
-            contract.get("description") or "主连、次主连和现货同口径刷新，重点看贴水收敛。",
-            core,
-            contract.get("theme") or "blue",
-            "basis-structure",
-        ), "basis-structure"
-
-    if visual_kind == "event-pulse" and page_id == "page_a130c11588ffb3e5e50787f1":
-        required = ["bu_ret", "nh_bu_ret", "nh_energy_ret"]
-        core = """    <div class="qb-event-pulse" data-qb-card-visual>
-      <div class="qb-event-pulse__hero">
-        <span>AI 硬件</span>
-        <b data-qb-value data-output="bu_ret" data-format="signed-pct">待更新</b>
-        <small>板块涨幅</small>
-      </div>
-      <div class="qb-event-pulse__lanes">
-        <div class="qb-pulse-lane is-alpha">
-          <div><span>相对沪深300</span><b data-qb-value data-output="nh_bu_ret" data-format="signed-pct">待更新</b></div>
-          <i><em data-qb-bar data-output="nh_bu_ret"></em></i>
-        </div>
-        <div class="qb-pulse-lane is-market">
-          <div><span>沪深300</span><b data-qb-value data-output="nh_energy_ret" data-format="signed-pct">待更新</b></div>
-          <i><em data-qb-bar data-output="nh_energy_ret"></em></i>
-        </div>
-        <small class="qb-pulse-note">事件冲击 → 板块承接 → 超额扩散</small>
-      </div>
-    </div>"""
-        return required, _card(
-            page_id,
-            "WAIC 后，AI 硬件是否扩散？",
-            "对照沪深300，实时观察板块涨幅与超额收益。",
-            core,
-            contract.get("theme") or "red",
-            "event-pulse",
-        ), "event-pulse"
-
-    if visual_kind == "rotation-wheel" and page_id == "page_6325ee8277a2455c76f3a480":
-        required = ["HW_RET", "KC_RET", "HG_RET"]
-        core = """    <div class="qb-cycle-map" data-qb-card-visual>
-      <div class="qb-cycle-track" aria-hidden="true"><i></i><i></i><i></i></div>
-      <div class="qb-cycle-node qb-cycle-node--hw">
-        <span>寒武纪</span>
-        <b data-qb-value data-output="HW_RET" data-format="number1">待更新</b>
-        <small>龙头</small>
-      </div>
-      <div class="qb-cycle-node qb-cycle-node--kc">
-        <span>科创50</span>
-        <b data-qb-value data-output="KC_RET" data-format="number1">待更新</b>
-        <small>周期中枢</small>
-      </div>
-      <div class="qb-cycle-node qb-cycle-node--hg">
-        <span>海光信息</span>
-        <b data-qb-value data-output="HG_RET" data-format="number1">待更新</b>
-        <small>龙头</small>
-      </div>
-      <div class="qb-cycle-caption">250 日表现 · 指数与龙头分层对照</div>
-    </div>"""
-        return required, _card(
-            page_id,
-            "科创50与龙头：周期坐标",
-            "以科创50为中枢，对照寒武纪与海光信息的长期表现。",
-            core,
-            contract.get("theme") or "blue",
-            "rotation-wheel",
-        ), "rotation-wheel"
-
-    raise ValueError(
-        "CARD_VISUAL_UNSUPPORTED: 页面 %s 不支持 visual_contract.kind=%s"
-        % (page_id or "<unknown>", visual_kind)
-    )
+    # ``title`` remains in the public signature for compatibility. Complete
+    # rebuild copy is contract-owned; page_id is audit/writeback identity only.
+    del title
+    return render_visual(page_id, visual_contract, keys)
 
 
 STYLE = r"""
@@ -695,19 +438,20 @@ STYLE = r"""
 .qb-basis-marker.is-positive b{border-color:#e5a081;color:#a94a20}.qb-basis-marker.is-positive em{background:#ef7a1a;box-shadow:0 0 0 3px rgba(239,122,26,.16)}
 .qb-basis-anchor{display:flex;align-items:baseline;justify-content:space-between;gap:8px;border-top:1px dashed #c7d6e8;padding:clamp(5px,1.4cqw,8px) 3px 0;color:var(--muted);font-size:clamp(9px,2.1cqw,12px);font-weight:850}
 .qb-basis-anchor b{color:var(--ink);font-size:clamp(15px,4.2cqw,24px);line-height:1;font-weight:950}
-.qb-taco-flow{min-height:0;display:grid;grid-template-rows:minmax(0,1fr) auto;gap:clamp(6px,1.7cqw,10px)}
-.qb-taco-track{min-height:0;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));align-items:center;gap:clamp(3px,1.1cqw,8px)}
-.qb-taco-stage{position:relative;min-width:0;height:76%;display:grid;place-items:center;align-content:center;gap:4px;border:1px solid var(--line);border-radius:clamp(8px,2cqw,14px);background:rgba(255,255,255,.86);text-align:center;color:var(--muted);font-size:clamp(8px,1.9cqw,11px);font-weight:850;box-shadow:0 7px 18px rgba(120,66,24,.06)}
-.qb-taco-stage:after{content:"→";position:absolute;right:calc(clamp(3px,1.1cqw,8px) * -1 - .58em);color:#a39a91;font-weight:900}
-.qb-taco-stage:last-child:after{display:none}
-.qb-taco-stage b{color:var(--ink);font-size:clamp(12px,2.8cqw,18px);line-height:1;font-weight:950;white-space:nowrap}
-.qb-taco-stage:nth-child(1),.qb-taco-stage:nth-child(2){background:linear-gradient(180deg,#fff,#fff1e6)}
-.qb-taco-stage:nth-child(3){border-color:rgba(215,25,32,.25);background:linear-gradient(180deg,#fff,#ffe7e3)}
-.qb-taco-stage:nth-child(4),.qb-taco-stage:nth-child(5){border-color:#cfe5d9;background:linear-gradient(180deg,#fff,#effaf4)}
-.qb-taco-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:clamp(4px,1.2cqw,8px)}
-.qb-taco-metrics>div{min-width:0;border:1px solid var(--line);border-radius:clamp(7px,1.6cqw,12px);background:rgba(255,255,255,.78);padding:clamp(5px,1.2cqw,10px)}
-.qb-taco-metrics b{display:block;color:var(--ink);font-size:clamp(13px,3.1cqw,22px);line-height:1;font-weight:950;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.qb-taco-metrics span{display:block;margin-top:3px;color:var(--muted);font-size:clamp(8px,1.9cqw,11px);font-weight:850;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qb-event-flow-flow{min-height:0;display:grid;grid-template-rows:minmax(0,1fr) auto;gap:clamp(6px,1.7cqw,10px)}
+.qb-event-flow-track{min-height:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-items:center;gap:clamp(3px,1.1cqw,8px)}
+.qb-event-flow-track[data-qb-stage-count="2"]{grid-template-columns:repeat(2,minmax(0,1fr))}.qb-event-flow-track[data-qb-stage-count="4"]{grid-template-columns:repeat(4,minmax(0,1fr))}.qb-event-flow-track[data-qb-stage-count="5"]{grid-template-columns:repeat(5,minmax(0,1fr))}.qb-event-flow-track[data-qb-stage-count="6"]{grid-template-columns:repeat(6,minmax(0,1fr))}
+.qb-event-flow-stage{position:relative;min-width:0;height:76%;display:grid;place-items:center;align-content:center;gap:4px;border:1px solid var(--line);border-radius:clamp(8px,2cqw,14px);background:rgba(255,255,255,.86);text-align:center;color:var(--muted);font-size:clamp(8px,1.9cqw,11px);font-weight:850;box-shadow:0 7px 18px rgba(120,66,24,.06)}
+.qb-event-flow-stage:after{content:"→";position:absolute;right:calc(clamp(3px,1.1cqw,8px) * -1 - .58em);color:#a39a91;font-weight:900}
+.qb-event-flow-stage:last-child:after{display:none}
+.qb-event-flow-stage b{color:var(--ink);font-size:clamp(12px,2.8cqw,18px);line-height:1;font-weight:950;white-space:nowrap}
+.qb-event-flow-stage:nth-child(1),.qb-event-flow-stage:nth-child(2){background:linear-gradient(180deg,#fff,#fff1e6)}
+.qb-event-flow-stage:nth-child(3){border-color:rgba(215,25,32,.25);background:linear-gradient(180deg,#fff,#ffe7e3)}
+.qb-event-flow-stage:nth-child(4),.qb-event-flow-stage:nth-child(5){border-color:#cfe5d9;background:linear-gradient(180deg,#fff,#effaf4)}
+.qb-event-flow-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:clamp(4px,1.2cqw,8px)}
+.qb-event-flow-metrics>div{min-width:0;border:1px solid var(--line);border-radius:clamp(7px,1.6cqw,12px);background:rgba(255,255,255,.78);padding:clamp(5px,1.2cqw,10px)}
+.qb-event-flow-metrics b{display:block;color:var(--ink);font-size:clamp(13px,3.1cqw,22px);line-height:1;font-weight:950;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qb-event-flow-metrics span{display:block;margin-top:3px;color:var(--muted);font-size:clamp(8px,1.9cqw,11px);font-weight:850;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .qb-event-pulse{min-height:0;display:grid;grid-template-columns:minmax(112px,.8fr) minmax(0,1.2fr);gap:clamp(9px,2.6cqw,16px);align-items:stretch}
 .qb-event-pulse__hero{position:relative;isolation:isolate;display:grid;place-content:center;justify-items:center;text-align:center;min-height:0;border:1px solid rgba(215,25,32,.22);border-radius:50%;background:radial-gradient(circle,#fff 0 34%,#ffe9e1 35% 50%,#fff7f2 51% 64%,transparent 65%);overflow:hidden}
 .qb-event-pulse__hero:before,.qb-event-pulse__hero:after{content:"";position:absolute;z-index:-1;border:1px solid rgba(215,25,32,.18);border-radius:50%;animation:qb-pulse 3.2s ease-out infinite}
@@ -725,16 +469,66 @@ STYLE = r"""
 .qb-pulse-note{padding-top:3px;border-top:1px dashed rgba(215,25,32,.24);font-size:clamp(8px,1.95cqw,11px);font-weight:800;color:var(--accent);letter-spacing:.02em}
 @keyframes qb-pulse{0%{transform:scale(.82);opacity:.7}70%,100%{transform:scale(1.12);opacity:0}}
 @media (prefers-reduced-motion:reduce){.qb-event-pulse__hero:before,.qb-event-pulse__hero:after{animation:none}}
+.qb-value-quality-map{min-height:0;display:grid;grid-template-rows:auto minmax(0,1fr) auto;gap:clamp(5px,1.35cqw,9px)}
+.qb-value-quality-steps{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr) auto minmax(0,1fr);gap:clamp(4px,1.3cqw,8px);align-items:center}
+.qb-value-quality-steps[data-qb-step-count="2"]{grid-template-columns:minmax(0,1fr) auto minmax(0,1fr)}.qb-value-quality-steps[data-qb-step-count="4"]{grid-template-columns:minmax(0,1fr) auto minmax(0,1fr) auto minmax(0,1fr) auto minmax(0,1fr)}
+.qb-value-quality-steps>i{color:#7894b8;font-size:clamp(12px,3cqw,18px);font-style:normal;font-weight:950;text-align:center}
+.qb-value-quality-step{min-width:0;display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto auto;column-gap:clamp(4px,1.2cqw,7px);align-items:center;border:1px solid #d4e2f5;border-radius:8px;background:rgba(255,255,255,.82);padding:clamp(5px,1.3cqw,8px)}
+.qb-value-quality-step b{grid-row:1/3;display:grid;place-items:center;width:clamp(20px,5cqw,29px);aspect-ratio:1;border-radius:50%;background:#e8f1ff;color:#1f5fbf;font-size:clamp(8px,1.8cqw,11px);font-weight:950}
+.qb-value-quality-step strong{min-width:0;color:#20395e;font-size:clamp(10px,2.35cqw,14px);font-weight:950;white-space:nowrap}
+.qb-value-quality-step span{min-width:0;margin-top:2px;color:#6b83a4;font-size:clamp(8px,1.85cqw,11px);font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qb-value-quality-step.is-step-2{border-color:#9dbbe4;background:linear-gradient(160deg,#fff,#edf5ff)}
+.qb-value-quality-step.is-step-2 b{background:#1f5fbf;color:#fff}
+.qb-value-quality-step.is-step-3 b{background:#edf7f2;color:#16825a}
+.qb-value-quality-grid{min-height:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:minmax(0,1fr) auto;gap:clamp(5px,1.5cqw,9px)}
+.qb-value-quality-lane,.qb-value-quality-check{min-width:0;border:1px solid var(--line);border-radius:9px;background:rgba(255,255,255,.78);padding:clamp(6px,1.6cqw,10px);display:grid;grid-template-rows:auto minmax(0,1fr);gap:clamp(4px,1.2cqw,7px)}
+.qb-value-quality-lane.is-core{border-top:3px solid #1f5fbf}.qb-value-quality-lane.is-extended{border-top:3px solid #6a8bb8}
+.qb-value-quality-lane header,.qb-value-quality-check header{display:flex;align-items:baseline;justify-content:space-between;gap:5px}
+.qb-value-quality-lane header span,.qb-value-quality-check header span{color:var(--ink);font-size:clamp(10px,2.3cqw,13px);font-weight:950}
+.qb-value-quality-lane header b,.qb-value-quality-check header b{color:var(--muted);font-size:clamp(8px,1.85cqw,10px);font-weight:900;white-space:nowrap}
+.qb-value-quality-lane .qb-top-list-body,.qb-value-quality-check .qb-top-list-body{min-height:0;display:grid;align-content:stretch;gap:clamp(3px,1cqw,6px)}
+.qb-value-quality-lane .qb-top-list-body>div,.qb-value-quality-check .qb-top-list-body>div{min-height:0;display:grid;grid-template-columns:clamp(14px,3.8cqw,21px) minmax(0,1fr) auto;gap:clamp(3px,1cqw,6px);align-items:center;border-top:1px solid rgba(31,95,191,.1);padding-top:clamp(3px,1cqw,6px)}
+.qb-value-quality-check .qb-top-list-body>div{grid-template-columns:minmax(0,1fr) auto}
+.qb-value-quality-lane .qb-top-list-body>div:before{content:counter(qb-rank);counter-increment:qb-rank;display:grid;place-items:center;width:100%;aspect-ratio:1;border-radius:50%;background:#edf4ff;color:#4b6f9e;font-size:clamp(8px,1.8cqw,10px);font-weight:950}
+.qb-value-quality-lane .qb-top-list-body{counter-reset:qb-rank}
+.qb-value-quality-lane .qb-top-list-body span,.qb-value-quality-check .qb-top-list-body span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:clamp(9px,2.05cqw,12px);font-weight:850}
+.qb-value-quality-lane .qb-top-list-body b,.qb-value-quality-check .qb-top-list-body b{font-size:clamp(11px,2.8cqw,16px);font-weight:950;color:#1f5fbf;text-align:right}
+.qb-value-quality-check{grid-column:1/3;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto;align-items:center;background:linear-gradient(90deg,#fff,#f2f8ff)}
+.qb-value-quality-check header{grid-column:1/3}
+.qb-value-quality-check .qb-top-list-body{grid-column:1/2}
+.qb-value-quality-check small{grid-column:2/3;grid-row:2;color:#6b83a4;font-size:clamp(8px,1.8cqw,10px);font-weight:800;white-space:nowrap}
+.qb-value-quality-foot{display:flex;justify-content:space-between;gap:8px;border-top:1px dashed #c7d6e8;padding-top:clamp(4px,1.2cqw,7px);color:#6b83a4;font-size:clamp(8px,1.9cqw,11px);font-weight:800;white-space:nowrap}
+.qb-value-quality-foot span{min-width:0;overflow:hidden;text-overflow:ellipsis}.qb-value-quality-foot time{color:#45688f;font-variant-numeric:tabular-nums}
+.qb-recovery-evidence{min-height:0;display:grid;grid-template-rows:auto minmax(0,1fr) auto;gap:clamp(5px,1.4cqw,9px)}
+.qb-recovery-rail{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr) auto minmax(0,1fr);gap:clamp(3px,1.2cqw,7px);align-items:stretch}
+.qb-recovery-rail[data-qb-step-count="2"]{grid-template-columns:minmax(0,1fr) auto minmax(0,1fr)}.qb-recovery-rail[data-qb-step-count="4"]{grid-template-columns:minmax(0,1fr) auto minmax(0,1fr) auto minmax(0,1fr) auto minmax(0,1fr)}
+.qb-recovery-rail>i{display:grid;place-items:center;color:#b57645;font-size:clamp(12px,3cqw,18px);font-style:normal;font-weight:950}
+.qb-recovery-node{min-width:0;border:1px solid var(--line);border-radius:8px;padding:clamp(5px,1.5cqw,9px);background:rgba(255,255,255,.78);display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto auto;column-gap:clamp(4px,1.1cqw,7px);align-items:center}
+.qb-recovery-node b{display:grid;place-items:center;width:clamp(18px,4.5cqw,27px);aspect-ratio:1;border-radius:50%;background:#f4e3d2;color:#9d6030;font-size:clamp(8px,1.8cqw,11px);font-weight:950}
+.qb-recovery-node strong{min-width:0;color:var(--ink);font-size:clamp(10px,2.6cqw,15px);font-weight:950;line-height:1.1;white-space:nowrap}
+.qb-recovery-node span{grid-column:1/3;min-width:0;margin-top:clamp(3px,.8cqw,5px);color:var(--muted);font-size:clamp(8px,1.9cqw,11px);font-weight:800;line-height:1.16;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qb-recovery-node.is-stage-1{border-top:3px solid #2f78bf}.qb-recovery-node.is-stage-2{border-top:3px solid #d17a37}.qb-recovery-node.is-stage-3{border-top:3px solid #9d557c}
+.qb-recovery-body{min-height:0;display:grid;grid-template-columns:minmax(0,1.16fr) minmax(0,.84fr);gap:clamp(6px,1.6cqw,10px)}
+.qb-recovery-guard,.qb-recovery-valuation{min-width:0;border:1px solid var(--line);border-radius:9px;background:rgba(255,255,255,.78);padding:clamp(7px,1.8cqw,11px);display:grid;align-content:start;gap:clamp(4px,1.1cqw,7px)}
+.qb-recovery-guard{background:linear-gradient(145deg,#fffaf4,#fff0df);border-color:#efceb0}
+.qb-recovery-guard header,.qb-recovery-valuation header{display:flex;align-items:baseline;justify-content:space-between;gap:5px}
+.qb-recovery-guard header span,.qb-recovery-valuation header span{color:var(--muted);font-size:clamp(9px,2cqw,12px);font-weight:900}.qb-recovery-guard header b,.qb-recovery-valuation header b{color:#a46235;font-size:clamp(8px,1.8cqw,10px);font-weight:950;white-space:nowrap}
+.qb-recovery-guard>strong{color:#a64d28;font-size:clamp(15px,4.2cqw,25px);font-weight:950;line-height:1.08}.qb-recovery-guard>p{margin:0;color:var(--muted);font-size:clamp(9px,2.1cqw,12px);font-weight:700;line-height:1.3}
+.qb-recovery-tags{display:flex;flex-wrap:wrap;gap:4px}.qb-recovery-tags em{border-radius:999px;background:#fff;color:#9b663f;padding:3px 6px;font-size:clamp(8px,1.7cqw,10px);font-style:normal;font-weight:900;white-space:nowrap}
+.qb-recovery-checklist{display:grid;gap:clamp(4px,1.1cqw,7px);margin-top:clamp(2px,.6cqw,4px)}.qb-recovery-checklist>div{display:grid;grid-template-columns:auto minmax(0,1fr);gap:clamp(6px,1.5cqw,10px);align-items:center;border-top:1px dashed #e7c8aa;padding-top:clamp(4px,1.1cqw,7px)}.qb-recovery-checklist span{color:#9b663f;font-size:clamp(8px,1.9cqw,11px);font-weight:950;white-space:nowrap}.qb-recovery-checklist b{min-width:0;color:var(--muted);font-size:clamp(8px,1.9cqw,11px);font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qb-recovery-valuation{background:linear-gradient(145deg,#fff,#fff8ef)}.qb-recovery-valuation-grid{min-height:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px}.qb-recovery-valuation-grid>div{min-width:0;border-top:2px solid #e0a166;padding-top:clamp(4px,1cqw,6px)}.qb-recovery-valuation-grid small{display:block;color:var(--muted);font-size:clamp(8px,1.8cqw,10px);font-weight:850;white-space:nowrap}.qb-recovery-valuation-grid strong{display:block;margin-top:3px;color:#aa5a2e;font-size:clamp(13px,3.3cqw,20px);font-weight:950;line-height:1.05;white-space:nowrap}.qb-recovery-valuation-note{margin-top:auto;color:#947b66;font-size:clamp(8px,1.8cqw,10px);font-weight:750;line-height:1.2}
+.qb-recovery-foot{display:flex;justify-content:space-between;gap:8px;border-top:1px dashed #e4c5a7;padding-top:clamp(4px,1.1cqw,7px);color:#98765a;font-size:clamp(8px,1.8cqw,11px);font-weight:850;white-space:nowrap}.qb-recovery-foot span{min-width:0;overflow:hidden;text-overflow:ellipsis}.qb-recovery-foot time{color:#a35f36;font-variant-numeric:tabular-nums}
 .qb-cycle-map{position:relative;min-height:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-template-rows:minmax(0,1fr) auto;gap:clamp(7px,1.8cqw,11px);align-items:center;padding:clamp(5px,1.2cqw,8px) 0 0}
+.qb-cycle-map[data-qb-node-count="2"]{grid-template-columns:repeat(2,minmax(0,1fr))}.qb-cycle-map[data-qb-node-count="4"]{grid-template-columns:repeat(4,minmax(0,1fr))}
 .qb-cycle-map:before{content:"";position:absolute;inset:0 0 24px;background-image:linear-gradient(rgba(31,95,191,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(31,95,191,.06) 1px,transparent 1px);background-size:18px 18px;border-radius:10px;mask-image:linear-gradient(to bottom,transparent,black 28%,black)}
 .qb-cycle-track{position:absolute;z-index:0;left:10%;right:10%;top:47%;height:2px;background:linear-gradient(90deg,#7aa5df,#1f5fbf,#7aa5df)}
 .qb-cycle-track i{position:absolute;top:50%;width:8px;height:8px;border:2px solid #fff;border-radius:50%;background:#1f5fbf;transform:translate(-50%,-50%);box-shadow:0 0 0 3px rgba(31,95,191,.14)}
 .qb-cycle-track i:nth-child(1){left:0}.qb-cycle-track i:nth-child(2){left:50%}.qb-cycle-track i:nth-child(3){left:100%}
 .qb-cycle-node{position:relative;z-index:1;min-width:0;display:grid;justify-items:center;text-align:center;padding:clamp(8px,2cqw,12px) clamp(4px,1.2cqw,8px);border:1px solid #cbdcf3;border-radius:12px;background:rgba(255,255,255,.9);box-shadow:0 9px 24px rgba(31,95,191,.08)}
-.qb-cycle-node--kc{transform:translateY(-9px);border:2px solid #1f5fbf;background:linear-gradient(160deg,#fff,#eaf3ff)}
+.qb-cycle-node--node-2{transform:translateY(-9px);border:2px solid #1f5fbf;background:linear-gradient(160deg,#fff,#eaf3ff)}
 .qb-cycle-node span{font-size:clamp(9px,2.3cqw,13px);font-weight:900;color:var(--muted);white-space:nowrap}
 .qb-cycle-node b{margin-top:4px;font-size:clamp(22px,6.7cqw,39px);line-height:.95;font-weight:950;color:#173b72;letter-spacing:-.04em}
-.qb-cycle-node--kc b{color:#1f5fbf}.qb-cycle-node small{margin-top:5px;font-size:clamp(8px,1.85cqw,10px);font-weight:800;color:#6b83a4}
+.qb-cycle-node--node-2 b{color:#1f5fbf}.qb-cycle-node small{margin-top:5px;font-size:clamp(8px,1.85cqw,10px);font-weight:800;color:#6b83a4}
 .qb-cycle-caption{position:relative;z-index:1;grid-column:1/4;text-align:center;font-size:clamp(8px,2cqw,11px);font-weight:800;color:#5e7596;letter-spacing:.025em}
 @container (max-width: 340px){
   .qb-card-artifact[data-qb-live-card]{gap:3px;padding:8px;border-top-width:4px}
@@ -749,13 +543,13 @@ STYLE = r"""
   .qb-tier-grid i{margin-top:2px;font-size:8px}
   .qb-hero-split{gap:6px;grid-template-columns:minmax(54px,.64fr) 1fr}
   .qb-signal-mark{min-height:48px;font-size:25px}
-  .qb-taco-flow{gap:4px}
-  .qb-taco-stage{gap:2px;border-radius:6px}
-  .qb-taco-stage b{font-size:10px}
-  .qb-taco-stage span{font-size:7px}
-  .qb-taco-metrics>div{padding:4px}
-  .qb-taco-metrics b{font-size:12px}
-  .qb-taco-metrics span{font-size:7px}
+  .qb-event-flow-flow{gap:4px}
+  .qb-event-flow-stage{gap:2px;border-radius:6px}
+  .qb-event-flow-stage b{font-size:10px}
+  .qb-event-flow-stage span{font-size:7px}
+  .qb-event-flow-metrics>div{padding:4px}
+  .qb-event-flow-metrics b{font-size:12px}
+  .qb-event-flow-metrics span{font-size:7px}
   .qb-numeric-focus{grid-template-columns:minmax(80px,.82fr) minmax(0,1.18fr);gap:5px}
   .qb-numeric-hero,.qb-numeric-context>div{padding:5px;border-radius:7px}
   .qb-basis-structure{grid-template-columns:minmax(78px,.7fr) minmax(0,1.3fr);gap:5px}
@@ -764,7 +558,9 @@ STYLE = r"""
   .qb-event-pulse{grid-template-columns:minmax(82px,.72fr) minmax(0,1.28fr);gap:7px}
   .qb-pulse-note{display:none}
   .qb-cycle-node{padding:6px 3px;border-radius:8px}
-  .qb-cycle-node--kc{transform:translateY(-5px)}
+  .qb-value-quality-map{gap:3px}.qb-value-quality-steps{gap:2px}.qb-value-quality-steps>i{font-size:10px}.qb-value-quality-step{padding:4px 3px;column-gap:3px}.qb-value-quality-step b{width:17px;font-size:7px}.qb-value-quality-step strong{font-size:8px}.qb-value-quality-step span{font-size:7px}.qb-value-quality-grid{gap:3px}.qb-value-quality-lane,.qb-value-quality-check{padding:4px;gap:3px;border-radius:6px}.qb-value-quality-lane header span,.qb-value-quality-check header span{font-size:8px}.qb-value-quality-lane header b,.qb-value-quality-check header b{font-size:7px}.qb-value-quality-lane .qb-top-list-body,.qb-value-quality-check .qb-top-list-body{gap:2px}.qb-value-quality-lane .qb-top-list-body>div{grid-template-columns:12px minmax(0,1fr) auto;gap:3px;padding-top:2px}.qb-value-quality-check .qb-top-list-body>div{grid-template-columns:minmax(0,1fr) auto;gap:3px;padding-top:2px}.qb-value-quality-lane .qb-top-list-body span,.qb-value-quality-check .qb-top-list-body span{font-size:7px}.qb-value-quality-lane .qb-top-list-body b,.qb-value-quality-check .qb-top-list-body b{font-size:9px}.qb-value-quality-check small{font-size:7px}.qb-value-quality-foot{padding-top:3px;font-size:7px}
+  .qb-recovery-evidence{gap:3px}.qb-recovery-rail{gap:2px}.qb-recovery-rail>i{font-size:10px}.qb-recovery-node{padding:4px 3px;column-gap:3px;border-radius:6px}.qb-recovery-node b{width:17px;font-size:7px}.qb-recovery-node strong{font-size:8px}.qb-recovery-node span{font-size:7px;margin-top:2px}.qb-recovery-body{gap:3px}.qb-recovery-guard,.qb-recovery-valuation{padding:5px;gap:3px;border-radius:6px}.qb-recovery-guard header span,.qb-recovery-valuation header span{font-size:8px}.qb-recovery-guard header b,.qb-recovery-valuation header b{font-size:7px}.qb-recovery-guard>strong{font-size:12px}.qb-recovery-guard>p{font-size:7px}.qb-recovery-tags{gap:2px}.qb-recovery-tags em{padding:2px 4px;font-size:7px}.qb-recovery-checklist{gap:2px;margin-top:2px}.qb-recovery-checklist>div{gap:4px;padding-top:2px}.qb-recovery-checklist span,.qb-recovery-checklist b{font-size:7px}.qb-recovery-valuation-grid{gap:2px}.qb-recovery-valuation-grid small{font-size:7px}.qb-recovery-valuation-grid strong{font-size:9px}.qb-recovery-valuation-note{font-size:7px}.qb-recovery-foot{padding-top:3px;font-size:7px}
+  .qb-cycle-node--node-2{transform:translateY(-5px)}
 }
 """
 

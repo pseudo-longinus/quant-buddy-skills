@@ -71,7 +71,7 @@ export function parseExtraViewport(value, index = 1) {
   }
   const width = Number(match[2]);
   const height = Number(match[3]);
-  if (width < 240 || width > 3840 || height < 320 || height > 2160) {
+  if (width < 240 || width > 3840 || height < 200 || height > 2160) {
     const error = new Error(`extra viewport out of range: ${width}x${height}`);
     error.code = 'INVALID_EXTRA_VIEWPORT';
     throw error;

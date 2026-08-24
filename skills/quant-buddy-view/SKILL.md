@@ -2,7 +2,7 @@
 name: quant-buddy-view
 slug: quant-buddy-view
 author: guanzhao
-version: 0.6.51
+version: 0.6.52
 description: |
   QBV / quant-buddy-view（用户可能写成 /quant-buddy-view、/qbv、qbv 或 QBV）用于把量化数据做成「公开可分享、实时取数」的网页看板/落地页。
   Use this skill when the user asks to create, update, publish, verify, retrofit, or reuse a Quant Buddy dashboard/static page/template, including shareable pages, public URLs, formula packages, share shell, cover/essence cards, poster/share behavior, single-stock profile pages, valuation/financial profile pages, index-anomaly boards, multi-factor screeners, and commodity daily pages.
@@ -12,7 +12,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 0.6.51
+  version: 0.6.52
   author: guanzhao
   category: quant-finance
   tags: [quant, dashboard, formula-package, static-page, publish, visualization]
@@ -156,7 +156,7 @@ python scripts/static_page.py new_asset_page '{"task_id":"task_xxx","asset":"贵
 
 - **简单单一 A 股综合分析**（无定制、额外指标/图表、对比或多标的要求）：`trace_context begin` 后直接 `new_asset_page` 返回自有实时页面。
 - **其他固定页面形态**（定制个股页、成分股异动榜、多因子选股看板、商品日报等）：先 `templates` 查询官方精选+社区命中池；direct 直接用列表 URL + revision，fork 才读取和改写模板详情。
-- **宽宝活卡 / 精华卡 / 封面卡（范式卡 artifact）**：把页面精华做成独立 **card runtime artifact**（`embedded-card-v1`：页面内嵌 `<template data-qb-card-template>` + `data-qb-card-manifest` + `QBCardRuntimeV1` runtime），供官网卡片流在空白宿主中**独立 hydrate**。静态首帧 `card_snapshot_url` 由 `skill_server` 按 artifact hash 生成，是页面封面的唯一来源（整页缩略图能力已下线）。按 [guides/essence-cover-card.md](guides/essence-cover-card.md) 生成；已发布页优先用 `preserve_visual:true` 只升级协议。完整重建必须命中页面专属视觉或显式传 `visual_contract`，否则 `CARD_VISUAL_REQUIRED` 停止；用 `verify_page.mjs --card-runtime-only --require-card-visual-contract` 验收新 artifact。卡片必须官网浅色系、固定信息骨架、可变核心可视化；不再用旧的 `?cover=1` URL 模式。
+- **宽宝活卡 / 精华卡 / 封面卡（范式卡 artifact）**：把页面精华做成独立 **card runtime artifact**（`embedded-card-v1`：页面内嵌 `<template data-qb-card-template>` + `data-qb-card-manifest` + `QBCardRuntimeV1` runtime），供官网卡片流在空白宿主中**独立 hydrate**。静态首帧 `card_snapshot_url` 由 `skill_server` 按 artifact hash 生成，是页面封面的唯一来源（整页缩略图能力已下线）。按 [guides/essence-cover-card.md](guides/essence-cover-card.md) 生成；已发布页优先用 `preserve_visual:true` 只升级协议。完整重建必须显式传 `visual_contract`，否则 `CARD_VISUAL_REQUIRED` 停止；用 `verify_page.mjs --card-runtime-only --require-card-visual-contract` 验收新 artifact。卡片必须官网浅色系、固定信息骨架、可变核心可视化；不再用旧的 `?cover=1` URL 模式。
 - **没有合适在线模板**：再走 `workflows/dashboard-end-to-end.md`，用 `build_dashboard` 生成声明式实时看板。
 - **声明式看板也不够**：才走 `guides/bespoke-page.md` 写 bespoke 主体 HTML，并用公共 shell 编译成自包含页面。
 - **改一个已有图表**（叠加/去掉一条线、改时间窗口、查真实数据）：优先 `workflows/edit-existing-chart.md` +

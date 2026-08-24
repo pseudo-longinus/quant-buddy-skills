@@ -9,6 +9,15 @@
 
 ---
 
+## [0.6.52] — 2026-08-24
+
+### Card Runtime 去逐页硬编码与故障隔离
+
+- `retrofit_card_runtime` 完整重建不再按 `page_id` 选择视觉，也不再携带真实页面 ID、标的、成本价、页面专属 output 或文案；必须显式提供 `visual_contract`，缺失返回 `CARD_VISUAL_REQUIRED`，合同无效返回 `CARD_VISUAL_INVALID`，未知 kind 返回 `CARD_VISUAL_UNSUPPORTED`，且禁止隐式降级为 `numeric-focus`。
+- 新增八种参数化 Renderer：`numeric-focus`、`industry-ranking`、`event-flow`、`basis-structure`、`event-pulse`、`rotation-wheel`、`value-quality-map`、`recovery-evidence`。页面专属合同和脱敏 fixture 迁入打包排除的 `migrations/card-runtime/`，Skill 升级不会自动改写已有线上页面。
+- `static_page.py` 改为仅在执行 `retrofit_card_runtime` 时懒加载 retrofit 模块；导入、合同、取数或验证失败均返回该命令的结构化错误，不影响 `new_page`、`update`、`publish_verified` 等其他流程，并保证 `update:true` 只在验证成功后执行。
+- 兼容边界保持不变：`preserve_visual:true` 逐字节保留 template/style，成功写回继续使用原 `page_id`/URL，正式公共模板仍拒绝写回并返回 `TEMPLATE_WRITE_UNSUPPORTED`。
+
 ## [0.6.51] — 2026-08-24
 
 ### 跨 Skill Turn 同步纠偏与柔性失败

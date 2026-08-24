@@ -158,7 +158,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import compile_bespoke_page as CB
-import card_runtime_retrofit as CRT
 import common as C
 import fork_runtime_contract as FRC
 import progress_page as PP
@@ -7292,7 +7291,42 @@ def cmd_verify_card_runtime(params):
     }
 
 
+def _load_card_runtime_retrofit():
+    # Keep the optional retrofit stack isolated from every other static_page
+    # command. A broken renderer/import must not prevent new_page/update/etc.
+    import importlib
+    return importlib.import_module("card_runtime_retrofit")
+
+
+def _retrofit_error_code(error):
+    message = str(error or "")
+    prefix = message.split(":", 1)[0].strip()
+    if prefix.startswith("CARD_") or prefix == "TEMPLATE_WRITE_UNSUPPORTED":
+        return prefix
+    return "CARD_RUNTIME_RETROFIT_FAILED"
+
+
 def cmd_retrofit_card_runtime(params):
+    """Rebuild standalone card-runtime artifacts without affecting other commands."""
+    try:
+        retrofit_module = _load_card_runtime_retrofit()
+    except Exception as error:
+        return {
+            "code": 1,
+            "error": "CARD_RUNTIME_RETROFIT_UNAVAILABLE",
+            "message": "card runtime retrofit 模块加载失败: %s" % error,
+        }
+    try:
+        return _cmd_retrofit_card_runtime_impl(params, retrofit_module)
+    except Exception as error:
+        return {
+            "code": 1,
+            "error": _retrofit_error_code(error),
+            "message": str(error),
+        }
+
+
+def _cmd_retrofit_card_runtime_impl(params, retrofit_module):
     """Rebuild standalone card-runtime artifacts for a published template/page."""
     tid = params.get("template_id") or params.get("page_id")
     url = params.get("url") or params.get("download_url")
@@ -7319,9 +7353,9 @@ def cmd_retrofit_card_runtime(params):
     else:
         html = _fetch_public_html(url)
     if params.get("preserve_visual"):
-        next_html, info = CRT.upgrade_artifact_protocol(html)
+        next_html, info = retrofit_module.upgrade_artifact_protocol(html)
     else:
-        next_html, info = CRT.retrofit_html(
+        next_html, info = retrofit_module.retrofit_html(
             html,
             page_id=tid or params.get("page_id") or "",
             title=params.get("title") or record.get("title") or "",

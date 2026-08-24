@@ -259,11 +259,11 @@ python scripts/static_page.py verify_card_runtime '{"page_ids":["page_xxx","page
 # 已有好看的 artifact：只升级 manifest/runtime/ready，逐字节保留 template/style
 python scripts/static_page.py retrofit_card_runtime '{"page_id":"page_xxx","preserve_visual":true,"update":false}'
 
-# artifact 缺失：必须命中内置页面视觉或显式给视觉合同
+# artifact 缺失或要求完整重建：必须显式给 visual_contract
 python scripts/static_page.py retrofit_card_runtime '{"page_id":"page_xxx","visual_contract":{"kind":"numeric-focus","title":"风险温度","description":"一个主数字，两项解释指标。","metrics":[{"label":"风险分","output":"risk_score","format":"number1"},{"label":"波动率","output":"vol","format":"pct-smart"}]},"update":false}'
 ```
 
-没有视觉方案时返回 `CARD_VISUAL_REQUIRED`；传入尚未实现的 kind 返回 `CARD_VISUAL_UNSUPPORTED`。完整重建会自动追加 `--require-card-visual-contract` 严格验收，`preserve_visual:true` 为兼容旧 artifact 不启用该门禁。
+未传合同返回 `CARD_VISUAL_REQUIRED`；字段缺失、数量越界或引用不存在的 output 返回 `CARD_VISUAL_INVALID`；传入尚未实现的 kind 返回 `CARD_VISUAL_UNSUPPORTED`。支持 `numeric-focus`、`industry-ranking`、`event-flow`、`basis-structure`、`event-pulse`、`rotation-wheel`、`value-quality-map`、`recovery-evidence`；完整重建会自动追加 `--require-card-visual-contract` 严格验收，`preserve_visual:true` 为兼容旧 artifact 不启用该门禁。
 
 `retrofit_card_runtime` 传 `update:true` 时按普通页面写回（等价于 `update`，保持同一 `page_id`/URL）。若目标已被后台转成 published template（`template_status=published` 或 `is_template=true`），本 skill 不支持写回，返回 `TEMPLATE_WRITE_UNSUPPORTED` 而不会尝试任何改写；只重建 artifact 而不写回，可传 `update:false` 自行处理后续发布。
 

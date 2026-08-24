@@ -64,7 +64,7 @@
 5. **固定信息骨架**：顶部左侧官方标签预留位（`data-qb-live-card-brand` 可为空、不显示固定品牌文案），右侧 `YYYY-MM-DD` 日期；第二行标题/一句重点结论；第三行描述；第四行核心表达区。字号走统一 token。
 6. **可验收 DOM 标记**：模板根节点带 `data-qb-live-card`，标签预留位/日期/标题/描述/核心区分别加 `data-qb-live-card-brand` / `data-qb-live-card-date` / `data-qb-live-card-title` / `data-qb-live-card-description` / `data-qb-live-card-core`；hydrate 成功后再写 `data-qb-card-ready="true"`。
 7. **本地先对齐**：先本地生成/改造并 `verify_page.mjs --card-runtime` 验收、截图给用户确认，再走 `static_page.py update` / `retrofit_card_runtime` 写回。
-8. **视觉合同 fail-closed**：完整重建必须命中页面专属视觉或显式提供 `visual_contract`。没有视觉方案时返回 `CARD_VISUAL_REQUIRED`，禁止从 output 名称自动选前三项、禁止用三行 `qb-mini-metric` 冒充范式卡。
+8. **视觉合同 fail-closed**：完整重建必须显式提供 `visual_contract`。未提供合同时返回 `CARD_VISUAL_REQUIRED`，禁止从 output 名称自动选前三项、禁止用三行 `qb-mini-metric` 冒充范式卡。
 9. **协议升级不改视觉**：已有完整 artifact 只缺新版本/ready 契约时，用 `preserve_visual:true`；该路径逐字节保留 template/style，不要求旧卡补视觉标记。
 
 ## 视觉系统
