@@ -9,6 +9,14 @@
 
 ---
 
+## [0.6.51] — 2026-08-24
+
+### 跨 Skill Turn 同步纠偏与柔性失败
+
+- `qbs_bridge.py` 以 `trace_context begin/beginTurn` 持久化的 Task/Turn 与用户原话作为跨 Skill 权威上下文，禁止内部工作描述覆盖同一 `turn_id` 的 `user_query`，避免触发 `TURN_IDEMPOTENCY_CONFLICT`。
+- QBS `beginTurn` 同步属于审计旁路；非零退出、异常响应或记录失败只保留诊断，后续取数、公式、Grant 和活页业务工具继续携带规范 QBV 上下文执行。
+- 新增真实 trace 形态的 query 漂移回归，以及 Turn 同步硬失败不阻断业务工具的回归测试。
+
 ## [0.6.50] — 2026-08-20
 
 ### TopN 回复合同纠偏与 validator 凭证收口

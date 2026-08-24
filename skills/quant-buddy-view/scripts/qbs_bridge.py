@@ -71,6 +71,44 @@ def _read_session(path):
         return {}
 
 
+def _configure_bridge_trace_context(params):
+    """Use the persisted QBV Turn as the canonical cross-skill audit context.
+
+    Business-tool params sometimes carry a narrowed/internal query description. Once
+    trace_context begin/beginTurn has persisted the real user message, that operational
+    text must not overwrite the same turn_id's user_query while syncing QBS.
+    """
+    context_params = dict(params)
+    nested = params.get("trace_context") if isinstance(params.get("trace_context"), dict) else {}
+    task_id = str(params.get("task_id") or nested.get("task_id") or os.environ.get("QBV_TASK_ID") or "").strip()
+    persisted = C.read_task_trace_context(task_id) if task_id else {}
+    persisted_turn_id = str(persisted.get("current_turn_id") or "").strip()
+    persisted_user_query = str(persisted.get("current_user_query") or "").strip()
+    if persisted_turn_id and persisted_user_query:
+        context_params["task_id"] = task_id
+        context_params["turn_id"] = persisted_turn_id
+        context_params["user_query"] = persisted_user_query
+        context_params["previous_turn_id"] = persisted.get("previous_turn_id")
+        if isinstance(context_params.get("trace_context"), dict):
+            nested_context = dict(context_params["trace_context"])
+            for key in ("task_id", "turn_id", "user_query", "previous_turn_id"):
+                nested_context.pop(key, None)
+            context_params["trace_context"] = nested_context
+        if persisted.get("agent_model") and not context_params.get("agent_model"):
+            context_params["agent_model"] = persisted["agent_model"]
+    return C.configure_trace_context(context_params)
+
+
+def _turn_sync_succeeded(completed):
+    if completed.returncode != 0:
+        return False
+    try:
+        payload = json.loads(completed.stdout.decode("utf-8-sig"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return False
+    return isinstance(payload, dict) and payload.get("code") == 0
+
+
 def _session_ready(path, task_id):
     data = _read_session(path)
     return data.get("task_id") == task_id and data.get("task_id_locked") is True
@@ -1108,8 +1146,7 @@ def main():
         return 1
 
     task_id = str(params.get("task_id") or "").strip()
-    context_params = dict(params)
-    context = C.configure_trace_context(context_params)
+    context = _configure_bridge_trace_context(params)
     task_id = str(context.get("task_id") or task_id).strip()
     turn_id = str(context.get("turn_id") or "").strip()
     user_query = str(context.get("user_query") or "").strip()
@@ -1165,10 +1202,13 @@ def main():
         }
         sync_params = {key: value for key, value in sync_params.items() if value}
         sync = _invoke(call_script, "beginTurn", sync_params, env)
-        if sync.returncode != 0:
-            sys.stdout.buffer.write(sync.stdout)
-            sys.stderr.buffer.write(sync.stderr)
-            return sync.returncode or 1
+        if not _turn_sync_succeeded(sync):
+            # Turn tracking is an audit sidecar. The business request below already carries
+            # canonical QBV task/turn/query fields, so a sync failure must stay diagnostic.
+            print(
+                "[qbs_bridge] Turn sync failed; continuing business tool with canonical QBV context.",
+                file=sys.stderr,
+            )
 
     params["task_id"] = task_id
     params["turn_id"] = turn_id
