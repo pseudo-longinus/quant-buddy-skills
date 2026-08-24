@@ -9,6 +9,14 @@
 
 ---
 
+## [4.25.26] — 2026-08-24
+
+### 同步 QBV 0.6.52 Card Runtime 通用化与故障隔离
+
+- 默认 companion 同步到 `quant-buddy-view 0.6.52`，完整 Card Runtime 重建必须显式提供视觉合同，不再按真实 `page_id` 选择页面专属视觉。
+- QBV retrofit 模块改为命令内懒加载；Renderer、合同、取数或验证失败只影响 `retrofit_card_runtime`，不阻断 QBS 数据查询及普通 QBV 页面流程。
+- 页面专属迁移合同不进入正式 Skill 包，现有线上页面不会因升级被自动改写；QBS 数据工具、公式执行与 Handoff 合同保持不变。
+
 ## [4.25.25] — 2026-08-21
 
 ### 刷新正式资产预设并过滤半年以上未更新资产
