@@ -56,6 +56,7 @@ import json
 import os
 import re
 import sys
+from pathlib import Path
 import urllib.error
 import urllib.request
 
@@ -470,19 +471,20 @@ def cmd_query(params):
 
 
 def _resolve_import_dir(params):
-    """凭证导入源目录解析：params 显式 > QBS_IMPORT_CRED_DIR 环境变量 > 同级 skill 兜底猜测。
-
-    兜底假设两 skill 同在 .../skills/ 下，源为 ../quant-buddy-skill/output/formula_packages。
-    """
+    """凭证导入源目录：显式参数 > 环境变量 > 共享活动 QBS resolver。"""
     explicit = (params.get("from") or params.get("import_from") or params.get("dir") or "").strip()
     if explicit:
         return explicit, "params"
     env_dir = os.environ.get("QBS_IMPORT_CRED_DIR", "").strip()
     if env_dir:
         return env_dir, "env(QBS_IMPORT_CRED_DIR)"
-    guess = os.path.join(os.path.dirname(SKILL_ROOT), "quant-buddy-skill",
-                         "output", "formula_packages")
-    return guess, "default(sibling quant-buddy-skill)"
+    resolution = C.resolve_qbs_skill_root()
+    root = resolution.get("root")
+    if root is not None:
+        return os.path.join(str(root), "output", "formula_packages"), "default(resolved qbs skill)"
+    call_script = resolution.get("call_script")
+    guess_root = call_script.parent.parent if call_script else Path(SKILL_ROOT).parent / "quant-buddy-skill"
+    return os.path.join(str(guess_root), "output", "formula_packages"), "default(unresolved qbs skill)"
 
 
 def cmd_import(params):

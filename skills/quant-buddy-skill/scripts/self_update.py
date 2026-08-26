@@ -175,11 +175,72 @@ def _validate_source(source: Path, expected_version: str) -> str:
     return actual_version
 
 
-def _default_backup_root(skill_root: Path) -> Path:
+SKILL_SLUG = "quant-buddy-skill"
+BACKUP_METADATA_FILENAME = "backup-metadata.json"
+BACKUP_METADATA_SCHEMA = "qbs_managed_backup_v1"
+BACKUP_RETENTION_COUNT = 3
+BACKUP_RETENTION_SECONDS = 30 * 24 * 60 * 60
+_MANAGED_BACKUP_NAME_RE = re.compile(r"^quant-buddy-skill-backup-\d{14}(?:-v[0-9A-Za-z._-]+)?(?:-\d+)?$")
+
+
+def _workbuddy_root(skill_root: Path):
+    """Return the WorkBuddy root when this is a sibling inside <root>/skills/."""
     parent = skill_root.parent
-    if parent.name == "skills":
-        return parent.parent
-    return parent / "skill-backups"
+    return parent.parent if parent.name == "skills" else None
+
+
+def _default_backup_root(skill_root: Path) -> Path:
+    """Keep managed QBS backups outside the active skills directory and root clutter."""
+    workbuddy_root = _workbuddy_root(skill_root)
+    if workbuddy_root is not None:
+        return workbuddy_root / "backups" / "skills" / SKILL_SLUG
+    return skill_root.parent / "skill-backups" / SKILL_SLUG
+
+
+def _safe_version_fragment(version: str) -> str:
+    value = re.sub(r"[^0-9A-Za-z._-]+", "_", str(version or "unknown")).strip("._-")
+    return value or "unknown"
+
+
+def _next_backup_path(backup_root: Path, replaced_version: str, timestamp: str) -> Path:
+    base = backup_root / f"{SKILL_SLUG}-backup-{timestamp}-v{_safe_version_fragment(replaced_version)}"
+    candidate = base
+    counter = 1
+    while candidate.exists():
+        candidate = backup_root / f"{base.name}-{counter}"
+        counter += 1
+    return candidate
+
+
+def _read_json_dict(path: Path):
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def _backup_metadata(path: Path):
+    return _read_json_dict(path / BACKUP_METADATA_FILENAME)
+
+
+def _write_backup_metadata(backup_path: Path, *, replaced_version: str, source_skill_root: Path,
+                           created_at_epoch=None, migrated_from=None) -> dict:
+    epoch = float(time.time() if created_at_epoch is None else created_at_epoch)
+    payload = {
+        "schema": BACKUP_METADATA_SCHEMA,
+        "skill_slug": SKILL_SLUG,
+        "replaced_version": str(replaced_version or ""),
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(epoch)),
+        "created_at_epoch": epoch,
+        "source_skill_root": str(source_skill_root),
+    }
+    if migrated_from:
+        payload["migrated_from"] = str(migrated_from)
+    (backup_path / BACKUP_METADATA_FILENAME).write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    return payload
 
 
 def _copytree(src: Path, dst: Path) -> None:
@@ -187,6 +248,132 @@ def _copytree(src: Path, dst: Path) -> None:
         return {name for name in names if name in {"output", "logs", "__pycache__"}}
 
     shutil.copytree(src, dst, ignore=ignore)
+
+
+def _create_managed_backup(skill_root: Path, backup_root: Path, timestamp: str) -> Path:
+    replaced_version = _read_skill_version(skill_root / "SKILL.md") or "unknown"
+    backup_root.mkdir(parents=True, exist_ok=True)
+    backup_path = _next_backup_path(backup_root, replaced_version, timestamp)
+    _copytree(skill_root, backup_path)
+    _write_backup_metadata(
+        backup_path,
+        replaced_version=replaced_version,
+        source_skill_root=skill_root,
+    )
+    return backup_path
+
+
+def _validate_installed_skill(skill_root: Path, expected_version: str) -> None:
+    actual_version = _validate_source(skill_root, expected_version)
+    if actual_version != expected_version:
+        raise RuntimeError(
+            f"installed skill health check failed: expected {expected_version}, got {actual_version}"
+        )
+
+
+def _legacy_backup_metadata(path: Path):
+    """Accept only an explicitly slugged historical SkillHub backup."""
+    managed = _backup_metadata(path)
+    if managed.get("skill_slug") == SKILL_SLUG:
+        return managed
+    for filename in ("_skillhub_meta.json", "_meta.json"):
+        legacy = _read_json_dict(path / filename)
+        if legacy.get("slug") == SKILL_SLUG:
+            return legacy
+    return {}
+
+
+def _legacy_backup_candidates(skill_root: Path):
+    workbuddy_root = _workbuddy_root(skill_root)
+    if workbuddy_root is None or not workbuddy_root.is_dir():
+        return []
+    candidates = []
+    for child in workbuddy_root.iterdir():
+        if not child.is_dir() or child.is_symlink() or not _MANAGED_BACKUP_NAME_RE.fullmatch(child.name):
+            continue
+        if _legacy_backup_metadata(child):
+            candidates.append(child)
+    return candidates
+
+
+def _migrate_legacy_backups(skill_root: Path, backup_root: Path):
+    """Move only verified legacy root backups after the new active install is healthy."""
+    migrated = []
+    backup_root.mkdir(parents=True, exist_ok=True)
+    for source in _legacy_backup_candidates(skill_root):
+        destination = backup_root / source.name
+        counter = 1
+        while destination.exists():
+            destination = backup_root / f"{source.name}-{counter}"
+            counter += 1
+        metadata = _legacy_backup_metadata(source)
+        try:
+            shutil.move(str(source), str(destination))
+            replaced_version = str(metadata.get("replaced_version") or metadata.get("version") or _read_skill_version(destination / "SKILL.md") or "unknown")
+            created_at_epoch = metadata.get("created_at_epoch")
+            if not isinstance(created_at_epoch, (int, float)):
+                try:
+                    created_at_epoch = destination.stat().st_mtime
+                except OSError:
+                    created_at_epoch = time.time()
+            _write_backup_metadata(
+                destination,
+                replaced_version=replaced_version,
+                source_skill_root=skill_root,
+                created_at_epoch=created_at_epoch,
+                migrated_from=source,
+            )
+            migrated.append({"from": str(source), "to": str(destination)})
+        except Exception:
+            # A failed migration must not affect the now-healthy active skill.
+            continue
+    return migrated
+
+
+def _managed_backup_created_at(path: Path, metadata: dict):
+    value = metadata.get("created_at_epoch")
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
+
+
+def _prune_managed_backups(backup_root: Path, now=None):
+    """Delete only recognised metadata-bearing backups; leave all unknown folders alone."""
+    if not backup_root.is_dir():
+        return []
+    root = backup_root.resolve()
+    now = time.time() if now is None else float(now)
+    recognized = []
+    for child in backup_root.iterdir():
+        if not child.is_dir() or child.is_symlink():
+            continue
+        # Defence in depth: never consider operational/artifact folders even if a user puts JSON inside.
+        if child.name in {LOCK_DIRNAME, STAGING_DIRNAME, ".trash", "trash"} or child.name.startswith("."):
+            continue
+        if child.parent.resolve() != root:
+            continue
+        metadata = _backup_metadata(child)
+        if metadata.get("schema") != BACKUP_METADATA_SCHEMA or metadata.get("skill_slug") != SKILL_SLUG:
+            continue
+        created_at = _managed_backup_created_at(child, metadata)
+        if created_at is None:
+            continue
+        recognized.append((child, created_at))
+    recognized.sort(key=lambda item: item[1], reverse=True)
+    remove = []
+    for index, (child, created_at) in enumerate(recognized):
+        if now - created_at > BACKUP_RETENTION_SECONDS or index >= BACKUP_RETENTION_COUNT:
+            remove.append(child)
+    deleted = []
+    for child in remove:
+        try:
+            if child.parent.resolve() != root or child.is_symlink():
+                continue
+            shutil.rmtree(child)
+            deleted.append(str(child))
+        except OSError:
+            continue
+    return deleted
 
 
 # 随版本更新的“代码/文档”顶层项；其余（output/logs/config*）跨版本保留、绝不换名
@@ -247,62 +434,47 @@ def _atomic_swap_item(staged_item: Path, target: Path, trash_dir: Path) -> None:
         raise
 
 
-def _install(source: Path, skill_root: Path, backup_root: Path) -> Path:
-    """方案 X 原子安装：
-      1) 文件锁互斥；
-      2) 备份当前安装（沿用旧逻辑，供审计/手工回滚）；
-      3) 新版各顶层“代码/文档”项先拷到 output/.staging/<item>（同卷）；
-      4) 逐项用 os.replace 原子换名换入 skill_root，旧项移入 .trash；
-      5) 全部成功后清 .trash / .staging；任一步失败则从 .trash 回滚已换项。
-    config*/output/logs 全程不参与换名，原地保留。
+def _install(source: Path, skill_root: Path, backup_root: Path, expected_version: str) -> Path:
+    """Install with a managed pre-update backup and rollback on swap or health-check failure.
+
+    config*/output/logs remain in place.  Historical migration and retention pruning are
+    intentionally outside this function so they run only after this install returns healthy.
     """
     lock_path = _acquire_lock(skill_root)
     timestamp = time.strftime("%Y%m%d%H%M%S")
-    backup_path = backup_root / f"quant-buddy-skill-backup-{timestamp}"
-    backup_root.mkdir(parents=True, exist_ok=True)
-
     output_dir = skill_root / "output"
     staging_root = output_dir / STAGING_DIRNAME / timestamp
     trash_root = output_dir / STAGING_DIRNAME / f"{timestamp}.trash"
-    swapped = []  # [(target, trash_path_or_None)] 供失败回滚
-
+    swapped = []
     try:
-        # 备份（best-effort，失败不阻断主流程）
-        try:
-            _copytree(skill_root, backup_path)
-        except Exception:
-            pass
+        # A backup failure is a safety failure: do not overwrite a working installation
+        # without a rollback artifact.
+        backup_path = _create_managed_backup(skill_root, backup_root, timestamp)
+        items = sorted((it for it in source.iterdir() if it.name not in PRESERVE_FROM_SWAP), key=lambda item: item.name)
 
-        # 计算要换入的顶层项（排除保留态）
-        items = [it for it in source.iterdir() if it.name not in PRESERVE_FROM_SWAP]
-
-        # 全部先拷到 staging（同卷，保证后续 os.replace 原子）
         if staging_root.exists():
             shutil.rmtree(staging_root, ignore_errors=True)
         staging_root.mkdir(parents=True, exist_ok=True)
         trash_root.mkdir(parents=True, exist_ok=True)
-        for it in items:
-            dst = staging_root / it.name
-            if it.is_dir() and not it.is_symlink():
-                shutil.copytree(it, dst)
+        for item in items:
+            dst = staging_root / item.name
+            if item.is_dir() and not item.is_symlink():
+                shutil.copytree(item, dst)
             else:
-                shutil.copy2(it, dst)
+                shutil.copy2(item, dst)
 
-        # 逐项原子换名
-        for it in items:
-            target = skill_root / it.name
-            staged = staging_root / it.name
+        for item in items:
+            target = skill_root / item.name
+            staged = staging_root / item.name
             had_target = target.exists()
             _atomic_swap_item(staged, target, trash_root)
-            swapped.append((target, (trash_root / it.name) if had_target else None))
+            swapped.append((target, (trash_root / item.name) if had_target else None))
 
-        # 成功：清理 trash / staging
+        _validate_installed_skill(skill_root, expected_version)
         shutil.rmtree(trash_root, ignore_errors=True)
         shutil.rmtree(staging_root, ignore_errors=True)
         return backup_path
-
     except Exception:
-        # 回滚已换入的项：把 trash 里的旧项换回来
         for target, trash_old in reversed(swapped):
             try:
                 if trash_old is not None and trash_old.exists():
@@ -312,13 +484,11 @@ def _install(source: Path, skill_root: Path, backup_root: Path) -> Path:
                         else:
                             target.unlink()
                     os.replace(trash_old, target)
-                else:
-                    # 原本不存在的新项：删除以恢复原状
-                    if target.exists():
-                        if target.is_dir() and not target.is_symlink():
-                            shutil.rmtree(target, ignore_errors=True)
-                        else:
-                            target.unlink()
+                elif target.exists():
+                    if target.is_dir() and not target.is_symlink():
+                        shutil.rmtree(target, ignore_errors=True)
+                    else:
+                        target.unlink()
             except Exception:
                 pass
         shutil.rmtree(trash_root, ignore_errors=True)
@@ -416,9 +586,22 @@ def main():
             if args.dry_run:
                 _json_exit(0, success=True, dry_run=True, package_version=package_version, source=str(source), skill_root=str(skill_root))
 
-            backup_path = _install(source, skill_root, backup_root)
+            backup_path = _install(source, skill_root, backup_root, package_version)
+            migrated_legacy_backups = []
+            if not args.backup_root:
+                migrated_legacy_backups = _migrate_legacy_backups(skill_root, backup_root)
+            pruned_backups = _prune_managed_backups(backup_root)
             _finalize_dedup_state(skill_root, args.version, "ok")
-            _json_exit(0, success=True, package_version=package_version, skill_root=str(skill_root), backup_path=str(backup_path))
+            _json_exit(
+                0,
+                success=True,
+                package_version=package_version,
+                skill_root=str(skill_root),
+                backup_path=str(backup_path),
+                backup_root=str(backup_root),
+                migrated_legacy_backups=migrated_legacy_backups,
+                pruned_backups=pruned_backups,
+            )
         except Exception as exc:
             _finalize_dedup_state(skill_root, args.version, "failed", last_error=str(exc))
             _json_exit(1, success=False, error=str(exc), skill_root=str(skill_root))

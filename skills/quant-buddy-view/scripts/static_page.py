@@ -6255,10 +6255,13 @@ def _parse_target_asset(target_asset):
 
 
 def _assets_db_dir():
-    """同级 quant-buddy-skill 的资产库目录，口径与 qbs_bridge._qbs_root() 一致。"""
-    override = os.environ.get("QBS_SKILL_ROOT", "").strip()
-    root = override or os.path.join(os.path.dirname(C.SKILL_ROOT), "quant-buddy-skill")
-    return os.path.join(root, "presets", "assets_db")
+    """Resolve QBS assets_db through the shared exact active-skill resolver."""
+    resolution = C.resolve_qbs_skill_root()
+    root = resolution.get("root")
+    if root is None:
+        call_script = resolution.get("call_script")
+        return os.path.join(str(call_script.parent.parent if call_script else ""), "presets", "assets_db")
+    return os.path.join(str(root), "presets", "assets_db")
 
 
 def _normalize_ticker(code):

@@ -9,6 +9,14 @@
 
 ---
 
+## [0.6.54] — 2026-08-26
+
+### 兼容 SkillHub 活动目录的 QBS bridge
+
+- 新增唯一的 QBS peer-skill resolver：优先 `QBS_SKILL_ROOT`，其次同级 `quant-buddy-skill/`，最后同级 `quant-buddy-skill__skillhub/`；只检查精确目录及 `scripts/call.py`，不会扫描或误选 `quant-buddy-skill-backup-*`。
+- `qbs_bridge.py`、资产库查询与公式包凭证导入统一使用 resolver。`QBS_NOT_FOUND` 现在返回查找目录、最终 call.py 路径和环境变量覆盖状态。
+- bridge 生成的公式校验、grant 校验和实时路由 receipt 全部改为 task-scoped 系统临时目录；不再向共享 skill `output/` 根目录沉积一次性业务 JSON。
+
 ## [0.6.53] — 2026-08-25
 
 ### Trace Context 与 QBS Handoff 支持每轮 Agent Intent

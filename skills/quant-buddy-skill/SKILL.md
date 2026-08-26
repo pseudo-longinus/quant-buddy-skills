@@ -2,7 +2,7 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.25.28
+version: 4.25.29
 description: |
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据；支持查询 A 股股票所属行业。
   查询最近N个交易日的价格序列、日涨跌幅序列、窗口最高价、最低价、振幅等短期统计。
@@ -16,7 +16,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.25.28
+  version: 4.25.29
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -632,19 +632,19 @@ GZQ_PARAMS='<JSON>' python scripts/call.py <工具名>
 
 当用户要求更新本 skill（发送 zip 压缩包）时，必须严格遵守以下规则：
 
-### 备份位置
+### 备份位置与自动保留
 
-⚠️ **备份目录禁止放在 `skills/` 目录下。** 否则 openclaw 会把备份也识别为一个独立 skill，导致后续请求可能误用旧版代码。
+⚠️ **备份目录禁止放在 `skills/` 目录下。** 运行时更新器会把受管理备份写入：
 
-正确做法：
-
-```bash
-# 备份到 skills/ 之外的位置
-cp -r ~/.openclaw/workspace/skills/quant-buddy-skill ~/.openclaw/workspace/quant-buddy-skill-backup-$(date +%Y%m%d%H%M)
-
-# ❌ 错误：备份仍在 skills/ 下
-# cp -r ~/.openclaw/workspace/skills/quant-buddy-skill ~/.openclaw/workspace/skills/quant-buddy-skill-backup-xxx
+```text
+<workbuddy-root>/backups/skills/quant-buddy-skill/
 ```
+
+每个备份目录以时间和被替换版本命名，并带有 `backup-metadata.json`（含 slug、旧版本、创建时间和来源）。更新器只在新包校验、原子替换和活动目录健康检查都成功后，才迁移旧根目录备份并清理历史：**最多保留 3 个、仅保留 30 天内的已识别备份**。
+
+- `--backup-root <dir>` 可以显式指定备份根目录；不会改写为默认位置。
+- 清理只会删除含受管理 metadata 且 `skill_slug=quant-buddy-skill` 的目录；未知人工目录、活动目录、lock、staging、trash 和 `skills/` 下任何目录都不会被清理。
+- 历史 `<workbuddy-root>/quant-buddy-skill-backup-*` 仅在新版本健康检查成功后、且 `_skillhub_meta.json` / `_meta.json` 明确写有相同 slug 时迁移；更新失败时绝不删除旧备份。
 
 ### 解压覆盖
 

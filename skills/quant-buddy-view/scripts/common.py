@@ -38,6 +38,47 @@ _NO_PROXY_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 SKILL_ROOT = os.path.dirname(SCRIPT_DIR)
 
+# QBV 与 QBS 都可能由 WorkBuddy/SkillHub 安装。逻辑 slug 不是可靠的物理目录名：
+# SkillHub 的活动目录带 __skillhub 后缀，而历史备份也可能在同级。只接受下面的精确候选，
+# 严禁 glob/递归扫描，以免把 backup 当成可执行 skill。
+QBS_SKILL_DIR_CANDIDATES = ("quant-buddy-skill", "quant-buddy-skill__skillhub")
+
+
+def resolve_qbs_skill_root(qbv_skill_root=None, environ=None):
+    """Resolve the active QBS root without ever scanning backup directories.
+
+    Resolution order is intentionally fixed: explicit QBS_SKILL_ROOT, then the
+    traditional sibling directory, then the SkillHub sibling directory.  A root
+    is valid only when scripts/call.py exists.  The diagnostic payload is kept
+    structured so every QBV consumer can report exactly what deployment paths
+    were checked.
+    """
+    env = os.environ if environ is None else environ
+    root = Path(qbv_skill_root or SKILL_ROOT).resolve()
+    override = str(env.get("QBS_SKILL_ROOT", "") or "").strip()
+    if override:
+        candidates = [Path(override).expanduser().resolve()]
+    else:
+        skills_root = root.parent
+        candidates = [(skills_root / name).resolve() for name in QBS_SKILL_DIR_CANDIDATES]
+    searched_roots = [str(candidate) for candidate in candidates]
+    for candidate in candidates:
+        call_script = candidate / "scripts" / "call.py"
+        if call_script.is_file():
+            return {
+                "root": candidate,
+                "call_script": call_script,
+                "searched_roots": searched_roots,
+                "used_env_override": bool(override),
+            }
+    final_call_script = (candidates[-1] / "scripts" / "call.py") if candidates else None
+    return {
+        "root": None,
+        "call_script": final_call_script,
+        "searched_roots": searched_roots,
+        "used_env_override": bool(override),
+    }
+
 
 # ────────────────────────────────────────────────
 # 版本 / 渠道（打包时注入）

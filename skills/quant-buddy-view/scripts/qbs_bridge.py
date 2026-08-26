@@ -35,9 +35,26 @@ def _read_params(argv):
     return params
 
 
+def _qbs_resolution():
+    """Return the shared active-QBS resolution and deployment diagnostics."""
+    return C.resolve_qbs_skill_root(qbv_skill_root=QBV_ROOT)
+
+
 def _qbs_root():
-    override = os.environ.get("QBS_SKILL_ROOT", "").strip()
-    return Path(override).resolve() if override else (QBV_ROOT.parent / "quant-buddy-skill").resolve()
+    """Compatibility helper for internal callers that need only the resolved root."""
+    return _qbs_resolution().get("root")
+
+
+def _qbs_not_found_payload(resolution):
+    call_script = resolution.get("call_script")
+    return {
+        "code": 1,
+        "error": "QBS_NOT_FOUND",
+        "message": str(call_script or ""),
+        "call_script": str(call_script or ""),
+        "searched_roots": list(resolution.get("searched_roots") or []),
+        "used_env_override": bool(resolution.get("used_env_override")),
+    }
 
 
 def _forward_api_key(env):
@@ -299,10 +316,10 @@ def _write_package_validation_receipt(task_id, item, child_receipt_files):
         "batch_receipts": child_entries,
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
     }
-    root = QBV_ROOT / "output" / "formula_validation_receipts"
+    root = C.task_temp_path(task_id, "formula_validation_receipts", create_parent=True)
     root.mkdir(parents=True, exist_ok=True)
     digest = hashlib.sha256(f"{task_id}:{item.get('name')}:{fingerprint}".encode("utf-8")).hexdigest()
-    path = root / f"{digest}.json"
+    path = root / f"{C.safe_task_id(task_id)}-{digest}.json"
     fd, temp_path = tempfile.mkstemp(prefix=".receipt-", suffix=".json", dir=root)
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
@@ -846,11 +863,12 @@ def _evaluate_formula_result(required_outputs, result):
 
 
 def _write_live_data_route_receipt(payload):
-    root = QBV_ROOT / "output" / "live_data_route_receipts"
+    task_id = str((payload or {}).get("task_id") or "").strip()
+    root = C.task_temp_path(task_id, "live_data_route_receipts", create_parent=True)
     root.mkdir(parents=True, exist_ok=True)
     canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-    path = root / f"{digest}.json"
+    path = root / f"{C.safe_task_id(task_id)}-{digest}.json"
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return str(path)
 
@@ -1030,10 +1048,10 @@ def _resolve_asset_data(call_script, params, env):
 
 
 def _grant_validation_receipt(task_id, role_name, kind, fingerprint):
-    root = QBV_ROOT / "output" / "grant_validation_receipts"
+    root = C.task_temp_path(task_id, "grant_validation_receipts", create_parent=True)
     root.mkdir(parents=True, exist_ok=True)
     digest = hashlib.sha256(f"{task_id}:{role_name}:{fingerprint}".encode("utf-8")).hexdigest()
-    path = root / f"{digest}.json"
+    path = root / f"{C.safe_task_id(task_id)}-{digest}.json"
     payload = {
         "version": "grant_validation_receipt_v1",
         "task_id": task_id,
@@ -1156,10 +1174,11 @@ def main():
         print(json.dumps({"code": 1, "error": "QBV_TRACE_CONTEXT_REQUIRED", "missing": missing}, ensure_ascii=False))
         return 1
 
-    qbs_root = _qbs_root()
-    call_script = qbs_root / "scripts" / "call.py"
-    if not call_script.is_file():
-        print(json.dumps({"code": 1, "error": "QBS_NOT_FOUND", "message": str(call_script)}, ensure_ascii=False))
+    qbs_resolution = _qbs_resolution()
+    qbs_root = qbs_resolution.get("root")
+    call_script = qbs_resolution.get("call_script")
+    if qbs_root is None or call_script is None or not call_script.is_file():
+        print(json.dumps(_qbs_not_found_payload(qbs_resolution), ensure_ascii=False))
         return 1
 
     session_key = _session_key(task_id)

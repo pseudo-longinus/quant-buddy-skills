@@ -2,7 +2,7 @@
 name: quant-buddy-view
 slug: quant-buddy-view
 author: guanzhao
-version: 0.6.53
+version: 0.6.54
 description: |
   QBV / quant-buddy-view（用户可能写成 /quant-buddy-view、/qbv、qbv 或 QBV）用于把量化数据做成「公开可分享、实时取数」的网页看板/落地页。
   Use this skill when the user asks to create, update, publish, verify, retrofit, or reuse a Quant Buddy dashboard/static page/template, including shareable pages, public URLs, formula packages, share shell, cover/essence cards, poster/share behavior, single-stock profile pages, valuation/financial profile pages, index-anomaly boards, multi-factor screeners, and commodity daily pages.
@@ -12,7 +12,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 0.6.53
+  version: 0.6.54
   author: guanzhao
   category: quant-finance
   tags: [quant, dashboard, formula-package, static-page, publish, visualization]
@@ -202,15 +202,15 @@ npx skills add pseudo-longinus/quant-buddy-skills -g --all
 npx skills update pseudo-longinus/quant-buddy-skills -y
 ```
 - Windows 上若 symlink / `EPERM` 报错，在 `add` 命令末尾追加 `--copy` 重试。
-- 在源码 checkout 或 junction 调试本 skill 时，不要运行上面的 bundle 级 `add --all` / `update` 覆盖当前 `quant-buddy-view`；只确认同级 `../quant-buddy-skill` 是否存在，缺失时先停下说明需要把 quant-buddy-skill 放到同级。
+- 在源码 checkout 或 junction 调试本 skill 时，不要运行上面的 bundle 级 `add --all` / `update` 覆盖当前 `quant-buddy-view`。QBV 解析活动 QBS 的固定优先级是 `QBS_SKILL_ROOT`、同级 `quant-buddy-skill/`、同级 `quant-buddy-skill__skillhub/`；以 `scripts/call.py` 存在为准。不得用 glob/递归扫描，也不得把 `quant-buddy-skill-backup-*` 当成可运行 skill。
 - 安装后必须确认 quant-buddy-skill 的 `config.json.api_key` 或 `QUANT_BUDDY_API_KEY` 可用；只报告“已配置/未配置/鉴权成功或失败”，不要打印 key 或完整 config。若鉴权失败，停下来说明 blocker，不要继续注册公式包。
 - 若只是上传/改造一份真正不含资产、市场数据和来源凭证的纯静态 HTML，可继续使用本技能并声明 `static_content_only`。资产实时页面必须通过 `qbs_bridge.py resolve_asset_data` 完成统一探测；只有 `required_roles.formula` 非空时才运行公式验证，普通行情、估值和财务不得为了触发公式包而改写成公式。
 
 推荐让两个 skill 同级安装，便于验证公式和迁移旧公式包凭证：
 ```text
 <skills 目录>/
-  quant-buddy-skill/      ← 探索 / 公式验证（runMultiFormulaBatchStream、confirmDataMulti）
-  quant-buddy-view/       ← 本技能：注册公式包 / 生成看板 / 发布
+  quant-buddy-skill/ 或 quant-buddy-skill__skillhub/  ← 探索 / 公式验证（runMultiFormulaBatchStream、confirmDataMulti）
+  quant-buddy-view/ 或 quant-buddy-view__skillhub/    ← 本技能：注册公式包 / 生成看板 / 发布
 ```
 
 旧凭证迁移见 [tools/formula_package.md](tools/formula_package.md)。

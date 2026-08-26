@@ -9,6 +9,14 @@
 
 ---
 
+## [4.25.29] — 2026-08-26
+
+### 自更新备份改为受管理目录
+
+- 默认备份根目录改为 `<workbuddy-root>/backups/skills/quant-buddy-skill/`，不再向 `.workbuddy` 根目录新增 `quant-buddy-skill-backup-*`。
+- 新备份以时间和被替换版本命名，写入受管理 metadata；完成原子替换和健康检查后才迁移经过 slug 校验的历史 root backup，并自动保留最近 3 个且不超过 30 天。
+- 清理只接触 metadata/schema/slug 全部匹配的 QBS 备份；未知目录、活动 skill、lock、staging 和 trash 受保护。安装过程中任一 swap 或健康检查失败都会回滚活动目录，且不会触发迁移或清理。
+
 ## [4.25.28] — 2026-08-26
 
 ### 每个用户 Turn 增加可选 Agent Intent
