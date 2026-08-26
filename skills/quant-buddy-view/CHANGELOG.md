@@ -9,6 +9,15 @@
 
 ---
 
+## [0.6.53] — 2026-08-25
+
+### Trace Context 与 QBS Handoff 支持每轮 Agent Intent
+
+- `trace_context.py begin / beginTurn` 接受并返回 canonical `agent_intent`，task-scoped Trace Context 分别保存首轮与当前轮值；旧 `qbv_trace_context_v2` 文件缺失字段时继续按 `null` 读取。
+- `qbs_qbv_handoff_v1` 和 `beginHandoff` 可选恢复 Intent，Intent 缺失或不一致不会拒绝 Handoff、创建第二个 Turn 或改变页面 Job 幂等身份。
+- QBS bridge 仅在继承 `newSession` 或同步 `beginTurn` 时传递 Intent，普通取数和业务工具通过同一 `turn_id` 解析权威值；追踪失败继续遵循现有 fail-soft 规则。
+- `begin` / `beginTurn` 不再把追踪旁路的原始错误放入 Agent 可见 JSON；详细错误按 Task 写入临时 JSONL，页面取数、更新、验证和发布继续使用已提交的本地 Turn 上下文。
+
 ## [0.6.52] — 2026-08-24
 
 ### Card Runtime 去逐页硬编码与故障隔离

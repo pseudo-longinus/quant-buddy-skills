@@ -2,7 +2,7 @@
 name: quant-buddy-view
 slug: quant-buddy-view
 author: guanzhao
-version: 0.6.52
+version: 0.6.53
 description: |
   QBV / quant-buddy-view（用户可能写成 /quant-buddy-view、/qbv、qbv 或 QBV）用于把量化数据做成「公开可分享、实时取数」的网页看板/落地页。
   Use this skill when the user asks to create, update, publish, verify, retrofit, or reuse a Quant Buddy dashboard/static page/template, including shareable pages, public URLs, formula packages, share shell, cover/essence cards, poster/share behavior, single-stock profile pages, valuation/financial profile pages, index-anomaly boards, multi-factor screeners, and commodity daily pages.
@@ -12,7 +12,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 0.6.52
+  version: 0.6.53
   author: guanzhao
   category: quant-finance
   tags: [quant, dashboard, formula-package, static-page, publish, visualization]
@@ -74,7 +74,7 @@ runtimeRequirements:
 4. fork/unmatched 调用 `new_page` 时由 Agent 根据 `items_summary` 显式传 `routing_decision`，脚本校验并与同一 `page_id` 绑定；普通渠道立即发送首链，`feishu-group` 仅内部持有该链接，验证目标公式后继续注册、替换与 `publish_verified`。
 5. 除 `new_asset_page` 的单链接快速终态外，其余分支按 `agent_reply_contract` 和回复模板生成草稿，再运行一次 `validate_agent_reply.py`。
 
-> **多轮追问**：首次用户消息运行 `scripts/trace_context.py begin`；同一 `task_id` 的每条后续用户消息先运行 `scripts/trace_context.py beginTurn`。一轮内所有 QBV/QBS 工具共享同一 `turn_id`。Turn 是审计旁路：服务端记录失败会返回 `tracking_recorded:false`，但不得阻断建页、更新、取数或发布；本地上下文仍切换并继续。更新既有活页必须继续复用原 `page_id` 与公开 URL。
+> **多轮追问**：首次用户消息运行 `scripts/trace_context.py begin`；同一 `task_id` 的每条后续用户消息先运行 `scripts/trace_context.py beginTurn`。正常 Agent 必须同时传本轮可选 `agent_intent`：简洁展开上下文指代并写清对象、动作、约束和期望页面/产物，推荐 20～160 字；不得复制用户原话、输出内部推理或提前编造结论。老调用方可省略并按 `null` 继续。一轮内所有 QBV/QBS 工具共享同一 `turn_id`。Turn 是审计旁路：服务端记录失败会返回 `tracking_recorded:false`，但不得阻断建页、更新、取数或发布；本地上下文仍切换并继续。更新既有活页必须继续复用原 `page_id` 与公开 URL。
 
 > **QBS 并行 Handoff**：收到 `qbs_qbv_handoff_v1` 时运行 `scripts/trace_context.py beginHandoff`（兼容 `begin-handoff`），传入 Handoff object 或绝对 `handoff_file`。必须原样复用其中真实 `task_id + turn_id + source_skill_id`，不得再次 `begin/beginTurn`、不得在 QBV 重做 QBS 路由分类。`create/existing_page` 之后仍进入本 Skill 完整 SOP，由 QBV 判断 direct/fork/unmatched、查询 ownership 并执行本人原位更新或他人复制；高风险持久状态未确认时 `beginHandoff` 必须拒绝。
 
@@ -90,8 +90,10 @@ runtimeRequirements:
 
 ```bash
 # 身份走环境变量（exec 日志里会脱敏）；不要把 key 拼进命令串，命令是原样记录的
-QBV_API_KEY=<本次任务的 key> python scripts/trace_context.py begin '{"user_query":"用户原始问题","agent_model":"当前真实运行模型（明确知道时才传）"}'
+QBV_API_KEY=<本次任务的 key> python scripts/trace_context.py begin '{"user_query":"那和五粮液比呢？","agent_intent":"延续上一轮贵州茅台分析，对比五粮液的盈利能力、估值水平与主要风险。","agent_model":"当前真实运行模型（明确知道时才传）"}'
 ```
+
+`agent_intent` 与本轮 `user_query` 绑定：首问、每次追问分别保存，追问要展开“它/上一个/继续”等指代；缺失、空白或旧 Trace 文件均按 `null`，不能从 `user_query` 伪造。QBS Handoff 继续使用 `qbs_qbv_handoff_v1`，可选携带同一 Intent；Intent 差异不得制造第二个 Turn、拒绝 Handoff 或改变 Job 身份。
 
 `agent_model` 是纯可选审计字段：明确知道当前 Agent 的真实运行模型时建议传入；不确定时直接省略，禁止猜测，也不要询问用户。宿主也可通过可选环境变量 `QBV_AGENT_MODEL` 注入。模型名按“显式参数 → `QBV_AGENT_MODEL` → 当前 `task_id` 的任务临时上下文 → 空”解析；缺失、纯空白或上下文读写失败都不得中断任务，非空值会通过 `x-agent-model` 自动贯穿后续命令与 QBS bridge。
 

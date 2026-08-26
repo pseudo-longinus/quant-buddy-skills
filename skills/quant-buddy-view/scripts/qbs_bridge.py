@@ -1150,6 +1150,7 @@ def main():
     task_id = str(context.get("task_id") or task_id).strip()
     turn_id = str(context.get("turn_id") or "").strip()
     user_query = str(context.get("user_query") or "").strip()
+    agent_intent = C.normalize_agent_intent(context.get("agent_intent"))
     if not task_id or not turn_id or not user_query:
         missing = [key for key, value in (("task_id", task_id), ("turn_id", turn_id), ("user_query", user_query)) if not value]
         print(json.dumps({"code": 1, "error": "QBV_TRACE_CONTEXT_REQUIRED", "missing": missing}, ensure_ascii=False))
@@ -1184,6 +1185,7 @@ def main():
             "task_source": "quant-buddy-view",
             "turn_id": turn_id,
             "user_query": user_query,
+            "agent_intent": agent_intent,
         }
         if agent_model:
             bootstrap_params["agent_model"] = agent_model
@@ -1198,6 +1200,7 @@ def main():
     if not bootstrapped and str(qbs_session.get("current_turn_id") or "") != turn_id:
         sync_params = {
             "task_id": task_id, "turn_id": turn_id, "user_query": user_query,
+            "agent_intent": agent_intent,
             "parent_turn_id": context.get("previous_turn_id"),
         }
         sync_params = {key: value for key, value in sync_params.items() if value}
@@ -1213,6 +1216,9 @@ def main():
     params["task_id"] = task_id
     params["turn_id"] = turn_id
     params["user_query"] = user_query
+    # agent_intent is Turn metadata. The authoritative Turn has already been created/synced,
+    # so ordinary data/business tools resolve it by turn_id instead of duplicating the text.
+    params.pop("agent_intent", None)
     if tool_name == "validate_package_set":
         payload = _validate_package_set(call_script, params, env)
         print(json.dumps(payload, ensure_ascii=False, indent=2))

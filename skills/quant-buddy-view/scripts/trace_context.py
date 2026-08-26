@@ -20,7 +20,12 @@ from qbs_handoff_adapter import evaluate_handoff
 
 
 def _turn_payload(params, task_id, turn_id, user_query, parent_turn_id=None):
-    body = {"task_id": task_id, "turn_id": turn_id, "user_query": user_query}
+    body = {
+        "task_id": task_id,
+        "turn_id": turn_id,
+        "user_query": user_query,
+        "agent_intent": C.current_trace_context().get("agent_intent"),
+    }
     message_id = str(params.get("message_id") or "").strip()
     if message_id:
         body["message_id"] = message_id
@@ -42,18 +47,20 @@ def _restore_process_context(snapshot):
         context.get("task_id"), context.get("user_query"),
         api_key_override=api_key_override, agent_model=context.get("agent_model"),
         turn_id=context.get("turn_id"), previous_turn_id=context.get("previous_turn_id"),
+        agent_intent=context.get("agent_intent"),
     )
 
 
-def _commit_context(task_id, turn_id, user_query, previous_turn_id, agent_model, handoff_context=None):
+def _commit_context(task_id, turn_id, user_query, previous_turn_id, agent_model, handoff_context=None,
+                    agent_intent=None):
     if not C.persist_task_trace_context(
         task_id, turn_id, user_query, previous_turn_id=previous_turn_id, agent_model=agent_model,
-        handoff_context=handoff_context,
+        handoff_context=handoff_context, agent_intent=agent_intent,
     ):
         return False
     C.set_trace_context(
         task_id, user_query, api_key_override=C._API_KEY_OVERRIDE, agent_model=agent_model,
-        turn_id=turn_id, previous_turn_id=previous_turn_id,
+        turn_id=turn_id, previous_turn_id=previous_turn_id, agent_intent=agent_intent,
     )
     return True
 
@@ -88,7 +95,13 @@ def _reuse_active_handoff_turn(params, task_id, user_query):
             "turn_id": persisted_turn_id or None,
         }
 
-    context_params = {"task_id": task_id, "turn_id": persisted_turn_id, "user_query": persisted_query}
+    persisted_intent = C.normalize_agent_intent(previous.get("current_agent_intent"))
+    context_params = {
+        "task_id": task_id,
+        "turn_id": persisted_turn_id,
+        "user_query": persisted_query,
+        "agent_intent": persisted_intent,
+    }
     if "agent_model" in params:
         context_params["agent_model"] = params.get("agent_model")
     C.configure_trace_context(context_params)
@@ -98,6 +111,7 @@ def _reuse_active_handoff_turn(params, task_id, user_query):
         "task_id": task_id,
         "turn_id": persisted_turn_id,
         "user_query": persisted_query,
+        "agent_intent": persisted_intent,
         "created": False,
         "tracking_recorded": False,
         "tracking_skipped": True,
@@ -122,7 +136,13 @@ def cmd_begin(params):
     endpoint, api_key = C.endpoint_of(cfg), cfg.get("api_key", "")
     turn_id = str(params.get("turn_id") or uuid.uuid4()).strip()
     previous_process_context = _snapshot_process_context()
-    context_params = {"task_id": task_id, "turn_id": turn_id, "user_query": user_query}
+    agent_intent = C.normalize_agent_intent(params.get("agent_intent"))
+    context_params = {
+        "task_id": task_id,
+        "turn_id": turn_id,
+        "user_query": user_query,
+        "agent_intent": agent_intent,
+    }
     if "agent_model" in params:
         context_params["agent_model"] = params.get("agent_model")
     C.configure_trace_context(context_params)
@@ -142,15 +162,18 @@ def cmd_begin(params):
     if tracking_recorded and out.get("task_id") in (None, "", task_id):
         # message_id 幂等重试可能返回首次写入的 canonical turn_id。
         turn_id = str(out.get("turn_id") or turn_id).strip()
+        if "agent_intent" in out:
+            agent_intent = C.normalize_agent_intent(out.get("agent_intent"))
     else:
         tracking_recorded = False
-        tracking_error = out
+        C.record_turn_tracking_diagnostic(task_id, turn_id, "begin", out)
     task_root = C.task_temp_dir(task_id, create=True)
-    if not _commit_context(task_id, turn_id, user_query, None, agent_model):
+    if not _commit_context(task_id, turn_id, user_query, None, agent_model, agent_intent=agent_intent):
         _restore_process_context(previous_process_context)
         return {"code": 1, "error": "TRACE_CONTEXT_PERSIST_FAILED", "message": "服务端已创建 Turn，但本地上下文持久化失败"}
     return {
         "code": 0, "task_id": task_id, "turn_id": turn_id, "user_query": user_query,
+        "agent_intent": agent_intent,
         "created": bool(out.get("created")) if tracking_recorded else False,
         "tracking_recorded": tracking_recorded, "tracking_error": tracking_error,
         "task_temp_dir": str(task_root), "next_step": "templates",
@@ -175,7 +198,13 @@ def cmd_begin_turn(params):
     parent_turn_id = str(params.get("parent_turn_id") or previous.get("current_turn_id") or "").strip() or None
     turn_id = str(params.get("turn_id") or uuid.uuid4()).strip()
     previous_process_context = _snapshot_process_context()
-    context_params = {"task_id": task_id, "turn_id": turn_id, "user_query": user_query}
+    agent_intent = C.normalize_agent_intent(params.get("agent_intent"))
+    context_params = {
+        "task_id": task_id,
+        "turn_id": turn_id,
+        "user_query": user_query,
+        "agent_intent": agent_intent,
+    }
     if "agent_model" in params:
         context_params["agent_model"] = params.get("agent_model")
     C.configure_trace_context(context_params)
@@ -195,15 +224,20 @@ def cmd_begin_turn(params):
     if tracking_recorded and out.get("task_id") in (None, "", task_id):
         # message_id 幂等重试可能返回首次写入的 canonical turn_id。
         turn_id = str(out.get("turn_id") or turn_id).strip()
+        if "agent_intent" in out:
+            agent_intent = C.normalize_agent_intent(out.get("agent_intent"))
     else:
         tracking_recorded = False
-        tracking_error = out
-    if not _commit_context(task_id, turn_id, user_query, parent_turn_id, agent_model):
+        C.record_turn_tracking_diagnostic(task_id, turn_id, "beginTurn", out)
+    if not _commit_context(
+        task_id, turn_id, user_query, parent_turn_id, agent_model, agent_intent=agent_intent
+    ):
         _restore_process_context(previous_process_context)
         return {"code": 1, "error": "TRACE_CONTEXT_PERSIST_FAILED"}
     return {
         "code": 0, "success": True, "task_id": task_id, "turn_id": turn_id,
         "parent_turn_id": parent_turn_id, "user_query": user_query,
+        "agent_intent": agent_intent,
         "created": bool(out.get("created")) if tracking_recorded else False,
         "tracking_recorded": tracking_recorded, "tracking_error": tracking_error,
         "instruction": "本轮后续 QBV/QBS 工具会共享此 turn_id；更新既有页面时继续复用原 page_id/URL。",
@@ -313,6 +347,7 @@ def cmd_begin_handoff(params):
     task_id = str(handoff["task_id"]).strip()
     turn_id = str(handoff["turn_id"]).strip()
     user_query = str(handoff["user_query"]).strip()
+    agent_intent = C.normalize_agent_intent(handoff.get("agent_intent"))
     source_skill_id = str(handoff.get("source_skill_id") or "").strip() or None
     source_skill_id_status = str(
         handoff.get("source_skill_id_status") or ("available" if source_skill_id else "unavailable")
@@ -324,7 +359,12 @@ def cmd_begin_handoff(params):
     previous_turn_id = str(previous.get("previous_turn_id") or "").strip() or None
     previous_process_context = _snapshot_process_context()
 
-    context_params = {"task_id": task_id, "turn_id": turn_id, "user_query": user_query}
+    context_params = {
+        "task_id": task_id,
+        "turn_id": turn_id,
+        "user_query": user_query,
+        "agent_intent": agent_intent,
+    }
     if "agent_model" in params:
         context_params["agent_model"] = params.get("agent_model")
     C.configure_trace_context(context_params)
@@ -334,6 +374,7 @@ def cmd_begin_handoff(params):
         "source_task_id": task_id,
         "source_turn_id": turn_id,
         "source_user_query": user_query,
+        "source_agent_intent": agent_intent,
         "source_skill_id": source_skill_id,
         "source_skill_id_status": source_skill_id_status,
         "source_skill_name": source_skill_name,
@@ -350,7 +391,8 @@ def cmd_begin_handoff(params):
         "handoff_file": str(params.get("handoff_file") or "").strip() or None,
     }
     if not _commit_context(
-        task_id, turn_id, user_query, previous_turn_id, agent_model, handoff_context=handoff_context
+        task_id, turn_id, user_query, previous_turn_id, agent_model,
+        handoff_context=handoff_context, agent_intent=agent_intent
     ):
         _restore_process_context(previous_process_context)
         return {"code": 1, "error": "TRACE_CONTEXT_PERSIST_FAILED"}
@@ -362,6 +404,7 @@ def cmd_begin_handoff(params):
         "task_id": task_id,
         "turn_id": turn_id,
         "user_query": user_query,
+        "agent_intent": agent_intent,
         "source_skill_id": source_skill_id,
         "source_skill_id_status": source_skill_id_status,
         "source_skill_name": source_skill_name,

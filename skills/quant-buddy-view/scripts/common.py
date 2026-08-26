@@ -156,6 +156,7 @@ def api_url(endpoint, path):
 _TRACE_TASK_ID = None
 _TRACE_TURN_ID = None
 _TRACE_USER_QUERY = None
+_TRACE_AGENT_INTENT = None
 _TRACE_PREVIOUS_TURN_ID = None
 _TRACE_AGENT_MODEL = None
 _API_KEY_OVERRIDE = None  # 调用方（如 Playground）本次调用传入的 api_key，仅本进程生效，不落盘
@@ -170,14 +171,23 @@ def _normalize_agent_model(value):
     return value or None
 
 
+def normalize_agent_intent(value):
+    """规范化可选的每轮 Agent 意图；不从 user_query 推导。"""
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    return normalized[:300] or None
+
+
 def set_trace_context(task_id=None, user_query=None, api_key_override=None, agent_model=None,
-                      turn_id=None, previous_turn_id=None):
+                      turn_id=None, previous_turn_id=None, agent_intent=None):
     """设置当前进程的 Trace Context；供 read_params / trace_context.py 共用。"""
-    global _TRACE_TASK_ID, _TRACE_TURN_ID, _TRACE_USER_QUERY, _TRACE_PREVIOUS_TURN_ID
-    global _TRACE_AGENT_MODEL, _API_KEY_OVERRIDE
+    global _TRACE_TASK_ID, _TRACE_TURN_ID, _TRACE_USER_QUERY, _TRACE_AGENT_INTENT
+    global _TRACE_PREVIOUS_TURN_ID, _TRACE_AGENT_MODEL, _API_KEY_OVERRIDE
     _TRACE_TASK_ID = str(task_id).strip() if task_id else None
     _TRACE_TURN_ID = str(turn_id).strip() if turn_id else None
     _TRACE_USER_QUERY = str(user_query).strip() if user_query else None
+    _TRACE_AGENT_INTENT = normalize_agent_intent(agent_intent)
     _TRACE_PREVIOUS_TURN_ID = str(previous_turn_id).strip() if previous_turn_id else None
     _TRACE_AGENT_MODEL = _normalize_agent_model(agent_model)
     _API_KEY_OVERRIDE = str(api_key_override).strip() if api_key_override else None
@@ -185,6 +195,7 @@ def set_trace_context(task_id=None, user_query=None, api_key_override=None, agen
         "task_id": _TRACE_TASK_ID,
         "turn_id": _TRACE_TURN_ID,
         "user_query": _TRACE_USER_QUERY,
+        "agent_intent": _TRACE_AGENT_INTENT,
         "previous_turn_id": _TRACE_PREVIOUS_TURN_ID,
         "agent_model": _TRACE_AGENT_MODEL,
     }
@@ -202,6 +213,14 @@ def configure_trace_context(params=None):
                   or os.environ.get("QBV_USER_QUERY") or persisted.get("current_user_query"))
     previous_turn_id = (params.get("previous_turn_id") or nested.get("previous_turn_id")
                         or persisted.get("previous_turn_id"))
+    if "agent_intent" in params:
+        agent_intent = normalize_agent_intent(params.get("agent_intent"))
+    elif "agent_intent" in nested:
+        agent_intent = normalize_agent_intent(nested.get("agent_intent"))
+    elif os.environ.get("QBV_AGENT_INTENT") is not None:
+        agent_intent = normalize_agent_intent(os.environ.get("QBV_AGENT_INTENT"))
+    else:
+        agent_intent = normalize_agent_intent(persisted.get("current_agent_intent"))
     explicit_agent_model = params.get("agent_model") if "agent_model" in params else nested.get("agent_model")
     agent_model = _normalize_agent_model(explicit_agent_model)
     if not agent_model:
@@ -231,7 +250,7 @@ def configure_trace_context(params=None):
         api_key_override = os.environ.get("QBV_API_KEY", "").strip() or None
     return set_trace_context(
         task_id, user_query, api_key_override, agent_model,
-        turn_id=turn_id, previous_turn_id=previous_turn_id,
+        turn_id=turn_id, previous_turn_id=previous_turn_id, agent_intent=agent_intent,
     )
 
 
@@ -240,6 +259,7 @@ def current_trace_context():
         "task_id": _TRACE_TASK_ID,
         "turn_id": _TRACE_TURN_ID,
         "user_query": _TRACE_USER_QUERY,
+        "agent_intent": _TRACE_AGENT_INTENT,
         "previous_turn_id": _TRACE_PREVIOUS_TURN_ID,
         "agent_model": _TRACE_AGENT_MODEL,
     }
@@ -275,6 +295,32 @@ def task_temp_path(task_id, name, create_parent=False):
     return path
 
 
+def record_turn_tracking_diagnostic(task_id, turn_id, operation, detail):
+    """Best-effort local audit detail that is never returned to Agent-facing JSON."""
+    try:
+        path = task_temp_path(task_id, ".turn_tracking_diagnostics.jsonl", create_parent=True)
+        if isinstance(detail, str):
+            detail_text = detail
+        else:
+            try:
+                detail_text = json.dumps(detail, ensure_ascii=False, default=str)
+            except (TypeError, ValueError):
+                detail_text = str(detail)
+        payload = {
+            "timestamp_ms": int(time.time() * 1000),
+            "source": "quant-buddy-view",
+            "operation": str(operation or "turnTracking"),
+            "task_id": str(task_id or "").strip() or None,
+            "turn_id": str(turn_id or "").strip() or None,
+            "detail": detail_text[:8000],
+        }
+        with path.open("a", encoding="utf-8", newline="\n") as handle:
+            handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        return True
+    except (OSError, ValueError, TypeError):
+        return False
+
+
 def read_task_trace_context(task_id):
     """Best-effort 读取 task-scoped Turn 上下文，供独立 Python 进程恢复。"""
     try:
@@ -292,7 +338,7 @@ def read_task_agent_model(task_id):
 
 
 def persist_task_trace_context(task_id, turn_id, user_query, previous_turn_id=None, agent_model=None,
-                               handoff_context=None):
+                               handoff_context=None, agent_intent=None):
     """原子保存当前 Turn；可附带 QBS Handoff lineage，供独立 QBV 进程恢复。"""
     if not task_id or not turn_id or not str(user_query or "").strip():
         return False
@@ -300,13 +346,21 @@ def persist_task_trace_context(task_id, turn_id, user_query, previous_turn_id=No
     try:
         path = task_temp_path(task_id, _TRACE_CONTEXT_FILE_NAME, create_parent=True)
         previous = read_task_trace_context(task_id)
+        if "initial_agent_intent" in previous:
+            initial_agent_intent = normalize_agent_intent(previous.get("initial_agent_intent"))
+        elif previous.get("current_turn_id"):
+            initial_agent_intent = None
+        else:
+            initial_agent_intent = normalize_agent_intent(agent_intent)
         payload = {
             "version": "qbv_trace_context_v2",
             "task_id": str(task_id).strip(),
             "current_turn_id": str(turn_id).strip(),
             "current_user_query": str(user_query).strip(),
+            "current_agent_intent": normalize_agent_intent(agent_intent),
             "previous_turn_id": str(previous_turn_id).strip() if previous_turn_id else None,
             "initial_user_query": previous.get("initial_user_query") or str(user_query).strip(),
+            "initial_agent_intent": initial_agent_intent,
             "agent_model": _normalize_agent_model(agent_model) or _normalize_agent_model(previous.get("agent_model")),
         }
         effective_handoff = handoff_context if isinstance(handoff_context, dict) else previous.get("handoff_context")
@@ -337,6 +391,7 @@ def persist_task_agent_model(task_id, agent_model):
         return persist_task_trace_context(
             task_id, existing["current_turn_id"], existing["current_user_query"],
             existing.get("previous_turn_id"), model,
+            agent_intent=existing.get("current_agent_intent"),
         )
     temp_path = None
     try:

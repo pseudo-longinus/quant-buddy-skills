@@ -9,6 +9,29 @@
 
 ---
 
+## [4.25.28] — 2026-08-26
+
+### 每个用户 Turn 增加可选 Agent Intent
+
+- `newSession` / `beginTurn` 接受并返回规范化后的 `agent_intent`，本地 Session 分别保存首轮与当前轮 Intent；追问切换只更新当前轮，不覆盖首轮。
+- QBS→QBV 的 `qbs_qbv_handoff_v1` 增加可选 Intent，旧 Handoff 继续兼容；Intent 不进入页面 Job 幂等键，也不要求普通行情、公式或业务工具重复上报。
+- Skill 指令要求正常 Agent 展开追问指代，写清对象、动作、约束和产物；禁止复制用户原话、记录内部推理或提前编造结论。追踪或持久化失败继续 fail-soft。
+- Turn 追踪失败的原始服务端/传输错误不再进入 Agent 可见 JSON；响应只保留 `tracking_recorded:false` 与可继续执行的中性提示，详细错误写入 Session 邻接 JSONL 诊断文件。
+- 已显式提供完整 `task_id + turn_id + user_query` 的活页路由调用不再因缺少本地 Session 或可选 Intent 失败；Intent 上下文补充保持 fail-soft，兼容旧调用方。
+
+### 同步最新资产和数据目录
+
+- 在港股半年财务字段目录基础上补充 4 条港股/美股换手率字段，`guanzhao` 目录由 161 条增至 165 条，全量 `index_info_catalog` 由 2535 条增至 2539 条。
+- 刷新 A 股和港股资产预设，纳入最新标的、简称及曾用名变化；保持既有五列格式和 ticker 唯一性约束。
+
+## [4.25.27] — 2026-08-25
+
+### 补齐港股半年财务字段目录
+
+- 使用 `indexInfo_fmp_fa_1324.xlsx` 重新生成 `fmp_fa.yaml`，记录数由 1144 增至 1324。
+- 新增 180 条港股“半年”财务字段，原有港股/美股单季、年度与 TTM 字段无删除。
+- 全量 `index_info_catalog` 记录数由 2355 更新为 2535，并同步 manifest、SKILL 目录说明及导入脚本期望总数。
+
 ## [4.25.26] — 2026-08-24
 
 ### 同步 QBV 0.6.52 Card Runtime 通用化与故障隔离

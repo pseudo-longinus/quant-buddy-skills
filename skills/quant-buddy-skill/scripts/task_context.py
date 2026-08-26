@@ -1,6 +1,9 @@
 """Shared task/turn context rules for quant-buddy-skill entry points."""
 
+import json
+import os
 import re
+import time
 import uuid
 
 
@@ -8,6 +11,38 @@ TASK_MODE_STANDALONE = "standalone"
 TASK_MODE_INHERIT = "inherit"
 _TASK_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _TURN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+_MAX_AGENT_INTENT_CHARS = 300
+
+
+def record_turn_tracking_diagnostic(session_file, operation, task_id, turn_id, detail):
+    """Best-effort local audit detail that is never returned to the Agent-facing response."""
+    try:
+        target = os.environ.get("QBS_TRACKING_DIAGNOSTIC_FILE", "").strip()
+        if not target:
+            target = f"{session_file}.tracking.jsonl"
+        parent = os.path.dirname(os.path.abspath(target))
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        if isinstance(detail, str):
+            detail_text = detail
+        else:
+            try:
+                detail_text = json.dumps(detail, ensure_ascii=False, default=str)
+            except (TypeError, ValueError):
+                detail_text = str(detail)
+        payload = {
+            "timestamp_ms": int(time.time() * 1000),
+            "source": "quant-buddy-skill",
+            "operation": str(operation or "turnTracking"),
+            "task_id": str(task_id or "").strip() or None,
+            "turn_id": str(turn_id or "").strip() or None,
+            "detail": detail_text[:8000],
+        }
+        with open(target, "a", encoding="utf-8", newline="\n") as handle:
+            handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        return True
+    except (OSError, TypeError, ValueError):
+        return False
 
 
 class TaskContextError(ValueError):
@@ -116,6 +151,14 @@ def _validate_turn_id(value):
     return turn_id
 
 
+def normalize_agent_intent(value):
+    """Normalize optional per-Turn intent without deriving it from user_query."""
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    return normalized[:_MAX_AGENT_INTENT_CHARS] or None
+
+
 def build_turn_context(session, params=None, uuid_factory=None):
     """Build one immutable user-turn context without mutating the session."""
     session = session if isinstance(session, dict) else {}
@@ -143,6 +186,7 @@ def build_turn_context(session, params=None, uuid_factory=None):
         "task_id": task_id,
         "turn_id": turn_id,
         "user_query": user_query,
+        "agent_intent": normalize_agent_intent(params.get("agent_intent")),
         "message_id": message_id,
         "parent_turn_id": parent_turn_id,
     }
@@ -154,11 +198,20 @@ def turn_session_fields(turn_context, previous_session=None):
     initial = previous_session.get("initial_user_query")
     if initial is None:
         initial = turn_context.get("user_query")
+    if "initial_agent_intent" in previous_session:
+        initial_agent_intent = normalize_agent_intent(previous_session.get("initial_agent_intent"))
+    elif previous_session.get("current_turn_id"):
+        # Legacy sessions did not record the first Turn intent; do not invent one from a follow-up.
+        initial_agent_intent = None
+    else:
+        initial_agent_intent = normalize_agent_intent(turn_context.get("agent_intent"))
     return {
         "current_turn_id": turn_context.get("turn_id"),
         "current_user_query": turn_context.get("user_query"),
+        "current_agent_intent": normalize_agent_intent(turn_context.get("agent_intent")),
         "previous_turn_id": turn_context.get("parent_turn_id"),
         "initial_user_query": initial,
+        "initial_agent_intent": initial_agent_intent,
     }
 
 

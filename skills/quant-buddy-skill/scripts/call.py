@@ -48,6 +48,8 @@ from task_context import (
     inject_or_validate_task_id,
     inject_or_validate_turn_context,
     may_replace_session_task_id,
+    normalize_agent_intent,
+    record_turn_tracking_diagnostic,
     session_context_fields,
     turn_session_fields,
 )
@@ -84,7 +86,8 @@ def _known_tools():
     """
     names = set(_LOCAL_TOOLS)
     try:
-        src = open(EXECUTOR, "r", encoding="utf-8").read()
+        with open(EXECUTOR, "r", encoding="utf-8") as handle:
+            src = handle.read()
         lines = src.splitlines()
         in_routes = False
         for line in lines:
@@ -447,6 +450,9 @@ def _post_turn(endpoint, api_key, channel, path, turn_context, agent_model=None,
     body["turn_id"] = str(body.get("turn_id") or turn_context["turn_id"]).strip()
     if not body["turn_id"]:
         raise RuntimeError(f"Turn 响应缺少 turn_id: {body}")
+    body["agent_intent"] = normalize_agent_intent(
+        body.get("agent_intent") if "agent_intent" in body else turn_context.get("agent_intent")
+    )
     return body
 
 
@@ -1471,10 +1477,17 @@ def main():
                     agent_model=str(turn_params.get("agent_model") or "").strip() or None,
                     user_id=turn_params.get("user_id"),
                 )
-                turn_context = {**turn_context, "turn_id": response["turn_id"]}
+                turn_context = {
+                    **turn_context,
+                    "turn_id": response["turn_id"],
+                    "agent_intent": response.get("agent_intent"),
+                }
                 tracking_recorded = True
             except Exception as exc:
-                tracking_error = str(exc)
+                record_turn_tracking_diagnostic(
+                    SESSION_FILE, "beginTurn", turn_context.get("task_id"),
+                    turn_context.get("turn_id"), exc,
+                )
             _write_session(turn_context["task_id"], turn_context=turn_context)
             result = {
                 "code": 0, "success": True,
@@ -1482,12 +1495,13 @@ def main():
                 "turn_id": turn_context["turn_id"],
                 "created": bool(response.get("created")),
                 "user_query": turn_context["user_query"],
+                "agent_intent": turn_context.get("agent_intent"),
                 "tracking_recorded": tracking_recorded,
                 "tracking_error": tracking_error,
                 "message": (
                     "新 Turn 上下文已切换；后续工具会自动复用当前 task_id、turn_id 与 user_query。"
                     if tracking_recorded else
-                    "Turn 记录失败，但本轮业务上下文已切换，后续工具可继续使用。"
+                    "本轮上下文已切换，可以继续执行后续工具。"
                 ),
             }
         except TaskContextError as exc:
@@ -1577,10 +1591,17 @@ def main():
                         _endpoint, _api_key, _channel, "/skill/session/begin", _turn_context,
                         agent_model=agent_model, user_id=user_id,
                     )
-                    _turn_context = {**_turn_context, "turn_id": _turn_response["turn_id"]}
+                    _turn_context = {
+                        **_turn_context,
+                        "turn_id": _turn_response["turn_id"],
+                        "agent_intent": _turn_response.get("agent_intent"),
+                    }
                     _tracking_recorded = True
                 except Exception as exc:
-                    _tracking_error = str(exc)
+                    record_turn_tracking_diagnostic(
+                        SESSION_FILE, "newSession", _turn_context.get("task_id"),
+                        _turn_context.get("turn_id"), exc,
+                    )
             _write_session(
                 new_id, user_query=user_query, task_context=_task_context, turn_context=_turn_context
             )
@@ -1653,6 +1674,7 @@ def main():
             "code": 0,
             "task_id": new_id,
             "turn_id": _turn_context["turn_id"],
+            "agent_intent": _turn_context.get("agent_intent"),
             "tracking_recorded": _tracking_recorded,
             "tracking_error": _tracking_error,
             "task_mode": _task_context["task_mode"],

@@ -35,6 +35,8 @@ from task_context import (
     inject_or_validate_task_id,
     inject_or_validate_turn_context,
     may_replace_session_task_id,
+    normalize_agent_intent,
+    record_turn_tracking_diagnostic,
     session_context_fields,
     turn_session_fields,
 )
@@ -272,6 +274,7 @@ class QuantAPI:
         self._task_id: str = ""
         self._turn_id: str = ""
         self._user_query: str = ""
+        self._agent_intent = None
         # 配额累积器：跨工具调用累计本 session 消耗的 RU
         self._session_ru_cost: int = 0
         self._last_quota: dict = {}
@@ -323,6 +326,7 @@ class QuantAPI:
         self._task_id = task_id
         self._turn_id = str(data.get("current_turn_id") or "")
         self._user_query = str(data.get("current_user_query") or data.get("user_query") or "")
+        self._agent_intent = normalize_agent_intent(data.get("current_agent_intent"))
 
     def _report_turn(self, path: str, turn_context: dict):
         if self._scripts_dir not in sys.path:
@@ -352,6 +356,9 @@ class QuantAPI:
         result["turn_id"] = str(result.get("turn_id") or turn_context["turn_id"]).strip()
         if not result["turn_id"]:
             raise RuntimeError(f"Turn 响应缺少 turn_id: {result}")
+        result["agent_intent"] = normalize_agent_intent(
+            result.get("agent_intent") if "agent_intent" in result else turn_context.get("agent_intent")
+        )
         return result
 
     def _report_session_begin(self, turn_context: dict):
@@ -451,10 +458,17 @@ class QuantAPI:
                     turn_result = self._report_session_begin(turn_context)
                     server_turn_id = turn_result.get("turn_id") if isinstance(turn_result, dict) else None
                     canonical_turn_id = server_turn_id.strip() if isinstance(server_turn_id, str) else ""
-                    turn_context = {**turn_context, "turn_id": canonical_turn_id or turn_context["turn_id"]}
+                    turn_context = {
+                        **turn_context,
+                        "turn_id": canonical_turn_id or turn_context["turn_id"],
+                        "agent_intent": turn_result.get("agent_intent"),
+                    }
                     tracking_recorded = True
                 except Exception as exc:
-                    tracking_error = str(exc)
+                    record_turn_tracking_diagnostic(
+                        self._session_file, "newSession", turn_context.get("task_id"),
+                        turn_context.get("turn_id"), exc,
+                    )
             self._write_session(
                 new_id, user_query=user_query, task_context=task_context, turn_context=turn_context
             )
@@ -468,6 +482,7 @@ class QuantAPI:
                 "code": 0,
                 "task_id": new_id,
                 "turn_id": turn_context["turn_id"],
+                "agent_intent": turn_context.get("agent_intent"),
                 "task_mode": task_context["task_mode"],
                 "task_id_source": task_context["task_id_source"],
                 "task_source": task_context["task_source"],
@@ -535,10 +550,17 @@ class QuantAPI:
                 result = self._report_turn_begin(turn_context)
                 server_turn_id = result.get("turn_id") if isinstance(result, dict) else None
                 canonical_turn_id = server_turn_id.strip() if isinstance(server_turn_id, str) else ""
-                turn_context = {**turn_context, "turn_id": canonical_turn_id or turn_context["turn_id"]}
+                turn_context = {
+                    **turn_context,
+                    "turn_id": canonical_turn_id or turn_context["turn_id"],
+                    "agent_intent": result.get("agent_intent"),
+                }
                 tracking_recorded = True
             except Exception as exc:
-                tracking_error = str(exc)
+                record_turn_tracking_diagnostic(
+                    self._session_file, "beginTurn", turn_context.get("task_id"),
+                    turn_context.get("turn_id"), exc,
+                )
             self._write_session(turn_context["task_id"], turn_context=turn_context)
             return {
                 "code": 0, "success": True,
@@ -546,8 +568,14 @@ class QuantAPI:
                 "turn_id": turn_context["turn_id"],
                 "created": bool(result.get("created")),
                 "user_query": turn_context["user_query"],
+                "agent_intent": turn_context.get("agent_intent"),
                 "tracking_recorded": tracking_recorded,
                 "tracking_error": tracking_error,
+                "message": (
+                    "新 Turn 上下文已切换；后续工具会自动复用当前 task_id、turn_id 与 user_query。"
+                    if tracking_recorded else
+                    "本轮上下文已切换，可以继续执行后续工具。"
+                ),
             }
 
         # ── 版本守卫：检测旧会话与当前 skill 版本是否匹配 ─────────────
@@ -678,6 +706,7 @@ class QuantAPI:
     def new_session(
         self,
         user_query: str = None,
+        agent_intent: str = None,
         task_id: str = None,
         task_mode: str = "standalone",
         task_source: str = None,
@@ -686,6 +715,8 @@ class QuantAPI:
         params = {"task_mode": task_mode}
         if user_query is not None:
             params["user_query"] = user_query
+        if agent_intent is not None:
+            params["agent_intent"] = agent_intent
         if task_id is not None:
             params["task_id"] = task_id
         if task_source is not None:
@@ -698,10 +729,12 @@ class QuantAPI:
 
     def begin_turn(
         self, user_query: str, turn_id: str = None, message_id: str = None,
-        parent_turn_id: str = None,
+        parent_turn_id: str = None, agent_intent: str = None,
     ) -> str:
         """切换当前 Turn；服务端追踪失败时仍提交本地上下文并继续业务。"""
         params = {"user_query": user_query}
+        if agent_intent is not None:
+            params["agent_intent"] = agent_intent
         if turn_id is not None:
             params["turn_id"] = turn_id
         if message_id is not None:

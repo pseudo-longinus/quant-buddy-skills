@@ -2,7 +2,7 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.25.26
+version: 4.25.28
 description: |
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据；支持查询 A 股股票所属行业。
   查询最近N个交易日的价格序列、日涨跌幅序列、窗口最高价、最低价、振幅等短期统计。
@@ -16,7 +16,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.25.26
+  version: 4.25.28
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -184,6 +184,9 @@ runtimeRequirements:
 
 1. 当前 Skill Session 尚未建立时，调用任何平台原生工具前必须先调用 `newSession`；`newSession` 同时登记本 Session 的首个 Turn。
 2. 同一 Session 收到新的用户消息（包括追问）时，必须先调用 `beginTurn`，参数中的 `user_query` 必须是本轮原话；同一 Turn 内连续调用多个工具时复用当前上下文，不重复 `beginTurn`。
+   - 正常 Agent 调用 `newSession` / `beginTurn` 时必须同时生成可选 `agent_intent`：用简短文字写清本轮要解决的对象、动作、约束和期望产物，推荐 20～160 字。追问中的“那它呢/和上一个比/继续”等指代必须结合已有上下文展开，但不得覆盖用户原话。
+   - `agent_intent` 示例：首问 `分析贵州茅台的盈利质量、估值水平与主要风险。`；追问“那和五粮液比呢？” → `延续上一轮贵州茅台分析，对比五粮液的盈利能力、估值水平与主要风险。`；带约束问题“只要近三年，做成一张表” → `整理目标公司近三年的核心指标并输出单表对比，不扩展到其他期间。`
+   - 禁止直接复制 `user_query` 充当 Intent；禁止记录 Chain of Thought、内部推理步骤或未经数据分析的结论。老客户端、自动测试和无法生成 Intent 的旁路允许省略，服务端按 `null` 处理，不得阻断业务。
 3. 只有真正开始新的独立 Skill Session 才重新 `newSession`。不允许用“已读 SKILL.md / leaf workflow”跳过首个 `newSession`，也不允许用重复 `newSession` 代替追问的 `beginTurn`。
    - 新版 `newSession` 的单次版本检查可能同时返回可选 companion（当前为 `quant-buddy-view`）：QBS 自身需要升级时必须先只升级 QBS 并 reload；QBS 已最新时才可安装、更新或补齐当前 Agent 的 companion 注册。companion 失败属于旁路错误，不得阻断当前 QBS 数据业务；只要返回 `reload_required=true`，最终回复必须明确提示用户重新加载 Agent，禁止忽略该提示后声称活页能力已在当前会话生效。
    - **建议在 `newSession` 同时传 `agent_model`**：填入当前 Agent 的真实模型标识（例如 `gpt-4o` / `claude-sonnet-4` / `gemini-2.5-pro`）；拿不准就留空，禁止猜测。
@@ -291,7 +294,7 @@ SKILL_ROOT/
 │   │   └── future.yaml              期货 240 条
 │   ├── functions.yaml           常用函数（170 条）
 │   ├── data_catalog.yaml        常用精选数据集（高频 index_title）
-│   ├── index_info_catalog/      系统支持数据名全量索引（2355 条，按 provider 分 YAML，grep 检索）
+│   ├── index_info_catalog/      系统支持数据名全量索引（2539 条，按 provider 分 YAML，grep 检索）
 │   ├── dimensions.yaml          已物化维度目录本地快照，只含**综合指标**（维度分），用于 selectByComposition
 │   │                            ⚠️ 要看细分指标或指标口径公式，用 `listDimensionIndicators` / `getIndicatorFormulas` 在线查
 │   ├── sectors.yaml             行业板块（742 条，10 个分类）

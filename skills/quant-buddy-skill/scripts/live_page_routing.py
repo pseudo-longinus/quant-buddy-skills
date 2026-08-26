@@ -78,20 +78,45 @@ def _read_source_skill_version() -> str:
     return ""
 
 
-def _resolve_prepare_lineage(task_id: Any, turn_id: Any, user_query: Any) -> tuple[str, str, str]:
+def _normalize_agent_intent(value: Any) -> Optional[str]:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    return normalized[:300] or None
+
+
+def _resolve_prepare_lineage(
+    task_id: Any, turn_id: Any, user_query: Any, agent_intent: Any = None,
+) -> tuple[str, str, str, Optional[str]]:
     supplied = {
         "task_id": _compact_text(task_id),
         "turn_id": _compact_text(turn_id),
         "user_query": _compact_text(user_query),
     }
+    supplied_intent = _normalize_agent_intent(agent_intent)
     if all(supplied.values()):
-        return supplied["task_id"], supplied["turn_id"], supplied["user_query"]
+        if agent_intent is not None:
+            return supplied["task_id"], supplied["turn_id"], supplied["user_query"], supplied_intent
+        try:
+            session = _load_current_session()
+        except LivePageRoutingError:
+            # Complete explicit lineage remains sufficient for legacy callers.
+            # Intent enrichment from local session context is optional and fail-soft.
+            return supplied["task_id"], supplied["turn_id"], supplied["user_query"], None
+        session_matches = (
+            _compact_text(session.get("task_id")) == supplied["task_id"]
+            and _compact_text(session.get("current_turn_id") or session.get("turn_id")) == supplied["turn_id"]
+            and _compact_text(session.get("current_user_query") or session.get("user_query")) == supplied["user_query"]
+        )
+        inherited_intent = _normalize_agent_intent(session.get("current_agent_intent")) if session_matches else None
+        return supplied["task_id"], supplied["turn_id"], supplied["user_query"], inherited_intent
     session = _load_current_session()
     session_values = {
         "task_id": _compact_text(session.get("task_id")),
         "turn_id": _compact_text(session.get("current_turn_id") or session.get("turn_id")),
         "user_query": _compact_text(session.get("current_user_query") or session.get("user_query")),
     }
+    session_intent = _normalize_agent_intent(session.get("current_agent_intent"))
     for field, explicit in supplied.items():
         current = session_values[field]
         if explicit and current and explicit != current:
@@ -100,7 +125,10 @@ def _resolve_prepare_lineage(task_id: Any, turn_id: Any, user_query: Any) -> tup
     missing = [field for field, value in resolved.items() if not value]
     if missing:
         raise LivePageRoutingError("QBS_SESSION_LINEAGE_INCOMPLETE", f"当前 QBS session 缺少: {', '.join(missing)}")
-    return resolved["task_id"], resolved["turn_id"], resolved["user_query"]
+    return (
+        resolved["task_id"], resolved["turn_id"], resolved["user_query"],
+        supplied_intent if agent_intent is not None else session_intent,
+    )
 
 
 class LivePageRoutingError(ValueError):
@@ -428,6 +456,7 @@ def build_qbv_handoff(
     source_skill_name: Any = "quant-buddy-skill",
     source_skill_version: Any = None,
     user_query: Any,
+    agent_intent: Any = None,
     route: Any,
     route_reason: Any = None,
     page_reference: Any = None,
@@ -476,6 +505,7 @@ def build_qbv_handoff(
     task_value = _required_id("task_id", task_id)
     turn_value = _required_id("turn_id", turn_id)
     query_value = _required_text("user_query", user_query)
+    intent_value = _normalize_agent_intent(agent_intent)
     capsule = None
     if computation_capsule is not None:
         capsule = validate_computation_capsule(
@@ -493,6 +523,7 @@ def build_qbv_handoff(
         "source_skill_name": source_name,
         "source_skill_version": source_version,
         "user_query": query_value,
+        "agent_intent": intent_value,
         "route": route_value,
         "route_reason": [item.strip() for item in reasons],
         "page_reference": reference,
@@ -522,6 +553,7 @@ def validate_qbv_handoff(payload: Any) -> Dict[str, Any]:
         source_skill_name=payload.get("source_skill_name", "quant-buddy-skill"),
         source_skill_version=payload.get("source_skill_version"),
         user_query=payload.get("user_query"),
+        agent_intent=payload.get("agent_intent"),
         route=payload.get("route"),
         route_reason=payload.get("route_reason"),
         page_reference=payload.get("page_reference"),
@@ -746,6 +778,7 @@ def prepare_fast_query_page(
     turn_id: Any,
     user_query: Any,
     source_skill_version: Any,
+    agent_intent: Any = None,
     asset_id: Any,
     asset_name: Any,
     fields: Any,
@@ -839,6 +872,7 @@ def prepare_fast_query_page(
         source_skill_id=source_skill_id,
         source_skill_version=source_skill_version,
         user_query=user_query,
+        agent_intent=agent_intent,
         route="create",
         route_reason=route_result["route_reason"],
         validated_outputs=capsule["validated_outputs"],
@@ -868,6 +902,7 @@ def prepare_validated_page(
     turn_id: Any = None,
     user_query: Any = None,
     source_skill_version: Any = None,
+    agent_intent: Any = None,
     page_intent: Any,
     validated_roles: Any,
     route: Any = None,
@@ -889,7 +924,9 @@ def prepare_validated_page(
     comparison, backtest, heatmap, or other page-worthy analysis.  It deliberately
     stops before any QBV routing, ownership, rendering, publishing, or acceptance.
     """
-    task_id, turn_id, user_query = _resolve_prepare_lineage(task_id, turn_id, user_query)
+    task_id, turn_id, user_query, agent_intent = _resolve_prepare_lineage(
+        task_id, turn_id, user_query, agent_intent
+    )
     source_skill_version = _compact_text(source_skill_version) or _read_source_skill_version()
     if not source_skill_version:
         raise LivePageRoutingError("SOURCE_SKILL_VERSION_REQUIRED", "无法从 SKILL.md 解析 source_skill_version")
@@ -949,6 +986,7 @@ def prepare_validated_page(
         source_skill_id=source_skill_id,
         source_skill_version=source_skill_version,
         user_query=user_query,
+        agent_intent=agent_intent,
         route=requested_route,
         route_reason=route_result["route_reason"],
         page_reference=route_result.get("page_reference"),
@@ -1004,6 +1042,7 @@ def prepare_industry_ranking_page(
     turn_id: Any = None,
     user_query: Any = None,
     source_skill_version: Any = None,
+    agent_intent: Any = None,
     source_skill_id: Any = None,
     target_skill_id: Any = None,
     job_dir: Any = None,
@@ -1016,7 +1055,9 @@ def prepare_industry_ranking_page(
     refresh formula, page intent, lineage, and idempotent QBV Job.  It never renders
     a static chart or reruns the formula.
     """
-    task_id, turn_id, user_query = _resolve_prepare_lineage(task_id, turn_id, user_query)
+    task_id, turn_id, user_query, agent_intent = _resolve_prepare_lineage(
+        task_id, turn_id, user_query, agent_intent
+    )
     data_id_value = _required_id("data_id", data_id)
     index_title_value = _required_text("index_title", index_title)
     try:
