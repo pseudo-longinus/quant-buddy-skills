@@ -2,7 +2,7 @@
 name: quant-buddy-view
 slug: quant-buddy-view
 author: guanzhao
-version: 0.6.56
+version: 0.6.57
 description: |
   QBV / quant-buddy-view（用户可能写成 /quant-buddy-view、/qbv、qbv 或 QBV）用于把量化数据做成「公开可分享、实时取数」的网页看板/落地页。
   Use this skill when the user asks to create, update, publish, verify, retrofit, or reuse a Quant Buddy dashboard/static page/template, including shareable pages, public URLs, formula packages, share shell, cover/essence cards, poster/share behavior, single-stock profile pages, valuation/financial profile pages, index-anomaly boards, multi-factor screeners, and commodity daily pages.
@@ -12,7 +12,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 0.6.56
+  version: 0.6.57
   author: guanzhao
   category: quant-finance
   tags: [quant, dashboard, formula-package, static-page, publish, visualization]

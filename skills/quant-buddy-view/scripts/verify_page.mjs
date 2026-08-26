@@ -1001,11 +1001,37 @@ function pageMetricsExpression() {
         ? window.echarts.getInstanceByDom(chartEl)
         : null;
       const option = chart && typeof chart.getOption === 'function' ? chart.getOption() : null;
-      const series = Array.isArray(option?.series) ? option.series.map(item => ({
+      const optionSeries = Array.isArray(option?.series) ? option.series : [];
+      const hasDatum = value => {
+        if (Array.isArray(value)) return value.length > 1 ? value[1] != null : value.some(item => item != null);
+        return value != null;
+      };
+      const series = optionSeries.map(item => ({
         name: String(item?.name || ''),
         yAxisIndex: Number.isFinite(Number(item?.yAxisIndex)) ? Number(item.yAxisIndex) : 0,
-        pointCount: Array.isArray(item?.data) ? item.data.filter(value => value != null).length : 0,
-      })) : [];
+        pointCount: Array.isArray(item?.data) ? item.data.filter(hasDatum).length : 0,
+      }));
+      const optionSeriesForAliases = aliases => optionSeries.find(item => aliases.includes(String(item?.name || '')));
+      const primaryOption = optionSeriesForAliases(expectedSeriesAliases[0] || []);
+      const benchmarkOption = optionSeriesForAliases(expectedSeriesAliases[1] || []);
+      const primaryData = Array.isArray(primaryOption?.data) ? primaryOption.data : [];
+      const benchmarkData = Array.isArray(benchmarkOption?.data) ? benchmarkOption.data : [];
+      const alignedLength = Math.max(primaryData.length, benchmarkData.length);
+      let overlapPointCount = 0;
+      let latestCommonIndex = -1;
+      let latestEitherIndex = -1;
+      for (let index = 0; index < alignedLength; index += 1) {
+        const primaryValid = hasDatum(primaryData[index]);
+        const benchmarkValid = hasDatum(benchmarkData[index]);
+        if (primaryValid || benchmarkValid) latestEitherIndex = index;
+        if (primaryValid && benchmarkValid) {
+          overlapPointCount += 1;
+          latestCommonIndex = index;
+        }
+      }
+      const latestCommonLag = latestEitherIndex >= 0 && latestCommonIndex >= 0
+        ? latestEitherIndex - latestCommonIndex
+        : null;
       const yAxes = Array.isArray(option?.yAxis) ? option.yAxis.map(axis => ({
         name: String(axis?.name || ''),
         position: String(axis?.position || ''),
@@ -1013,7 +1039,7 @@ function pageMetricsExpression() {
       const tableHeaders = Array.from(document.querySelectorAll('#priceTable th'))
         .map(item => (item.textContent || '').trim())
         .filter(Boolean);
-      return { required: true, expectedSeries, expectedSeriesAliases, tableHeaders, chartPresent: !!chart, series, yAxes };
+      return { required: true, expectedSeries, expectedSeriesAliases, tableHeaders, chartPresent: !!chart, series, yAxes, overlapPointCount, latestCommonLag };
     } catch (error) {
       return { required: true, error: String(error && error.message ? error.message : error) };
     }
@@ -1549,7 +1575,22 @@ function summarize(staticResult, browserResult, options) {
               problems.push(`${r.viewport}: 股票对比图序列无有效点 ${name}`);
             }
           }
+          const primaryName = (comparison.expectedSeries || [])[0];
           const benchmarkName = (comparison.expectedSeries || [])[1];
+          const primaryAliases = (comparison.expectedSeriesAliases || [])[0] || [primaryName];
+          const primary = (comparison.series || []).find(item => primaryAliases.includes(item.name));
+          const benchmarkAliasesForOverlap = (comparison.expectedSeriesAliases || [])[1] || [benchmarkName];
+          const benchmarkForOverlap = (comparison.series || []).find(item => benchmarkAliasesForOverlap.includes(item.name));
+          if (primary && benchmarkForOverlap) {
+            const minimumExpectedOverlap = Math.max(1, Math.floor(Math.min(primary.pointCount, benchmarkForOverlap.pointCount) * 0.5));
+            if (comparison.overlapPointCount <= 0) {
+              problems.push(`${r.viewport}: 股票对比序列没有共同有效交易日，日期轴可能未归一化`);
+            } else if (comparison.overlapPointCount < minimumExpectedOverlap) {
+              problems.push(`${r.viewport}: 股票对比序列共同有效交易日过少 (${comparison.overlapPointCount}/${minimumExpectedOverlap})`);
+            } else if (comparison.latestCommonLag != null && comparison.latestCommonLag > 5) {
+              problems.push(`${r.viewport}: 股票对比序列最近共同交易日落后 ${comparison.latestCommonLag} 个横轴位置`);
+            }
+          }
           const benchmarkAliases = (comparison.expectedSeriesAliases || [])[1] || [benchmarkName];
           const benchmark = (comparison.series || []).find(item => benchmarkAliases.includes(item.name));
           if (benchmark && benchmark.yAxisIndex !== 1) {

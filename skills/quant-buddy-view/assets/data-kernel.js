@@ -112,6 +112,13 @@ const QB = (function () {
     return endpoint + path;
   }
 
+  function dateAlias(value) {
+    const raw = String(value == null ? '' : value).trim();
+    if (/^\d{8}$/.test(raw)) return raw.slice(0, 4) + '-' + raw.slice(4, 6) + '-' + raw.slice(6, 8);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+    return value;
+  }
+
   function hasUsefulData(data) {
     if (data == null) return false;
     if (Array.isArray(data)) return data.length > 0;
@@ -619,7 +626,7 @@ const QB = (function () {
       // Keep the documented enumerable {d,v} contract while allowing those pages to
       // consume Formula Package range_data safely during their normal live refresh.
       Object.defineProperties(point, {
-        date: { value: point.d, enumerable: false },
+        date: { value: dateAlias(point.d), enumerable: false },
         value: { value: point.v, enumerable: false },
       });
       pts.push(point);
