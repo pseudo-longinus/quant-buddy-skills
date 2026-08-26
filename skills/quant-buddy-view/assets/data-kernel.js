@@ -562,7 +562,7 @@ const QB = (function () {
     return d && d.last_value && d.last_value.date != null ? d.last_value.date : null;
   }
 
-  /* 序列：range_data.{dates,values} → [{ d:日期, v:数值 }]
+  /* 序列：range_data.{dates,values} → [{ d:日期, v:数值 }]（兼容别名 p.date / p.value）
        · 永远扔掉 null / NaN（缺口）
        · dropZero=true 时把 0 也当缺口扔 —— 价格 / 成交额这类“不可能为 0”的数据要开；
          涨跌幅 / 收益率这类 0 是合法平盘值的，别开。 */
@@ -576,7 +576,15 @@ const QB = (function () {
       const v = num(r.values[i]);
       if (v === null) continue;           // 缺口
       if (dropZero && v === 0) continue;   // 价格的假 0
-      pts.push({ d: r.dates ? r.dates[i] : i, v });
+      const point = { d: r.dates ? r.dates[i] : i, v };
+      // Historical bespoke pages used the grant-series shape ({date,value}) here.
+      // Keep the documented enumerable {d,v} contract while allowing those pages to
+      // consume Formula Package range_data safely during their normal live refresh.
+      Object.defineProperties(point, {
+        date: { value: point.d, enumerable: false },
+        value: { value: point.v, enumerable: false },
+      });
+      pts.push(point);
     }
     return pts;
   }

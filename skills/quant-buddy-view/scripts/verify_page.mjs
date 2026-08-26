@@ -982,6 +982,39 @@ function pageMetricsExpression() {
   const bodyBackground = effectiveBackgroundInfo(document.body || document.documentElement);
   const darkCoverage = darkAreaRatio(coverRoot, coverRect);
 
+  function stockComparisonMetrics() {
+    const cfgNode = document.querySelector('script[data-qbv-stock-instance]');
+    if (!cfgNode) return null;
+    try {
+      const config = JSON.parse(cfgNode.textContent || '{}');
+      if (!config || config.version !== 'stock_analysis_instance_v1' || !config.data_sources?.benchmark_series) return null;
+      const assetName = String(config.asset?.name || '').trim();
+      const benchmarkName = String(config.comparison?.name || '沪深300').trim();
+      const expectedSeries = [assetName ? `${assetName}收盘价` : '', benchmarkName].filter(Boolean);
+      const chartEl = document.getElementById('priceChart');
+      const chart = chartEl && window.echarts && typeof window.echarts.getInstanceByDom === 'function'
+        ? window.echarts.getInstanceByDom(chartEl)
+        : null;
+      const option = chart && typeof chart.getOption === 'function' ? chart.getOption() : null;
+      const series = Array.isArray(option?.series) ? option.series.map(item => ({
+        name: String(item?.name || ''),
+        yAxisIndex: Number.isFinite(Number(item?.yAxisIndex)) ? Number(item.yAxisIndex) : 0,
+        pointCount: Array.isArray(item?.data) ? item.data.filter(value => value != null).length : 0,
+      })) : [];
+      const yAxes = Array.isArray(option?.yAxis) ? option.yAxis.map(axis => ({
+        name: String(axis?.name || ''),
+        position: String(axis?.position || ''),
+      })) : [];
+      const tableHeaders = Array.from(document.querySelectorAll('#priceTable th'))
+        .map(item => (item.textContent || '').trim())
+        .filter(Boolean);
+      return { required: true, expectedSeries, tableHeaders, chartPresent: !!chart, series, yAxes };
+    } catch (error) {
+      return { required: true, error: String(error && error.message ? error.message : error) };
+    }
+  }
+
+  const stockComparison = stockComparisonMetrics();
   return {
     scrollWidth: doc.scrollWidth,
     clientWidth: doc.clientWidth,
@@ -993,6 +1026,7 @@ function pageMetricsExpression() {
     runtime,
     failureTextHits,
     loadingTextHits,
+    stockComparison,
     visibleFonts: {
       minimumPx: visibleFontSamples.length ? visibleFontSamples[0].size : null,
       smallest: visibleFontSamples.slice(0, 8),
@@ -1055,6 +1089,7 @@ function viewportResult(viewport, metrics, options = {}) {
       ...(metrics.images || {}),
       broken: (metrics.images?.broken || []).map(item => ({ ...item, src: sanitizeBrowserText(item.src) })),
     },
+    stockComparison: metrics.stockComparison || null,
   };
   return result;
 }
@@ -1493,6 +1528,36 @@ function summarize(staticResult, browserResult, options) {
       if (r.failureTextHits.length) problems.push(`${r.viewport}: 页面显示失败状态 ${r.failureTextHits.join(', ')}`);
       if (r.loadingTextHits.length && r.runtime && r.runtime.pending === 0) {
         problems.push(`${r.viewport}: 数据完成后仍显示加载态 ${r.loadingTextHits.join(', ')}`);
+      }
+      if (r.stockComparison?.required) {
+        const comparison = r.stockComparison;
+        if (comparison.error) {
+          problems.push(`${r.viewport}: 股票对比配置无法解析: ${comparison.error}`);
+        } else {
+          if (!comparison.chartPresent) problems.push(`${r.viewport}: 股票对比图未初始化`);
+          for (const name of comparison.expectedSeries || []) {
+            const series = (comparison.series || []).find(item => item.name === name);
+            if (!series) {
+              problems.push(`${r.viewport}: 股票对比图缺少序列 ${name}`);
+            } else if (series.pointCount <= 0) {
+              problems.push(`${r.viewport}: 股票对比图序列无有效点 ${name}`);
+            }
+          }
+          const benchmarkName = (comparison.expectedSeries || [])[1];
+          const benchmark = (comparison.series || []).find(item => item.name === benchmarkName);
+          if (benchmark && benchmark.yAxisIndex !== 1) {
+            problems.push(`${r.viewport}: 股票对比基准未绑定右侧 Y 轴 ${benchmarkName}`);
+          }
+          if ((comparison.yAxes || []).length < 2) problems.push(`${r.viewport}: 股票对比图缺少双 Y 轴`);
+          if (!(comparison.yAxes || []).some(axis => axis.position === 'right')) {
+            problems.push(`${r.viewport}: 股票对比图缺少右侧 Y 轴`);
+          }
+          for (const name of comparison.expectedSeries || []) {
+            if (!(comparison.tableHeaders || []).includes(name)) {
+              problems.push(`${r.viewport}: 股票对比数据表缺少列 ${name}`);
+            }
+          }
+        }
       }
       if ((r.images?.broken || []).length) problems.push(`${r.viewport}: 存在无法解码或零宽图片`);
       if (Number(r.images?.managedTotal || 0) > Number(r.images?.managedInPosterTarget || 0)) {

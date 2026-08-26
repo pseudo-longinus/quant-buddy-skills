@@ -9,6 +9,13 @@
 
 ---
 
+## [0.6.55] — 2026-08-26
+
+### Formula Package 序列与股票对比页运行时兼容
+
+- `QB.series()` 继续以可枚举的 `{ d, v }` 作为正式序列合同；同时提供不可枚举的只读 `date` / `value` 兼容别名，修复存量 bespoke 股票页错误沿用 Data Grant 点位形状时导致 Formula Package 基准序列静默丢失的问题。别名只映射实时返回的同一数据，不内置任何标的、日期或价格。
+- `verify_page.mjs` 识别声明 `stock_analysis_instance_v1` 且配置 `benchmark_series` 的页面：浏览器验收要求个股与基准两条有效序列、基准使用右侧 Y 轴、双 Y 轴和数据表的两列名称齐全，避免 runtime 已 ready 但页面静默降级为单线仍通过验收。
+
 ## [0.6.54] — 2026-08-26
 
 ### 兼容 SkillHub 活动目录的 QBS bridge
