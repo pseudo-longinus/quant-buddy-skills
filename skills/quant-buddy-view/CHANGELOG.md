@@ -9,6 +9,15 @@
 
 ---
 
+## [0.6.56] — 2026-08-26
+
+### 存量页面数据内核刷新与股票对比强验收
+
+- `static_page.py update` 在页面存在当前 marker 或可识别 legacy data-kernel 时，使用当前 QBV 的 `assets/data-kernel.js` 安全刷新内嵌内核；无内核页面保持不变，多重/异常命中 fail-closed，避免 Skill 已升级但旧页面仍运行旧内核。
+- `QB.series()` 的 `{date,value}` 兼容别名因此能够真正进入存量 bespoke 页面，修复 Formula Package 基准序列已成功返回、页面却因继续读取旧 `{d,v}` 形状而出现 `undefined` 日期、空表格列和单线图的问题。
+- `verify_page.mjs` 同时读取 `data_sources.benchmark_series` 和 `comparison.benchmark_series`；基准线缺失、右轴缺失、双 Y 轴缺失或表格列缺失都会阻塞浏览器验收，并兼容存量页面使用的通用主序列名“收盘价”。
+- Formula Package transport 继续支持标准 SSE，并增加尾帧无终止空行、直接 JSON、声明 output 完整性校验等防御性兼容；这些是健壮性增强，不是本次线上问题的根因。
+
 ## [0.6.55] — 2026-08-26
 
 ### Formula Package 序列与股票对比页运行时兼容

@@ -127,8 +127,8 @@ const QB = (function () {
     return Object.keys(data).length > 0;
   }
 
-  /* 连服务器 + 读 SSE 流，组装成 outputs 直查表（out['变量名'] 即该产出）。
-     元信息（stale / recomputed）挂在 out.__done 上，需要时取。 */
+  /* 连服务器并兼容 Formula Package 的 SSE / 直接 JSON 响应，组装成 outputs 直查表
+     （out['变量名'] 即该产出）。元信息（stale / recomputed）挂在 out.__done 上。 */
   async function _queryRaw(cfg, opts) {
     const { endpoint, package_id, signature } = cfg || {};
     if (!endpoint || !package_id || !signature)
@@ -143,6 +143,9 @@ const QB = (function () {
     }
 
     const status = opts && opts.status;
+    const expectedOutputs = (Array.isArray(cfg.outputs) ? cfg.outputs : (Array.isArray(opts && opts.outputs) ? opts.outputs : []))
+      .filter(value => typeof value === 'string' && value.trim())
+      .map(value => value.trim());
     if (status) {
       status.package_id = package_id;
       status.loading = true;
@@ -158,44 +161,79 @@ const QB = (function () {
         { 'Content-Type': 'application/json' },
         _hasSkillVer ? { 'x-skill-version': SKILL_VERSION, 'x-skill-name': SKILL_NAME } : {}
       ),
-      body: JSON.stringify({
-        package_id,
-        signature,
-        outputs: Array.isArray(cfg.outputs) ? cfg.outputs : (Array.isArray(opts && opts.outputs) ? opts.outputs : undefined),
-      }),
+      body: JSON.stringify({ package_id, signature, outputs: expectedOutputs.length ? expectedOutputs : undefined }),
     });
     if (!resp.ok || !resp.body) throw new Error('HTTP ' + resp.status);
 
     const reader = resp.body.getReader(), dec = new TextDecoder();
-    const out = {}; let buf = '';
+    const out = {}; let buf = '', rawBody = '';
+    function acceptEvent(ev, dt) {
+      if (!dt || typeof dt !== 'object') return false;
+      if (ev === 'result') {
+        if (!dt.output || typeof dt.output !== 'string') return false;
+        out[dt.output] = dt;
+        if (status) status.lastOutput = dt.output;
+        return true;
+      }
+      if (ev === 'progress') {
+        out.__progress = out.__progress || [];
+        out.__progress.push(dt);
+        if (status) status.progress.push(dt);
+        return true;
+      }
+      if (ev === 'error') {
+        const msg = (dt.code || 'ERROR') + ': ' + (dt.message || '');
+        if (status) status.error = msg;
+        throw new Error(msg);
+      }
+      if (ev === 'done') { out.__done = dt; return true; }
+      return false;
+    }
+    function acceptSseBlock(block) {
+      const lines = String(block || '').replace(/\r\n/g, '\n').split('\n');
+      let eventName = '', dataLines = [];
+      for (const line of lines) {
+        if (line.indexOf('event:') === 0) eventName = line.slice(6).trim();
+        else if (line.indexOf('data:') === 0) dataLines.push(line.slice(5).trimStart());
+      }
+      if (!eventName || !dataLines.length) return false;
+      let payload; try { payload = JSON.parse(dataLines.join('\n')); } catch (e) { return false; }
+      return acceptEvent(eventName, payload);
+    }
+    function acceptDirectJson(payload) {
+      const values = Array.isArray(payload) ? payload : (Array.isArray(payload && payload.outputs) ? payload.outputs : [payload]);
+      let accepted = false;
+      for (const value of values) accepted = acceptEvent('result', value) || accepted;
+      return accepted;
+    }
     for (;;) {
       const { value, done } = await reader.read();
       if (done) break;
-      buf += dec.decode(value, { stream: true });
-      const blocks = buf.split('\n\n'); buf = blocks.pop();
-      for (const b of blocks) {
-        const ev = (b.match(/event:\s*(.*)/) || [])[1];
-        const m  = b.match(/data:\s*([\s\S]*)/);
-        if (!ev || !m) continue;
-        let dt; try { dt = JSON.parse(m[1]); } catch (e) { continue; }
-        if (ev === 'result') {
-          out[dt.output] = dt;
-          if (status) status.lastOutput = dt.output;
-        }
-        else if (ev === 'progress') {
-          out.__progress = out.__progress || [];
-          out.__progress.push(dt);
-          if (status) status.progress.push(dt);
-        }
-        else if (ev === 'error') {
-          const msg = (dt.code || 'ERROR') + ': ' + (dt.message || '');
-          if (status) status.error = msg;
-          throw new Error(msg);
-        }
-        else if (ev === 'done')  out.__done = dt;
-      }
+      const chunk = dec.decode(value, { stream: true });
+      rawBody += chunk;
+      buf += chunk;
+      const blocks = buf.split(/\r?\n\r?\n/); buf = blocks.pop();
+      for (const block of blocks) acceptSseBlock(block);
     }
-    const failed = Object.keys(out).filter(k => k.indexOf('__') !== 0 && out[k] && out[k].error);
+    const tail = dec.decode();
+    if (tail) { rawBody += tail; buf += tail; }
+    if (buf.trim()) acceptSseBlock(buf);
+    const directText = rawBody.trim();
+    if (directText && /^[{[]/.test(directText)) {
+      try { acceptDirectJson(JSON.parse(directText)); } catch (e) { /* SSE body is not JSON as a whole. */ }
+    }
+
+    const receivedOutputs = Object.keys(out).filter(k => k.indexOf('__') !== 0);
+    const missingOutputs = expectedOutputs.filter(name => !Object.prototype.hasOwnProperty.call(out, name));
+    if (!receivedOutputs.length || missingOutputs.length) {
+      const detail = missingOutputs.length
+        ? '缺少请求的输出 ' + missingOutputs.join(', ')
+        : '未识别到任何 Formula Package 输出';
+      const error = new Error('公式包响应不完整：' + detail);
+      if (status) Object.assign(status, { loading: false, ok: false, error: error.message });
+      throw error;
+    }
+    const failed = receivedOutputs.filter(k => out[k] && out[k].error);
     out.__status = {
       package_id,
       ok: failed.length === 0 && !(out.__done && out.__done.code && out.__done.code !== 0),

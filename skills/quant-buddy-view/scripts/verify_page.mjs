@@ -987,10 +987,15 @@ function pageMetricsExpression() {
     if (!cfgNode) return null;
     try {
       const config = JSON.parse(cfgNode.textContent || '{}');
-      if (!config || config.version !== 'stock_analysis_instance_v1' || !config.data_sources?.benchmark_series) return null;
+      const benchmarkSource = config?.data_sources?.benchmark_series || config?.comparison?.benchmark_series;
+      if (!config || config.version !== 'stock_analysis_instance_v1' || !benchmarkSource) return null;
       const assetName = String(config.asset?.name || '').trim();
-      const benchmarkName = String(config.comparison?.name || '沪深300').trim();
-      const expectedSeries = [assetName ? `${assetName}收盘价` : '', benchmarkName].filter(Boolean);
+      const benchmarkName = String(config.comparison?.name || config.comparison?.benchmark?.name || '沪深300').trim();
+      const expectedSeries = [assetName ? `${assetName}收盘价` : '收盘价', benchmarkName].filter(Boolean);
+      const expectedSeriesAliases = [
+        Array.from(new Set([expectedSeries[0], '收盘价'].filter(Boolean))),
+        [benchmarkName],
+      ];
       const chartEl = document.getElementById('priceChart');
       const chart = chartEl && window.echarts && typeof window.echarts.getInstanceByDom === 'function'
         ? window.echarts.getInstanceByDom(chartEl)
@@ -1008,7 +1013,7 @@ function pageMetricsExpression() {
       const tableHeaders = Array.from(document.querySelectorAll('#priceTable th'))
         .map(item => (item.textContent || '').trim())
         .filter(Boolean);
-      return { required: true, expectedSeries, tableHeaders, chartPresent: !!chart, series, yAxes };
+      return { required: true, expectedSeries, expectedSeriesAliases, tableHeaders, chartPresent: !!chart, series, yAxes };
     } catch (error) {
       return { required: true, error: String(error && error.message ? error.message : error) };
     }
@@ -1535,8 +1540,9 @@ function summarize(staticResult, browserResult, options) {
           problems.push(`${r.viewport}: 股票对比配置无法解析: ${comparison.error}`);
         } else {
           if (!comparison.chartPresent) problems.push(`${r.viewport}: 股票对比图未初始化`);
-          for (const name of comparison.expectedSeries || []) {
-            const series = (comparison.series || []).find(item => item.name === name);
+          for (const [index, name] of (comparison.expectedSeries || []).entries()) {
+            const aliases = (comparison.expectedSeriesAliases || [])[index] || [name];
+            const series = (comparison.series || []).find(item => aliases.includes(item.name));
             if (!series) {
               problems.push(`${r.viewport}: 股票对比图缺少序列 ${name}`);
             } else if (series.pointCount <= 0) {
@@ -1544,7 +1550,8 @@ function summarize(staticResult, browserResult, options) {
             }
           }
           const benchmarkName = (comparison.expectedSeries || [])[1];
-          const benchmark = (comparison.series || []).find(item => item.name === benchmarkName);
+          const benchmarkAliases = (comparison.expectedSeriesAliases || [])[1] || [benchmarkName];
+          const benchmark = (comparison.series || []).find(item => benchmarkAliases.includes(item.name));
           if (benchmark && benchmark.yAxisIndex !== 1) {
             problems.push(`${r.viewport}: 股票对比基准未绑定右侧 Y 轴 ${benchmarkName}`);
           }
@@ -1552,8 +1559,9 @@ function summarize(staticResult, browserResult, options) {
           if (!(comparison.yAxes || []).some(axis => axis.position === 'right')) {
             problems.push(`${r.viewport}: 股票对比图缺少右侧 Y 轴`);
           }
-          for (const name of comparison.expectedSeries || []) {
-            if (!(comparison.tableHeaders || []).includes(name)) {
+          for (const [index, name] of (comparison.expectedSeries || []).entries()) {
+            const aliases = (comparison.expectedSeriesAliases || [])[index] || [name];
+            if (!aliases.some(alias => (comparison.tableHeaders || []).includes(alias))) {
               problems.push(`${r.viewport}: 股票对比数据表缺少列 ${name}`);
             }
           }

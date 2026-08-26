@@ -159,6 +159,7 @@ from pathlib import Path
 
 import compile_bespoke_page as CB
 import common as C
+import data_kernel_retrofit as DKR
 import fork_runtime_contract as FRC
 import progress_page as PP
 import qbs_job_lifecycle as QJL
@@ -1420,6 +1421,13 @@ def _ensure_share_shell(html, params):
             actions.append(runtime_action)
 
     html = CB._compile(html, {"inline_qr_mini": True, "inline_data_kernel": True})
+    try:
+        before_kernel_refresh = html
+        html, matched_by = DKR.retrofit_if_present(html)
+        if matched_by and html != before_kernel_refresh:
+            actions.append(f"refreshed_data_kernel:{matched_by}")
+    except DKR.RetrofitError as exc:
+        raise ValueError(f"数据内核刷新失败：{exc}") from exc
     problems = []
     if not _has_shared_header(html):
         problems.append("缺少公共页头 data-qb-share-shell")

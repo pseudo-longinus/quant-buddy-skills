@@ -35,6 +35,15 @@ def _is_legacy_kernel(body):
     return all(fingerprints)
 
 
+def retrofit_if_present(html, kernel=None):
+    """Refresh one recognized embedded kernel; leave pages without a kernel untouched."""
+    marker_present = START in html or END in html
+    legacy_present = any(_is_legacy_kernel(match.group(2)) for match in SCRIPT_RE.finditer(html))
+    if not marker_present and not legacy_present:
+        return html, None
+    return retrofit_html(html, kernel)
+
+
 def retrofit_html(html, kernel=None):
     kernel = (kernel or _kernel_source()).strip()
     marker_re = re.compile(re.escape(START) + r".*?" + re.escape(END), re.S)
