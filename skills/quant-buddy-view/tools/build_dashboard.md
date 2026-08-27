@@ -181,6 +181,8 @@ Default brand logo: standard pages inline `assets/logo.svg` into the share heade
 
 ## 局部产出模式（`emit: "panel_block"`）
 
+> **stock owner 门禁**：如果 `host_html_file` 声明 `stock_analysis_instance_v1`，任何 `target_selector:"#priceChart"` 的 panel 都会返回 `STOCK_CHART_OWNER_CONFLICT`。该容器由原生 stock runtime 持有；增加沪深300等基准序列必须改用 [`scripts/stock_comparison.py`](stock_comparison.md)，不能注入第二个 renderer。
+
 不生成整页 HTML，只生成一段带 `QBV_RENDER_JS_START/END` marker 的 `<script>` 片段，供 bespoke（手写）页面把某几个图表交给标准声明式引擎画。用法：
 
 ```bash

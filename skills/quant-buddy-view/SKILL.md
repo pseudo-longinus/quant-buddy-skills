@@ -2,7 +2,7 @@
 name: quant-buddy-view
 slug: quant-buddy-view
 author: guanzhao
-version: 0.6.57
+version: 0.6.58
 description: |
   QBV / quant-buddy-view（用户可能写成 /quant-buddy-view、/qbv、qbv 或 QBV）用于把量化数据做成「公开可分享、实时取数」的网页看板/落地页。
   Use this skill when the user asks to create, update, publish, verify, retrofit, or reuse a Quant Buddy dashboard/static page/template, including shareable pages, public URLs, formula packages, share shell, cover/essence cards, poster/share behavior, single-stock profile pages, valuation/financial profile pages, index-anomaly boards, multi-factor screeners, and commodity daily pages.
@@ -12,7 +12,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 0.6.57
+  version: 0.6.58
   author: guanzhao
   category: quant-finance
   tags: [quant, dashboard, formula-package, static-page, publish, visualization]
@@ -300,6 +300,7 @@ npx skills update pseudo-longinus/quant-buddy-skills -y
 | `scripts/formula_package.py` | `register` / `query` / `list` / `revoke` / `refresh` | 公式任务包：注册取数能力；query 支持 `outputs` 与 `result_mode=full|summary|last_values`，direct 使用 summary | [tools/formula_package.md](tools/formula_package.md) |
 | `scripts/data_grant.py` | `register` / `query` / `list` / `revoke` / `refresh` | 数据授权：把一次 fastQuery/stockProfile/selectByComposition 请求钉死成 `grant_id`+`signature`，页面免 key 直取有界数据（取舍见「数据授权 vs 公式包」） | [tools/data_grant.md](tools/data_grant.md) |
 | `scripts/build_dashboard.py` | （单命令，`emit:"panel_block"` 走局部产出） | spec → live 实时取数看板 HTML；局部产出模式只生成带 marker 的图表 `<script>` 片段，供 bespoke 页面内嵌图表用 | [tools/build_dashboard.md](tools/build_dashboard.md) |
+| `scripts/stock_comparison.py` | `apply @params.json` | 为 `stock_analysis_instance_v1` 原生收盘价图并入基准序列、双 Y 轴和数据表；保持 `#priceChart` 单一 owner，拒绝用通用 panel 二次接管 | [tools/stock_comparison.md](tools/stock_comparison.md) |
 | `scripts/chart_edit.py` | `inspect` / `add_series`（支持 `axis:"right"` 双轴）/ `remove_series` / `set_window` / `query_data` | 已发布页面单个图表的增删改查：只动被要求的那一处，不重新验证/计算页面上其它无关系列 | [tools/chart_edit.md](tools/chart_edit.md) |
 | `scripts/compile_bespoke_page.py` | （单命令） | **【shell 处理脚本】** bespoke 主体 HTML → 内联公共 share shell / logo / qr-mini / data-kernel 的自包含 HTML | [guides/share-shell.md](guides/share-shell.md) |
 | `scripts/retrofit_share_shell.py` | （单命令） | **【shell 处理脚本】** 旧 HTML/已发布页面 → 删除旧二维码/旧页头/旧页尾，套入公共 share shell（`assets/share-shell/`），可原链接 update | [tools/retrofit_share_shell.md](tools/retrofit_share_shell.md) |
@@ -317,8 +318,9 @@ npx skills update pseudo-longinus/quant-buddy-skills -y
 | `guides/essence-cover-card.md` | （开发指南） | 页面精华浓缩为独立 4:3 card runtime artifact（`embedded-card-v1`，空白宿主独立 hydrate），并明确 artifact、范式卡快照与整页封面的职责边界 | — |
 
 > **三条生产路**：固定页面先复用在线模板；标准看板走 `build_dashboard`（声明式快路）；要自定义版式/SVG 的设计页才写 bespoke 主体 HTML。
+> **stock 原生图表 owner 门禁**：`stock_analysis_instance_v1` 的 `#priceChart` 始终由页面原生 runtime 持有；禁止用 `build_dashboard.py emit="panel_block"` 注入第二个 renderer。增加沪深300等基准线时必须使用 `scripts/stock_comparison.py` 扩展原生 load/render/table 生命周期。
 > 数据层统一调 `assets/data-kernel.js`（`QB.query` 取数、`QB.series/lastValue/topValues` 解包清洗），别再每页各抄 `fetch`/解包、各踩"假 0/缺口"的坑。见 [guides/bespoke-page.md](guides/bespoke-page.md)。
-> 发布前用 `scripts/verify_page.mjs <html_file> --require-browser` 检查桌面与 390px/320px 移动端，确保无 `QB_SHARED_` / `replace_with_signature` / `pkg_replace` 残留、存在 `<h1>`、无关键横向溢出和核心取数脚本错误。页面声明 `stock_analysis_instance_v1` 且在 `data_sources.benchmark_series` 或 `comparison.benchmark_series` 配置基准时，脚本还会强制检查个股/基准两条有效图表序列、基准右侧 Y 轴、双 Y 轴和数据表列；不能只因 runtime ready 就视为对比页已交付。含范式卡 artifact 的页面加 `--card-runtime`（或 `--card-runtime-only`）验收 artifact/manifest/独立 hydrate。若机器没有 Playwright/Chrome/Edge，脚本会明确标记为 `static-only`，不能当完整浏览器验收。
+> 发布前用 `scripts/verify_page.mjs <html_file> --require-browser` 检查桌面与 390px/320px 移动端，确保无 `QB_SHARED_` / `replace_with_signature` / `pkg_replace` 残留、存在 `<h1>`、无关键横向溢出和核心取数脚本错误。页面声明 `stock_analysis_instance_v1` 且在 `data_sources.benchmark_series` 或 `comparison.benchmark_series` 配置基准时，脚本还会在 runtime pending 归零后等待稳定窗口，并强制检查最终 canvas、个股/基准两条有效图表序列、共同交易日、基准右侧 Y 轴、双 Y 轴和数据表列；同时静态拒绝原生 runtime 与 panel_block 共同接管 `#priceChart`。不能只因 runtime ready 或首帧短暂出现就视为对比页已交付。含范式卡 artifact 的页面加 `--card-runtime`（或 `--card-runtime-only`）验收 artifact/manifest/独立 hydrate。若机器没有 Playwright/Chrome/Edge，脚本会明确标记为 `static-only`，不能当完整浏览器验收。
 
 ## 配置
 

@@ -143,6 +143,23 @@ function staticChecks(html) {
   if (/<script\s+src=["'][^"']*(assets\/data-kernel|assets\/qr-mini|templates\/_shared)/i.test(html)) {
     problems.push('仍引用本地运行时脚本，未内联公共资源');
   }
+  const stockConfigText = firstTaggedBlock(html, 'script', 'data-qbv-stock-instance');
+  if (stockConfigText) {
+    try {
+      const stockConfig = JSON.parse(stockConfigText);
+      if (stockConfig?.version === 'stock_analysis_instance_v1') {
+        for (const match of html.matchAll(/\bconst\s+BOOT\s*=\s*(\{[\s\S]*?\});/g)) {
+          try {
+            const boot = JSON.parse(match[1]);
+            if ((boot?.panels || []).some(panel => String(panel?.target_selector || '').trim() === '#priceChart')) {
+              problems.push('STOCK_CHART_OWNER_CONFLICT: stock 原生 runtime 与 panel_block 同时接管 #priceChart');
+              break;
+            }
+          } catch {}
+        }
+      }
+    } catch {}
+  }
   problems.push(...staticImageProblems(html));
   const hasPackage = /(?:["']?(?:package_id|packageId)["']?)\s*:\s*["'][^"']+["']/.test(html);
   return { ok: problems.length === 0, problems, hasPackage };
@@ -731,7 +748,9 @@ async function playwrightBrowserChecks(pw, url, options = {}) {
         consoleErrors.push({ viewport: viewport.name, type: 'error', text: 'QB_DATA_RUNTIME pending 等待超时（30s）' });
       }
       const hasRuntime = await page.evaluate(() => !!window.QB_DATA_RUNTIME);
-      await page.waitForTimeout(hasRuntime ? 250 : Math.max(settleMs, 3000));
+      // pending=0 只表示取数内核当前没有请求，不代表其它宿主 runtime 已完成最后一次 DOM/ECharts 接管。
+      // 始终保留一个稳定窗口，防止“图先出现，宿主 Grant 后完成又清空图表”被瞬时采样放过。
+      await page.waitForTimeout(hasRuntime ? settleMs : Math.max(settleMs, 3000));
       const imageMetrics = await page.evaluate(prepareImagesExpression);
       const shareModalMetrics = options.checkShareModal ? await page.evaluate(shareModalChecksExpression) : null;
       const metrics = await page.evaluate(pageMetricsExpression);
@@ -997,6 +1016,7 @@ function pageMetricsExpression() {
         [benchmarkName],
       ];
       const chartEl = document.getElementById('priceChart');
+      const canvasCount = chartEl ? chartEl.querySelectorAll('canvas').length : 0;
       const chart = chartEl && window.echarts && typeof window.echarts.getInstanceByDom === 'function'
         ? window.echarts.getInstanceByDom(chartEl)
         : null;
@@ -1039,7 +1059,7 @@ function pageMetricsExpression() {
       const tableHeaders = Array.from(document.querySelectorAll('#priceTable th'))
         .map(item => (item.textContent || '').trim())
         .filter(Boolean);
-      return { required: true, expectedSeries, expectedSeriesAliases, tableHeaders, chartPresent: !!chart, series, yAxes, overlapPointCount, latestCommonLag };
+      return { required: true, expectedSeries, expectedSeriesAliases, tableHeaders, chartPresent: !!chart, canvasCount, series, yAxes, overlapPointCount, latestCommonLag };
     } catch (error) {
       return { required: true, error: String(error && error.message ? error.message : error) };
     }
@@ -1479,7 +1499,8 @@ async function cdpBrowserChecks(url, options = {}) {
         expression: `!!window.QB_DATA_RUNTIME`,
         returnByValue: true,
       });
-      await delay(runtimePresent.result && runtimePresent.result.value ? 250 : Math.max(settleMs, 3000));
+      // 与 Playwright 路径一致：即使 QB_DATA_RUNTIME 已 ready，也等待宿主异步渲染稳定。
+      await delay(runtimePresent.result && runtimePresent.result.value ? settleMs : Math.max(settleMs, 3000));
       const preparedImages = await cdp.send('Runtime.evaluate', {
         expression: `(${prepareImagesExpression.toString()})()`,
         returnByValue: true,
@@ -1566,6 +1587,7 @@ function summarize(staticResult, browserResult, options) {
           problems.push(`${r.viewport}: 股票对比配置无法解析: ${comparison.error}`);
         } else {
           if (!comparison.chartPresent) problems.push(`${r.viewport}: 股票对比图未初始化`);
+          if (comparison.canvasCount <= 0) problems.push(`${r.viewport}: 股票对比图没有最终 canvas`);
           for (const [index, name] of (comparison.expectedSeries || []).entries()) {
             const aliases = (comparison.expectedSeriesAliases || [])[index] || [name];
             const series = (comparison.series || []).find(item => aliases.includes(item.name));

@@ -9,6 +9,15 @@
 
 ---
 
+## [0.6.58] — 2026-08-27
+
+### stock 对比图单一 owner 与加载完成稳定验收
+
+- `stock_analysis_instance_v1` 的 `#priceChart` 明确归原生 stock runtime 单独持有；`build_dashboard.py emit="panel_block"` 检测到该宿主与目标选择器时返回 `STOCK_CHART_OWNER_CONFLICT`，避免公式面板先画双线、随后原生 Data Grant 完成又清空容器。
+- 新增 `scripts/stock_comparison.py`，以版本绑定、精确 seam、失败关闭且幂等的方式，把 Formula Package 基准序列并入原生 load/render/table 生命周期，支持双 Y 轴、各自单位和共同日期表格；宿主已有 ECharts 时不重复注入 CDN。
+- 修复基准序列错误按 `{date,value}` 消费的问题，改为读取 data-kernel 正式 `{d,v}` 合同，并通过 `QB.fmtDate(p.d)` 归一化日期后与 Data Grant 交易日对齐。
+- `verify_page.mjs` 在 runtime pending 归零后增加稳定窗口，要求最终 ECharts 实例与 canvas 仍存在，并静态拒绝两个 renderer 同时拥有 `#priceChart`；新增图表延迟消失、owner 冲突和 stock transform 回归测试。
+
 ## [0.6.57] — 2026-08-26
 
 ### Formula Package 日频日期轴归一化与共同交易日验收

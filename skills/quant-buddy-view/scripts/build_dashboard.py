@@ -615,7 +615,14 @@ function createCard(panel) {
   if (panel.target_selector) {
     const target = document.querySelector(panel.target_selector);
     if (target) {
-      target.innerHTML = '';
+      // 普通 bespoke 容器允许声明式 renderer 接管，但先处置同一 ECharts
+      // 注册表中的旧实例，避免只清 DOM 留下悬挂实例。stock 原生价格图在
+      // Python 侧 owner contract 中直接拒绝，不会进入这里。
+      const existing = window.echarts && typeof window.echarts.getInstanceByDom === 'function'
+        ? window.echarts.getInstanceByDom(target)
+        : null;
+      if (existing && typeof existing.dispose === 'function') existing.dispose();
+      target.replaceChildren();
       target.classList.add('qb-embedded-body', 'body', type);
       return {body: target, span: 'embedded'};
     }
@@ -1254,6 +1261,40 @@ def _host_already_has_kernel(host_html):
     )
 
 
+def _host_has_echarts(host_html):
+    """Conservatively detect an ECharts script already owned by the host page."""
+    return bool(re.search(
+        r"<script\b[^>]*\bsrc\s*=\s*['\"][^'\"]*echarts(?:\.min)?\.js(?:[?#][^'\"]*)?['\"][^>]*>",
+        host_html or "",
+        re.I,
+    ))
+
+
+def _stock_instance_version(host_html):
+    """Return the stock instance version declared by the host, if any."""
+    match = re.search(
+        r"<script\b[^>]*\bdata-qbv-stock-instance(?:\s*=\s*['\"][^'\"]*['\"])?[^>]*>(.*?)</script\s*>",
+        host_html or "",
+        re.I | re.S,
+    )
+    if not match:
+        return None
+    try:
+        payload = json.loads(match.group(1).lstrip('\ufeff').strip() or "{}")
+    except (TypeError, ValueError):
+        return None
+    return str(payload.get("version") or "").strip() or None
+
+
+def _stock_price_owner_conflict(host_html, panels):
+    if _stock_instance_version(host_html) != "stock_analysis_instance_v1":
+        return False
+    return any(
+        isinstance(panel, dict) and str(panel.get("target_selector") or "").strip() == "#priceChart"
+        for panel in panels
+    )
+
+
 def cmd_panel_block(params):
     """局部产出模式（emit=panel_block）：只生成 marker 包住的运行时 <script>，不生成整页 HTML
     （不含 <head>/样式/页头页尾/#grid）。供 bespoke 页面把某几个图表交给标准声明式引擎画：
@@ -1292,6 +1333,26 @@ def cmd_panel_block(params):
     image_panel_error = _validate_image_panels(panels)
     if image_panel_error:
         return image_panel_error
+
+    host_html_file = params.get("host_html_file")
+    host_html = None
+    if host_html_file:
+        try:
+            host_html = _read_text(_resolve_local_path(host_html_file))
+        except OSError as exc:
+            return {"code": 1, "message": f"host_html_file 读取失败: {exc}"}
+        if _stock_price_owner_conflict(host_html, panels):
+            return {
+                "code": 1,
+                "error": "STOCK_CHART_OWNER_CONFLICT",
+                "message": (
+                    "stock_analysis_instance_v1 的 #priceChart 由原生 stock runtime 持有，"
+                    "禁止再注入 panel_block 形成第二个 renderer；请使用 scripts/stock_comparison.py "
+                    "把基准序列并入原生加载与渲染生命周期。"
+                ),
+                "target_selector": "#priceChart",
+                "host_html_file": os.path.abspath(_resolve_local_path(host_html_file)),
+            }
 
     grants, grant_err = _resolve_grant_panels(panels)
     if grant_err:
@@ -1339,16 +1400,10 @@ def cmd_panel_block(params):
 
     include_kernel = params.get("include_data_kernel")
     kernel_skip_reason = None
-    if include_kernel is None:
-        host_html_file = params.get("host_html_file")
-        if host_html_file:
-            try:
-                host_html = _read_text(_resolve_local_path(host_html_file))
-            except OSError as exc:
-                return {"code": 1, "message": f"host_html_file 读取失败: {exc}"}
-            if _host_already_has_kernel(host_html):
-                include_kernel = False
-                kernel_skip_reason = "检测到宿主页面已有取数内核，跳过重复内联（避免同页两份内核顶层变量重复声明报错）"
+    if include_kernel is None and host_html is not None:
+        if _host_already_has_kernel(host_html):
+            include_kernel = False
+            kernel_skip_reason = "检测到宿主页面已有取数内核，跳过重复内联（避免同页两份内核顶层变量重复声明报错）"
     if include_kernel is None:
         include_kernel = True  # 缺省行为不变，向后兼容
 
@@ -1358,7 +1413,12 @@ def cmd_panel_block(params):
             "__QBV_SKILL_VERSION__", C.SKILL_VERSION or ""
         )
 
-    include_cdn = _as_bool(params.get("include_echarts_cdn"), True)
+    include_cdn_value = params.get("include_echarts_cdn")
+    include_cdn = _as_bool(include_cdn_value, True)
+    cdn_skip_reason = None
+    if include_cdn_value is None and host_html is not None and _host_has_echarts(host_html):
+        include_cdn = False
+        cdn_skip_reason = "检测到宿主页面已加载 ECharts，跳过重复 CDN"
     cdn_tag = f'<script src="{_ECHARTS_CDN}"></script>\n' if include_cdn else ""
     kernel_block = (data_kernel_js + "\n") if data_kernel_js else ""
     script_html = (
@@ -1373,6 +1433,8 @@ def cmd_panel_block(params):
                "该片段带 QBV_RENDER_JS_START/END marker，之后可用 chart_edit.py 对这些面板做定点编辑。")
     if kernel_skip_reason:
         message += " " + kernel_skip_reason
+    if cdn_skip_reason:
+        message += " " + cdn_skip_reason
 
     return {
         "code": 0,
@@ -1382,6 +1444,7 @@ def cmd_panel_block(params):
         "script_html": script_html,
         "size": len(script_html.encode("utf-8")),
         "included_data_kernel": include_kernel,
+        "included_echarts_cdn": include_cdn,
         "message": message,
     }
 
