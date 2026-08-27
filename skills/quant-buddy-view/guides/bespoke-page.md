@@ -13,7 +13,7 @@ bespoke 页面不得直接引用本地路径、HTTP 图片或其他 page_id 的�
 
 | 路 | 怎么做 | 何时用 |
 |---|---|---|
-| **在线模板** `static_page.py templates` / `template` | 先找公共模板，下载 HTML 后替换标的、文案和公式包凭证 | 个股画像、估值体检、异动榜、选股看板等固定页面形态 |
+| **在线模板** `static_page.py templates` / `template` | 先找公共模板，下载 HTML 后替换标的、文案和对应的 Formula Package / Data Grant 凭证 | 个股画像、估值体检、异动榜、选股看板等固定页面形态 |
 | **快路** `build_dashboard` | 写 `spec.json`，声明式出 line/bar/number/table | 没有合适在线模板，但标准看板足够 |
 | **手搓 bespoke**（本剧本） | Agent 直接写 HTML/CSS/SVG，数据层调**取数内核** | 在线模板和快路都做不出的自定义版式/交互 |
 

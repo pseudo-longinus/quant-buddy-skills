@@ -23,7 +23,7 @@
 
 页面全部由 `text/image` 面板组成时可直接生成静态看板，不要求公式包或数据授权；只要出现 `line/bar/table/number/raw` 等数据型面板，仍必须提供对应的 `output` 或 `grant_id`。
 
-> 把「公式任务包 + 看板 spec」编译成一份自包含 HTML（样式内联，图表用公网 CDN ECharts）。可顺带上传发布。
+> 把「实时取数凭证 + 看板 spec」编译成一份自包含 HTML（Formula Package、Data Grant 可单独使用或同页混用；样式内联，图表用公网 CDN ECharts）。可顺带上传发布。
 > 通过本地脚本 `scripts/build_dashboard.py` 调用（单命令，无子命令）。
 
 > 分支门禁：同一 `task_id` 已由 `fork_prepare` 绑定为 prepared fork 时，本命令返回 `FORK_TASK_BOUND`，并指向应继续编辑的 `working_html_file`；此时必须改走 `static_page.py fork_validate`，不能重建通用看板。
@@ -47,7 +47,7 @@ BD_PARAMS='{"title":"...","panels":[...],"upload":true}' python scripts/build_da
 | `description` | string | ❌ | 页面说明（≤1000 字），仅作 `static_page` 列表/详情展示；显式传才随 upload/update 透传，不传则不动 |
 | `page_context` | object | ❌ | 当前活页稳定语义；不传时根据最终标题、面板和输出重新生成，禁止复制来源模板上下文 |
 | `agent_reply_template` | object | ❌ | 显式回复骨架；不传时按页面主题匹配专业骨架，无法匹配则使用 `generic_live_page_delivery_v1` |
-| `package_id` | string | ❌ | 公式包 id；缺省取**最近一次**本地凭证 |
+| `package_id` | string | ❌ | 公式包面板使用的 id；缺省取**最近一次**本地凭证。纯 Data Grant 页面不要求 |
 | `signature` | string | ❌ | 缺省从本地凭证补全；会写入页面供实时取数，必须可得 |
 | `panels` | object[] | ✅ | 面板数组，见下 |
 | `out_file` | string | ❌ | 输出 HTML 路径，默认 `output/pages/<slug>.html` |
@@ -158,10 +158,12 @@ Default brand logo: standard pages inline `assets/logo.svg` into the share heade
 
 ## 实时取数
 
-页面是实时取数的：HTML 骨架自包含（样式/脚本内联），数据在浏览器打开时实时 `fetch` 最新——底层数据更新后无需重新 build，页面打开即最新。
+页面的 HTML 骨架自包含（样式/脚本内联），数据在浏览器打开时实时 `fetch` 最新——底层数据更新后无需重新 build，页面打开即最新。
 
-- HTML 内写入 `endpoint / package_id / signature`，打开时调 `queryFormulaPackage` 取数（signature 会公开在页面里）。
-- 前置：端点须对页面域名放开 **CORS**，且页面与端点协议一致（https 页面配 https 端点，否则 mixed-content 被拦）。当前 `https://www.quantbuddy.cn/skill` 已满足。
+- Formula Package 面板写入 `endpoint / package_id / signature`，打开时调用 `queryFormulaPackage`。
+- Data Grant 面板写入 `grant_id / signature`，打开时调用 `queryDataGrant`；可与公式包面板同页混用，两类面板彼此独立取数。
+- 普通行情、估值和财务优先 Data Grant；需要计算、自定义指标或公式口径时才使用 Formula Package，不要为了让页面成为实时页而强行改写成公式。
+- 前置：两类端点都须对页面域名放开 **CORS**，且页面与端点协议一致（https 页面配 https 端点，否则 mixed-content 被拦）。当前 `https://www.quantbuddy.cn/skill` 已满足。
 - 构建期仍会取一次数，用于质量体检 + 单标的文案一致性校验 + 产出 `facts`，不会内联进 HTML。
 - spec 不需要写 `mode` 字段；旧 spec 里残留的 `"mode"` 会被忽略。
 
@@ -169,13 +171,13 @@ Default brand logo: standard pages inline `assets/logo.svg` into the share heade
 
 ```json
 { "code": 0, "out_file": "output/pages/xxx.html", "mode": "live",
-  "package_id": "pkg_...", "panels": 3, "size": 12345,
+  "package_id": "pkg_...", "grants": ["dg_..."], "panels": 3, "size": 12345,
   "manifest": "output/pages/xxx.manifest.json",
   "facts": {"px":{"value": 166.41, "date": 20260616}},
   "url": "https://pages.quantbuddy.cn/..."  // 仅 upload=true 且成功时 }
 ```
 
-同名 `*.manifest.json` 会记录 `page_id`、URL、HTML sha256、endpoint、公式包角色、package_id、构建时间与验证结果。不会记录 API key 或 signature。
+同名 `*.manifest.json` 会记录 `page_id`、URL、HTML sha256、endpoint、`formula_packages`、`data_grants`、构建时间与验证结果。不会记录 API key 或 signature。
 
 > **产物目录约定（本 skill 所有脚本共用）**：一切生成物——看板 HTML、manifest、公式包/数据授权凭证、临时预览与 demo——**只落在 `output/` 下**（`output/pages/`、`output/formula_packages/`、`output/data_grants/`；随手的试验/demo 放 `output/_demo/`）。`output/` 已在 `.gitignore` 里，属会话级 scratch。**不要在 skill 根目录另建 `_demo`、`tmp`、`preview` 等顶层文件夹**——顶层只保留 `SKILL.md / CHANGELOG.md / scripts / tools / guides / workflows / templates / reply-templates / tests / assets / config.json` 这套固定骨架。本地预览也从 `output/` 起服务（如 `python -m http.server 8899 --bind 127.0.0.1`，cwd 指向 `output/_demo/`）。
 

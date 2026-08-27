@@ -410,12 +410,11 @@ python scripts/static_page.py template '{"template_id":"tpl_xxx"}'
 ```
 
 返回：`{ code:0, template_id, page_id, title, description, category, is_template, template_status,
-download_url, is_live, package_ids, packages,
+download_url, is_live, package_ids, grant_ids, packages, grants,
 scene_tags, paradigm_tags, recommend_tags }`。其中：
 
 - `download_url` 是模板 HTML 的**公开下载链接**（OSS public-read），直接 GET 即得整页 HTML。
-- `is_live` / `package_ids` / `packages` 说明该模板是否实时取数页、关联了哪些公式包（克隆后通常要
-  换成你自己注册的公式包 signature 才能取你关心的标的数据）。
+- `is_live` / `package_ids` / `grant_ids` / `packages` / `grants` 说明该模板是否实时取数页、关联了哪些 Formula Package 与 Data Grant。两类凭证是平级数据源，可单独使用或同页混用；fork 后按来源运行合同换成当前用户自己注册的对应凭证。
 
 **3) direct 命中**：普通渠道先发现成链接；`feishu-group` 不发链接 → 一次性查询原页凭证并校验终态交付证据
 
@@ -569,9 +568,11 @@ live tag 规则：未声明 `data-qb-live-mode` 的 div 默认就是未转换的
   "size": 13429, "uploaded_size": 12880, "served_size": 13429, "tracker_injected": true,
   "sha256": "...",
   "is_live": true,
-  "package_ids": ["pkg_fa4d477b4c57c2f584a2dbdf", "pkg_2a200c46cf1eecfaec7596a2"],
+  "package_ids": ["pkg_fa4d477b4c57c2f584a2dbdf"],
+  "grant_ids": ["dg_2a200c46cf1eecfaec7596a2"],
   "packages": [{ "package_id": "pkg_fa4d...", "found": true, "status": "active" }],
-  "notice": "实时取数页面：已关联 2 个公式任务包，平台数据更新时页面自动刷新。",
+  "grants": [{ "grant_id": "dg_2a200...", "found": true, "status": "active", "kind": "fast_query" }],
+  "notice": "实时取数页面：已关联 1 个公式任务包；已关联 1 个数据授权，平台数据更新时页面自动刷新。",
   "scene_tags": [{ "tag_id": "tag_...", "name": "盘前", "source": "system" }],
   "paradigm_tags": [{ "tag_id": "tag_...", "name": "量价背离", "source": "user" }],
   "tagging_meta": { "method": "manual", "trigger": "upload", "source": "quant-buddy-view", "tagged_at": "2026-..." },
@@ -610,18 +611,20 @@ live tag 规则：未声明 `data-qb-live-mode` 的 div 默认就是未转换的
 
 > 尺寸字段：`uploaded_size` = 你上传的原始 HTML 字节数；`served_size` = 服务端注入访问统计脚本后实际托管的字节数（即 `sha256` 对应的内容）；`tracker_injected=true` 表示已注入统计脚本。`size` 为兼容旧字段，等于 `served_size`。`update` 响应同此结构。
 
-### 页面认知：is_live / 公式包关联（upload / update 自动解析）
+### 页面认知：is_live / Formula Package 与 Data Grant 关联（upload / update 自动解析）
 
-服务端在上传/替换时**解析 HTML**，把结果随响应返回（`update` 按新 HTML 重新解析；`list` / `download` 也透出 `is_live`、`package_ids`）：
+服务端在上传/替换时**解析 HTML**，把结果随响应返回（`update` 按新 HTML 重新解析；`list` / `download` 也透出 `is_live`、`package_ids`、`grant_ids`）：
 
 | 字段 | 说明 |
 |---|---|
-| `is_live` | 是否实时取数页：页面含 `queryFormulaPackage` 调用 **且** 引用 ≥1 个公式包；否则是静态页 |
-| `package_ids` | 从 HTML 抓到的公式任务包 id（关联标记） |
+| `is_live` | 是否实时取数页：页面存在 `queryFormulaPackage` 或 `queryDataGrant` 取数调用，且至少绑定一个 `package_id` 或 `grant_id`；Formula Package、Data Grant 任一通道都可使其为 `true`，也可同时存在 |
+| `package_ids` | 从 HTML 抓到的公式任务包 id；与 `grant_ids` 平级 |
+| `grant_ids` | 从 HTML 抓到的数据授权 id；与 `package_ids` 平级 |
 | `packages` | 每个包回查 `formula_packages` 的 `{ package_id, found, status }`（`found=false`=平台查无此包） |
-| `notice` | 人话提示：静态页会提示"平台数据更新不会刷新此页面"；实时页有失联包会提示"实时取数可能失败" |
+| `grants` | 每个授权回查 Data Grant 的 `{ grant_id, found, status, kind }`（`found=false`=平台查无此授权） |
+| `notice` | 人话提示：静态页会说明未检测到 `queryFormulaPackage` / `queryDataGrant` 实时取数动作；实时页会分别汇总关联的公式包和数据授权，任一失联或失效都会提示"实时取数可能失败" |
 
-> ⚠️ 拿到 `is_live=false` 时，多半是把数据焊死进了 HTML（没走 `queryFormulaPackage` 实时取数）。若本意是 live 看板，应改回实时取数再 `update`；如确为一次性静态报告，可忽略提示。发布前把 `notice` 转告用户。
+> ⚠️ 拿到 `is_live=false` 时，可能是 HTML 没有 `queryFormulaPackage` / `queryDataGrant` 取数调用，也可能是没有绑定任何 `package_id` / `grant_id`。若本意是 live 看板，应按数据性质补回对应实时通道再 `update`：普通行情、估值和财务优先 Data Grant，需要计算时才使用 Formula Package，不要为了变成实时页强行改写成公式；如确为一次性静态报告，可忽略提示。发布前把 `notice` 转告用户。
 
 ## 标签（场景 / 范式 / 推荐）
 
@@ -721,7 +724,7 @@ python scripts/static_page.py unpublish_community '{"page_id":"page_xxx"}'
 ## 安全与隔离
 
 - 页面托管在自定义域名 `pages.quantbuddy.cn`，与主站不同源 → 页面内脚本读不到主站 `localStorage` 里的 API Key。
-- 看板会把公式包 `signature` 写进公开 HTML 供实时取数（query 本以 signature 作能力令牌、设计上允许嵌入），发布前确认可接受。
+- 看板会把 Formula Package 或 Data Grant 的 `signature` 写进公开 HTML 供实时取数（两类 query 都以 signature 作能力令牌、设计上允许嵌入），发布前确认可接受。
 
 ## 计费
 

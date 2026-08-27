@@ -2,17 +2,17 @@
 name: quant-buddy-view
 slug: quant-buddy-view
 author: guanzhao
-version: 0.6.58
+version: 0.6.59
 description: |
   QBV / quant-buddy-view（用户可能写成 /quant-buddy-view、/qbv、qbv 或 QBV）用于把量化数据做成「公开可分享、实时取数」的网页看板/落地页。
   Use this skill when the user asks to create, update, publish, verify, retrofit, or reuse a Quant Buddy dashboard/static page/template, including shareable pages, public URLs, formula packages, share shell, cover/essence cards, poster/share behavior, single-stock profile pages, valuation/financial profile pages, index-anomaly boards, multi-factor screeners, and commodity daily pages.
-  配合 quant-buddy-skill 使用：简单单一 A 股综合分析可在 trace begin 后直接用 static_page.py new_asset_page 返回实时页面；其他固定页面请求先用 templates/template 选择带 recommend 标签的在线范式页。自建实时页仍须先在 quant-buddy-skill 验证公式，再注册自有公式包、替换凭证/文案、浏览器验收并发布。默认不从本地历史样板目录或低质 HTML 骨架起步。
+  配合 quant-buddy-skill 使用：简单单一 A 股综合分析可在 trace begin 后直接用 static_page.py new_asset_page 返回实时页面；其他固定页面请求先用 templates/template 选择带 recommend 标签的在线范式页。自建实时页先按数据性质选择通道：普通行情、估值和财务优先 Data Grant，自定义计算才验证并注册 Formula Package；两类凭证可在同页混用，随后替换凭证/文案、浏览器验收并发布。默认不从本地历史样板目录或低质 HTML 骨架起步。
   用户显式唤起 /quant-buddy-view、/qbv、qbv 或 QBV，且请求不是纯咨询/代码维护/文档解释时，默认视为可分享活页任务：简单单一 A 股分析走 new_asset_page 快速终态；其余请求查官方精选+社区范式卡判定 direct/fork/unmatched。默认 direct 先交付现成链接、fork/unmatched 用 new_page 返回首链；当 config.json._channel=feishu-group 时，所有分支都禁止提前发送链接，只在终态交付 playground 链接。
   Do not use this skill for one-off 行情查询、普通股票涨跌幅/估值问答、选股/回测探索；those belong to quant-buddy-skill unless the user explicitly wants a reusable/shareable page.
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 0.6.58
+  version: 0.6.59
   author: guanzhao
   category: quant-finance
   tags: [quant, dashboard, formula-package, static-page, publish, visualization]
@@ -33,7 +33,7 @@ requiredCredentials:
     storage: config_file
     path: config.json
     field: api_key
-    description: quant-buddy 平台 API Key。默认存储于 skill 目录下 config.json 的 `api_key` 字段。优先级（高到低）：① 调用方在工具调用参数里显式传入的 `api_key`（如 Playground 场景，仅当次调用生效，不落盘）；② 环境变量 QBV_API_KEY（同一档的显式覆盖通道，专给"这次调用要用哪个 key"、但不方便/不想改现有 @file 参数去塞 api_key 的场景，比如 `publish_workflow.py @publish-plan.json`——该 plan 文件按设计不含凭证）；③ config.json / config.local.json 的 `api_key`；④ 环境变量 QUANT_BUDDY_API_KEY（仅①②③都为空时才兜底，不是常规覆盖手段，语义与 QBV_API_KEY 完全不同，不要混用）。仅作为 HTTP `Authorization` 头发送给 networkEndpoints 中声明的 quantbuddy 域名用于鉴权；公式包「取数」和看板内实时取数凭 signature，不需要 api_key。
+    description: quant-buddy 平台 API Key。默认存储于 skill 目录下 config.json 的 `api_key` 字段。优先级（高到低）：① 调用方在工具调用参数里显式传入的 `api_key`（如 Playground 场景，仅当次调用生效，不落盘）；② 环境变量 QBV_API_KEY（同一档的显式覆盖通道，专给"这次调用要用哪个 key"、但不方便/不想改现有 @file 参数去塞 api_key 的场景，比如 `publish_workflow.py @publish-plan.json`——该 plan 文件按设计不含凭证）；③ config.json / config.local.json 的 `api_key`；④ 环境变量 QUANT_BUDDY_API_KEY（仅①②③都为空时才兜底，不是常规覆盖手段，语义与 QBV_API_KEY 完全不同，不要混用）。仅作为 HTTP `Authorization` 头发送给 networkEndpoints 中声明的 quantbuddy 域名用于鉴权；Formula Package 与 Data Grant 的页面内实时取数都凭 signature，不需要 api_key。
     how_to_get: "https://www.quantbuddy.cn/login"
 requiredConfigPaths:
   - path: config.json
@@ -210,7 +210,7 @@ npx skills update pseudo-longinus/quant-buddy-skills -y
 ```text
 <skills 目录>/
   quant-buddy-skill/ 或 quant-buddy-skill__skillhub/  ← 探索 / 公式验证（runMultiFormulaBatchStream、confirmDataMulti）
-  quant-buddy-view/ 或 quant-buddy-view__skillhub/    ← 本技能：注册公式包 / 生成看板 / 发布
+  quant-buddy-view/ 或 quant-buddy-view__skillhub/    ← 本技能：注册 Formula Package / Data Grant、生成看板、发布
 ```
 
 旧凭证迁移见 [tools/formula_package.md](tools/formula_package.md)。
@@ -238,12 +238,14 @@ npx skills update pseudo-longinus/quant-buddy-skills -y
 - 公式注册与读取模式见 [tools/formula_package.md](tools/formula_package.md)，数据授权见 [tools/data_grant.md](tools/data_grant.md)，静态页命令和 metadata 见 [tools/static_page.md](tools/static_page.md)。
 - 普通自有页面用 `update` 保持 URL；published template 用 `template` 判定，除非用户明确维护原模板，否则只读复用或 fork。
 
-## 取数：实时取数
+## 取数：实时页的两条通道
 
-看板是实时取数的：HTML 内嵌 `package_id + signature`，访问者打开页面时即时调用 `queryFormulaPackage` 拉取最新数据并渲染——底层数据更新即自动重算，**页面打开就是最新**，这正是公式任务包的设计目的。spec 不需要写 `mode` 字段。
+实时页可使用 Formula Package 或 Data Grant：公式包在 HTML 内嵌 `package_id + signature`，打开时调用 `queryFormulaPackage`；数据授权内嵌 `grant_id + signature`，打开时调用 `queryDataGrant`。两类凭证可以同页混用，彼此独立取数；底层数据更新后无需重建页面，访问者打开或刷新即可取得最新数据。spec 不需要写 `mode` 字段。
 
 - **页面是"活"的**：数据不焊进 HTML，运行时实时取；构建期只取一次数做质量体检（数据健康 + 单标的文案一致性），不内联。
-- **两个前提（均已满足）**：① `queryFormulaPackage` 端点对页面域名 `pages.quantbuddy.cn` 放开 **CORS**（当前 https 端点已放开 `*`）；② `signature` 随页面公开（公式包 query 本就以 signature 作能力令牌、设计上允许嵌入页面）。
+- **关联字段平级**：页面 metadata 中 `package_ids` 与 `grant_ids` 分别记录两类凭证；任一通道都可以单独支撑实时页，也可以同时存在。
+- **通道按数据性质选择**：普通行情、估值和财务优先 Data Grant；确需计算、自定义公式口径时才使用 Formula Package，不得为了让页面成为实时页而强行改写成公式。
+- **共同前提（均已满足）**：`queryFormulaPackage` / `queryDataGrant` 对页面域名 `pages.quantbuddy.cn` 放开 CORS，且两类 `signature` 都是允许嵌入页面的公开取数能力令牌。
 - ⚠️ **协议必须一致**：页面发布在 `https://`，`config.json` 的 `endpoint` 也必须是 `https://`，否则浏览器会以 mixed-content 拦截取数。当前 endpoint 已是 `https://www.quantbuddy.cn/skill`。
 
 ## 数据授权（Data Grant）vs 公式包 —— 页面免 key 取数的第二条通道

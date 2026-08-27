@@ -9,6 +9,14 @@
 
 ---
 
+## [0.6.59] — 2026-08-27
+
+### 实时页双通道文档同步
+
+- 同步 `SKILL.md`、通用工作流、工具文档与 bespoke 指南：实时页可通过 Formula Package（`queryFormulaPackage` + `package_ids`）或 Data Grant（`queryDataGrant` + `grant_ids`）取数，两类凭证可同页混用且彼此独立。
+- `tools/static_page.md` 对齐服务端 `is_live` 语义、平级关联字段与 notice 行为，并明确普通行情、估值、财务不得为了成为实时页而强行改写成公式。
+- 新增 `tests/test_live_page_docs.py`，锁定核心通用定义及在线模板双凭证说明，避免文档再次退化为“实时页只等于公式包”。
+
 ## [0.6.58] — 2026-08-27
 
 ### stock 对比图单一 owner 与加载完成稳定验收
