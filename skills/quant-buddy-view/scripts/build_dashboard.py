@@ -1827,6 +1827,33 @@ def cmd_build(params):
     task_id = str((params or {}).get("task_id") or C.current_trace_context().get("task_id") or "").strip()
     if task_id:
         import static_page as SP
+        routing, _, routing_error = SP._read_routing_credential(task_id)
+        if routing_error:
+            return routing_error
+        decision = (routing or {}).get("routing_decision") if isinstance((routing or {}).get("routing_decision"), dict) else {}
+        if decision.get("mode") == "fork":
+            borrow_mode = str(decision.get("borrow_mode") or "")
+            emit = str((params or {}).get("emit") or "").strip().lower()
+            if borrow_mode != "compose" or emit != "panel_block":
+                return {
+                    "code": 1,
+                    "error": "FORK_BUILD_MODE_FORBIDDEN",
+                    "message": (
+                        "fork/inherit* 不能用 build_dashboard 重建整页；fork/compose 也只允许 "
+                        "emit=panel_block 生成局部模块，并且必须先完成 fork_compose 借鉴绑定。"
+                    ),
+                    "task_id": task_id,
+                    "borrow_mode": borrow_mode,
+                    "allowed_action": "fork_compose_then_build_dashboard_panel_block",
+                }
+            compose, compose_error = SP._compose_binding_publish_state(routing, str((routing or {}).get("page_id") or ""))
+            if compose_error:
+                return compose_error
+            if not compose:
+                return {
+                    "code": 1, "error": "COMPOSE_BINDING_REQUIRED",
+                    "message": "emit=panel_block 前必须先运行 research_templates → fork_compose。",
+                }
         binding, _, binding_error = SP._read_fork_task_binding(task_id)
         if binding_error:
             return binding_error

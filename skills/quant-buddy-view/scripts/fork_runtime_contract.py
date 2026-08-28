@@ -111,6 +111,25 @@ def build_required_decisions(review):
                 "role_id": role_id,
                 "message": "说明 Grant 合同覆盖原因",
             })
+    for role in review.get("augmented_roles") or []:
+        if not isinstance(role, dict):
+            continue
+        role_id = str(role.get("role_id") or "")
+        if not role_id:
+            required.append({"decision_id": "augmented_roles", "kind": "augmented_role", "message": "augmented role 缺少 role_id"})
+            continue
+        review_type = role.get("review_type")
+        if review_type == "augmented_package":
+            formulas = [value for value in role.get("formulas") or [] if str(value or "").strip()]
+            reads = role.get("reads") or []
+            if not formulas:
+                required.append({"decision_id": f"augmented_roles.{role_id}.formulas", "kind": "augmented_formulas", "role_id": role_id, "message": "填写已验证的目标公式"})
+            if not isinstance(reads, list) or not reads or any(not isinstance(read, dict) or not str(read.get("output") or "").strip() or not str(read.get("read_mode") or "").strip() for read in reads):
+                required.append({"decision_id": f"augmented_roles.{role_id}.reads", "kind": "augmented_reads", "role_id": role_id, "message": "填写与公式左值一致的 reads(含 output 与 read_mode)"})
+        elif review_type == "augmented_grant":
+            payload = role.get("payload") or {}
+            if not isinstance(payload, dict) or not payload:
+                required.append({"decision_id": f"augmented_roles.{role_id}.payload", "kind": "augmented_payload", "role_id": role_id, "message": "填写 Grant payload"})
     return required
 
 
@@ -140,6 +159,23 @@ def build_decisions_skeleton(review):
             role_skeleton["contract_change_reason"] = ""
         if role_skeleton:
             skeleton["roles"][role_id] = role_skeleton
+    aug_skeleton = {}
+    for role in review.get("augmented_roles") or []:
+        if not isinstance(role, dict):
+            continue
+        role_id = str(role.get("role_id") or "")
+        if not role_id:
+            continue
+        if role.get("review_type") == "augmented_package":
+            aug_skeleton[role_id] = {
+                "formulas": list(role.get("formulas") or []),
+                "reads": copy.deepcopy(role.get("reads") or []),
+                "begin_date": role.get("begin_date") or DEFAULT_BEGIN_DATE,
+            }
+        elif role.get("review_type") == "augmented_grant":
+            aug_skeleton[role_id] = {"payload": copy.deepcopy(role.get("payload") or {})}
+    if aug_skeleton:
+        skeleton["augmented_roles"] = aug_skeleton
     return skeleton
 
 
@@ -149,7 +185,7 @@ def apply_review_decisions(review, decisions):
         raise ForkRuntimeError("FORK_REVIEW_INVALID", f"fork review.version 必须是 {REVIEW_VERSION}")
     if not isinstance(decisions, dict):
         raise ForkRuntimeError("FORK_REVIEW_DECISIONS_INVALID", "decisions 必须是对象")
-    allowed_top = {"main_asset_confirmed", "roles", "page_label_replacements"}
+    allowed_top = {"main_asset_confirmed", "roles", "page_label_replacements", "augmented_roles"}
     unknown_top = sorted(set(decisions) - allowed_top)
     if unknown_top:
         raise ForkRuntimeError("FORK_REVIEW_DECISIONS_INVALID", f"不允许的 review decision 字段: {', '.join(unknown_top)}")
@@ -174,16 +210,32 @@ def apply_review_decisions(review, decisions):
             raise ForkRuntimeError("FORK_REVIEW_DECISIONS_INVALID", f"{role_id} 不允许的字段: {', '.join(unknown)}")
         for key, value in values.items():
             role_index[role_id][key] = copy.deepcopy(value)
+    augmented_updates = decisions.get("augmented_roles") or {}
+    if augmented_updates:
+        if not isinstance(augmented_updates, dict):
+            raise ForkRuntimeError("FORK_REVIEW_DECISIONS_INVALID", "decisions.augmented_roles 必须是 role_id 到决策对象的映射")
+        aug_index = {str(item.get("role_id") or ""): item for item in updated.get("augmented_roles") or [] if isinstance(item, dict)}
+        for role_id, values in augmented_updates.items():
+            role = aug_index.get(str(role_id))
+            if role is None or not isinstance(values, dict):
+                raise ForkRuntimeError("FORK_REVIEW_DECISIONS_INVALID", f"未知或无效 augmented role decision: {role_id}")
+            allowed = {"formulas", "reads", "begin_date"} if role.get("review_type") == "augmented_package" else ({"payload"} if role.get("review_type") == "augmented_grant" else set())
+            unknown = sorted(set(values) - allowed)
+            if unknown:
+                raise ForkRuntimeError("FORK_REVIEW_DECISIONS_INVALID", f"augmented role {role_id} 不允许的字段: {', '.join(unknown)}")
+            for key, value in values.items():
+                role[key] = copy.deepcopy(value)
+            role["review_complete"] = True
     if "__QBV_" in canonical_json(updated):
         raise ForkRuntimeError("FORK_REVIEW_DECISIONS_INVALID", "review decision 不得包含 runtime Marker")
     return updated
 
 
-def review_state(manifest, review, html):
+def review_state(manifest, review, html, intent_profile=None):
     required = build_required_decisions(review)
     if required:
         return {"status": "decisions_required", "required_decisions": required}
-    resolved = resolve_review(manifest, review, html)
+    resolved = resolve_review(manifest, review, html, intent_profile=intent_profile)
     return {
         "status": "complete",
         "required_decisions": [],
@@ -228,10 +280,19 @@ def formula_outputs(formulas):
 
 
 def formula_asset_refs(formula):
-    return _unique_strings(
-        match.strip().strip("\"'")
-        for match in _ASSET_ARG_RE.findall(str(formula or ""))
-    )
+    """Return unquoted asset arguments without mistaking variables for assets.
+
+    QBS uses quoted arguments for data/variable references and unquoted
+    arguments for assets.  Treating ``涨跌幅("dash_close", 5)`` like an asset
+    corrupts inherited fork formulas when replacements are applied.
+    """
+    refs = []
+    for match in _ASSET_ARG_RE.findall(str(formula or "")):
+        stripped = match.strip()
+        if not stripped or stripped[0] in ("\"", "'"):
+            continue
+        refs.append(stripped.strip("\"'"))
+    return _unique_strings(refs)
 
 
 def apply_replacements(text, replacements):
@@ -482,6 +543,12 @@ def _target_package_contract(role):
 
 
 def _role_fingerprint_source(role):
+    if role.get("origin") == "augmented":
+        # Augmented roles have no source credential; fingerprint the Agent-declared
+        # target contract (package) or grant contract (grant) directly.
+        if role.get("kind") == "package":
+            return {"target_registration_contract": role.get("target_registration_contract") or {}}
+        return {"source_contract": role.get("source_contract") or {}}
     source = role.get("source_contract") or {}
     target = role.get("target_registration_contract")
     if role.get("kind") == "package" and isinstance(target, dict):
@@ -600,7 +667,141 @@ def _grant_review(role):
     }
 
 
-def build_runtime_artifacts(html, template_record, replacements=None, primary_sources=None):
+def _safe_aug_role_id(label, index):
+    """Derive a stable role_id from a marker label or fall back to an ordinal."""
+    safe = re.sub(r"[^0-9A-Za-z_]+", "_", str(label or "").strip()).strip("_").lower()
+    return f"aug.{safe or f'aug_{index:03d}'}"
+
+
+def _aug_marker(role_id, suffix, seq=1):
+    """Allocate an augmented runtime marker literal for the Agent to place in HTML."""
+    prefix = re.sub(r"[^0-9A-Za-z_]+", "_", str(role_id).replace(".", "_")).strip("_").upper()
+    return f"__QBV_AUG_{prefix}_{suffix}_{seq:03d}__"
+
+
+def _build_augmented_roles(augmentation_spec):
+    """Build manifest augmented roles from an Agent-supplied spec.
+
+    Each spec item declares a NEW (non-source-derived) credential the Agent will fill
+    on top of the inherited fork: package -> formulas+reads; grant -> payload. Markers
+    are assigned here so the Agent only places them in the working HTML and never
+    hand-passes runtime bindings. These roles are append-only: they cannot modify the
+    inherited runtime_roles' contracts or markers.
+    """
+    if augmentation_spec is None:
+        return []
+    if not isinstance(augmentation_spec, list):
+        raise ForkRuntimeError("AUGMENTATION_SPEC_INVALID", "augmentation_spec 必须是数组")
+    roles = []
+    role_ids = set()
+    for index, item in enumerate(augmentation_spec, start=1):
+        if not isinstance(item, dict):
+            raise ForkRuntimeError("AUGMENTATION_SPEC_INVALID", f"augmentation_spec[{index}] 必须是对象")
+        kind = str(item.get("kind") or "").strip()
+        if kind not in ("package", "grant"):
+            raise ForkRuntimeError("AUGMENTATION_SPEC_INVALID", f"augmentation_spec[{index}].kind 必须是 package 或 grant")
+        label = str(item.get("marker_label") or item.get("label") or "").strip()
+        role_id = str(item.get("role_id") or "").strip() or _safe_aug_role_id(label, index)
+        if not re.match(r"^[A-Za-z0-9._-]+$", role_id) or role_id in role_ids:
+            raise ForkRuntimeError("AUGMENTATION_SPEC_INVALID", f"augmentation_spec[{index}] role_id 缺失或重复: {role_id}")
+        role_ids.add(role_id)
+        required_outputs = _unique_strings(item.get("required_outputs") or [])
+        if kind == "package":
+            if not required_outputs:
+                raise ForkRuntimeError("AUGMENTATION_SPEC_INVALID", f"augmentation_spec[{index}] package 必须声明 required_outputs")
+            begin_date = item.get("begin_date") or DEFAULT_BEGIN_DATE
+            role = {
+                "role_id": role_id,
+                "kind": "package",
+                "origin": "augmented",
+                "required_outputs": required_outputs,
+                "target_registration_contract": {"formulas": [], "reads": [], "begin_date": begin_date},
+                "markers": {
+                    "package_id": [_aug_marker(role_id, "ID")],
+                    "signature": [_aug_marker(role_id, "SIG")],
+                },
+                # allow_one_dimensional：显式声明"这个角色只产一条市场级序列"，
+                # 用于放行发布时的产出体检。默认 false —— 新增栏目通常要做个股筛选/排名，
+                # 一维几乎总意味着公式把资产维度算没了。
+                "spec": {
+                    "marker_label": label,
+                    "allow_one_dimensional": bool(item.get("allow_one_dimensional")),
+                },
+            }
+        else:
+            grant_kind = str(item.get("grant_kind") or "").strip()
+            if grant_kind not in ("fast_query", "stock_profile", "composition_select"):
+                raise ForkRuntimeError(
+                    "AUGMENTATION_SPEC_INVALID",
+                    f"augmentation_spec[{index}] grant_kind 必须是 fast_query/stock_profile/composition_select",
+                )
+            allowed_fields = _unique_strings(item.get("allowed_asset_scope_fields") or [])
+            role = {
+                "role_id": role_id,
+                "kind": "grant",
+                "origin": "augmented",
+                "required_outputs": [],
+                "source_contract": {"kind": grant_kind, "payload": {}, "allowed_asset_scope_fields": allowed_fields},
+                "markers": {
+                    "grant_id": [_aug_marker(role_id, "ID")],
+                    "signature": [_aug_marker(role_id, "SIG")],
+                },
+                "spec": {"marker_label": label},
+            }
+        role["contract_fingerprint"] = contract_fingerprint(_role_fingerprint_source(role))
+        roles.append(role)
+    return roles
+
+
+def _augmented_package_review(role):
+    target = role.get("target_registration_contract") or {}
+    return {
+        "role_id": role["role_id"],
+        "kind": "package",
+        "origin": "augmented",
+        "review_type": "augmented_package",
+        "required_outputs": list(role.get("required_outputs") or []),
+        "formulas": [],
+        "reads": [],
+        "begin_date": target.get("begin_date") or DEFAULT_BEGIN_DATE,
+        "review_complete": False,
+        "guidance": (
+            "within-pool 筛选/评分用本类型：公式里自行限定样本池"
+            "——概念/行业板块用 板块(<板块名>)（如 板块(机器人概念)），个股或指数用 取出(<名称>)（如 取出(沪深300)）；"
+            "概念板块名不在资产库里，写成 取出(机器人概念) 会报「资产不存在」。"
+            "平台不支持跨 package 引用继承输出，自限定是池内筛选的唯一法子。"
+            "公式必须先在 quant-buddy-skill runMultiFormulaBatchStream 验证通过再填入。"
+            "reads[].output 必须是本包公式的左值（未列入 reads 的公式是只算不对外的中间变量）；"
+            "指标库返回的 external_datasets 是平台输入数据名，不填 reads，只用 confirmDataMulti 核实。"
+        ),
+    }
+
+
+def _augmented_grant_review(role):
+    source = role.get("source_contract") or {}
+    grant_kind = source.get("kind")
+    if grant_kind == "composition_select":
+        guidance = (
+            "⚠️ composition_select 的 universe.asset_scope 只接受市场值（全A/港股/美股/期货），"
+            "不能按板块/主题限定。若要在板块池内筛选（如机器人池内企稳），"
+            "改用 kind=package 并在公式里 板块(<板块名>) 自限定；不要因 grant 筛全 A 就整个放弃 augment。"
+        )
+    else:
+        guidance = "用于平台白名单直取数据（行情/估值/财务/画像），不做筛选；payload 按该 kind 的合同填。"
+    return {
+        "role_id": role["role_id"],
+        "kind": "grant",
+        "origin": "augmented",
+        "review_type": "augmented_grant",
+        "grant_kind": grant_kind,
+        "allowed_asset_scope_fields": list(source.get("allowed_asset_scope_fields") or []),
+        "payload": {},
+        "review_complete": False,
+        "guidance": guidance,
+    }
+
+
+def build_runtime_artifacts(html, template_record, replacements=None, primary_sources=None, augmentation_spec=None):
     """Discover active roles, markerize credentials, and create manifest/review fragments."""
     replacements = dict(replacements or {})
     primary_sources = list(primary_sources or replacements.keys())
@@ -739,9 +940,21 @@ def build_runtime_artifacts(html, template_record, replacements=None, primary_so
         "roles": review_roles,
         "page_label_replacements": {},
     }
+    augmented_roles = _build_augmented_roles(augmentation_spec)
+    if augmented_roles:
+        review["augmented_roles"] = [
+            _augmented_package_review(role) if role["kind"] == "package" else _augmented_grant_review(role)
+            for role in augmented_roles
+        ]
+        review["instructions"] += (
+            " augmented_roles 是来源范式之上的新增分析维度；在 working HTML 新栏目放置 manifest 分配的 AUG marker，"
+            "并在 decisions.augmented_roles 填写 formulas/reads 或 Grant payload。新增公式必须先经 QBS 验证，"
+            "且只能追加、不得修改继承角色。池内筛选应使用 package 自限定样本池；composition_select 只能按市场筛选。"
+        )
     return {
         "working_html": working,
         "runtime_roles": roles,
+        "augmented_roles": augmented_roles,
         "review": review,
         "source_package_ids": [role["source_credential_id"] for role in roles if role["kind"] == "package"],
         "source_grant_ids": [role["source_credential_id"] for role in roles if role["kind"] == "grant"],
@@ -749,7 +962,56 @@ def build_runtime_artifacts(html, template_record, replacements=None, primary_so
     }
 
 
-def resolve_review(manifest, review, html):
+_MARKET_SCOPE_TOKENS = ("全市场", "按市场", "万得全A", "全A")
+_SCOPE_LIMITER_FN_BY_KIND = {"sector": "板块", "index": "取出", "single_asset": "取出"}
+_SCOPE_LIMITER_FNS = ("板块", "取出", "成分")
+
+
+def _scope_limiter_forms(name):
+    return [f"{fn}({name})" for fn in _SCOPE_LIMITER_FNS]
+
+
+def _check_augmented_formula_scope(role_id, formulas, intent_profile):
+    if not isinstance(intent_profile, dict):
+        return
+    scope = intent_profile.get("asset_scope") or {}
+    kind = str(scope.get("kind") or "")
+    name = str(scope.get("name") or "").strip()
+    if kind in ("", "market") or not name:
+        return
+    accepted = _scope_limiter_forms(name)
+    recommended = f"{_SCOPE_LIMITER_FN_BY_KIND.get(kind, '板块')}({name})"
+    offenders = [
+        formula for formula in formulas
+        if any(token in formula for token in _MARKET_SCOPE_TOKENS)
+        and not any(limiter in formula for limiter in accepted)
+    ]
+    if offenders:
+        raise ForkRuntimeError(
+            "AUG_FORMULA_SCOPE_MISMATCH",
+            f"augmented role {role_id} 使用全市场公式，但意图样本池是「{name}」；"
+            f"请用 {recommended} 自限定样本池，或把 intent_profile.asset_scope.kind 改为 market。",
+            formulas=offenders,
+        )
+
+
+_SCRIPT_BLOCK_RE = re.compile(r"<script[^>]*>(.*?)</script>", re.S | re.I)
+
+
+def _check_augmented_outputs_rendered(role_id, outputs, html):
+    outputs = [str(name).strip() for name in outputs or [] if str(name or "").strip()]
+    scripts = "\n".join(_SCRIPT_BLOCK_RE.findall(str(html or "")))
+    missing = [name for name in outputs if name not in scripts]
+    if missing:
+        raise ForkRuntimeError(
+            "AUG_OUTPUT_NOT_RENDERED",
+            f"augmented role {role_id} 的输出 {missing} 没有被任何脚本消费；新栏目必须包含真实取数与渲染代码。",
+            role_id=role_id,
+            unrendered_outputs=missing,
+        )
+
+
+def resolve_review(manifest, review, html, intent_profile=None):
     """Resolve Agent decisions into target contracts and final editable HTML."""
     if not isinstance(review, dict) or review.get("version") != REVIEW_VERSION:
         raise ForkRuntimeError("FORK_REVIEW_INVALID", f"fork review.version 必须是 {REVIEW_VERSION}")
@@ -842,6 +1104,58 @@ def resolve_review(manifest, review, html):
                 "source_contract_fingerprint": role.get("contract_fingerprint"),
                 "markers": copy.deepcopy(role.get("markers") or {}),
             })
+    aug_review_by_role = {
+        str(item.get("role_id") or ""): item
+        for item in review.get("augmented_roles") or [] if isinstance(item, dict)
+    }
+    for role in manifest.get("augmented_roles") or []:
+        role_id = str(role.get("role_id") or "")
+        decision = aug_review_by_role.get(role_id)
+        if not decision:
+            raise ForkRuntimeError("FORK_REVIEW_INCOMPLETE", f"augmented role 缺少决策: {role_id}")
+        if role.get("kind") == "package":
+            formulas = [str(value).strip() for value in decision.get("formulas") or [] if str(value or "").strip()]
+            reads = copy.deepcopy(decision.get("reads") or [])
+            if not formulas or not reads:
+                raise ForkRuntimeError("FORK_REVIEW_INCOMPLETE", f"augmented package 公式或 reads 尚未填写: {role_id}")
+            _check_augmented_formula_scope(role_id, formulas, intent_profile)
+            _check_augmented_outputs_rendered(
+                role_id,
+                list(role.get("required_outputs") or []) or [
+                    str(read.get("output") or "") for read in reads if isinstance(read, dict)
+                ],
+                html,
+            )
+            target = role.get("target_registration_contract") or {}
+            begin_date = decision.get("begin_date") or target.get("begin_date") or DEFAULT_BEGIN_DATE
+            contract = {"formulas": formulas, "reads": reads, "begin_date": begin_date}
+            packages.append({
+                "name": role_id,
+                "role_id": role_id,
+                # origin/spec 供发布器识别这是新增角色并做产出体检（维度塌缩 / 取数为空）。
+                # 继承角色的合同来自已发布模板、本就在线上跑着，不重复体检。
+                "origin": "augmented",
+                "spec": copy.deepcopy(role.get("spec") or {}),
+                "contract": contract,
+                "contract_fingerprint": contract_fingerprint(contract),
+                "required_outputs": list(role.get("required_outputs") or []),
+                "markers": copy.deepcopy(role.get("markers") or {}),
+            })
+        else:
+            payload = copy.deepcopy(decision.get("payload") or {})
+            if not isinstance(payload, dict) or not payload:
+                raise ForkRuntimeError("FORK_REVIEW_INCOMPLETE", f"augmented grant payload 尚未填写: {role_id}")
+            source = role.get("source_contract") or {}
+            contract = {"kind": source.get("kind"), "payload": payload}
+            grants.append({
+                "name": role_id,
+                "role_id": role_id,
+                "contract": contract,
+                "contract_change_reason": "augmented role: 新增分析维度，非来源继承",
+                "contract_fingerprint": contract_fingerprint(contract),
+                "source_contract_fingerprint": role.get("contract_fingerprint"),
+                "markers": copy.deepcopy(role.get("markers") or {}),
+            })
     for source, target in (review.get("page_label_replacements") or {}).items():
         if source:
             rendered_html = rendered_html.replace(str(source), str(target or ""))
@@ -914,11 +1228,45 @@ def validate_manifest_html(manifest, html):
         source_id = str(role.get("source_credential_id") or "")
         if source_id and source_id in str(html or ""):
             raise ForkRuntimeError("SOURCE_CREDENTIAL_LEAK", "working HTML 仍含来源凭证")
+    augmented = manifest.get("augmented_roles") or []
+    if augmented and not isinstance(augmented, list):
+        raise ForkRuntimeError("FORK_MANIFEST_INVALID", "fork manifest.augmented_roles 必须是数组")
+    aug_role_ids = set()
+    for role in augmented:
+        if not isinstance(role, dict):
+            raise ForkRuntimeError("FORK_MANIFEST_INVALID", "augmented role 必须是对象")
+        role_id = str(role.get("role_id") or "")
+        if not role_id or role_id in role_ids or role_id in aug_role_ids:
+            raise ForkRuntimeError("FORK_MANIFEST_INVALID", f"augmented role ID 缺失或与继承角色重复: {role_id}")
+        aug_role_ids.add(role_id)
+        kind = role.get("kind")
+        if kind not in ("package", "grant"):
+            raise ForkRuntimeError("FORK_MANIFEST_INVALID", f"augmented role kind 无效: {role_id}")
+        if role.get("origin") != "augmented":
+            raise ForkRuntimeError("FORK_MANIFEST_INVALID", f"augmented role origin 必须是 augmented: {role_id}")
+        if kind == "package" and not isinstance(role.get("target_registration_contract"), dict):
+            raise ForkRuntimeError("FORK_MANIFEST_INVALID", f"augmented package 缺少 target_registration_contract: {role_id}")
+        if kind == "grant":
+            source_contract = role.get("source_contract")
+            if not isinstance(source_contract, dict) or not str(source_contract.get("kind") or "").strip():
+                raise ForkRuntimeError("FORK_MANIFEST_INVALID", f"augmented grant 缺少 source_contract.kind: {role_id}")
+        if role.get("contract_fingerprint") != contract_fingerprint(_role_fingerprint_source(role)):
+            raise ForkRuntimeError("FORK_MANIFEST_INVALID", f"augmented role 合同指纹不一致: {role_id}")
+        markers = role.get("markers")
+        id_key = "package_id" if kind == "package" else "grant_id"
+        if not isinstance(markers, dict):
+            raise ForkRuntimeError("FORK_MARKER_INVALID", f"augmented role 缺少 markers: {role_id}")
+        id_markers = markers.get(id_key)
+        sig_markers = markers.get("signature")
+        if not isinstance(id_markers, list) or not isinstance(sig_markers, list) or not id_markers or len(id_markers) != len(sig_markers):
+            raise ForkRuntimeError("FORK_MARKER_INVALID", f"augmented role ID/signature Marker 数量不一致: {role_id}")
+        all_markers.extend(id_markers)
+        all_markers.extend(sig_markers)
     expected_manifest_fingerprint = str(manifest.get("contract_fingerprint") or "")
     if expected_manifest_fingerprint:
         actual_manifest_fingerprint = contract_fingerprint([
             {"role_id": role["role_id"], "fingerprint": role["contract_fingerprint"]}
-            for role in roles
+            for role in roles + augmented
         ])
         if expected_manifest_fingerprint != actual_manifest_fingerprint:
             raise ForkRuntimeError("FORK_MANIFEST_INVALID", "fork manifest 总合同指纹不一致")
@@ -942,6 +1290,9 @@ def validate_manifest_html(manifest, html):
         "role_count": len(roles),
         "package_count": sum(role.get("kind") == "package" for role in roles),
         "grant_count": sum(role.get("kind") == "grant" for role in roles),
+        "augmented_role_count": len(augmented),
+        "augmented_package_count": sum(role.get("kind") == "package" for role in augmented),
+        "augmented_grant_count": sum(role.get("kind") == "grant" for role in augmented),
         "marker_count": len(all_markers),
     }
 
@@ -963,7 +1314,7 @@ def validate_resolved_contracts(manifest, resolved):
     grants = resolved.get("grants") if isinstance(resolved, dict) else None
     if not isinstance(packages, list) or not isinstance(grants, list):
         raise ForkRuntimeError("PUBLISH_CONTRACT_INVALID", "resolved packages/grants 必须是数组")
-    role_index = {str(role.get("role_id") or ""): role for role in manifest.get("runtime_roles") or []}
+    role_index = {str(role.get("role_id") or ""): role for role in (manifest.get("runtime_roles") or []) + (manifest.get("augmented_roles") or [])}
     names = set()
     all_formula_outputs = set()
     all_read_outputs = set()
@@ -1033,17 +1384,27 @@ def validate_resolved_contracts(manifest, resolved):
         if kind not in ("fast_query", "stock_profile", "composition_select") or not isinstance(payload, dict) or not payload:
             raise ForkRuntimeError("GRANT_CONTRACT_INVALID", f"{role_id} Grant kind/payload 无效")
         role = role_index.get(role_id) or {}
-        source_contract = role.get("source_contract") or {}
-        source_payload = source_contract.get("payload") or {}
-        allowed = set(source_contract.get("allowed_asset_scope_fields") or [])
-        changed = {key for key in set(source_payload) | set(payload) if source_payload.get(key) != payload.get(key)}
-        unauthorized = sorted(changed - allowed)
-        if unauthorized and not str(grant.get("contract_change_reason") or "").strip():
-            raise ForkRuntimeError(
-                "GRANT_CONTRACT_MISMATCH",
-                f"{role_id} 修改了来源 Grant 的非资产范围合同",
-                unauthorized_fields=unauthorized,
-            )
+        if role.get("origin") == "augmented":
+            # Augmented grants are Agent-declared from scratch (not inherited), so the
+            # source-payload comparison does not apply; only kind/payload validity and
+            # fingerprint consistency are checked above. Grant must still carry a reason.
+            if not str(grant.get("contract_change_reason") or "").strip():
+                raise ForkRuntimeError(
+                    "GRANT_CONTRACT_MISMATCH",
+                    f"{role_id} augmented grant 缺少 contract_change_reason",
+                )
+        else:
+            source_contract = role.get("source_contract") or {}
+            source_payload = source_contract.get("payload") or {}
+            allowed = set(source_contract.get("allowed_asset_scope_fields") or [])
+            changed = {key for key in set(source_payload) | set(payload) if source_payload.get(key) != payload.get(key)}
+            unauthorized = sorted(changed - allowed)
+            if unauthorized and not str(grant.get("contract_change_reason") or "").strip():
+                raise ForkRuntimeError(
+                    "GRANT_CONTRACT_MISMATCH",
+                    f"{role_id} 修改了来源 Grant 的非资产范围合同",
+                    unauthorized_fields=unauthorized,
+                )
         if grant.get("contract_fingerprint") != contract_fingerprint(contract):
             raise ForkRuntimeError("GRANT_CONTRACT_FINGERPRINT_MISMATCH", f"{role_id} Grant fingerprint 不一致")
     return {"package_count": len(packages), "grant_count": len(grants)}

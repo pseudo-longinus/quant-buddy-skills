@@ -9,6 +9,16 @@
 
 ---
 
+## [0.6.60] — 2026-08-28
+
+### 既有活页解读、CSV 证据链与范式路由收敛
+
+- 新增 `interpret` / `interpret_csv` 工作流：可在不下载 HTML、不暴露凭证的前提下读取既有活页定义与实时结果，并按需解析 `fast_query` CSV 引用用于指标计算。
+- 新增新资产 CSV 材料化与单股严格证据化回复，统一数据证据、缺失值和终态回复校验，避免页面成功但回答仍依赖未验证字段。
+- 强化 Direct / Fork 路由：完整范式池、逐维度能力证据和 task-scoped 凭据均 fail-closed；Fork 继承不足时在原路由内使用 Compose，不再静默改判 unmatched。
+- 完善 QBS→QBV Handoff、Host-managed Turn 与任务生命周期衔接：复用原始 `task_id` / `turn_id` / `user_query`，保留 nullable `agent_intent`，追踪失败不阻塞业务执行。
+- 增强 Playwright 与浏览器发现兼容性，并让分享弹层验收同时覆盖旧 `shareBtn` 和当前 iframe 页头 / fallback 分享入口；继续锁定桌面、390、320 及自定义反馈视口。
+
 ## [0.6.59] — 2026-08-27
 
 ### 实时页双通道文档同步

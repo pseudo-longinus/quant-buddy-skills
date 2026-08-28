@@ -13,6 +13,8 @@ r"""
     update     替换已有页面内容（URL / page_id 不变，已分享链接照常可用）
     publish_final  首链进度页最终发布封装：先进入 final_publish，失败时回写失败态
     publish_verified  fork 门禁、本地分级浏览器检查、同链接发布和公网冒烟的一体化封装
+    interpret  读取既有 QuantBuddy 活页的定义与实时数据，供直接解读（不下载 HTML、不暴露凭证）
+    interpret_csv  下载并解析 interpret 返回的 fast_query CSV 引用，供指标计算
     download   取回已发布页面的 HTML（再编辑用）：服务端鉴权返回 url，脚本直连 OSS 下载
     list       列出我的页面
     init_reply_metadata  为缺少 page_context / agent_reply_template 的旧页面初始化回复元数据
@@ -63,7 +65,8 @@ upload 参数：
     先用 tags 子命令查询可用场景/范式：python scripts/static_page.py tags
 new_asset_page 参数：asset 必填（A 股名称或代码）；user_query / ttl_days 可选。
     仅用于无定制内容、对比、多标的或指定额外产出的简单单股分析；trace begin 后可跳过 templates/new_page。
-    成功即返回终态页面 contract，不返回 HTML、Grant、signature 或内部 profile。
+    成功会材料化证据并在命令内部确定性生成严格证据化回复，直接返回 agent_reply_markdown；
+    stdout 不返回 data_sources 内容、HTML、Grant、signature 或内部 profile。
 new_page 参数：title / message / current_step / page_status / steps / required_input 可选；正式 task 还必须在 templates(recommend="all") 后由 Agent 传 routing_decision：
     fork 用 {mode:"fork",source_template_id,reason_code}；unmatched 用 {mode:"unmatched",closest_template_id,reason_code,reason}。
     脚本核验候选属于本 task 并记录决定；默认接入公共 share shell，上传一个不自刷新的 iframe 活页进度页，并返回 page_id / url / progress。
@@ -78,7 +81,7 @@ publish_final 参数：同 update；推荐用于首链进度页的最终正式�
     会先把进度页推进到 final_publish；若正式 update 失败，会自动把同一 page_id 更新为 failed 进度页。
     正式版本未传 change_note 时默认记录“完成发布：正式活页内容已发布”；进度快照另行自动生成阶段描述。
     会在任何网络写入前复核 new_page 的 routing_decision；已选 fork 却没有 fork_prepare binding 时返回 ROUTING_RECONFIRM_REQUIRED。
-    确认模板确有实质能力缺口时可传 routing_override:{from_mode:"fork",to_mode:"unmatched",reason_code,reason} 显式改判；已完成 fork_prepare 后不允许改判。
+    fork 一经记录便不能改判 unmatched；后续必须走 inherit / inherit_augment，继承不成立时在 fork 内走 Compose。
     复用在线模板时传 source_template_id + fork_manifest_file；前者继承回复骨架，后者证明来源 HTML 已下载并声明 fork 门禁；page_context 必须按最终用户活页重新生成。
     同一 task_id 执行过 fork_prepare 后，publish_final 会自动恢复已绑定的来源与 manifest；省略或改写参数不能绕过 fork 门禁。
     无法匹配专业骨架时使用 generic_live_page_delivery_v1；v2 hybrid 缺 page_context / hybrid_composition 时 fail-closed。
@@ -110,7 +113,7 @@ verify_card_runtime 参数：{ "page_ids":["page_xxx"], "require_browser":true, 
 
 用法示例：
     python scripts/static_page.py new_asset_page '{"task_id":"task_xxx","asset":"贵州茅台","user_query":"分析贵州茅台"}'
-    python scripts/static_page.py new_page '{"task_id":"task_xxx","title":"贵州茅台估值质量分析","message":"正在确认活页方案","routing_decision":{"mode":"fork","source_template_id":"page_template_xxx","reason_code":"same_paradigm_different_asset"}}'
+    python scripts/static_page.py new_page '{"task_id":"task_xxx","title":"贵州茅台估值质量分析","message":"正在确认活页方案","routing_decision":{"mode":"fork","source_template_id":"page_template_xxx","reason_code":"same_paradigm_different_asset","borrow_mode":"inherit"}}'
     python scripts/static_page.py update_progress '{"page_id":"page_xxx","current_step":"formula_validation","message":"正在验证实时数据"}'
     python scripts/static_page.py publish_final '{"page_id":"page_xxx","html_file":"output/pages/final.html","title":"贵州茅台估值质量分析","source_template_id":"page_template_xxx","fork_manifest_file":"output/forks/page_template_xxx/page_template_xxx.fork-manifest.json","require_agent_reply_template":true}'
     python scripts/static_page.py publish_verified '{"task_id":"task_xxx","page_id":"page_xxx","html_file":"output/pages/final.html","source_template_id":"page_template_xxx","fork_manifest_file":"output/forks/page_template_xxx/page_template_xxx.fork-manifest.json","validation_receipt_files":["receipt.json"]}'
@@ -142,6 +145,7 @@ import html as html_lib
 from html.parser import HTMLParser
 import io
 import json
+import copy
 import os
 import re
 import secrets
@@ -161,11 +165,15 @@ import compile_bespoke_page as CB
 import common as C
 import data_kernel_retrofit as DKR
 import fork_runtime_contract as FRC
+import fast_query_csv as FQCSV
+import materialize_new_asset_csv as MNAC
 import progress_page as PP
 import qbs_job_lifecycle as QJL
 import reply_data_evidence as RDE
 import reply_template_registry as RTR
+import session_complete as SC
 import share_shell_contract as SSC
+import single_stock_reply as SSR
 
 _PATH = {
     "upload":    "/skill/uploadStaticPage",
@@ -270,6 +278,9 @@ _REPLY_TEMPLATE_VERSIONS = {"reply_template_v1", "reply_template_v2"}
 _REPLY_SCOPES = {"full_answer", "hybrid"}
 _HYBRID_COMPOSITION_VERSION = "hybrid_composition_v1"
 _PAGE_CONTEXT_VERSION = "page_context_v1"
+_PAGE_CONTEXT_OUTPUTS_DERIVED = "derived"
+_PAGE_CONTEXT_OUTPUTS_LEGACY = "legacy"
+_PAGE_CONTEXT_OUTPUTS_PROVENANCE = (_PAGE_CONTEXT_OUTPUTS_DERIVED, _PAGE_CONTEXT_OUTPUTS_LEGACY)
 _FEISHU_GROUP_CHANNEL = "feishu-group"
 _PAGES_PUBLIC_HOST = "pages.quantbuddy.cn"
 _PLAYGROUND_PUBLIC_HOST = "www.quantbuddy.cn"
@@ -831,7 +842,7 @@ def _agent_reply_template_contract(record, *, operation=None):
             "Include public_url.",
             "When require_page_id_in_reply=true, include the exact page_id in the final reply.",
             "Use reply_data_availability to identify fields that actually exist in this delivery; every available template field must be rendered.",
-            "For single_stock_deep_dive_v1 keep all seven section headings; a section with no evidence must use its standard no-data sentence.",
+            "For single_stock_deep_dive_v1 keep every required section heading from reply_render_policy; a section with no evidence must use its standard no-data sentence.",
             "When delivery_policy.max_markdown_tables is present, keep the complete reply within that Markdown table limit and render overflow structures as lists or inline text.",
             "Delete structurally unavailable rows and all-missing columns, but do not delete required section headings.",
             "Use -- only for an occasional missing value inside an otherwise valid structure.",
@@ -3973,6 +3984,7 @@ _ROUTING_DECISION_VERSION = "routing_decision_v1"
 _ROUTING_FORK_REASON_CODES = {
     "same_paradigm_different_asset",
     "same_paradigm_different_scope",
+    "same_paradigm_augment_dimension",
     "user_requests_template_changes",
 }
 _ROUTING_UNMATCHED_REASON_CODES = {
@@ -3982,6 +3994,7 @@ _ROUTING_UNMATCHED_REASON_CODES = {
     "required_capability_missing",
     "user_requires_bespoke",
 }
+_FORK_BORROW_MODES = ("inherit", "inherit_augment", "compose")
 
 
 def _routing_task_id(params):
@@ -4145,6 +4158,166 @@ def _routing_candidates(task_id, cred):
     return {"item_count": len(items), "sha256": actual_sha256, "index": index}, None
 
 
+_DIRECT_COVERAGE_SCOPES = (
+    "page_context.core_sections", "page_context.primary_outputs", "page_context.summary",
+    "card_required_outputs", "title", "description",
+)
+_DIRECT_AUTHORITATIVE_SCOPES = ("page_context.primary_outputs", "card_required_outputs")
+_DIRECT_LEGACY_AUTHORITATIVE_SCOPES = ("card_required_outputs",)
+_DIRECT_REASON_CODE = "direct_full_dimension_coverage"
+
+
+def _direct_candidate_capabilities(snapshot):
+    snapshot = snapshot if isinstance(snapshot, dict) else {}
+    page_context = snapshot.get("page_context") if isinstance(snapshot.get("page_context"), dict) else {}
+    return {
+        "page_context.core_sections": list(page_context.get("core_sections") or []),
+        "page_context.primary_outputs": list(page_context.get("primary_outputs") or []),
+        "page_context.summary": str(page_context.get("summary") or ""),
+        "card_required_outputs": list(snapshot.get("card_required_outputs") or []),
+        "title": str(snapshot.get("title") or ""),
+        "description": str(snapshot.get("description") or ""),
+    }
+
+
+def _coverage_ref_matches(ref, capabilities, allowed_scopes):
+    text = str(ref or "")
+    if ":" not in text:
+        return False, ""
+    scope, token = (part.strip() for part in text.split(":", 1))
+    if not scope or not token or scope not in allowed_scopes:
+        return False, ""
+    value = capabilities.get(scope)
+    if isinstance(value, list):
+        return token in value, scope
+    return token in str(value or ""), scope
+
+
+def _direct_gate_failure(error, message, source_template_id, capabilities, **extra):
+    return {
+        "code": 1,
+        "error": error,
+        "message": message,
+        "valid_scopes": list(_DIRECT_COVERAGE_SCOPES),
+        "candidate_capabilities": capabilities or {},
+        "fork_aug_fallback": {
+            "when": "任一用户维度不能由候选页真实能力覆盖时，保持 fork 路由并增强栏目",
+            "routing_decision": {
+                "mode": "fork", "source_template_id": source_template_id or "page_xxx",
+                "reason_code": "same_paradigm_augment_dimension", "borrow_mode": "inherit_augment",
+            },
+            "next": "fork_prepare 传 augmentation_spec；继承不成立时在 fork 内降为 Compose，禁止改判 unmatched。",
+        },
+        **extra,
+    }
+
+
+def _validate_direct_delivery_routing(params):
+    """Direct 三轴门禁：完整范式池候选（范式）、候选范围选择、逐维度真实能力证据。"""
+    task_id = _routing_task_id(params)
+    routing_error = _routing_credential_error(params)
+    if routing_error:
+        return None, routing_error
+    cred, _, read_error = _read_routing_credential(task_id)
+    if read_error or not cred:
+        return None, read_error or _direct_gate_failure(
+            "DIRECT_ROUTING_CREDENTIAL_INVALID",
+            "无法读取本任务的范式路由凭据，请先运行 templates(recommend=all)。", "", {},
+        )
+    if str(cred.get("page_id") or "").strip():
+        return None, {
+            "code": 1, "error": "DIRECT_CONFLICTS_WITH_CREATED_PAGE",
+            "message": "当前 task 已创建自有页面，不能再改走 direct。",
+            "page_id": str(cred.get("page_id") or ""), "task_id": task_id,
+        }
+    candidates, candidates_error = _routing_candidates(task_id, cred)
+    if candidates_error:
+        return None, candidates_error
+    page_id = str(params.get("page_id") or "").strip()
+    candidate = candidates["index"].get(page_id)
+    if not candidate:
+        return None, {
+            "code": 1, "error": "DIRECT_PAGE_NOT_IN_CANDIDATES",
+            "message": "direct 的 page_id 必须来自本次完整范式候选池。",
+            "page_id": page_id, "task_id": task_id,
+        }
+    snapshot = candidate["snapshot"]
+    capabilities = _direct_candidate_capabilities(snapshot)
+    check = params.get("dimension_check")
+    if not isinstance(check, dict) or not isinstance(check.get("coverage"), list) or not check["coverage"]:
+        return None, _direct_gate_failure(
+            "DIRECT_DIMENSION_CHECK_REQUIRED",
+            "direct_deliver 必须提交非空 dimension_check.coverage，逐条覆盖用户请求的全部分析维度。",
+            candidate["source_template_id"], capabilities,
+        )
+    provenance = str(snapshot.get("metadata_provenance") or _PAGE_CONTEXT_OUTPUTS_LEGACY)
+    authoritative = (
+        _DIRECT_AUTHORITATIVE_SCOPES
+        if provenance == _PAGE_CONTEXT_OUTPUTS_DERIVED
+        else _DIRECT_LEGACY_AUTHORITATIVE_SCOPES
+    )
+    normalized = []
+    for entry in check["coverage"]:
+        if not isinstance(entry, dict) or not str(entry.get("dimension") or "").strip():
+            return None, _direct_gate_failure(
+                "DIRECT_DIMENSION_CHECK_REQUIRED", "coverage 每项必须包含非空 dimension 和 covered_by。",
+                candidate["source_template_id"], capabilities,
+            )
+        dimension = str(entry["dimension"]).strip()
+        refs = entry.get("covered_by")
+        if not isinstance(refs, list) or not refs:
+            return None, _direct_gate_failure(
+                "DIRECT_COVERAGE_REF_REQUIRED", f"维度「{dimension}」缺少 covered_by 能力证据。",
+                candidate["source_template_id"], capabilities, dimension=dimension,
+            )
+        matched_scopes, invalid = [], []
+        for ref in refs:
+            matched, scope = _coverage_ref_matches(ref, capabilities, _DIRECT_COVERAGE_SCOPES)
+            if matched:
+                matched_scopes.append(scope)
+            else:
+                invalid.append(ref)
+        if invalid:
+            return None, _direct_gate_failure(
+                "DIRECT_COVERAGE_REF_INVALID",
+                f"维度「{dimension}」引用了候选页不存在的能力：{invalid}。",
+                candidate["source_template_id"], capabilities,
+                dimension=dimension, invalid_refs=invalid,
+            )
+        if not any(scope in authoritative for scope in matched_scopes):
+            return None, _direct_gate_failure(
+                "DIRECT_COVERAGE_NEEDS_AUTHORITATIVE_REF",
+                f"维度「{dimension}」只有标题/文案证据，缺少运行时输出证据。",
+                candidate["source_template_id"], capabilities,
+                dimension=dimension, authoritative_scopes=list(authoritative),
+            )
+        normalized.append({"dimension": dimension, "covered_by": [str(ref) for ref in refs]})
+
+    decision = {
+        "version": _ROUTING_DECISION_VERSION,
+        "mode": "direct", "page_id": page_id,
+        "source_template_id": candidate["source_template_id"],
+        "reason_code": _DIRECT_REASON_CODE,
+        "dimension_check": {"version": "dimension_check_v1", "coverage": normalized},
+        "candidate_snapshot": snapshot,
+        "templates_full_sha256": candidates["sha256"],
+    }
+    cred["routing_decision"] = decision
+    cred["decision_revision"] = int(cred.get("decision_revision") or 0) + 1
+    cred["decision_recorded_at"] = datetime.now(timezone.utc).isoformat()
+    cred["status"] = "direct_delivering"
+    binding_file, write_error = _write_routing_credential_record(cred)
+    if write_error:
+        return None, write_error
+    return {
+        "mode": "direct", "page_id": page_id,
+        "source_template_id": candidate["source_template_id"],
+        "reason_code": _DIRECT_REASON_CODE, "recorded": True,
+        "revision": cred["decision_revision"], "binding_file": binding_file,
+        "dimension_coverage_count": len(normalized),
+    }, None
+
+
 def _routing_decision_required_error(task_id):
     return {
         "code": 1,
@@ -4156,6 +4329,7 @@ def _routing_decision_required_error(task_id):
                 "mode": "fork",
                 "source_template_id": "page_xxx",
                 "reason_code": "same_paradigm_different_asset",
+                "borrow_mode": "inherit",
             },
             "unmatched": {
                 "mode": "unmatched",
@@ -4220,11 +4394,20 @@ def _validate_routing_decision(params):
                 "message": "fork 的 reason_code 不在允许范围",
                 "allowed_reason_codes": sorted(_ROUTING_FORK_REASON_CODES),
             }
+        borrow_mode = str(decision.get("borrow_mode") or "").strip().lower()
+        if borrow_mode not in _FORK_BORROW_MODES:
+            return None, {
+                "code": 1,
+                "error": "FORK_BORROW_MODE_REQUIRED",
+                "message": "fork 必须声明 borrow_mode：inherit / inherit_augment / compose。",
+                "allowed_borrow_modes": list(_FORK_BORROW_MODES),
+            }
         return {
             "version": _ROUTING_DECISION_VERSION,
             "mode": "fork",
             "source_template_id": candidate["source_template_id"],
             "reason_code": reason_code,
+            "borrow_mode": borrow_mode,
             "candidate_snapshot": candidate["snapshot"],
             "templates_full_sha256": candidates["sha256"],
         }, None
@@ -4316,6 +4499,15 @@ def _record_routing_decision(params, decision, page_id):
 
 def _routing_next_step(task_id, page_id, decision):
     if (decision or {}).get("mode") == "fork":
+        if decision.get("borrow_mode") == "compose":
+            return {
+                "action": "research_templates_then_fork_compose",
+                "required_params": {
+                    "task_id": task_id,
+                    "source_template_id": decision.get("source_template_id") or "",
+                    "target_page_id": str(page_id or ""),
+                },
+            }
         return {
             "action": "fork_prepare",
             "required_params": {
@@ -4366,17 +4558,158 @@ def cmd_new_asset_page(params):
     if not (isinstance(out, dict) and out.get("code") == 0):
         return out
 
+    data_sources = out.get("data_sources")
+    if not isinstance(data_sources, dict):
+        return {
+            "code": 1,
+            "error": "NEW_ASSET_PAGE_DATA_SOURCES_REQUIRED",
+            "message": "newAssetPage 成功响应缺少 data_sources，无法生成可核验的完整分析回复",
+            "operation": "new_asset_page",
+            "task_id": task_id,
+            "page_id": out.get("page_id") or "",
+        }
+
+    try:
+        source_artifact = MNAC.persist_data_sources(task_id, data_sources)
+    except Exception:
+        return {
+            "code": 1,
+            "error": "NEW_ASSET_PAGE_DATA_SOURCES_PERSIST_FAILED",
+            "message": "newAssetPage data_sources 无法安全写入 task 临时目录",
+            "operation": "new_asset_page",
+            "task_id": task_id,
+            "page_id": out.get("page_id") or "",
+        }
+    try:
+        csv_result = MNAC.materialize(task_id, source_artifact["data_sources_file"])
+    except MNAC.MaterializeError as exc:
+        csv_result = MNAC.persist_failure_artifacts(
+            task_id, [{"code": exc.code, "message": exc.message}]
+        )
+    except Exception:
+        csv_result = MNAC.persist_failure_artifacts(
+            task_id, [{"code": "CSV_MATERIALIZE_FAILED", "message": "CSV 材料化出现未预期错误"}]
+        )
+
+    template_meta = out.get("agent_reply_template")
+    normalized_template, template_error = _normalize_agent_reply_template(template_meta, require_local_file=False)
+    if (
+        template_error
+        or not normalized_template
+        or normalized_template.get("template_ref") != "single_stock_deep_dive_v1"
+    ):
+        template_meta = {
+            "version": "reply_template_v2",
+            "template_ref": "single_stock_deep_dive_v1",
+            "reply_scope": "full_answer",
+            "output_format": "markdown",
+        }
+    else:
+        template_meta = normalized_template
+
     safe_fields = (
         "page_id", "url", "title", "description", "asset", "source_page_id",
-        "idempotent", "page_context", "warnings", "expires_at",
+        "idempotent", "page_context", "expires_at",
     )
     result = {key: out[key] for key in safe_fields if key in out}
+    result["warnings"] = MNAC.sanitize_warnings(out.get("warnings") or [])
     result.update({
         "code": 0,
         "operation": "new_asset_page",
         "task_id": task_id,
+        "agent_reply_template": template_meta,
     })
-    return _attach_agent_reply_contract(result, operation="new_asset_page")
+    for warning in csv_result.get("warnings") or []:
+        _append_warning(result, warning)
+
+    try:
+        reply_artifact = RDE.build_new_asset_page(
+            task_id,
+            "single_stock_deep_dive_v1",
+            data_sources,
+            csv_result,
+        )
+    except (OSError, ValueError, TypeError) as exc:
+        C.cleanup_task_temp_files(task_id)
+        return {
+            "code": 1,
+            "error": "NEW_ASSET_PAGE_REPLY_EVIDENCE_FAILED",
+            "message": f"new_asset_page 回复证据生成失败：{exc}",
+            "operation": "new_asset_page",
+            "task_id": task_id,
+            "page_id": out.get("page_id") or "",
+        }
+    available_fields = (
+        (reply_artifact or {}).get("reply_data_availability", {}).get("available_template_fields") or []
+    )
+    if not reply_artifact or not available_fields:
+        C.cleanup_task_temp_files(task_id)
+        return {
+            "code": 1,
+            "error": "NEW_ASSET_PAGE_EVIDENCE_EMPTY",
+            "message": "data_sources 未包含任何可核验回复字段，拒绝退化成单链接回复",
+            "operation": "new_asset_page",
+            "task_id": task_id,
+            "page_id": out.get("page_id") or "",
+            "warnings": result.get("warnings") or [],
+        }
+
+    _attach_agent_reply_contract(result, operation="new_asset_page")
+    _attach_reply_data_contract(result, reply_artifact)
+    result.update(source_artifact)
+    for key in ("csv_manifest_file", "csv_evidence_file"):
+        if csv_result.get(key):
+            result[key] = csv_result[key]
+    try:
+        markdown = SSR.render(
+            evidence_file=reply_artifact.get("reply_data_evidence_file"),
+            evidence_sha256=reply_artifact.get("reply_data_evidence_sha256"),
+            asset=result.get("asset"),
+            public_url=(result.get("agent_reply_contract") or {}).get("public_url"),
+        )
+    except (OSError, ValueError, TypeError) as exc:
+        C.cleanup_task_temp_files(task_id)
+        return {
+            "code": 1,
+            "error": "NEW_ASSET_PAGE_REPLY_RENDER_FAILED",
+            "message": f"new_asset_page 确定性报告生成失败：{exc}",
+            "operation": "new_asset_page",
+            "task_id": task_id,
+            "page_id": out.get("page_id") or "",
+        }
+    markdown_sha256 = hashlib.sha256(markdown.encode("utf-8")).hexdigest()
+    contract = result.get("agent_reply_contract") or {}
+    for key in ("reply_data_evidence_file", "reply_data_evidence_sha256", "reply_data_availability"):
+        contract.pop(key, None)
+        result.pop(key, None)
+    contract.pop("template_file", None)
+    contract.pop("template_exists", None)
+    result.pop("agent_reply_template_file", None)
+    contract.update({
+        "reply_ready": True,
+        "reply_mode": "deterministic_single_stock_v1",
+        "agent_reply_markdown_sha256": markdown_sha256,
+        "final_response_required": "send_agent_reply_markdown_verbatim",
+        "final_response_steps": [
+            "Send the top-level agent_reply_markdown verbatim as the final answer.",
+            "Do not read temporary evidence, draft a replacement, run reply validation, or invoke another tool.",
+        ],
+    })
+    result.update({
+        "reply_ready": True,
+        "agent_reply_markdown": markdown,
+        "agent_reply_markdown_sha256": markdown_sha256,
+    })
+    SC.report(
+        task_id,
+        public_url=contract.get("public_url") or "",
+        user_query=user_query,
+        operation="new_asset_page",
+    )
+    C.cleanup_task_temp_files(task_id)
+    for key in ("data_sources_file", "data_sources_sha256", "csv_manifest_file", "csv_evidence_file"):
+        result.pop(key, None)
+    return result
 
 
 def cmd_new_page(params):
@@ -4534,57 +4867,23 @@ def _routing_publish_error(error, message, *, page_id="", **extra):
     return out
 
 
-def _apply_routing_override(cred, override):
-    current = cred.get("routing_decision") if isinstance(cred.get("routing_decision"), dict) else {}
-    if not isinstance(override, dict):
+def _compose_binding_publish_state(cred, page_id):
+    binding = cred.get("fork_binding") if isinstance(cred.get("fork_binding"), dict) else None
+    if not binding or binding.get("kind") != "compose":
+        return None, None
+    path = str(binding.get("compose_binding_file") or "")
+    expected = str(binding.get("compose_binding_sha256") or "")
+    try:
+        actual = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    except OSError as exc:
         return None, _routing_publish_error(
-            "ROUTING_RECONFIRM_REQUIRED",
-            "new_page 已记录为 fork，但当前任务没有 fork_prepare 绑定。请继续 fork，或用 routing_override 明确说明模板为何不适用后改判 unmatched。",
-            page_id=str(cred.get("page_id") or ""),
-            routing_decision=current,
-            allowed_actions=["fork_prepare", "publish_final_with_routing_override"],
+            "COMPOSE_BINDING_MISSING", f"Compose 借鉴收据读取失败：{exc}", page_id=page_id,
         )
-    from_mode = str(override.get("from_mode") or "").strip().lower()
-    to_mode = str(override.get("to_mode") or "").strip().lower()
-    reason_code = str(override.get("reason_code") or "").strip()
-    reason = str(override.get("reason") or "").strip()
-    if from_mode != "fork" or to_mode != "unmatched":
+    if not expected or actual != expected:
         return None, _routing_publish_error(
-            "ROUTING_OVERRIDE_INVALID",
-            "routing_override 只允许把尚未 fork_prepare 的 fork 决定显式改判为 unmatched。",
-            page_id=str(cred.get("page_id") or ""),
+            "COMPOSE_BINDING_STALE", "Compose 借鉴收据已变化，请重新运行 fork_compose。", page_id=page_id,
         )
-    if reason_code not in _ROUTING_UNMATCHED_REASON_CODES or not reason:
-        return None, _routing_publish_error(
-            "ROUTING_OVERRIDE_INVALID",
-            "routing_override 必须提供有效的 unmatched reason_code 和非空 reason。",
-            page_id=str(cred.get("page_id") or ""),
-            allowed_reason_codes=sorted(_ROUTING_UNMATCHED_REASON_CODES),
-        )
-    revised = {
-        "version": _ROUTING_DECISION_VERSION,
-        "mode": "unmatched",
-        "closest_template_id": current.get("source_template_id") or current.get("closest_template_id") or "",
-        "reason_code": reason_code,
-        "reason": reason,
-        "candidate_snapshot": current.get("candidate_snapshot"),
-        "templates_full_sha256": current.get("templates_full_sha256") or cred.get("templates_full_sha256") or "",
-        "overrode_prior_decision": True,
-    }
-    history = cred.get("routing_history") if isinstance(cred.get("routing_history"), list) else []
-    history.append({
-        "revision": int(cred.get("decision_revision") or 1),
-        "decision": current,
-        "ended_at": datetime.now(timezone.utc).isoformat(),
-    })
-    cred["routing_history"] = history[-8:]
-    cred["routing_decision"] = revised
-    cred["decision_revision"] = int(cred.get("decision_revision") or 1) + 1
-    cred["decision_revised_at"] = datetime.now(timezone.utc).isoformat()
-    _, write_error = _write_routing_credential_record(cred)
-    if write_error:
-        return None, write_error
-    return revised, None
+    return {**binding, "compose_binding_sha256": expected}, None
 
 
 def _check_publish_routing_consistency(params, fork_task_binding, routing_override=None):
@@ -4612,6 +4911,13 @@ def _check_publish_routing_consistency(params, fork_task_binding, routing_overri
     fork_bound = isinstance(fork_task_binding, dict) and fork_task_binding.get("mode") == "task_binding"
     decision_mode = str(decision.get("mode") or "").strip().lower()
     if decision_mode == "fork":
+        if routing_override is not None:
+            return None, _routing_publish_error(
+                "ROUTING_OVERRIDE_NOT_ALLOWED",
+                "fork 一经判定不能改判 unmatched；请继续 inherit/inherit_augment，或在 fork 内转 Compose。",
+                page_id=page_id,
+                allowed_actions=["fork_prepare", "fork_compose"],
+            )
         if fork_bound:
             expected_source = str(decision.get("source_template_id") or "")
             actual_source = str(fork_task_binding.get("source_template_id") or "")
@@ -4623,12 +4929,6 @@ def _check_publish_routing_consistency(params, fork_task_binding, routing_overri
                     expected_source_template_id=expected_source,
                     actual_source_template_id=actual_source,
                 )
-            if routing_override is not None:
-                return None, _routing_publish_error(
-                    "ROUTING_OVERRIDE_NOT_ALLOWED",
-                    "当前任务已经完成 fork_prepare 绑定，不能在 publish_final 阶段改判为 unmatched。",
-                    page_id=page_id,
-                )
             return {
                 "checked": True,
                 "decision_mode": "fork",
@@ -4637,17 +4937,30 @@ def _check_publish_routing_consistency(params, fork_task_binding, routing_overri
                 "decision_revision": int(cred.get("decision_revision") or 1),
             }, None
 
-        revised, override_error = _apply_routing_override(cred, routing_override)
-        if override_error:
-            return None, override_error
-        return {
-            "checked": True,
-            "decision_mode": "fork",
-            "effective_mode": "unmatched",
-            "revised": True,
-            "reason_code": revised.get("reason_code") or "",
-            "decision_revision": int(cred.get("decision_revision") or 1),
-        }, None
+        compose_binding, compose_error = _compose_binding_publish_state(cred, page_id)
+        if compose_error:
+            return None, compose_error
+        if compose_binding:
+            expected_source = str(decision.get("source_template_id") or "")
+            actual_source = str(compose_binding.get("source_template_id") or "")
+            if expected_source and expected_source != actual_source:
+                return None, _routing_publish_error(
+                    "ROUTING_FORK_SOURCE_CONFLICT", "Compose 绑定来源与 fork 路由来源不一致。", page_id=page_id,
+                )
+            return {
+                "checked": True, "decision_mode": "fork", "effective_mode": "fork",
+                "borrow_mode": "compose", "source_template_id": actual_source,
+                "compose_binding_sha256": compose_binding["compose_binding_sha256"],
+                "decision_revision": int(cred.get("decision_revision") or 1),
+            }, None
+
+        return None, _routing_publish_error(
+            "ROUTING_RECONFIRM_REQUIRED",
+            "当前任务已锁定 fork，但尚未建立继承或 Compose 绑定。fork 不能改判 unmatched。",
+            page_id=page_id,
+            routing_decision=decision,
+            allowed_actions=["fork_prepare", "fork_compose"],
+        )
 
     if decision_mode == "unmatched":
         if routing_override is not None:
@@ -5200,6 +5513,67 @@ def _validate_fork_images(html, page_id):
     return {"managed_asset_ids": sorted({item["asset_id"] for item in managed}), "external_image_warnings": warnings}, None
 
 
+def cmd_interpret(params):
+    """Read an existing live page and its current runtime data without fetching page HTML."""
+    cfg = C.load_config_require_key()
+    endpoint, api_key = C.endpoint_of(cfg), cfg.get("api_key", "")
+    url = str(params.get("url") or "").strip()
+    if not url:
+        return {"code": 1, "error": "PAGE_URL_REQUIRED", "message": "interpret 需要 QuantBuddy 页面 url"}
+    query = _up.urlencode({"url": url, "need_data": "true"})
+    return C.http_json(
+        "GET",
+        C.api_url(endpoint, _PATH["download"]) + "?" + query,
+        C.headers(api_key),
+        timeout=_UPLOAD_TIMEOUT,
+    )
+
+
+def cmd_interpret_csv(params):
+    """Hydrate CSV references from the immediately preceding interpret response."""
+    source_file = str(params.get("source_file") or os.path.join(tempfile.gettempdir(), "sp_out.txt")).strip()
+    try:
+        with open(source_file, "r", encoding="utf-8") as handle:
+            response = json.load(handle)
+    except FileNotFoundError:
+        return {"code": 1, "error": "INTERPRET_RESULT_NOT_FOUND", "message": "未找到 interpret 结果；请先运行 interpret，或传 source_file"}
+    except (OSError, json.JSONDecodeError) as exc:
+        return {"code": 1, "error": "INTERPRET_RESULT_INVALID", "message": f"无法读取 interpret 结果：{exc}"}
+
+    if not (isinstance(response, dict) and response.get("code") == 0):
+        return {"code": 1, "error": "INTERPRET_RESULT_INVALID", "message": "source_file 必须是成功的 interpret JSON 响应"}
+    response_data = response.get("data")
+    bundle = response_data.get("interpretation_bundle") if isinstance(response_data, dict) else None
+    if not isinstance(bundle, dict):
+        return {"code": 1, "error": "INTERPRET_RESULT_INVALID", "message": "source_file 缺少 interpretation_bundle；请使用 need_data=true 的 interpret 结果"}
+    grants = ((bundle.get("runtime_data") or {}).get("grants") or [])
+    if not isinstance(grants, list):
+        return {"code": 1, "error": "INTERPRET_RESULT_INVALID", "message": "interpretation_bundle.runtime_data.grants 格式无效"}
+
+    hydrated, skipped, failures = [], [], []
+    timeout = max(1, min(120, int(params.get("timeout", 20))))
+    for grant in grants:
+        data = grant.get("data") if isinstance(grant, dict) else None
+        if not (isinstance(data, dict) and str(data.get("mode") or "").lower() == "csv"):
+            skipped.append(grant.get("grant_id") if isinstance(grant, dict) else None)
+            continue
+        try:
+            # hydrate_fast_query_data 保留 csv_fields/csv_url，同时新增可直接计算的 results/series。
+            grant["data"] = FQCSV.download_and_hydrate(data, timeout=timeout)
+            hydrated.append(grant.get("grant_id"))
+        except FQCSV.CsvHydrationError as exc:
+            failures.append({"grant_id": grant.get("grant_id"), "code": "CSV_HYDRATE_FAILED", "message": str(exc), "retryable": bool(exc.retryable)})
+
+    bundle["csv_hydration"] = {
+        "hydrated_grant_ids": hydrated,
+        "skipped_grant_ids": [item for item in skipped if item],
+        "failures": failures,
+    }
+    if failures:
+        bundle.setdefault("warnings", []).extend({"type": "data_grant", **item} for item in failures)
+    return response
+
+
 def cmd_download(params):
     cfg = C.load_config_require_key()
     endpoint, api_key = C.endpoint_of(cfg), cfg.get("api_key", "")
@@ -5680,13 +6054,18 @@ def _write_templates_full_result(task_id, normalized, item_count):
 def _compact_template_item(item):
     """把单条候选精简成路由判断所需的最小字段集：字段可裁剪/description 可截断，
     但调用方必须保证每条候选都产出一条摘要（不允许按 top-N 丢条目）。
-    标签复用既有 _tag_names（约532行，返回去重 set），排序后转 list 以便 JSON 序列化。"""
+    标签复用既有 _tag_names（约532行，返回去重 set），排序后转 list 以便 JSON 序列化。
+    page_context 与 card_required_outputs 是 direct 三轴判断的能力证据，必须随摘要下发。"""
     if not isinstance(item, dict):
         return {}
     description = item.get("description") or ""
     if len(description) > _TEMPLATE_SUMMARY_DESCRIPTION_LIMIT:
         description = description[:_TEMPLATE_SUMMARY_DESCRIPTION_LIMIT] + "…(完整文本见 full_result_file)"
     hint = item.get("agent_reply_hint") if isinstance(item.get("agent_reply_hint"), dict) else {}
+    page_context = item.get("page_context") if isinstance(item.get("page_context"), dict) else {}
+    summary = str(page_context.get("summary") or "")
+    if len(summary) > _TEMPLATE_SUMMARY_DESCRIPTION_LIMIT:
+        summary = summary[:_TEMPLATE_SUMMARY_DESCRIPTION_LIMIT] + "…"
     return {
         "template_id": item.get("template_id"),
         "page_id": item.get("page_id"),
@@ -5701,7 +6080,19 @@ def _compact_template_item(item):
         "paradigm_tags": sorted(_tag_names(item.get("paradigm_tags"))),
         "recommend_tags": sorted(_tag_names(item.get("recommend_tags"))),
         "source_template_id": hint.get("source_template_id") or item.get("template_id") or item.get("page_id") or "",
+        "page_context": {
+            "summary": summary,
+            "core_sections": _unique_strings(page_context.get("core_sections"))[:8],
+            "primary_outputs": _unique_strings(page_context.get("primary_outputs"))[:8],
+        },
+        "card_required_outputs": _unique_strings(item.get("card_required_outputs"))[:16],
+        "metadata_provenance": _template_metadata_provenance(page_context),
     }
+
+
+def _template_metadata_provenance(page_context):
+    provenance = str((page_context or {}).get("outputs_provenance") or "").strip()
+    return provenance if provenance in _PAGE_CONTEXT_OUTPUTS_PROVENANCE else _PAGE_CONTEXT_OUTPUTS_LEGACY
 
 
 def _extract_template_items(normalized):
@@ -5766,6 +6157,396 @@ def cmd_templates(params):
         "page": data.get("page"),
         "page_size": data.get("page_size"),
         "total": data.get("total"),
+        "routing_note": (
+            "路由判据三轴：①范式匹配 ②标的/股票池/指数/市场范围一致 ③用户请求的每个维度"
+            "都有候选页真实能力证据。三轴齐备才可 direct；缺维度走 fork + "
+            "same_paradigm_augment_dimension，范围不同走 fork，无范式才走 unmatched。"
+        ),
+    }
+
+
+_INTENT_PROFILE_VERSION = "intent_profile_v1"
+_INTENT_PROFILE_FILE = "intent-profile.json"
+_INTENT_ASSET_SCOPE_KINDS = ("single_asset", "sector", "index", "market")
+
+
+def _task_receipt_path(task_id, name, *, create=False):
+    root = C.task_temp_dir(task_id, create=create)
+    path = Path(root) / "receipts" / name
+    if create:
+        path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def cmd_intent_profile(params):
+    task_id = _routing_task_id(params)
+    if not task_id:
+        return {"code": 1, "error": "QBV_TRACE_CONTEXT_REQUIRED", "message": "intent_profile 需要 task_id。"}
+    scope = params.get("asset_scope")
+    if not isinstance(scope, dict) or str(scope.get("kind") or "") not in _INTENT_ASSET_SCOPE_KINDS:
+        return {
+            "code": 1, "error": "INTENT_ASSET_SCOPE_REQUIRED",
+            "message": f"asset_scope.kind 必填，取值 {list(_INTENT_ASSET_SCOPE_KINDS)}。",
+        }
+    if scope["kind"] in ("sector", "index") and not str(scope.get("name") or "").strip():
+        return {"code": 1, "error": "INTENT_ASSET_SCOPE_REQUIRED", "message": "sector/index 必须提供 name。"}
+    raw_dimensions = params.get("dimensions")
+    if not isinstance(raw_dimensions, list) or not raw_dimensions:
+        return {"code": 1, "error": "INTENT_DIMENSIONS_REQUIRED", "message": "dimensions 必须是非空数组。"}
+    dimensions = []
+    for entry in raw_dimensions:
+        if not isinstance(entry, dict):
+            return {"code": 1, "error": "INTENT_DIMENSIONS_REQUIRED", "message": "dimensions 每项必须是对象。"}
+        user_term = str(entry.get("user_term") or "").strip()
+        platform_dimensions = _unique_strings(entry.get("platform_dimensions"))
+        method_terms = _unique_strings(entry.get("method_terms"))
+        if not user_term or not platform_dimensions or not method_terms:
+            return {
+                "code": 1, "error": "INTENT_LAYER_MAPPING_REQUIRED",
+                "message": "每个维度必须同时声明 user_term、platform_dimensions 和 method_terms。",
+            }
+        dimensions.append({
+            "user_term": user_term,
+            "restated": str(entry.get("restated") or "").strip(),
+            "platform_dimensions": platform_dimensions,
+            "method_terms": method_terms,
+            "output_type": str(entry.get("output_type") or "").strip(),
+        })
+    profile = {
+        "version": _INTENT_PROFILE_VERSION, "task_id": task_id,
+        "page_type": str(params.get("page_type") or "").strip(),
+        "asset_scope": {
+            "kind": scope["kind"], "name": str(scope.get("name") or "").strip(),
+            "market": str(scope.get("market") or "").strip(),
+        },
+        "dimensions": dimensions, "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    raw = json.dumps(profile, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    profile["profile_sha256"] = hashlib.sha256(raw).hexdigest()
+    path = _task_receipt_path(task_id, _INTENT_PROFILE_FILE, create=True)
+    _atomic_write_bytes(str(path), (json.dumps(profile, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
+    return {
+        "code": 0, "operation": "intent_profile", "task_id": task_id,
+        "profile_file": str(path), "profile_sha256": profile["profile_sha256"],
+        "dimension_count": len(dimensions),
+        "platform_dimensions": sorted({x for item in dimensions for x in item["platform_dimensions"]}),
+        "method_terms": sorted({x for item in dimensions for x in item["method_terms"]}),
+    }
+
+
+def _read_intent_profile(task_id):
+    if not task_id:
+        return None
+    path = _task_receipt_path(task_id, _INTENT_PROFILE_FILE)
+    try:
+        profile = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return None
+    return profile if isinstance(profile, dict) and profile.get("version") == _INTENT_PROFILE_VERSION else None
+
+
+_RESEARCH_DIGEST_VERSION = "research_digest_v1"
+_RESEARCH_DIGEST_FILE = "research-digest.json"
+_RESEARCH_MAX_TEMPLATES = 5
+_RESEARCH_INCLUDE_KINDS = ("layout", "style", "script", "contract")
+_RESEARCH_CREDENTIAL_RE = re.compile(r"(signature|__QBV_|Bearer\s|sk-[A-Za-z0-9]{16,})", re.I)
+_SCRIPT_BLOCK_RE = re.compile(r"<script[^>]*>(.*?)</script>", re.S | re.I)
+_STYLE_BLOCK_RE = re.compile(r"<style[^>]*>(.*?)</style>", re.S | re.I)
+_RENDER_FN_RE = re.compile(r"(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\([^)]{0,160}\)\s*\{", re.I)
+_RENDER_FN_KEYWORDS = ("query", "fetch", "render", "hydrate", "draw", "refresh", "outputs", "table", "card")
+_SECTION_TAG_RE = re.compile(r"<(/?)section\b[^>]*>", re.I)
+_CLASS_ATTR_RE = re.compile(r"\bclass\s*=\s*[\"']([^\"']+)[\"']", re.I)
+
+
+def _extract_balanced_block(text, start, limit=8000):
+    brace = text.find("{", start)
+    if brace < 0:
+        return ""
+    depth, quote, index = 0, None, brace
+    while index < min(len(text), brace + limit):
+        char = text[index]
+        if quote:
+            if char == "\\":
+                index += 2
+                continue
+            if char == quote:
+                quote = None
+        elif char in "\"'`":
+            quote = char
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start:index + 1]
+        index += 1
+    return ""
+
+
+def _render_snippets(html):
+    scripts = "\n".join(_SCRIPT_BLOCK_RE.findall(str(html or "")))
+    out, seen = [], set()
+    for match in _RENDER_FN_RE.finditer(scripts):
+        name = match.group(1)
+        if name in seen or not any(word in name.lower() for word in _RENDER_FN_KEYWORDS):
+            continue
+        code = _extract_balanced_block(scripts, match.start())
+        if code and not _RESEARCH_CREDENTIAL_RE.search(code):
+            out.append({"function": name, "code": code, "chars": len(code)})
+            seen.add(name)
+        if len(out) >= 12:
+            break
+    return out
+
+
+def _section_blocks(html, known_outputs=()):
+    text, blocks, cursor = str(html or ""), [], 0
+    for opening in _SECTION_TAG_RE.finditer(text):
+        if opening.group(1) or opening.start() < cursor:
+            continue
+        depth, end = 0, None
+        for tag in _SECTION_TAG_RE.finditer(text, opening.start()):
+            depth += -1 if tag.group(1) else 1
+            if depth == 0:
+                end = tag.end()
+                break
+        if end is None:
+            continue
+        cursor, outer = end, text[opening.start():end]
+        if _RESEARCH_CREDENTIAL_RE.search(outer):
+            continue
+        attrs = opening.group(0)
+        identity = re.search(r"(?:data-sec|id)\s*=\s*[\"']([^\"']+)[\"']", attrs, re.I)
+        heading = re.search(r"<h[1-4][^>]*>(.*?)</h[1-4]>", outer, re.S | re.I)
+        title = re.sub(r"<[^>]+>", "", heading.group(1)).strip() if heading else ""
+        classes = _unique_strings([token for value in _CLASS_ATTR_RE.findall(outer) for token in value.split()])
+        blocks.append({
+            "sec_id": identity.group(1).strip() if identity else (title or f"section_{len(blocks)+1}"),
+            "title": title, "classes": classes,
+            "consumes_outputs": [name for name in _unique_strings(known_outputs) if name in outer],
+            "html": outer, "chars": len(outer),
+        })
+    return blocks
+
+
+def _style_kit(html, classes):
+    wanted, out = set(classes or []), []
+    for sheet in _STYLE_BLOCK_RE.findall(str(html or "")):
+        for match in re.finditer(r"([^{}]+)\{([^{}]*)\}", sheet, re.S):
+            selector, body = match.group(1).strip(), match.group(0).strip()
+            if selector.startswith(":root") or any(x in wanted for x in re.findall(r"\.([A-Za-z_][\w-]*)", selector)):
+                out.append({"selector": re.sub(r"\s+", " ", selector), "css": body})
+    return out
+
+
+def _research_template_entry(page_id, include):
+    detail = cmd_template({"page_id": page_id})
+    if not (isinstance(detail, dict) and detail.get("code") == 0):
+        return None, detail
+    record = _template_record(detail)
+    url = record.get("download_url") or record.get("public_url") or record.get("url") or ""
+    if not url:
+        return None, {"code": 1, "error": "RESEARCH_TEMPLATE_URL_MISSING", "message": f"候选 {page_id} 缺少公开 URL。"}
+    html, error = _fetch_oss(url)
+    if error:
+        return None, error
+    try:
+        runtime = FRC.build_runtime_artifacts(html, record)
+    except FRC.ForkRuntimeError as exc:
+        return None, exc.as_dict()
+    material = str(runtime.get("working_html") or "")
+    material = re.sub(r"__QBV_[A-Za-z0-9_]+__", "QB_CREDENTIAL_PLACEHOLDER", material)
+    roles = (runtime.get("review") or {}).get("roles") or []
+    packages = [{
+        "role_id": r.get("role_id"), "formulas": list(r.get("source_formulas") or []),
+        "reads": copy.deepcopy(r.get("readonly_output_contract") or []),
+        "required_outputs": list(r.get("required_outputs") or []),
+    } for r in roles if isinstance(r, dict) and r.get("kind") == "package"]
+    grants = [{
+        "role_id": r.get("role_id"), "grant_kind": r.get("grant_kind"),
+        "payload_shape": copy.deepcopy(r.get("readonly_contract_summary") or {}),
+    } for r in roles if isinstance(r, dict) and r.get("kind") == "grant"]
+    known_outputs = [x for package in packages for x in package["required_outputs"]]
+    blocks = _section_blocks(material, known_outputs)
+    entry = {"page_id": page_id, "title": str(record.get("title") or ""), "layout_skeleton": _page_headings(html)}
+    if "layout" in include:
+        entry["section_blocks"] = blocks
+    if "style" in include:
+        entry["style_kit"] = _style_kit(material, [x for block in blocks for x in block["classes"]])
+    if "script" in include:
+        entry["script_kit"] = _render_snippets(material)
+    if "contract" in include:
+        entry.update({"packages": packages, "grants": grants})
+    return entry, None
+
+
+def _compose_borrowable_refs(entry):
+    refs = []
+    for block in entry.get("section_blocks") or []:
+        refs.extend([f"section:{block.get('sec_id')}", f"heading:{block.get('title')}"])
+    refs.extend(f"heading:{x}" for x in entry.get("layout_skeleton") or [])
+    refs.extend(f"snippet:{x.get('function')}" for x in entry.get("script_kit") or [])
+    refs.extend(f"output:{x}" for p in entry.get("packages") or [] for x in p.get("required_outputs") or [])
+    refs.extend(f"grant:{x.get('grant_kind')}" for x in entry.get("grants") or [] if x.get("grant_kind"))
+    return _unique_strings([x for x in refs if not x.endswith(":")])
+
+
+def cmd_research_templates(params):
+    task_id = _routing_task_id(params)
+    if not task_id:
+        return {"code": 1, "error": "QBV_TRACE_CONTEXT_REQUIRED", "message": "research_templates 需要 task_id。"}
+    raw_ids = params.get("template_ids") or params.get("page_ids") or []
+    page_ids = _unique_strings([raw_ids] if isinstance(raw_ids, str) else raw_ids)
+    if not page_ids:
+        return {"code": 1, "error": "RESEARCH_TEMPLATE_IDS_REQUIRED", "message": "需要 template_ids。"}
+    if len(page_ids) > _RESEARCH_MAX_TEMPLATES:
+        return {"code": 1, "error": "RESEARCH_TEMPLATE_LIMIT_EXCEEDED", "limit": _RESEARCH_MAX_TEMPLATES}
+    raw_include = params.get("include")
+    include = _unique_strings([raw_include] if isinstance(raw_include, str) else raw_include) if raw_include else list(_RESEARCH_INCLUDE_KINDS)
+    if any(x not in _RESEARCH_INCLUDE_KINDS for x in include):
+        return {"code": 1, "error": "RESEARCH_INCLUDE_INVALID", "allowed": list(_RESEARCH_INCLUDE_KINDS)}
+    templates, warnings = [], []
+    for page_id in page_ids:
+        entry, error = _research_template_entry(page_id, include)
+        if error:
+            warnings.append({"page_id": page_id, "error": error.get("error"), "message": error.get("message")})
+        elif entry:
+            templates.append(entry)
+    if not templates:
+        return {"code": 1, "error": "RESEARCH_DIGEST_EMPTY", "warnings": warnings}
+    digest = {
+        "version": _RESEARCH_DIGEST_VERSION, "task_id": task_id,
+        "purpose": str(params.get("purpose") or ""), "include": include,
+        "templates": templates, "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    canonical = json.dumps(digest, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    if _RESEARCH_CREDENTIAL_RE.search(canonical.decode("utf-8")):
+        return {"code": 1, "error": "RESEARCH_DIGEST_CREDENTIAL_LEAK", "message": "选材摘要疑似包含凭证。"}
+    digest["digest_sha256"] = hashlib.sha256(canonical).hexdigest()
+    path = _task_receipt_path(task_id, _RESEARCH_DIGEST_FILE, create=True)
+    _atomic_write_bytes(str(path), (json.dumps(digest, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
+    return {
+        "code": 0, "operation": "research_templates", "task_id": task_id,
+        "digest_file": str(path), "digest_sha256": digest["digest_sha256"],
+        "template_count": len(templates), "warnings": warnings,
+        "templates_summary": [{
+            "page_id": x["page_id"], "title": x["title"],
+            "borrowable_refs": _compose_borrowable_refs(x),
+        } for x in templates],
+    }
+
+
+_COMPOSE_BINDING_VERSION = "compose_binding_v1"
+_COMPOSE_BINDING_FILE = "compose-binding.json"
+_COMPOSE_BORROW_LEVELS = ("layout", "layout+style", "layout+style+script", "formula", "grant_shape", "indicator", "original")
+
+
+def cmd_fork_compose(params):
+    task_id = _routing_task_id(params)
+    if not task_id:
+        return {"code": 1, "error": "QBV_TRACE_CONTEXT_REQUIRED", "message": "fork_compose 需要 task_id。"}
+    cred, _, read_error = _read_routing_credential(task_id)
+    if read_error:
+        return read_error
+    decision = (cred or {}).get("routing_decision") if isinstance((cred or {}).get("routing_decision"), dict) else {}
+    if decision.get("mode") != "fork":
+        return {"code": 1, "error": "COMPOSE_ROUTING_REQUIRED", "message": "fork_compose 只服务已锁定 fork 的任务。"}
+    source = str(params.get("source_template_id") or decision.get("source_template_id") or "").strip()
+    if source != str(decision.get("source_template_id") or ""):
+        return {"code": 1, "error": "ROUTING_FORK_SOURCE_CONFLICT", "message": "Compose 来源与 fork 路由来源不一致。"}
+    digest_path = _task_receipt_path(task_id, _RESEARCH_DIGEST_FILE)
+    try:
+        digest = json.loads(digest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return {"code": 1, "error": "COMPOSE_DIGEST_REQUIRED", "message": "先运行 research_templates。"}
+    declared_sha, actual_sha = str(params.get("research_digest_sha256") or ""), str(digest.get("digest_sha256") or "")
+    if not declared_sha or declared_sha != actual_sha:
+        return {"code": 1, "error": "COMPOSE_DIGEST_STALE", "actual_digest_sha256": actual_sha}
+    entries = {str(x.get("page_id") or ""): x for x in digest.get("templates") or [] if isinstance(x, dict)}
+    entry = entries.get(source)
+    if not entry:
+        return {"code": 1, "error": "COMPOSE_SOURCE_NOT_IN_DIGEST", "available_template_ids": sorted(entries)}
+    modules = ((params.get("borrow_plan") or {}).get("modules") if isinstance(params.get("borrow_plan"), dict) else None)
+    if not isinstance(modules, list) or not modules:
+        return {"code": 1, "error": "COMPOSE_BORROW_PLAN_REQUIRED", "borrowable_refs": _compose_borrowable_refs(entry)}
+    borrowable, provenance, claimed, borrowed_count = set(_compose_borrowable_refs(entry)), [], set(), 0
+    for module in modules:
+        if not isinstance(module, dict) or str(module.get("borrow_level") or "") not in _COMPOSE_BORROW_LEVELS:
+            return {"code": 1, "error": "COMPOSE_BORROW_PLAN_INVALID"}
+        name, level = str(module.get("module") or "").strip(), str(module.get("borrow_level") or "")
+        dimension = str(module.get("dimension") or "").strip()
+        if dimension:
+            claimed.add(dimension)
+        if level == "original":
+            if not str(module.get("analysis_role") or "").strip() or not str(module.get("rationale") or "").strip():
+                return {"code": 1, "error": "COMPOSE_ORIGINAL_RATIONALE_REQUIRED", "module": name}
+            provenance.append({"module": name, "dimension": dimension, "borrow_level": level})
+            continue
+        borrowed_from = module.get("borrowed_from") if isinstance(module.get("borrowed_from"), dict) else {}
+        ref = str(borrowed_from.get("ref") or "").strip()
+        if ref not in borrowable or str(borrowed_from.get("page_id") or source) != source:
+            return {"code": 1, "error": "COMPOSE_BORROW_REF_INVALID", "invalid_ref": ref, "borrowable_refs": sorted(borrowable)}
+        borrowed_count += 1
+        provenance.append({
+            "module": name, "dimension": dimension, "borrow_level": level,
+            "borrowed_from": {"page_id": source, "ref": ref},
+            "adaptation": str(module.get("adaptation") or "").strip(),
+        })
+    if not borrowed_count:
+        return {
+            "code": 1, "error": "COMPOSE_ZERO_BORROW", "recoverable": True,
+            "message": "Compose 必须真实借鉴至少一个模板条目；fork 不能改判 unmatched。",
+            "borrowable_refs": sorted(borrowable),
+        }
+    declared_dimensions = [str(x.get("user_term") or "").strip() for x in ((_read_intent_profile(task_id) or {}).get("dimensions") or [])]
+    unclaimed = [x for x in declared_dimensions if x and x not in claimed]
+    if unclaimed:
+        return {"code": 1, "error": "COMPOSE_DIMENSION_UNCLAIMED", "unclaimed_dimensions": unclaimed}
+    downgraded_from = str(params.get("downgraded_from") or "").strip()
+    downgrade_reason = str(params.get("downgrade_reason") or "").strip()
+    if downgraded_from and downgraded_from not in ("inherit", "inherit_augment"):
+        return {"code": 1, "error": "COMPOSE_DOWNGRADE_INVALID"}
+    if downgraded_from and not downgrade_reason:
+        return {"code": 1, "error": "COMPOSE_DOWNGRADE_REASON_REQUIRED"}
+    binding = {
+        "version": _COMPOSE_BINDING_VERSION, "task_id": task_id,
+        "page_id": str(cred.get("page_id") or params.get("page_id") or ""),
+        "source_template_id": source, "research_digest_file": str(digest_path),
+        "research_digest_sha256": actual_sha, "downgraded_from": downgraded_from,
+        "downgrade_reason": downgrade_reason, "borrow_provenance": provenance,
+        "borrowed_module_count": borrowed_count,
+        "original_module_count": len(provenance) - borrowed_count,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    path = _task_receipt_path(task_id, _COMPOSE_BINDING_FILE, create=True)
+    payload = (json.dumps(binding, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+    _atomic_write_bytes(str(path), payload)
+    binding_sha = hashlib.sha256(payload).hexdigest()
+    cred["fork_binding"] = {
+        "kind": "compose", "source_template_id": source,
+        "compose_binding_file": str(path), "compose_binding_sha256": binding_sha,
+        "borrow_provenance": provenance, "bound_at": binding["generated_at"],
+    }
+    if downgraded_from:
+        history = cred.get("routing_history") if isinstance(cred.get("routing_history"), list) else []
+        history.append({
+            "at": binding["generated_at"], "mode": "fork",
+            "borrow_mode_from": downgraded_from, "borrow_mode_to": "compose", "reason": downgrade_reason,
+        })
+        cred["routing_history"] = history
+        cred["decision_revision"] = int(cred.get("decision_revision") or 0) + 1
+    decision["borrow_mode"] = "compose"
+    cred["routing_decision"], cred["status"] = decision, "compose_bound"
+    _, write_error = _write_routing_credential_record(cred)
+    if write_error:
+        return write_error
+    return {
+        "code": 0, "operation": "fork_compose", "task_id": task_id,
+        "borrow_mode": "compose", "source_template_id": source,
+        "compose_binding_file": str(path), "compose_binding_sha256": binding_sha,
+        "borrowed_module_count": borrowed_count,
+        "original_module_count": binding["original_module_count"],
+        "borrow_provenance": provenance,
     }
 
 
@@ -5945,7 +6726,7 @@ def _write_agent_reply_artifacts(task_id, finalized):
     safe_task = re.sub(r"[^0-9A-Za-z._-]+", "_", str(task_id or "")).strip("._-")
     contract = finalized.get("agent_reply_contract") if isinstance(finalized, dict) else None
     if not safe_task or not isinstance(contract, dict) or contract.get("terminal") is not True:
-        raise ValueError("direct_deliver 缺少可持久化的 terminal agent_reply_contract")
+        raise ValueError("缺少可持久化的 terminal agent_reply_contract")
 
     temp_root = C.task_temp_dir(task_id, create=True)
     contract_file = str(temp_root / "agent-contract.json")
@@ -6184,8 +6965,12 @@ def cmd_direct_deliver(params):
         context_params["turn_id"] = explicit_turn_id
     C.configure_trace_context(context_params)
     try:
+        routing_record, routing_error = _validate_direct_delivery_routing(params)
+        if routing_error:
+            return routing_error
         result = _run_direct_deliver(task_id, page_id, expected_revision)
         if isinstance(result, dict) and result.get("code") == 0:
+            result["routing_decision_recorded"] = routing_record
             result = _complete_direct_job(params, task_id, result)
         return result
     finally:
@@ -6522,6 +7307,51 @@ def cmd_fork_prepare(params):
     if not source_template_id:
         return {"code": 1, "message": "fork_prepare 需要 source_template_id（或 template_id/page_id）"}
 
+    # fork_prepare 是一次性、task-scoped 的来源绑定。重复执行会覆盖 manifest/review，
+    # 尤其容易在第二次未重传 augmentation_spec 时静默丢掉新增栏目。
+    task_id = _fork_task_id(params)
+    if task_id:
+        previous, _, read_error = _read_fork_task_binding(task_id)
+        if read_error:
+            return read_error
+        if previous and previous.get("status") == "prepared":
+            previous_source = str(previous.get("source_template_id") or "")
+            force_rebuild = _bool_param(params.get("force_rebuild"))
+            rebuild_reason = str(params.get("rebuild_reason") or "").strip()
+            if not force_rebuild:
+                return {
+                    "code": 1,
+                    "error": "FORK_ALREADY_BOUND",
+                    "message": (
+                        f"本 task 已完成 fork_prepare 绑定（来源 {previous_source}）。"
+                        "改公式或业务决策请使用 fork_review_update；确需从来源整体重建时，"
+                        "传 force_rebuild:true 并填写 rebuild_reason。"
+                    ),
+                    "recoverable": True,
+                    "binding": {
+                        "source_template_id": previous_source,
+                        "revision": previous.get("revision"),
+                        "working_html_file": previous.get("working_html_file"),
+                    },
+                }
+            if not rebuild_reason:
+                return {
+                    "code": 1,
+                    "error": "FORK_REBUILD_REASON_REQUIRED",
+                    "message": "force_rebuild:true 时必须填写 rebuild_reason，说明为何不能用 fork_review_update。",
+                }
+            if previous_source and previous_source != str(source_template_id):
+                return {
+                    "code": 1,
+                    "error": "FORK_SOURCE_TEMPLATE_CHANGED",
+                    "message": (
+                        f"本 task 已绑定来源 {previous_source}，不能改为 {source_template_id}。"
+                        "如需换来源模板，请创建新 task。"
+                    ),
+                    "recoverable": True,
+                    "binding": {"source_template_id": previous_source},
+                }
+
     template_result = cmd_template({"page_id": source_template_id})
     if not (isinstance(template_result, dict) and template_result.get("code") == 0):
         return template_result
@@ -6582,7 +7412,6 @@ def cmd_fork_prepare(params):
         derived_replacements = _derive_asset_replacements(source_identity, target_identity, source_html)
 
     safe_id = re.sub(r"[^0-9A-Za-z._-]+", "_", str(source_template_id)).strip("._-") or "source"
-    task_id = _fork_task_id(params)
     default_output_dir = (
         str(C.task_temp_dir(task_id, create=True)) if task_id
         else os.path.join("output", "forks", safe_id)
@@ -6619,6 +7448,7 @@ def cmd_fork_prepare(params):
                 + list(replacements.keys())
                 + [token for token in [source_identity.get("name")] + list(source_identity.get("present_code_variants") or []) if token]
             ),
+            augmentation_spec=params.get("augmentation_spec"),
         )
     except FRC.ForkRuntimeError as exc:
         return exc.as_dict()
@@ -6793,14 +7623,16 @@ def cmd_fork_prepare(params):
         "target_asset": str(target_identity.get("raw") or params.get("target_asset") or ""),
         "target_asset_identity": target_identity,
         "source_asset_identity": source_identity,
+        "intent_profile": params.get("intent_profile") or _read_intent_profile(task_id),
         "card_runtime_required": card_runtime_required,
         "agent_reply_template": record.get("agent_reply_template"),
         "page_context_reference": context or None,
         "source_managed_images": source_managed_images,
         "runtime_roles": runtime["runtime_roles"],
+        "augmented_roles": runtime.get("augmented_roles") or [],
         "contract_fingerprint": FRC.contract_fingerprint([
             {"role_id": role["role_id"], "fingerprint": role["contract_fingerprint"]}
-            for role in runtime["runtime_roles"]
+            for role in runtime["runtime_roles"] + (runtime.get("augmented_roles") or [])
         ]),
     }
     review = runtime["review"]
@@ -6847,7 +7679,7 @@ def cmd_fork_prepare(params):
         "decisions": FRC.build_decisions_skeleton(review),
     }
     _atomic_write_bytes(review_update_params_file, (json.dumps(review_update_params, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
-    review_state = FRC.review_state(manifest, review, working_html)
+    review_state = FRC.review_state(manifest, review, working_html, intent_profile=manifest.get("intent_profile"))
     review_state["review_base_sha256"] = review_base_sha256
 
     fork_task_binding, binding_error = _bind_fork_task(params, manifest, manifest_file)
@@ -6872,6 +7704,7 @@ def cmd_fork_prepare(params):
         "required_sections": required_sections,
         "required_outputs": required_outputs,
         "runtime_role_count": len(runtime["runtime_roles"]),
+        "augmented_role_count": len(runtime.get("augmented_roles") or []),
         "package_role_count": len(active_packages),
         "grant_role_count": len(active_grants),
         "card_runtime_required": card_runtime_required,
@@ -6943,7 +7776,7 @@ def cmd_fork_review_update(params):
         updated = FRC.apply_review_decisions(review, params.get("decisions") or {})
         updated_bytes = (json.dumps(updated, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
         updated_sha256 = hashlib.sha256(updated_bytes).hexdigest()
-        state = FRC.review_state(manifest, updated, working_html)
+        state = FRC.review_state(manifest, updated, working_html, intent_profile=manifest.get("intent_profile"))
         _atomic_write_bytes(paths["review_file"], updated_bytes)
         params["review_base_sha256"] = updated_sha256
         params["decisions"] = FRC.build_decisions_skeleton(updated)
@@ -7432,6 +8265,8 @@ _COMMANDS = {
     "publish_verified": cmd_publish_verified,
     "upload": cmd_upload,
     "update": cmd_update,
+    "interpret": cmd_interpret,
+    "interpret_csv": cmd_interpret_csv,
     "download": cmd_download,
     "list": cmd_list,
     "init_reply_metadata": cmd_init_reply_metadata,
@@ -7443,10 +8278,13 @@ _COMMANDS = {
     "publish_community": cmd_publish_community,
     "unpublish_community": cmd_unpublish_community,
     "templates": cmd_templates,
+    "intent_profile": cmd_intent_profile,
+    "research_templates": cmd_research_templates,
     "template": cmd_template,
     "direct_deliver": cmd_direct_deliver,
     "direct_finalize": cmd_direct_finalize,
     "fork_prepare": cmd_fork_prepare,
+    "fork_compose": cmd_fork_compose,
     "fork_review_update": cmd_fork_review_update,
     "fork_validate": cmd_fork_validate,
     "retrofit_card_runtime": cmd_retrofit_card_runtime,
@@ -7455,7 +8293,7 @@ _COMMANDS = {
 
 _TRACE_REQUIRED_COMMANDS = {
     "new_asset_page", "new_page", "update_progress", "publish_final", "publish_verified", "upload", "update", "direct_deliver", "direct_finalize", "fork_validate", "image_upload",
-    "templates", "fork_prepare", "fork_review_update",
+    "templates", "intent_profile", "research_templates", "fork_prepare", "fork_compose", "fork_review_update",
 }
 
 

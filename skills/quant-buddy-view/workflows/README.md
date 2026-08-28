@@ -5,6 +5,7 @@ Use this directory for end-to-end operating procedures rather than fixed page la
 | Workflow | Use when |
 |---|---|
 | `new-session-paradigm-routing.md` | 新会话第一步分诊：查范式卡（`templates`）判命中，走 ① 直接命中 / ② fork / ③ 自建 |
+| `interpret-existing-page.md` | 用户给出既有 QuantBuddy 活页 URL，并要求直接解读其当前数据；只调用 `interpret` |
 | `dashboard-end-to-end.md` | The user wants a shareable dashboard/link and has not asked for a specific page template（对应 ③ 自建 / ② fork 的构建细节） |
 | `edit-existing-chart.md` | 用户只是想改自己已发布页面里**某一个图表**——加/删一条线、改时间窗口、查真实数据，不是整页重建 |
 

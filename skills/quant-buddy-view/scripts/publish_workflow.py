@@ -157,6 +157,52 @@ def _run_qbs_grant_set(task_id, user_query, grants, template_ref=""):
         except OSError:
             pass
 
+
+_GRANT_FETCH_CALL_RE = re.compile(r"queryDataGrant", re.I)
+
+
+def _grant_credential_is_consumed(html, item):
+    if not _GRANT_FETCH_CALL_RE.search(str(html or "")):
+        return False
+    markers = (item.get("markers") or {}) if isinstance(item, dict) else {}
+    for values in markers.values():
+        for marker in values if isinstance(values, list) else [values]:
+            if marker and str(marker) in str(html or ""):
+                return True
+    return False
+
+
+def _apply_grant_degradation(grants, html, validation):
+    failed = validation.get("failed_grants") if isinstance(validation, dict) else []
+    if not failed:
+        return grants, [], html, None
+    blocking = [item for item in failed if item.get("error_class") != "data"]
+    if blocking:
+        return grants, failed, html, _failure(
+            "GRANT_SET_VALIDATION_FAILED", "Grant 验证含系统级失败，禁止降级。", validation=validation,
+        )
+    dropped_names = {str(item.get("name") or "") for item in failed}
+    unsafe = [
+        item for item in grants
+        if str(item.get("name") or item.get("role_id") or "") in dropped_names
+        and _grant_credential_is_consumed(html, item)
+    ]
+    if unsafe:
+        return grants, failed, html, _failure(
+            "GRANT_DEGRADATION_UNSAFE",
+            "失败 Grant 仍被页面 queryDataGrant 无条件消费；清空凭证会打断整条取数链，拒绝降级。",
+            unsafe_grants=[str(x.get("name") or x.get("role_id") or "") for x in unsafe],
+            validation=validation,
+        )
+    kept = [x for x in grants if str(x.get("name") or x.get("role_id") or "") not in dropped_names]
+    for item in grants:
+        if str(item.get("name") or item.get("role_id") or "") not in dropped_names:
+            continue
+        for key in ("grant_id", "signature"):
+            for _, marker in _marker_values((item.get("markers") or {}).get(key), f"{key}.marker"):
+                html = html.replace(marker, "")
+    return kept, failed, html, None
+
 def _normalize_v1_grants(grants):
     normalized = []
     for index, raw in enumerate(grants or []):
@@ -476,7 +522,12 @@ def _run_workflow_v1(params):
         _run_qbs_grant_set(task_id, user_query, grants)
         if grants else {"code": 0, "validation_receipt_files": [], "grants": []}
     )
-    if not isinstance(grant_validation, dict) or grant_validation.get("code") != 0:
+    if not isinstance(grant_validation, dict):
+        return _failure("GRANT_SET_VALIDATION_FAILED", "QBS grant-set 验证失败", validation=grant_validation)
+    grants, dropped_grants, html, degradation_error = _apply_grant_degradation(grants, html, grant_validation)
+    if degradation_error:
+        return degradation_error
+    if grant_validation.get("code") != 0:
         return _failure("GRANT_SET_VALIDATION_FAILED", "QBS grant-set 验证失败", validation=grant_validation)
     grant_receipts = grant_validation.get("validation_receipt_files") or []
     if len(grant_receipts) != len(grants):
@@ -675,7 +726,7 @@ def _run_workflow_v2(params):
         if receipt_error:
             return receipt_error
         stages["manifest"] = FRC.validate_manifest_html(manifest, html)
-        resolved = FRC.resolve_review(manifest, review, html)
+        resolved = FRC.resolve_review(manifest, review, html, intent_profile=manifest.get("intent_profile"))
         resolved_contract_sha256 = FRC.contract_fingerprint({
             "packages": resolved["packages"],
             "grants": resolved["grants"],
@@ -741,8 +792,16 @@ def _run_workflow_v2(params):
         if grants else {"code": 0, "validation_receipt_files": [], "grants": []}
     )
     timings["grant_validation_ms"] = round((time.perf_counter() - started) * 1000)
-    if not isinstance(grant_validation, dict) or grant_validation.get("code") != 0:
+    if not isinstance(grant_validation, dict):
         return _failure("GRANT_SET_VALIDATION_FAILED", "QBS grant-set 验证失败", validation=grant_validation, timing=timings)
+    grants, dropped_grants, html, degradation_error = _apply_grant_degradation(grants, html, grant_validation)
+    if degradation_error:
+        degradation_error["timing"] = timings
+        return degradation_error
+    if grant_validation.get("code") != 0:
+        return _failure("GRANT_SET_VALIDATION_FAILED", "QBS grant-set 验证失败", validation=grant_validation, timing=timings)
+    if dropped_grants:
+        stages["grant_degradation"] = {"dropped_grants": dropped_grants, "surviving_grant_count": len(grants)}
     grant_validation_by_name = {item.get("name"): item for item in grant_validation.get("grants") or []}
     for grant in grants:
         receipt = grant_validation_by_name.get(grant.get("name")) or {}

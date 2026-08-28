@@ -1080,6 +1080,7 @@ def _validate_grant_set(call_script, params, env):
     names = set()
     results = []
     receipts = []
+    failed_grants = []
     for index, item in enumerate(grants):
         if not isinstance(item, dict):
             return {"code": 1, "error": "INVALID_GRANT", "message": f"grants[{index}] 必须是对象"}
@@ -1100,7 +1101,12 @@ def _validate_grant_set(call_script, params, env):
         validation_payload.update({"task_id": task_id, "user_query": user_query})
         result, error = _invoke_payload(call_script, tool_by_kind[kind], validation_payload, env)
         if error:
-            return {**error, "success": False, "failed_grant": name, "grants": results}
+            failed_grants.append({
+                "name": name, "role": str(item.get("role") or name), "kind": kind,
+                "error_class": "system", "error_code": str(error.get("error") or "INVOKE_FAILED"),
+                "missing_fields": [],
+            })
+            continue
         if kind == "fast_query":
             assets = payload.get("assets") if isinstance(payload.get("assets"), list) else []
             asset = str((assets or [payload.get("asset") or ""])[0] or "").strip()
@@ -1118,17 +1124,13 @@ def _validate_grant_set(call_script, params, env):
             else:
                 evaluation = {"success": True}
         if not evaluation.get("success"):
-            return {
-                "code": 1,
-                "error": "GRANT_VALIDATION_FAILED",
-                "success": False,
-                "failed_grant": name,
-                "error_class": evaluation.get("error_class"),
-                "error_code": evaluation.get("error_code"),
+            failed_grants.append({
+                "name": name, "role": str(item.get("role") or name), "kind": kind,
+                "error_class": evaluation.get("error_class") or "system",
+                "error_code": evaluation.get("error_code") or "GRANT_VALIDATION_FAILED",
                 "missing_fields": evaluation.get("missing_fields") or [],
-                "result": result,
-                "grants": results,
-            }
+            })
+            continue
         receipt = _grant_validation_receipt(task_id, name, kind, fingerprint)
         receipts.append(receipt)
         results.append({
@@ -1140,11 +1142,15 @@ def _validate_grant_set(call_script, params, env):
             "validation_receipt_file": receipt,
             "reply_evidence": RDE.compact_grant_result(kind, result),
         })
+    blocking = any(item.get("error_class") != "data" for item in failed_grants)
     return {
-        "code": 0,
-        "success": True,
+        "code": 1 if blocking else 0,
+        "error": "GRANT_VALIDATION_FAILED" if blocking else None,
+        "success": not blocking,
         "task_id": task_id,
         "grant_count": len(results),
+        "failed_grant_count": len(failed_grants),
+        "failed_grants": failed_grants,
         "validation_receipt_files": receipts,
         "grants": results,
     }

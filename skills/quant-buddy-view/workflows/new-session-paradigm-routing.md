@@ -27,7 +27,7 @@ QBV_API_KEY=<本次任务的 key> python scripts/trace_context.py begin '{"user_
 python scripts/static_page.py new_asset_page '{"task_id":"task_xxx","asset":"贵州茅台","user_query":"分析贵州茅台"}'
 ```
 
-该命令直接调用 `POST /skill/newAssetPage`，由服务端完成资产解析、固定来源页实例替换和三份固定 Data Grant 注册。Agent 不查 `templates`、不运行 `new_page/fork_prepare`、不另跑 QBS 预验证、不自行注册 Grant。成功条件是 `agent_reply_contract.terminal=true` 且 `operation=new_asset_page`；最终只返回 contract 的 `public_url`，不生成七节 Markdown 分析，也不运行 `validate_agent_reply.py`。同一 task/资产重试由服务端幂等返回已有页面。
+该命令直接调用 `POST /skill/newAssetPage`，由服务端完成资产解析、固定来源页实例替换和三份固定 Data Grant 注册；脚本内部材料化 SHA256 绑定 evidence、确定性生成七节成稿、上报终态并清理临时文件。成稿最多使用五张数据表，表外内容按短列表分组，第七节只提炼最多五条代表性事实，不重复全部证据；分位字段不继承基础指标单位。Agent 不查 `templates`、不运行 `new_page/fork_prepare`、不另跑 QBS 预验证、不自行注册 Grant。成功后立即原样发送 `agent_reply_markdown`；禁止读取 evidence/大结果、手写辅助脚本、扫描临时目录、另建草稿或运行 validator。
 
 任一条件不满足就进入第 0 步，不要把定制单股页或多资产请求塞进快速通道。快速通道创建的是调用者自己的页面；后续内容修改复用现有 `update(page_id)`。
 
@@ -69,7 +69,7 @@ fork/unmatched 都必须由 Agent 在 `new_page.routing_decision` 中显式记�
 
 1. 运行 `new_page` 创建进度页并取得 `page_id + url`，同时引用本次候选并记录 fork 决定：
    ```bash
-   python scripts/static_page.py new_page '{"task_id":"task_xxx","user_query":"分析下彩虹股份","title":"彩虹股份分析活页","routing_decision":{"mode":"fork","source_template_id":"page_template_xxx","reason_code":"same_paradigm_different_asset"}}'
+   python scripts/static_page.py new_page '{"task_id":"task_xxx","user_query":"分析下彩虹股份","title":"彩虹股份分析活页","routing_decision":{"mode":"fork","source_template_id":"page_template_xxx","reason_code":"same_paradigm_different_asset","borrow_mode":"inherit"}}'
    ```
    普通渠道立刻把首链发给用户/承接方；`feishu-group` 只内部保留 `page_id/url`，不得向用户发送。
 2. 用同一 `task_id` 调 `fork_prepare`，同时传 `source_template_id + target_page_id`，**并且必须传 `target_asset`**，推荐给全 `{"name":"中国中车","code":"601766"}`（只给代码时脚本会先反查资产库补名字，反查不到才报 `TARGET_ASSET_NAME_REQUIRED`）。
@@ -97,22 +97,9 @@ fork/unmatched 都必须由 Agent 在 `new_page.routing_decision` 中显式记�
 python scripts/static_page.py new_page '{"task_id":"task_xxx","user_query":"制作事件时间线页面","title":"事件分析活页","routing_decision":{"mode":"unmatched","closest_template_id":"page_template_xxx","reason_code":"required_capability_missing","reason":"候选模板缺少用户要求的事件时间线与情景推演能力"}}'
 ```
 
-记录成功后继续 `build_dashboard` / bespoke 自建 → 验证 → 注册 → 生成 → verify → `publish_final`。普通渠道发送首链，`feishu-group` 不发送；其余收口同 ②。`build_dashboard` 不读取也不限制 routing；只有最终发布与已记录决定矛盾时才要求复核。
+记录成功后继续 `build_dashboard` / bespoke 自建 → 验证 → 注册 → 生成 → verify → `publish_final`。普通渠道发送首链，`feishu-group` 不发送；其余收口同 ②。`build_dashboard` 会读取 task 路由凭据：`unmatched` 可正常整页自建，fork/inherit* 禁止整页重建，fork/compose 仅允许在完成 Compose 绑定后生成 `panel_block`；`publish_final` 仍会复核最终发布路径与已记录决定一致。
 
-若 `new_page` 已记录 fork，但在 `fork_prepare` 前确认模板确有实质能力缺口，直接 `publish_final` 会在网络写入前返回 `ROUTING_RECONFIRM_REQUIRED`。此时要么继续返回的 fork 路径，要么在同次发布参数中显式改判：
-
-```json
-{
-  "routing_override": {
-    "from_mode": "fork",
-    "to_mode": "unmatched",
-    "reason_code": "required_capability_missing",
-    "reason": "审核后确认模板缺少用户要求的核心能力"
-  }
-}
-```
-
-已经执行 `fork_prepare` 后不得在 `publish_final` 改判；此时继续标准 fork 工作流。
+若 `new_page` 已记录 fork，但继承合同后来确认不成立，仍不能改判 unmatched。继续按借鉴度处理：结构与合同可继承走 `inherit`；缺维度走 `inherit_augment + augmentation_spec`；合同不可继承但仍能借布局、样式、渲染函数、公式思路或 Grant 形状时，运行 `research_templates → fork_compose`。`publish_final` 只接受继承绑定或 SHA256 校验通过的 Compose 绑定。
 
 ## 后续追问
 
@@ -133,6 +120,6 @@ fork/unmatched 创建首链后，如果资产库证明存在 A/H、同名代码�
 - 没有 terminal contract 禁止完成业务任务；唯一可暂停例外是成功的 `waiting_input` checkpoint，且用户回复后必须同任务续跑。
 - 每个 package/grant 最多查询一次，仅明确瞬时网络失败允许重试一次。
 - direct 命中后禁止研究脚本实现、运行子命令 `--help` 或重复调用 `template/query/finalize`；使用 `direct_deliver` 的紧凑结果继续生成回复。
-- `new_asset_page` 成功后直接返回 terminal contract 的公开 URL，不进入 validator；其余分支在 validator 返回 `valid=true` 后立即最终回复，禁止再次校验、运行 `--help`、扫描临时目录或继续 memory 搜索。
+- `new_asset_page` 成功后直接原样发送 `agent_reply_markdown`，不进入 validator；其余分支在 validator 返回 `valid=true` 后立即最终回复，禁止再次校验、运行 `--help`、扫描临时目录或继续 memory 搜索。
 - 性能门槛：普通渠道模板命中到首链 ≤5 秒；所有渠道 terminal 到最终回复 ≤45 秒、端到端 ≤120 秒、用户可见消息间隔 ≤60 秒。
 - 未跑浏览器验收时，只能声明公开 URL 和实时接口可访问。

@@ -19,6 +19,45 @@ import common as C
 from qbs_handoff_adapter import evaluate_handoff
 
 
+def _host_result(params, next_step=None):
+    host = C.host_trace_context(params)
+    if not host:
+        return None
+    previous = C.read_task_trace_context(host["task_id"])
+    previous_turn_id = str(previous.get("current_turn_id") or "").strip() or None
+    if previous_turn_id == host["turn_id"]:
+        previous_turn_id = previous.get("previous_turn_id")
+    C.configure_trace_context({
+        **params,
+        "task_id": host["task_id"],
+        "turn_id": host["turn_id"],
+        "user_query": host["user_query"],
+    })
+    agent_model = C.current_trace_context().get("agent_model")
+    task_root = C.task_temp_dir(host["task_id"], create=True)
+    if not _commit_context(
+        host["task_id"], host["turn_id"], host["user_query"], previous_turn_id, agent_model
+    ):
+        return {"code": 1, "error": "TRACE_CONTEXT_PERSIST_FAILED"}
+    result = {
+        "code": 0,
+        "success": True,
+        "task_id": host["task_id"],
+        "turn_id": host["turn_id"],
+        "user_query": host["user_query"],
+        "parent_turn_id": previous_turn_id,
+        "created": False,
+        "tracking_recorded": True,
+        "tracking_owner": "claw-backend",
+        "host_managed": True,
+        "task_temp_dir": str(task_root),
+        "instruction": "Host 已建立本轮 Turn；后续 QBV/QBS 工具必须复用当前 task_id 与 turn_id。",
+    }
+    if next_step:
+        result["next_step"] = next_step
+    return result
+
+
 def _turn_payload(params, task_id, turn_id, user_query, parent_turn_id=None):
     body = {
         "task_id": task_id,
@@ -123,6 +162,9 @@ def _reuse_active_handoff_turn(params, task_id, user_query):
 
 
 def cmd_begin(params):
+    host_result = _host_result(params, next_step="templates")
+    if host_result:
+        return host_result
     task_id = str(params.get("task_id") or uuid.uuid4()).strip()
     user_query = str(params.get("user_query") or params.get("userQuery") or "").strip()
     if not user_query:
@@ -187,6 +229,9 @@ def cmd_begin(params):
 
 
 def cmd_begin_turn(params):
+    host_result = _host_result(params)
+    if host_result:
+        return host_result
     cfg = C.load_config_require_key()
     endpoint, api_key = C.endpoint_of(cfg), cfg.get("api_key", "")
     task_id = str(params.get("task_id") or "").strip()

@@ -23,6 +23,8 @@ _TIMEOUT = 10
 def report(task_id, public_url="", user_query="", operation=""):
     """上报一次任务终态。永不抛异常，返回是否成功送达（仅供调试，不参与门禁）。"""
     try:
+        if C.host_managed_lifecycle():
+            return True
         task_id = str(task_id or "").strip()
         if not task_id:
             return False
@@ -51,7 +53,12 @@ def cmd_report(params):
         params.get("user_query"),
         params.get("operation"),
     )
-    return {"code": 0, "reported": ok}
+    return {
+        "code": 0,
+        "reported": ok,
+        "host_managed": C.host_managed_lifecycle(),
+        "tracking_owner": "claw-backend" if C.host_managed_lifecycle() else "quant-buddy-view",
+    }
 
 
 _COMMANDS = {"report": cmd_report}

@@ -50,6 +50,9 @@ def _read_text(params, key, file_key):
 
 
 def _required_headings(template_ref):
+    policy = RTR.get_reply_render_policy(template_ref)
+    if isinstance(policy, dict):
+        return list(policy.get("required_sections") or [])
     return RTR.get_template_headings(template_ref)
 
 
@@ -245,7 +248,7 @@ def _data_coverage_errors(contract, sections):
         if body is None:
             continue
         section_fields = fields_by_section.get(heading) or []
-        if not section_fields and heading != "七、综合观察":
+        if not section_fields and not str(heading).endswith("综合观察"):
             expected = str((metadata or {}).get("no_data_text") or "").strip()
             if expected and expected not in body:
                 errors.append({

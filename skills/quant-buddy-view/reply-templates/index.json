@@ -30,8 +30,8 @@
       "reply_data_policy_file": "reply-data-policies/single_stock_deep_dive_v1.json",
       "reply_render_policy": {
         "version": "reply_render_policy_v1",
-        "required_sections": ["一、行情与估值", "二、财务分析", "三、资金 / 交易特征", "四、计算维度", "五、波动率与风险", "六、消息面（近30日）", "七、综合观察"],
-        "optional_sections": [],
+        "required_sections": ["一、行情与估值", "二、财务分析", "三、资金 / 交易特征", "五、波动率与风险", "六、综合观察"],
+        "optional_sections": ["四、计算维度"],
         "at_least_one_groups": [],
         "omit_all_missing_columns": true,
         "omit_all_missing_rows": true,

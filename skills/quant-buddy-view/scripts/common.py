@@ -204,6 +204,38 @@ _API_KEY_OVERRIDE = None  # 调用方（如 Playground）本次调用传入的 a
 _TRACE_CONTEXT_FILE_NAME = ".trace_context.json"
 
 
+def host_managed_lifecycle():
+    return str(os.environ.get("QB_HOST_MANAGED_LIFECYCLE") or "").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+
+
+def host_trace_context(params=None):
+    if not host_managed_lifecycle():
+        return None
+    params = params if isinstance(params, dict) else {}
+    host = {
+        "task_id": str(os.environ.get("QB_HOST_TASK_ID") or "").strip(),
+        "turn_id": str(os.environ.get("QB_HOST_TURN_ID") or "").strip(),
+        "user_query": str(os.environ.get("QB_HOST_USER_QUERY") or "").strip(),
+        "message_id": str(os.environ.get("QB_HOST_MESSAGE_ID") or "").strip() or None,
+    }
+    missing = [key for key in ("task_id", "turn_id", "user_query") if not host[key]]
+    if missing:
+        raise ValueError(f"Host Trace Context 缺少字段: {', '.join(missing)}")
+    aliases = {
+        "task_id": ("task_id",),
+        "turn_id": ("turn_id",),
+        "user_query": ("user_query", "userQuery"),
+        "message_id": ("message_id",),
+    }
+    for field, names in aliases.items():
+        supplied = next((str(params.get(name) or "").strip() for name in names if params.get(name)), "")
+        if supplied and host.get(field) and supplied != host[field]:
+            raise ValueError(f"Host 模式 {field} 已锁定为 {host[field]}，拒绝使用 {supplied}")
+    return host
+
+
 def _normalize_agent_model(value):
     """模型名仅做空白归一化；未知或空值保持 None，绝不猜测。"""
     if value is None:
@@ -246,11 +278,12 @@ def configure_trace_context(params=None):
     """从参数或环境变量恢复本次任务上下文，不使用会互相覆盖的全局 session 文件。"""
     params = params if isinstance(params, dict) else {}
     nested = params.get("trace_context") if isinstance(params.get("trace_context"), dict) else {}
-    task_id = params.get("task_id") or nested.get("task_id") or os.environ.get("QBV_TASK_ID")
+    host = host_trace_context(params)
+    task_id = (host or {}).get("task_id") or params.get("task_id") or nested.get("task_id") or os.environ.get("QBV_TASK_ID")
     persisted = read_task_trace_context(task_id) if task_id else {}
-    turn_id = (params.get("turn_id") or nested.get("turn_id") or os.environ.get("QBV_TURN_ID")
+    turn_id = ((host or {}).get("turn_id") or params.get("turn_id") or nested.get("turn_id") or os.environ.get("QBV_TURN_ID")
                or persisted.get("current_turn_id"))
-    user_query = (params.get("user_query") or params.get("userQuery") or nested.get("user_query")
+    user_query = ((host or {}).get("user_query") or params.get("user_query") or params.get("userQuery") or nested.get("user_query")
                   or os.environ.get("QBV_USER_QUERY") or persisted.get("current_user_query"))
     previous_turn_id = (params.get("previous_turn_id") or nested.get("previous_turn_id")
                         or persisted.get("previous_turn_id"))

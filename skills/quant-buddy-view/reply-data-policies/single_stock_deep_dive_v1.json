@@ -2,15 +2,13 @@
   "version": "reply_data_policy_v1",
   "template_ref": "single_stock_deep_dive_v1",
   "standard_no_data_text": "本轮未返回可核验的该章节数据",
-  "message_no_data_text": "本轮未纳入可核验消息面",
   "sections": [
     "一、行情与估值",
     "二、财务分析",
     "三、资金 / 交易特征",
     "四、计算维度",
     "五、波动率与风险",
-    "六、消息面（近30日）",
-    "七、综合观察"
+    "六、综合观察"
   ],
   "formula_fields": [
     {"field_id": "market.close_price", "section": "一、行情与估值", "row_label": "最新价", "output_aliases": ["px", "close_price"], "source_key": "latest_value"},
@@ -52,6 +50,7 @@
     {"field_id": "financial.roe.latest", "section": "二、财务分析", "row_label": "ROE", "column_label": "最新值", "base_aliases": ["roe"], "name_aliases": ["净资产收益率", "ROE"], "financial_variants": true},
     {"field_id": "financial.roic.latest", "section": "二、财务分析", "row_label": "ROIC(TTM)", "column_label": "最新值", "base_aliases": ["roic", "roic_ttm"], "name_aliases": ["ROIC", "投入资本回报率"], "financial_variants": true},
     {"field_id": "financial.operating_cashflow.latest", "section": "二、财务分析", "row_label": "经营现金流", "column_label": "最新值", "base_aliases": ["operating_cashflow", "operating_cash_flow"], "name_aliases": ["经营现金流", "经营活动现金流"], "financial_variants": true},
+    {"field_id": "financial.debt_to_asset_ratio.latest", "section": "二、财务分析", "row_label": "资产负债率", "column_label": "最新值", "base_aliases": ["debt_to_asset_ratio", "asset_liability_ratio"], "name_aliases": ["资产负债率"]},
     {"field_id": "financial.capex_to_revenue.latest", "section": "二、财务分析", "row_label": "资本开支/收入", "column_label": "最新值", "base_aliases": ["capex_to_revenue"], "name_aliases": ["资本开支/收入", "资本开支收入比"], "financial_variants": true},
     {"field_id": "financial.revenue.latest", "section": "二、财务分析", "row_label": "营业收入", "column_label": "最新值", "base_aliases": ["revenue", "operating_revenue"], "name_aliases": ["营业收入"]},
     {"field_id": "financial.net_profit_parent.latest", "section": "二、财务分析", "row_label": "归母净利润", "column_label": "最新值", "base_aliases": ["net_profit_parent", "net_profit_attributable"], "name_aliases": ["归母净利润", "归属于母公司股东的净利润"]},
@@ -64,6 +63,16 @@
     {"field_id": "risk.annualized_volatility.latest", "section": "五、波动率与风险", "row_label": "年化波动率", "column_label": "最新值", "base_aliases": ["annualized_volatility", "volatility"], "name_aliases": ["年化波动率"], "percentile_variants": true},
     {"field_id": "risk.standard_deviation.latest", "section": "五、波动率与风险", "row_label": "标准差", "column_label": "最新值", "base_aliases": ["standard_deviation", "std"], "name_aliases": ["标准差"], "percentile_variants": true},
     {"field_id": "risk.max_drawdown.latest", "section": "五、波动率与风险", "row_label": "最大回撤", "column_label": "最新值", "base_aliases": ["max_drawdown"], "name_aliases": ["最大回撤"], "percentile_variants": true}
+  ],
+  "calculation_profile_fields": [
+    {"field_id": "calculation.profile.relative_strength", "section": "四、计算维度", "row_label": "相对强度", "column_label": "画像分", "dimension_aliases": ["相对强度"], "base_aliases": ["A股相对强度"], "name_aliases": ["A股相对强度"]},
+    {"field_id": "calculation.profile.pattern_health", "section": "四、计算维度", "row_label": "形态健康", "column_label": "画像分", "dimension_aliases": ["形态、波动与风控"], "base_aliases": ["A股形态健康"], "name_aliases": ["A股形态健康"]},
+    {"field_id": "calculation.profile.anomaly_score", "section": "四、计算维度", "row_label": "当日异动", "column_label": "画像分", "dimension_aliases": ["异动监控"], "base_aliases": ["当日异动评分"], "name_aliases": ["当日异动评分"]},
+    {"field_id": "calculation.profile.trend_structure", "section": "四、计算维度", "row_label": "趋势结构", "column_label": "画像分", "dimension_aliases": ["趋势结构"], "base_aliases": ["A股_趋势结构"], "name_aliases": ["A股_趋势结构"]},
+    {"field_id": "calculation.profile.momentum_reversal", "section": "四、计算维度", "row_label": "动量与反转", "column_label": "画像分", "dimension_aliases": ["动量与反转"], "base_aliases": ["A股_动量与反转"], "name_aliases": ["A股_动量与反转"]},
+    {"field_id": "calculation.profile.liquidity", "section": "四、计算维度", "row_label": "量能与流动性", "column_label": "画像分", "dimension_aliases": ["量能与流动性"], "base_aliases": ["A股_量能与流动性"], "name_aliases": ["A股_量能与流动性"]},
+    {"field_id": "calculation.profile.market_sentiment", "section": "四、计算维度", "row_label": "市场情绪", "column_label": "画像分", "dimension_aliases": ["市场情绪"], "base_aliases": ["A股市场情绪"], "name_aliases": ["A股市场情绪"]},
+    {"field_id": "calculation.profile.stock_sentiment", "section": "四、计算维度", "row_label": "个股情绪", "column_label": "画像分", "dimension_aliases": ["个股情绪"], "base_aliases": ["A股_个股情绪维度分"], "name_aliases": ["A股_个股情绪维度分"]}
   ],
   "calculation_dimension_aliases": ["计算维度", "画像得分", "宏观胜率背景", "其他"]
 }

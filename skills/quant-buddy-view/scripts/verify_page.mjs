@@ -16,9 +16,10 @@ import crypto from 'node:crypto';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
+import { findBrowser, playwrightLaunchAttempts, playwrightSearchRoots } from './browser_dependencies.mjs';
 import { parseExtraViewport, resolveVerificationProfile, CORE_ERROR_RE, TRACKER_NOISE_RE, isCoreConsoleError } from './verification_profiles.mjs';
 import { staticImageProblems } from './image_verification.mjs';
 import { cardVisualContractProblems } from './card_visual_contract.mjs';
@@ -512,14 +513,7 @@ async function loadPlaywright() {
   try {
     return await import('playwright');
   } catch {}
-  const roots = [
-    ...(process.env.NODE_PATH || '').split(path.delimiter),
-    path.join(process.cwd(), 'node_modules'),
-    path.join(os.homedir(), '.cache', 'codex-runtimes', 'codex-primary-runtime', 'dependencies', 'node', 'node_modules'),
-  ]
-    .map(item => (item || '').trim())
-    .filter(Boolean);
-  for (const root of [...new Set(roots)]) {
+  for (const root of playwrightSearchRoots()) {
     const candidates = [path.join(root, 'playwright', 'package.json')];
     const pnpmRoot = path.join(root, '.pnpm');
     if (fs.existsSync(pnpmRoot)) {
@@ -548,11 +542,7 @@ async function launchPlaywrightBrowser(pw, relaxSecurity = false) {
   const relaxArgs = relaxSecurity
     ? ['--disable-web-security', '--disable-features=IsolateOrigins,site-per-process']
     : [];
-  const attempts = [
-    { channel: 'chrome', headless: true, args: relaxArgs },
-    { channel: 'msedge', headless: true, args: relaxArgs },
-    { headless: true, args: relaxArgs },
-  ];
+  const attempts = playwrightLaunchAttempts(findBrowser(), relaxArgs);
   const errors = [];
   for (const options of attempts) {
     try {
@@ -615,11 +605,16 @@ async function prepareImagesExpression() {
 }
 
 async function shareModalChecksExpression() {
-  const ids = ['shareBtn', 'sharePosterModal', 'copyLink', 'copyPoster', 'downloadPoster', 'closePoster'];
-  const missing = ids.filter(id => !document.getElementById(id));
+  const byId = id => document.getElementById(id);
+  const ids = ['sharePosterModal', 'copyLink', 'copyPoster', 'downloadPoster', 'closePoster'];
+  const missing = ids.filter(id => !byId(id));
+  const shareTrigger = byId('shareBtn') || byId('qbHeaderFallbackShare');
+  const shareApi = window.QBShareShell && typeof window.QBShareShell.open === 'function'
+    ? window.QBShareShell.open.bind(window.QBShareShell)
+    : null;
+  if (!shareTrigger && !shareApi) missing.unshift('shareTrigger');
   if (missing.length) return { checked: true, present: false, missing };
 
-  const byId = id => document.getElementById(id);
   const statusText = () => String(byId('sharePosterStatus')?.textContent || '').trim();
   const waitUntil = async (predicate, timeoutMs = 10000) => {
     const deadline = Date.now() + timeoutMs;
@@ -654,7 +649,8 @@ async function shareModalChecksExpression() {
   };
 
   const initialScrollY = window.scrollY;
-  byId('shareBtn').click();
+  if (shareTrigger) shareTrigger.click();
+  else shareApi();
   await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   await waitUntil(() => !byId('copyPoster').disabled && !byId('downloadPoster').disabled, 10000);
 
@@ -1143,36 +1139,6 @@ function viewportResult(viewport, metrics, options = {}) {
     stockComparison: metrics.stockComparison || null,
   };
   return result;
-}
-
-function browserCandidates() {
-  const env = [process.env.CHROME_PATH, process.env.EDGE_PATH, process.env.BROWSER].filter(Boolean);
-  const win = [
-    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-    'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
-    'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
-  ];
-  const unix = ['/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/microsoft-edge'];
-  return [...env, ...(process.platform === 'win32' ? win : unix)];
-}
-
-function findBrowser() {
-  for (const candidate of browserCandidates()) {
-    if (candidate && fs.existsSync(candidate)) return candidate;
-  }
-  const names = process.platform === 'win32'
-    ? ['msedge.exe', 'chrome.exe', 'chromium.exe', 'brave.exe']
-    : ['google-chrome', 'chromium', 'chromium-browser', 'microsoft-edge', 'brave'];
-  const lookup = process.platform === 'win32' ? 'where.exe' : 'which';
-  for (const name of names) {
-    const found = spawnSync(lookup, [name], { encoding: 'utf8' });
-    if (found.status === 0 && found.stdout.trim()) {
-      const first = found.stdout.trim().split(/\r?\n/)[0];
-      if (first) return first;
-    }
-  }
-  return '';
 }
 
 function waitForDebugEndpoint(proc) {

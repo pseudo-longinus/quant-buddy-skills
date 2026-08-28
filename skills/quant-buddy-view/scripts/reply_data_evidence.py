@@ -18,7 +18,7 @@ AVAILABILITY_VERSION = "reply_data_availability_v1"
 POLICY_VERSION = "reply_data_policy_v1"
 _SENSITIVE_KEYS = {
     "api_key", "apikey", "authorization", "bearer", "access_token",
-    "refresh_token", "token", "signature", "signature_hash",
+    "refresh_token", "token", "signature", "signature_hash", "csv_url", "signed_url",
 }
 
 
@@ -39,6 +39,8 @@ def redact(value):
         return [redact(item) for item in value]
     if isinstance(value, str) and re.search(r"(?i)^bearer\s+\S+", value.strip()):
         return "[redacted]"
+    if isinstance(value, str) and re.search(r"(?i)x-amz-(?:signature|credential|security-token)=", value):
+        return "[signed URL redacted]"
     return value
 
 
@@ -257,6 +259,68 @@ def compact_grant_result(kind, result):
     return compact
 
 
+def compact_new_asset_financial_report(result):
+    """Project the fixed newAssetPage report response without retaining raw payloads."""
+    aliases = {
+        "营业收入": "revenue",
+        "归母净利润": "net_profit_parent",
+        "毛利率": "gross_margin",
+        "净利率": "net_margin",
+        "ROE": "roe",
+        "经营现金流": "operating_cashflow",
+        "资产负债率": "debt_to_asset_ratio",
+    }
+    compact = {
+        "kind": "new_asset_financial_report",
+        "asset": None,
+        "computed_at": None,
+        "indicators": [],
+    }
+    payload = redact(result if isinstance(result, dict) else {})
+    for asset_result in payload.get("results") or []:
+        if not isinstance(asset_result, dict):
+            continue
+        compact["asset"] = {
+            key: asset_result.get(key)
+            for key in ("asset_name", "ticker")
+            if asset_result.get(key) not in (None, "")
+        }
+        for field in asset_result.get("fields") or []:
+            if not isinstance(field, dict):
+                continue
+            intent = str(field.get("intent") or "").strip()
+            base_id = aliases.get(intent)
+            if not base_id:
+                continue
+            series = [
+                {"date": item.get("date"), "value": item.get("value")}
+                for item in field.get("series") or []
+                if isinstance(item, dict) and item.get("date") and item.get("value") is not None
+            ]
+            series.sort(key=lambda item: str(item.get("date") or ""))
+            if not series:
+                continue
+            compact["indicators"].append({
+                "dimension": "财务分析",
+                "base_id": base_id,
+                "name": intent,
+                "latest_value": series[-1]["value"],
+                "latest_date": series[-1]["date"],
+                "unit": field.get("unit"),
+                "previous_value": series[-2]["value"] if len(series) > 1 else None,
+                "previous_date": series[-2]["date"] if len(series) > 1 else None,
+                "variants": {},
+                "recent_series": series[-12:],
+            })
+    latest_dates = [
+        item.get("latest_date")
+        for item in compact["indicators"]
+        if item.get("latest_date")
+    ]
+    compact["computed_at"] = max(latest_dates) if latest_dates else None
+    return compact
+
+
 def _get_path(value, path):
     current = value
     for part in str(path or "").split("."):
@@ -302,6 +366,19 @@ def _matches_indicator(rule, indicator):
     base_aliases = {_normalized_key(item) for item in rule.get("base_aliases") or []}
     name_aliases = [_normalized_key(item) for item in rule.get("name_aliases") or []]
     return base in base_aliases or any(alias and alias in name for alias in name_aliases)
+
+
+def _matches_dimension(rule, indicator):
+    aliases = {_normalized_key(item) for item in rule.get("dimension_aliases") or []}
+    return not aliases or _normalized_key(indicator.get("dimension")) in aliases
+
+
+def _is_finite_number(value):
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(float(value))
+    )
 
 
 def _variant_match(suffix, aliases):
@@ -368,8 +445,11 @@ def project_fields(template_ref, formula_outputs, grant_results):
         projected.setdefault(field["field_id"], field)
 
     rules = policy.get("stock_profile_fields") or []
+    calculation_profile_rules = policy.get("calculation_profile_fields") or []
     calculation_dimensions = {_normalized_key(item) for item in policy.get("calculation_dimension_aliases") or []}
     for grant in grant_results or []:
+        grant_kind = str(grant.get("kind") or "")
+        source_kind = grant_kind if grant_kind.startswith("new_asset_") else "grant"
         for indicator in grant.get("indicators") or []:
             matched = next((rule for rule in rules if _matches_indicator(rule, indicator)), None)
             if matched and indicator.get("latest_value") is not None:
@@ -378,7 +458,7 @@ def project_fields(template_ref, formula_outputs, grant_results):
                     indicator.get("latest_value"),
                     date_value=indicator.get("latest_date"),
                     unit=indicator.get("unit"),
-                    source={"kind": "grant", "grant_kind": grant.get("kind"), "indicator": indicator.get("base_id")},
+                    source={"kind": source_kind, "grant_kind": grant_kind, "indicator": indicator.get("base_id")},
                 )
                 projected.setdefault(base_field["field_id"], base_field)
                 if matched.get("include_previous") and indicator.get("previous_value") is not None:
@@ -389,7 +469,7 @@ def project_fields(template_ref, formula_outputs, grant_results):
                         unit=indicator.get("unit"),
                         field_id=matched["field_id"].rsplit(".", 1)[0] + ".previous",
                         column_label="上一期值",
-                        source={"kind": "grant", "indicator": indicator.get("base_id")},
+                        source={"kind": source_kind, "indicator": indicator.get("base_id")},
                     )
                     projected.setdefault(previous["field_id"], previous)
                 variants = indicator.get("variants") if isinstance(indicator.get("variants"), dict) else {}
@@ -399,15 +479,19 @@ def project_fields(template_ref, formula_outputs, grant_results):
                     if not isinstance(variant, dict) or variant.get("value") is None:
                         continue
                     field_id = spec.get("field_id") or matched["field_id"].rsplit(".", 1)[0] + "." + key
+                    column_label = spec.get("column_label")
+                    unit = spec.get("unit") or indicator.get("unit")
+                    if "分位" in str(column_label or "") or ".pctrank" in str(field_id).lower():
+                        unit = ""
                     variant_field = _field(
                         matched,
                         variant.get("value"),
                         date_value=variant.get("date") or indicator.get("latest_date"),
-                        unit=spec.get("unit") or indicator.get("unit"),
+                        unit=unit,
                         field_id=field_id,
                         row_label=spec.get("row_label") or matched.get("row_label"),
-                        column_label=spec.get("column_label"),
-                        source={"kind": "grant", "indicator": indicator.get("base_id"), "variant": suffix},
+                        column_label=column_label,
+                        source={"kind": source_kind, "indicator": indicator.get("base_id"), "variant": suffix},
                     )
                     projected.setdefault(field_id, variant_field)
                 variant_groups = []
@@ -426,12 +510,32 @@ def project_fields(template_ref, formula_outputs, grant_results):
                         matched,
                         variant.get("value"),
                         date_value=variant.get("date") or indicator.get("latest_date"),
-                        unit=indicator.get("unit"),
+                        unit="" if key.startswith("pctrank") else indicator.get("unit"),
                         field_id=field_id,
                         column_label=column,
-                        source={"kind": "grant", "indicator": indicator.get("base_id"), "variant": suffix},
+                        source={"kind": source_kind, "indicator": indicator.get("base_id"), "variant": suffix},
                     )
                     projected.setdefault(field_id, variant_field)
+                continue
+
+            calculation_rule = next((
+                rule for rule in calculation_profile_rules
+                if _matches_dimension(rule, indicator) and _matches_indicator(rule, indicator)
+            ), None)
+            if calculation_rule and _is_finite_number(indicator.get("latest_value")):
+                calculation_field = _field(
+                    calculation_rule,
+                    indicator.get("latest_value"),
+                    date_value=indicator.get("latest_date") or grant.get("computed_at"),
+                    unit=indicator.get("unit"),
+                    source={
+                        "kind": source_kind,
+                        "grant_kind": grant_kind,
+                        "dimension": indicator.get("dimension"),
+                        "indicator": indicator.get("base_id"),
+                    },
+                )
+                projected.setdefault(calculation_field["field_id"], calculation_field)
                 continue
 
             dimension = _normalized_key(indicator.get("dimension"))
@@ -449,24 +553,39 @@ def project_fields(template_ref, formula_outputs, grant_results):
                     "date": indicator.get("latest_date"),
                     "unit": indicator.get("unit"),
                     "render_tokens": _value_tokens(indicator.get("latest_value")),
-                    "source": {"kind": "grant", "indicator": indicator.get("base_id")},
+                    "source": {"kind": source_kind, "indicator": indicator.get("base_id")},
                 })
     return list(projected.values())
 
 
-def build_evidence(task_id, template_ref, formula_outputs=None, grant_results=None, warnings=None, stats=None):
+def build_evidence(
+    task_id,
+    template_ref,
+    formula_outputs=None,
+    grant_results=None,
+    warnings=None,
+    stats=None,
+    additional_fields=None,
+    prefer_additional=False,
+):
     policy = get_policy(template_ref)
     if not policy:
         return None
     fields = project_fields(template_ref, formula_outputs or [], grant_results or [])
+    merged = {field.get("field_id"): field for field in fields if isinstance(field, dict) and field.get("field_id")}
+    for field in additional_fields or []:
+        if not isinstance(field, dict) or not field.get("field_id"):
+            continue
+        if prefer_additional or field["field_id"] not in merged:
+            merged[field["field_id"]] = redact(field)
+    fields = list(merged.values())
     sections = {}
     for heading in policy.get("sections") or []:
         section_fields = [field["field_id"] for field in fields if field.get("section") == heading]
-        no_data_text = policy.get("message_no_data_text") if heading == "六、消息面（近30日）" else policy.get("standard_no_data_text")
         sections[heading] = {
-            "has_data": bool(section_fields) or heading == "七、综合观察",
+            "has_data": bool(section_fields) or heading == "六、综合观察",
             "field_ids": section_fields,
-            "no_data_text": no_data_text,
+            "no_data_text": policy.get("standard_no_data_text"),
         }
     return {
         "version": EVIDENCE_VERSION,
@@ -537,4 +656,45 @@ def build_direct(task_id, template_ref, package_results, grant_results):
         grants,
         stats={"source": "direct_reuse", "extra_query_count": 0},
     )
+    return persist_evidence(task_id, evidence)
+
+
+def build_new_asset_page(task_id, template_ref, data_sources, csv_result):
+    """Build strict reply evidence from one newAssetPage response, with CSV priority."""
+    data_sources = data_sources if isinstance(data_sources, dict) else {}
+    profile = compact_grant_result("new_asset_profile", data_sources.get("profile") or {})
+    report = compact_new_asset_financial_report(data_sources.get("financial_report") or {})
+    grants = [item for item in (profile, report) if item.get("indicators")]
+    csv_result = csv_result if isinstance(csv_result, dict) else {}
+    csv_evidence = csv_result.get("evidence") if isinstance(csv_result.get("evidence"), dict) else {}
+    warnings = []
+    warnings.extend(csv_result.get("warnings") or [])
+    for source_name in ("market_series", "financial_report"):
+        source = data_sources.get(source_name)
+        if isinstance(source, dict):
+            warnings.extend(redact(source.get("warnings") or []))
+    evidence = build_evidence(
+        task_id,
+        template_ref,
+        formula_outputs=[],
+        grant_results=grants,
+        warnings=warnings,
+        stats={
+            "source": "new_asset_page",
+            "csv_success_count": csv_result.get("csv_success_count", 0),
+            "csv_failure_count": csv_result.get("csv_failure_count", 0),
+            "profile_indicator_count": len(profile.get("indicators") or []),
+            "financial_report_indicator_count": len(report.get("indicators") or []),
+            "extra_backend_query_count": 0,
+        },
+        additional_fields=csv_result.get("reply_fields") or [],
+        prefer_additional=True,
+    )
+    if evidence is None:
+        return None
+    evidence["source_evidence"] = {
+        "new_asset_csv": redact(csv_evidence),
+        "profile": profile,
+        "financial_report": report,
+    }
     return persist_evidence(task_id, evidence)
