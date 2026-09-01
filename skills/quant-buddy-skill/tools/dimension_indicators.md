@@ -28,10 +28,10 @@
 
 | `indicator_type` | 是什么 | 典型用途 |
 |---|---|---|
-| `细分` | 单一口径的基础指标，如「20日高点接近突破」「均线多头排列」 | 拿它的公式去改口径、做变体、组成自己的策略 |
-| `综合` | 该维度的**维度分**，由维度内多个细分指标按内在权重聚合而成，如「A股动量与反转」 | 直接喂 `selectByComposition` 做 TopN 选股 |
+| `细分` | 单一口径的基础指标，如「20日高点接近突破」「均线多头排列」 | 取公式改口径、做变体；若已物化且当前可选，也可直接用于 `selectByComposition` |
+| `综合` | 该维度的**维度分**，由维度内多个细分指标按内在权重聚合而成，如「A股动量与反转」 | 可直接用于 `selectByComposition`，也可作为高层维度分做解释或组合 |
 
-还有一个正交的属性 `output_type`：`score`（连续分，可加权排序）/ `screen`（0-1 布尔，可取集合）。由 `is_bool` 推导。
+还有一个正交的属性 `output_type`：`score`（连续分，可加权排序）/ `screen`（0-1 布尔，可取集合）。`selectByComposition` 的请求位置由 `output_type` 决定，而不是由 `indicator_type` 决定。
 
 **指标有两个名字，都能用来查**（这是最容易卡住的地方）：
 
@@ -45,12 +45,13 @@
 
 ### 和 `presets/dimensions.yaml` 的关系
 
-`presets/dimensions.yaml` 是**本地快照，只含综合指标**（维度分），给 `selectByComposition` 选股用，零网络开销。
+`presets/dimensions.yaml` 是本地候选快照，适合零网络开销地映射常见指标 ID；它不是服务端当前可选状态的证明，也不是 `selectByComposition` 的唯一指标来源。
 
-`listDimensionIndicators` 是**在线全量目录，细分 + 综合都有**。两者不冲突：
+`listDimensionIndicators` 是**在线全量目录，细分 + 综合都有**。两者分工如下：
 
-- 只是要「A股动量与反转 Top10」这种维度分选股 → 读 `dimensions.yaml`，走 `composition-select.md`，**不必调本工具**；
-- 想知道某个维度下还有哪些细分指标、某个指标口径到底怎么算的、想拿现成公式改一版 → 用本组工具。
+- 本地快照命中明确的常见指标 → 可直接按 `composition-select.md` 的角色规则调用选择器；
+- 用户指定细分指标、本地未命中，或需要确认物化/日期状态 → 用 `listDimensionIndicators` 窄查询，核对 `output_type`、`selection_ready`、`selection_mode`、`as_of` 与市场范围后再调用选择器；
+- 想知道指标口径、需要修改公式或构造自定义指标 → 用本组工具取得公式后走公式链路。
 
 ---
 
@@ -61,7 +62,7 @@
 - 「平台有哪些维度 / 指标」「趋势结构这个维度下面有什么指标」
 - 「XX 指标是怎么算的」「XX 的公式是什么」「XX 的口径」
 - 想在现成指标基础上改参数（如把 20 日改成 30 日）——先取公式再改，比从零写准得多
-- `dimensions.yaml` 里没有对得上的维度分，但可能有细分指标能拼
+- 需要发现可直接用于 `selectByComposition` 的细分指标，或本地 `dimensions.yaml` 没有合适候选
 
 ❌ 不适用：
 
@@ -99,8 +100,8 @@ python scripts/call.py listDimensionIndicators '{"keyword": "突破"}'
 | `output_type` | string | `score` \| `screen` |
 | `keyword` | string | 对指标名/说明/口径做包含匹配，不区分大小写 |
 | `with_indicators` | boolean | 默认 `true`；`false` 只返回维度目录 + 计数（约 1.6KB） |
-| `compact` | boolean | 默认 `false`；`true` 每条指标只留 4 个字段，含 `indicator_type`（约 20KB） |
-| `verbose` | boolean | 默认 `false`；`true` 补回 `indicator_type` / `index_title` / `calculation` / `window` / `formula_count` 等（约 58KB） |
+| `compact` | boolean | 默认 `false`；`true` 仅保留精简发现字段，适合只需名称和 ID 的目录浏览 |
+| `verbose` | boolean | 默认 `false`；`true` 补回 `indicator_type` / `index_title` / `calculation` / `window` / `formula_count` 及完整 `selection` 信息（约 58KB） |
 
 > 不传任何参数会一次拉回 29KB。**先用 `with_indicators:false` 看目录，再按维度取**，不要无脑全量拉。
 > 想知道某指标口径**不要用 `verbose`**，直接 `getIndicatorFormulas`——那里有 `calculation` 和完整公式。
@@ -119,6 +120,9 @@ python scripts/call.py listDimensionIndicators '{"keyword": "突破"}'
         "indicator_id": "ind_20d_high_breakout_proximity",
         "name": "20日高点接近突破",
         "output_type": "score",
+        "selection_ready": true,
+        "selection_mode": "score",
+        "as_of": 20260730,
         "description": "高分表示接近或突破短期高点",
         "asset_scope": ["A股","港股","美股","期货"],
         "last_date": 20260730
@@ -131,20 +135,27 @@ python scripts/call.py listDimensionIndicators '{"keyword": "突破"}'
 }
 ```
 
-维度层只有 名字 / 说明 / 指标数，指标层只有 6 个字段——只够回答「用哪个指标」。口径怎么算的去 `getIndicatorFormulas` 拿，别在这里找。
+维度层返回名字 / 说明 / 指标数；默认指标条目可用于候选发现。要取得完整口径和公式，使用 `getIndicatorFormulas`。
 
-> ⚠️ **要拿去喂 `selectByComposition` 时，必须带 `indicator_type:"综合"` 查。**
-> 默认返回里**不含** `indicator_type`，看不出哪条是细分、哪条是维度分；而 `selectByComposition` 只接受综合指标，把细分的 `indicator_id` 传过去会返回 `INDICATOR_NOT_FOUND`。
+> ⚠️ **选择器准入不由 `indicator_type:"综合"` 决定。**
+> 对选股，先按用户需要的请求角色使用 `output_type:"score"` 或 `output_type:"screen"` 缩小查询；只有用户明确要求细分或综合类别时才额外传 `indicator_type`。在线目录中的 `selection_ready`、`selection_mode`、`as_of` 用于预检，`selectByComposition` 才是启用、删除、物化和日期一致性的最终校验。
 > ```bash
-> python scripts/call.py listDimensionIndicators '{"asset_scope": "A股", "indicator_type": "综合"}'
+> # 查询可作为 A 股 screen 条件的细分候选
+> python scripts/call.py listDimensionIndicators '{"asset_scope": "A股", "indicator_type": "细分", "output_type": "screen"}'
 > ```
-> 这样返回的每一条都可直接用于 `selectByComposition`。
+> ```bash
+> # 查询可作为 A 股排序/组合得分的 score 候选
+> python scripts/call.py listDimensionIndicators '{"asset_scope": "A股", "output_type": "score"}'
+> ```
 
-**两个字段只在不正常时出现**——没有它们就是正常，不用逐条判断：
+**异常字段与选择器预检字段**：
 
-| 字段 | 出现即表示 | 怎么办 |
+| 字段 | 含义 | 怎么办 |
 |---|---|---|
-| `status`（值非 `"success"`） | 该指标物化数据可能不是最新 | 只影响 `selectByComposition` 那条路；**公式定义仍然有效**，取公式不受影响。回答涉及数值时要说明 |
+| `selection_ready` | 当前目录观察到的选择向量是否可用 | 仅 `true` 的候选可进入选择器预检；最终仍以选择器响应为准 |
+| `selection_mode` | 服务端选择向量角色，`score` 或 `screen` | 与 `output_type` 对齐后，放入正确请求位置 |
+| `as_of` | 当前选择向量快照日期 | 同一次选股的所有指标必须对齐；由选择器最终验证 |
+| `status`（值非 `"success"`） | 指标状态异常 | 不作为选择器候选；公式定义仍可能有效 |
 | `has_formula: false` | 该指标取不到公式（全库只有 2 个） | 别对它调 `getIndicatorFormulas`，会返回 `FORMULA_NOT_AVAILABLE` |
 
 取公式直接用列表里的 `name` 即可（163 条内 `name` 唯一），不需要先拿到 `index_title`。

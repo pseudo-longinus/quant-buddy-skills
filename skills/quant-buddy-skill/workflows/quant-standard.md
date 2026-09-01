@@ -365,7 +365,7 @@
 }
 ```
 
-`task_id`、`turn_id`、`user_query`、`source_skill_version` 同时写入请求。若 run 返回 `validation_receipt_file`，优先只在请求顶层写 `"validation_receipts": ["<validation_receipt_file>"]` 一次；该数组同时兼容内联 Receipt 对象。也可以完全省略，由 `prepare-validated-page` 按同一 `task_id + 全部 data_id` 自动发现。**不要把 Receipt 中含双引号的原始公式再手抄进 `validated_roles[].formula`，也不要把同一 Receipt 重复塞进三个 role**；运行公式合同由 Receipt 原样注入，role 只描述已物化数据的业务语义。请求必须由 `write_skill_file` 写成合法 JSON，首次解析失败后只允许修正该文件一次，不得改写公式合同或重跑数据。`prepare-validated-page` 成功输出的 `qbv_job_id` 和 `handoff_file` 必须保留在 Trace。
+`task_id`、`turn_id`、`user_query`、`source_skill_version` 同时写入请求。 同一业务 role 一次返回多个对象 ID 时，直接使用 `"data_ids":["<id1>","<id2>"]`，保持服务端顺序和字符串原样；不要手工拆 role 或改写 ID。若 run 返回 `validation_receipt_file`，优先只在请求顶层写 `"validation_receipts": ["<validation_receipt_file>"]` 一次；该数组同时兼容内联 Receipt 对象。也可以完全省略，由 `prepare-validated-page` 按同一 `task_id + 全部 data_id` 自动发现。**不要把 Receipt 中含双引号的原始公式再手抄进 `validated_roles[].formula`，也不要把同一 Receipt 重复塞进三个 role**；运行公式合同由 Receipt 原样注入，role 只描述已物化数据的业务语义。请求必须由 `write_skill_file` 写成合法 JSON，首次解析失败后只允许修正该文件一次，不得改写公式合同或重跑数据。`prepare-validated-page` 成功输出的 `qbv_job_id` 和 `handoff_file` 必须保留在 Trace。
 
 只有用户明确说“只要 PNG / 本地图片 / 表格 / 不要网页”时，分类器才应返回 `none`。弱“看看走势”且没有明确图表 artifact 也保持 `none`。
 

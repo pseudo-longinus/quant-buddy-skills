@@ -2,13 +2,13 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.25.29
+version: 4.25.32
 description: |
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据；支持查询 A 股股票所属行业。
   查询最近N个交易日的价格序列、日涨跌幅序列、窗口最高价、最低价、振幅等短期统计。
   查询单个资产当前盘中或最近完整交易日的分钟频 OHLCVA 序列（开高低收、成交量、成交额）。
   查询上市公司最近报告期的营业收入、净利润、归母净利润、ROE、总资产、资产负债率等财务指标（A股及部分港/美股字段，以工具返回为准）。
-  查询单只股票的预计算指标画像，按估值、财务分析、资金流向、波动率、宏观胜率背景、资产走势等维度返回最新值与上一期值。
+  查询单只股票的预计算及千维动态指标画像，按估值、财务分析、资金流向、波动率、宏观胜率背景、资产走势等维度返回最新值与上一有效值。
   支持A股选股筛选、因子计算、策略回测、净值对比、行业聚合排名、上传自有因子CSV、渲染图表。
   港股、美股优先支持行情价格查询；财务/报告期字段应先尝试 fast_query(report)，按工具实际返回决定。
   即使用户只是简单地问一只股票的价格、涨跌幅或财务数据，也应优先使用本技能，
@@ -16,7 +16,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.25.29
+  version: 4.25.32
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -173,7 +173,7 @@ runtimeRequirements:
 11. **CHANGELOG / skill-changelog 仅作为审计，不作为规则源**：`CHANGELOG.md`、`skill-changelog/**` 是按时间叠加的变更记录，包含已被后续版本反转或废弃的旧口径。任何「执行顺序、字段名、协议块语义、工具签名、参数格式」相关的判断，**必须**以 `SKILL.md` + `workflows/**` + `tools/**` + `references/troubleshooting.md` 为唯一权威；CHANGELOG 描述与上述文件冲突时，以上述文件为准。CHANGELOG 仅可用于：① 排查问题时回看「哪一版动过什么」；② 升级成功后做 5 条以内的版本上下文摘要。**禁止**：把 CHANGELOG 某条历史叙述当作当前执行规则、依据 CHANGELOG 推断现行参数格式、或在 CHANGELOG 与 SKILL.md 冲突时偏向 CHANGELOG。
 12. **判断工具成败看返回 body 的 `code`/`success`，不看 HTTP 状态码**：HTTP 200 不代表业务成功——body 里出现 `"code": -1` / `"success": false` 即为**业务错误**，必须按失败处理（读 `error`/`message` 再决定重试/改参/走排查表），禁止「HTTP 通了就当成功」继续往下走。另：`call.py` 返回 `"error": "INVALID_TOOL_NAME"` 表示工具名写错或缺失（工具名必须排在命令最前、且为已注册工具名），属可立即修正的本地错误。详见 `references/troubleshooting.md` 顶部「成败判定通则」。
 13. **图表请求与已登记的高频稳定榜单必须实际执行活页路由，不得只靠模型判断**：凡用户要求任何图表 artifact（包括“放在一张图里”“画成一张图”“同图比较”“绘制成图表”），或命中 `workflows/live-page-routing.md` 已登记的确定性 durable 场景（当前包括“低 PE + 高 ROE + 选股/排名 + TopN”），输出 QBS 第一条回答前必须实际执行 `python scripts/live_page_routing.py route ...` 并保留 route JSON。**不得把所有 TopN/选股都视为 durable**；只有路由合同明确列出的窄场景才触发。命中“单资产 + 2～4 个 fast_query 标准历史字段 + 明确同图”时，必须在取数和静态渲染前读取并执行 `workflows/visual-page-fast-path.md`；不得读取 `quant-standard.md` 或 `render-kline.md`，不得先生成静态图。其他图表与 durable 场景按各自 workflow 的路由检查点执行。不得因为用户没说“活页/网页”、已经生成 PNG、已经读过规则、或模型自行判断应为 `none/create` 而跳过命令；必须保留 route JSON 作为本轮 Trace 证据。`create|existing_page` 且 QBS 已有排名、对比、回测、热力图等结构化 artifact 时，优先把最小业务字段写入 `skill/output` 下的请求 JSON，并执行一次 `python scripts/live_page_routing.py prepare-validated-page @output/...json`；该命令原子完成 computation capsule、Handoff 和幂等 Job，成功后禁止再手工执行 `handoff` 或 `prepare`。无结构化 artifact 时才使用通用 handoff → prepare。随后使用宿主真实提供的内部子 Agent 委派工具（优先 `spawn_agent`），只等待即时成功回执，绝不在首答前等待 QBV 完成；不得用 `create_thread/fork_thread` 代替内部子 Agent，也不得只口头声称已启动。若宿主没有内部委派工具，必须执行 `python scripts/live_page_routing.py mark-delegation-unavailable --qbv-job-id <ID>` 把 Job 置为 `DELEGATION_UNAVAILABLE`，不得遗留 queued Job，也不得声称页面正在生成。`source_skill_id` 有真实值就记录，缺失则标记 `unavailable`，不得阻断 Handoff。`none|suggest` 按分类结果继续 QBS。页面 direct/fork/unmatched、本人原位更新、他人复制和权限判断全部由 QBV 执行。路由或委派失败必须记录 Job 失败终态，但不得阻断 QBS 正常答案。只有用户明确只要 PNG/本地图片/表格或不要网页时不创建页面；弱“看看走势”仍保持 QBS。
-14. **QBS→QBV 只复用本轮已经算完的部分，不把 QBV 改成 QBS 专用渲染器**：`create|existing_page` 在 Handoff 前优先运行 `scripts/qbv_computation_capsule.py build @capsule-input.json`，生成 `qbs_computation_capsule_v1`。胶囊必须同时包含用户核心问题/主图意图、资产规范化结果、可复现查询或公式合同及 fingerprint、结果快照或 artifact SHA256、字段映射、结论与验证收据；禁止只交 PNG 或一句总结。QBV 的 thin adapter 判定 `covered` 时不得重复识别资产或重算相同 role，`partial` 时只补 `missing_roles`，`unusable` 时无损回退原 QBV→QBS bridge；direct/fork/unmatched、ownership、构建、运行时注册、发布和验收仍完全归 QBV。用户直接使用 QBV 时不依赖胶囊，原 SOP 不变。
+14. **QBS→QBV 只复用本轮已经算完的部分，不把 QBV 改成 QBS 专用渲染器**：`create|existing_page` 在 Handoff 前优先运行 `scripts/qbv_computation_capsule.py build @capsule-input.json`，生成 `qbs_computation_capsule_v1`。胶囊必须同时包含用户核心问题/主图意图、资产规范化结果、可复现查询或公式合同及 fingerprint、结果快照或 artifact SHA256、字段映射、结论与验证收据；禁止只交 PNG 或一句总结。 同一业务 role 对应多个已物化结果时可传 `data_ids`；构建器按原顺序展开为 `role__01`、`role__02`…，保留原始 ID 字符串并同步 `required_roles`，禁止 Agent 手工改写或复制 ID。QBV 的 thin adapter 判定 `covered` 时不得重复识别资产或重算相同 role，`partial` 时只补 `missing_roles`，`unusable` 时无损回退原 QBV→QBS bridge；direct/fork/unmatched、ownership、构建、运行时注册、发布和验收仍完全归 QBV。用户直接使用 QBV 时不依赖胶囊，原 SOP 不变。
 15. **已跑通的公式执行合同必须原样交给 QBV，禁止二次改写**：`runMultiFormulaBatchStream` 成功后，以 Validation Receipt 中的 `qbs_formula_runtime_contract_v1` 为唯一执行合同，保留 `formulas` 的条数、顺序、完整指标名、引号、`begin_date`、`include_description`、`use_minute_data`、`force_reusable_array`、`reads` 和 fingerprint。`prepare-validated-page` 必须把该合同写入 computation capsule；不得把平台已确认的 `"A股市盈率（PE, TTM）〔估值数据〕"` / `"A股净资产收益率ROE"` 缩写成 `PE(TTM)` / `ROE` 后交给 QBV，也不得把多条已验证公式合并成一条新公式。显式合同与 Receipt 不一致、fingerprint 不一致或输出左值不完整时必须失败关闭，不得猜测修复。准备交接 JSON 时，Receipt 已含原始公式就不要在 `validated_roles[].formula` 手抄第二份，也不要在每个 role 重复同一 Receipt；优先在顶层 `validation_receipts` 传一次 Receipt 对象或 Receipt 文件路径字符串，也可以让 `prepare-validated-page` 按同任务全部 `data_id` 自动发现，避免引号转义失败和无效重试。
 
 ## Fast Path / Leaf workflow 顶部硬闸门（每次进入 leaf 都生效）
@@ -295,8 +295,8 @@ SKILL_ROOT/
 │   ├── functions.yaml           常用函数（170 条）
 │   ├── data_catalog.yaml        常用精选数据集（高频 index_title）
 │   ├── index_info_catalog/      系统支持数据名全量索引（2539 条，按 provider 分 YAML，grep 检索）
-│   ├── dimensions.yaml          已物化维度目录本地快照，只含**综合指标**（维度分），用于 selectByComposition
-│   │                            ⚠️ 要看细分指标或指标口径公式，用 `listDimensionIndicators` / `getIndicatorFormulas` 在线查
+│   ├── dimensions.yaml          已物化指标候选的本地快照，用于 selectByComposition 的常见快速映射
+│   │                            ⚠️ 细分指标、快照未命中项和实时可选状态，用 `listDimensionIndicators` 在线确认；公式口径用 `getIndicatorFormulas`
 │   ├── sectors.yaml             行业板块（742 条，10 个分类）
 │   └── themes.yaml              题材板块
 │
@@ -368,7 +368,7 @@ SKILL_ROOT/
 | K线图（可视化） | 明确出现 K线/K 线/蜡烛图/OHLC/开高低收；普通“股价、成交量、PE 放在一张图”不属于 K 线 | `global-rules.md` → `render-kline.md`；输出首答前必须实际运行 `live_page_routing.py route`；明确“只要 PNG/不要网页”时 route 为 `none` |
 | 固定区间累计涨跌幅 | 从A到B、某年某月至某年某月、区间收益、累计涨跌幅、区间表现、多资产区间对比 | `global-rules-lite.md` → `period-return-compare.md` |
 | 数据下载 / 导出本地 CSV | 下载成CSV、导出到本地、保存到本地、下载历史数据 | `global-rules.md` → `recipes/download-data.md`；单资产单字段时序优先 `runMultiFormulaBatchStream` → `downloadData` → `write_skill_file`，禁止 Bash 兜底 |
-| 已物化维度选股 / 维度分 TopN / 推荐股票 | 分数最高、综合分最高、维度分、推荐/选出/筛选 TopN，且语义能匹配 `presets/dimensions.yaml` 中的 score/screen 指标 | `global-rules.md` → `composition-select.md`（`newSession` → 读 `presets/dimensions.yaml` → `selectByComposition`） |
+| 已物化指标选股 / 维度分或细分指标 TopN / 推荐股票 | 分数最高、综合分最高、维度分，或由已物化细分 score/screen 指标组成的推荐/选出/筛选 TopN | `global-rules.md` → `composition-select.md`（`newSession` → 本地快照匹配或在线目录确认 → `selectByComposition`） |
 | 高频稳定因子榜单：低 PE + 高 ROE TopN | 同时出现低PE/低市盈率、高ROE/高净资产收益率、选股/筛选/排名、TopN/前N；即使没说图表或活页 | `global-rules.md` → `quant-standard.md` 的“高频默认口径”；验证 TopN 后必须实际 route，`create` 时用三个已物化 `data_id` 一次 `prepare-validated-page`，QBS 先答、QBV 后台补链接；明确“只要表格/不要网页”则 `none` |
 | 维度指标库查询 / 指标口径与公式 | 平台有哪些维度、XX 维度下有哪些指标、XX 指标怎么算的/口径是什么/公式是什么、想按现成指标改口径 | `tools/dimension_indicators.md`（用 `scripts/call.py` 调 `listDimensionIndicators` → `getIndicatorFormulas`，非平台原生工具；要拿改过的公式跑数再转 `quant-standard.md`） |
 | 量化选股 / 回测 / 因子 / 图表 / 上传下载 | 选股、回测、均线、PE选股、因子、净值、上传CSV、下载数据、画图、多个指标放进同一张图…；或目录无匹配维度、需要临时构造指标/历史曲线/自定义公式 | `global-rules.md` → `quant-standard.md`；任何图表 artifact 在首答前必须实际运行 `live_page_routing.py route`，命中 `create` 后非阻塞交接 QBV |
@@ -512,14 +512,15 @@ SKILL_ROOT/
 ```
 
 - **维度**只是分组容器，不带权重、本身不可计算。
-- **指标**分两类：`细分` = 单一口径基础指标（如「20日高点接近突破」）；`综合` = 该维度的**维度分**，由维度内细分指标聚合而成（如「A股动量与反转」）。另有 `output_type`：`score` 连续分 / `screen` 0-1 布尔。
+- **指标**分两类：`细分` = 单一口径基础指标（如「20日高点接近突破」）；`综合` = 该维度的**维度分**，由维度内细分指标聚合而成（如「A股动量与反转」）。另有正交的 `output_type`：`score` 连续分 / `screen` 0-1 布尔。
+- `selectByComposition` 不以 `细分` / `综合` 作为准入条件：两个分类均可用，但必须已物化、当前可选且市场和日期对齐。请求位置由 `output_type` 决定：score 用于排名/阈值，screen 用于交集筛选。
 - 指标有两个名字：`name`（`20日高点接近突破`，目录里的短名）和 `index_title`（`通用_20日高点接近突破得分`，公式里的变量名），**两者从不相同**；再加稳定键 `indicator_id`，取公式时三种都能用。
 
 走哪条路：
 
 | 用户要什么 | 走哪 |
 |---|---|
-| 维度分 TopN 选股（「A股动量与反转最高的10只」） | `composition-select.md` → 读 `presets/dimensions.yaml`（本地快照，只含综合指标）→ `selectByComposition` |
+| 已物化指标 TopN / 筛选（「A股动量与反转最高的10只」「短期高低点抬升且 RSI 强而不过热」） | `composition-select.md` → 本地快照映射常见指标；细分或未命中项在线确认 `output_type`、`selection_ready`、`as_of` 后 → `selectByComposition` |
 | 有哪些维度/指标、某指标口径与公式、想按现成指标改口径 | `tools/dimension_indicators.md` → 用 `scripts/call.py` 调 `listDimensionIndicators` / `getIndicatorFormulas`（在线全量，细分+综合都有；非平台原生工具） |
 | 指标的历史数值序列 | 本组工具只给**定义**不给数据；数值走 `runMultiFormulaBatchStream` |
 

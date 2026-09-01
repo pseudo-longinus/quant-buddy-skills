@@ -9,6 +9,45 @@
 
 ---
 
+## [0.6.64] — 2026-09-01
+
+### 已有页面修改强制 Fork 路由
+
+- task-scoped `interpret` 识别 `source_template` 后持久化来源绑定，并返回 `existing_page_route.required=true` / `must_copy_before_write=true` 的结构化路由要求。
+- 绑定完成前阻止 `new_asset_page`、`build_dashboard` 与直接 `upload`；existing-page mutation 只能使用 interpret 确认的来源进入 `new_page(mode=fork) → fork_prepare`，不得改判 unmatched 或偷换模板。
+- 补充路由与文档回归，锁定只读 interpret 与修改型 interpret 的边界；Turn 追踪继续保持 fail-soft、非阻塞，不改变页面业务返回。
+
+## [0.6.63] — 2026-09-01
+
+### Fork 发布收敛与最终回复保底
+
+- `fork_prepare` 返回 `publish_command` 后禁止继续读取发布器源码或运行帮助命令，只允许填写结构化 review 决策、执行发布命令并按错误修正。
+- 已创建进度页的任务必须进入 terminal 成功或明确失败，不再允许长期停留在 `running`；公网浏览器验收成功后下一步必须直接最终回复。
+- 回归 Agent 在最后一个工具轮次耗尽时追加一次无工具 finalization，依据已有证据诚实交付成功结果或说明未完成，禁止编造页面与发布状态。
+
+## [0.6.62] — 2026-08-31
+
+### Turn Bridge 可信状态与非阻塞降级
+
+- Trace Context 只恢复服务端确认的可信 Turn；登记拒绝、网络异常或本地持久化失败均返回非阻塞 tracking envelope，并清除 attempted/缓存的幽灵 Turn。
+- QBS Bridge 仅在子进程、payload、`tracking_recorded` 及 task/turn 上下文全部一致时判定同步成功；同步失败后按无 Turn 模式继续建页、取数和发布。
+- 当前规则明确业务上下文可继续切换到真实 `user_query` / `agent_intent`，但未登记的 `turn_id` 不保存、不传播。
+- 增加 Trace Context 与 Bridge 回归覆盖，锁定追踪降级不影响业务结果。
+
+
+### 移除 QBV 任务完成回调
+
+- 删除 QBV 自己的 `session_complete` 回调和 `/skill/session/complete` 请求；WebAgent 托管运行的完成通知继续由 claw-backend 在 Run 真正完成后负责。
+- 保留 Host Trace/Turn 上下文、终态回复校验、QBS Job 生命周期和任务临时文件清理，避免影响建页、回复交付与 QBS→QBV 交接。
+
+## [0.6.61] — 2026-08-28
+
+### 活页学习问题携题自动发送
+
+- Share Shell 升级到 `share-shell-v2 / revision 4`，新增 `web_agent_auto_submit` 能力；页面可把完整学习问题以页面绑定、请求去重的 `qb-web-agent-v1` 协议交给官方 Web Agent。
+- 新增待发送队列与可信 `ask-accepted` 确认：Web Agent ready 后仅发送一次，并继续校验官方 origin、精确 iframe source、`page_id`、`page_url` 与 `request_id`。
+- 同步 Share Shell 文档和刷新/运行时回归测试，确保旧页刷新时保留正文、实时取数、Card Runtime、原 `page_id` 与公开 URL。
+
 ## [0.6.60] — 2026-08-28
 
 ### 既有活页解读、CSV 证据链与范式路由收敛

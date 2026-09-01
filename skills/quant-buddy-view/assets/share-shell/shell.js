@@ -1,6 +1,6 @@
 (function(){
   const VERSION = "share-shell-v2";
-  const REVISION = 3;
+  const REVISION = 4;
   const OFFICIAL_ORIGIN = "https://www.quantbuddy.cn";
   const PAGES_ORIGIN = "https://pages.quantbuddy.cn";
   const WAREHOUSE_CHANNEL = "qb-research-warehouse-v1";
@@ -27,6 +27,8 @@
   let webAgentHelloTimer=0;
   let webAgentHelloAttempts=0;
   let pendingWebAgentTrigger=null;
+  let pendingWebAgentAsk=null;
+  let webAgentAskSequence=0;
   let headerReady=false;
   let headerReadyTimer=0;
   let favoriteState=false;
@@ -404,6 +406,26 @@
     if(!context || !context.pageId || !context.pageUrl) return null;
     return {channel:WEB_AGENT_CHANNEL,type:"hello",page_id:context.pageId,page_url:context.pageUrl};
   }
+  function buildWebAgentAsk(context,request){
+    if(!context || !context.pageId || !context.pageUrl || !request) return null;
+    const question=String(request.question || "").trim();
+    const requestId=String(request.requestId || "");
+    if(!question || question.length>4000 || !/^ask_[A-Za-z0-9_-]{8,120}$/.test(requestId)) return null;
+    return {channel:WEB_AGENT_CHANNEL,type:"ask",page_id:context.pageId,page_url:context.pageUrl,request_id:requestId,question:question,auto_send:true};
+  }
+  function nextWebAgentAskId(){
+    webAgentAskSequence+=1;
+    return "ask_"+Date.now().toString(36)+"_"+webAgentAskSequence.toString(36)+"_"+Math.random().toString(36).slice(2,10);
+  }
+  function postPendingWebAgentAsk(){
+    const frame=webAgentFrame(), request=pendingWebAgentAsk;
+    if(!webAgentReady || !frame || !frame.contentWindow || !request || request.sent) return false;
+    const message=buildWebAgentAsk(pageContext,request);
+    if(!message) return false;
+    frame.contentWindow.postMessage(message,serviceOrigin());
+    request.sent=true;
+    return true;
+  }
   function postWebAgentHello(){
     const frame=webAgentFrame(), message=buildWebAgentHello(pageContext);
     if(!frame || !frame.contentWindow || !message) return false;
@@ -429,7 +451,7 @@
     const frame=webAgentFrame();
     if(!frame || !pageContext) return null;
     if(!frame.dataset.qbWebAgentLoadBound){
-      frame.addEventListener("load",()=>{ webAgentReady=false; scheduleWebAgentHelloRetries(); });
+      frame.addEventListener("load",()=>{ webAgentReady=false; if(pendingWebAgentAsk) pendingWebAgentAsk.sent=false; scheduleWebAgentHelloRetries(); });
       frame.dataset.qbWebAgentLoadBound="1";
     }
     if(!frame.src) frame.src=pageContext.webAgentEmbedUrl;
@@ -455,6 +477,14 @@
     document.documentElement.style.overflow="hidden";
     return true;
   }
+  function askWebAgent(question,event){
+    const normalized=String(question || "").trim();
+    if(!normalized || normalized.length>4000) return false;
+    pendingWebAgentAsk={requestId:nextWebAgentAskId(),question:normalized,sent:false};
+    if(!openWebAgent(event)){ pendingWebAgentAsk=null; return false; }
+    postPendingWebAgentAsk();
+    return {requestId:pendingWebAgentAsk.requestId,queued:true};
+  }
   function closeWebAgent(restoreFocus){
     stopWebAgentHelloRetries();
     const modal=$("webAgentModal");
@@ -465,6 +495,7 @@
     document.documentElement.style.overflow="";
     if(restoreFocus!==false && pendingWebAgentTrigger && typeof pendingWebAgentTrigger.focus==="function") pendingWebAgentTrigger.focus();
     pendingWebAgentTrigger=null;
+    pendingWebAgentAsk=null;
   }
   function isTrustedWebAgentMessage(event,frame,context){
     const data=event && event.data;
@@ -487,7 +518,13 @@
     const frame=webAgentFrame();
     if(!isTrustedWebAgentMessage(event,frame,pageContext)) return;
     const data=event.data;
-    if(data.type==="ready"){ webAgentReady=true; stopWebAgentHelloRetries(); return; }
+    if(data.type==="ready"){ webAgentReady=true; stopWebAgentHelloRetries(); postPendingWebAgentAsk(); return; }
+    if(data.type==="ask-accepted" && pendingWebAgentAsk && data.request_id===pendingWebAgentAsk.requestId){
+      const requestId=pendingWebAgentAsk.requestId;
+      pendingWebAgentAsk=null;
+      if(typeof window.CustomEvent==="function" && typeof window.dispatchEvent==="function") window.dispatchEvent(new window.CustomEvent("qb:web-agent-ask-accepted",{detail:{requestId:requestId}}));
+      return;
+    }
     if(data.type==="close"){ closeWebAgent(true); return; }
     if(data.type==="turn-complete"){ void runRefresh(); return; }
     if(data.type==="page-updated") reloadAfterAgentUpdate();
@@ -586,5 +623,5 @@
   }
   window.QB_SHARE_SHELL_VERSION=VERSION;
   window.QB_SHARE_SHELL_REVISION=REVISION;
-  window.QBShareShell={init:init, open:openSharePoster, close:closeSharePoster, refresh:runRefresh, setRefreshBusy:setRefreshBusy, setFavoriteState:setFavoriteState, isWebAgentPreviewContext:isWebAgentPreviewContext, buildHeaderMessage:buildHeaderMessage, isTrustedHeaderMessage:isTrustedHeaderMessage, routeHeaderAction:routeHeaderAction, onHeaderMessage:onHeaderMessage, ensureHeaderFrame:ensureHeaderFrame, normalizeOfficialTarget:normalizeOfficialTarget, derivePageContext:derivePageContext, buildWarehouseHello:buildWarehouseHello, isTrustedWarehouseMessage:isTrustedWarehouseMessage, openWarehouse:openWarehouse, closeWarehouse:closeWarehouse, buildAuthHello:buildAuthHello, isTrustedAuthReadyMessage:isTrustedAuthReadyMessage, isTrustedAuthMessage:isTrustedAuthMessage, openAuthenticatedTarget:openAuthenticatedTarget, closeAuthContinue:closeAuthContinue, buildWebAgentHello:buildWebAgentHello, isTrustedWebAgentMessage:isTrustedWebAgentMessage, isMobileAsk:isMobileAsk, openWebAgent:openWebAgent, closeWebAgent:closeWebAgent};
+  window.QBShareShell={init:init, open:openSharePoster, close:closeSharePoster, refresh:runRefresh, setRefreshBusy:setRefreshBusy, setFavoriteState:setFavoriteState, isWebAgentPreviewContext:isWebAgentPreviewContext, buildHeaderMessage:buildHeaderMessage, isTrustedHeaderMessage:isTrustedHeaderMessage, routeHeaderAction:routeHeaderAction, onHeaderMessage:onHeaderMessage, ensureHeaderFrame:ensureHeaderFrame, normalizeOfficialTarget:normalizeOfficialTarget, derivePageContext:derivePageContext, buildWarehouseHello:buildWarehouseHello, isTrustedWarehouseMessage:isTrustedWarehouseMessage, openWarehouse:openWarehouse, closeWarehouse:closeWarehouse, buildAuthHello:buildAuthHello, isTrustedAuthReadyMessage:isTrustedAuthReadyMessage, isTrustedAuthMessage:isTrustedAuthMessage, openAuthenticatedTarget:openAuthenticatedTarget, closeAuthContinue:closeAuthContinue, buildWebAgentHello:buildWebAgentHello, buildWebAgentAsk:buildWebAgentAsk, isTrustedWebAgentMessage:isTrustedWebAgentMessage, isMobileAsk:isMobileAsk, openWebAgent:openWebAgent, askWebAgent:askWebAgent, closeWebAgent:closeWebAgent};
 })();

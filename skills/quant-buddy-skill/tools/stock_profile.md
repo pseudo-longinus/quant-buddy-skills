@@ -2,7 +2,7 @@
 
 > **实际工具名：`stockProfile`**。禁止调用 `stock_profile` / `getStockProfile` / `stockProfileQuery` 等名称变体。
 
-一次调用返回单只股票在评级表系统中的预计算指标画像。数据来自后端 `smartstock_indicator_latest` 集合，按维度分组返回最新值、上一期值、日期和单位。本工具是纯 DB 查询，不执行自定义公式，不做 IC 扫描。
+一次调用返回单只股票在评级表系统中的预计算及千维动态指标画像。预计算指标来自 `smartstock_indicator_latest`，千维最新值来自 `qw_indicator`，千维上一有效值来自 `qw_indicator_history`；按维度分组返回最新值、上一有效值、日期和单位。本工具是纯 DB 查询，不执行自定义公式，不做 IC 扫描。
 
 ## 适用 / 不适用
 
@@ -12,7 +12,7 @@
 | 个股画像、指标概览 | 最近 N 日序列 / 窗口统计 → `fast_query` |
 | 估值、财务、资金、波动率、走势综合看一下 | 多股票批量比较、选股、回测、自定义公式 → 对应量化 workflow |
 | 单只股票全维度预计算指标概览 | IC / 预测力 / 哪个维度有效 → `scanDimensions` |
-| 最新值 + 上一期值对比 | 投资建议、目标价、价格预测 → safe-fail |
+| 最新值 + 上一有效值对比 | 投资建议、目标价、价格预测 → safe-fail |
 
 ## 参数
 
@@ -53,8 +53,9 @@ data:
           latest_value
           latest_date      ← 与维度层不同时出现
           unit             ← 与维度层不同时出现
-          previous_value   ← period_change 类指标
-          previous_date    ← period_change 类指标
+          description      ← 千维动态指标可能出现
+          previous_value   ← 预计算上一期值或千维上一有效值
+          previous_date    ← 对应的上一期 / 上一有效日期
           variants:        ← 有衍生变体时出现
             suffix:
               value
@@ -75,11 +76,12 @@ data:
 | 字段 | 说明 |
 |---|---|
 | `name` | 指标展示名 |
-| `latest_value` | 最新值（已 round） |
+| `description` | 千维动态指标的口径说明；预计算指标通常不返回 |
+| `latest_value` | 最新值；预计算数值已 round，布尔型千维指标命中时可能返回 description 文本 |
 | `latest_date` | 最新值日期（YYYYMMDD），与维度层一致时省略；财务指标可能是报告期 |
 | `unit` | 单位，与维度层一致时省略 |
-| `previous_value` | 上一期值，仅 `period_change` 类指标 |
-| `previous_date` | 上一期日期（YYYYMMDD），仅 `period_change` 类指标 |
+| `previous_value` | 预计算指标的上一期值，或千维动态指标严格早于 `latest_date` 的上一有效值 |
+| `previous_date` | 对应的上一期 / 上一有效日期（YYYYMMDD）；历史不足时与 `previous_value` 一并省略 |
 | `variants` | 衍生变体子对象，key 为变体后缀（如 `pctrank:1Y`、`quarter_yoy`、`ret:20`） |
 
 ### 变体字段（`variants[suffix]`）
@@ -101,7 +103,15 @@ data:
 | 波动率 | 年化波动率、标准差及百分位 |
 | 宏观胜率背景 | 行业估值、情绪、换手等背景指标 |
 | 资产走势 | `close_price` 及 `:ret:20/60/120/250` |
+| 千维动态维度 | 后端 `qw_dimension` 返回的市场动态维度，例如相对强度、趋势结构、量能与流动性 |
 | 其他 | 新增但尚未映射到固定维度的指标 |
+
+## 千维上一有效值
+
+- 数值型千维指标的 `previous_value` 来自同一指标严格早于 `latest_date` 的最近有效历史值，`previous_date` 是该值对应日期。
+- 历史同日快照不会作为前值；空值或无效值会继续向更早日期查找，`0` 是有效值。
+- 布尔型千维指标当前未命中时不会出现在结果中；其 `previous_*` 表示上一次命中及日期。
+- 没有有效历史时只展示 `latest_*`，不要把字段缺失解释为 0，也不要再调用 `fast_query` 或公式链补算。
 
 ## 日内刷新注意
 
@@ -124,7 +134,7 @@ data:
 
 1. 首句直接给指标画像结论，不说”已成功获取”。
 2. 只引用返回的维度和指标，不补写未返回字段。
-3. 对用户关注的维度优先展开；未明确关注时按”资产走势 → 估值 → 财务分析 → 资金流向 → 波动率 → 宏观胜率背景”排序。
-4. 每个指标尽量包含：指标名、最新值、日期、上一期值。日期和单位可能在维度层级，注意合并读取。
+3. 对用户关注的维度优先展开；未明确关注时按”资产走势 → 估值 → 财务分析 → 资金流向 → 波动率 → 宏观胜率背景 → 千维动态维度”排序。
+4. 每个指标尽量包含：指标名、最新值、日期、上一期 / 上一有效值。日期和单位可能在维度层级，注意合并读取。
 5. `variants` 中的变体按需展开：用户问估值时展开百分位，问财务时展开 yoy/qoq/ttm 等口径。不必列出全部变体。
 6. 不提供买卖建议、目标价或后市价格预测。

@@ -61,7 +61,6 @@ import build_dashboard as BD
 import common as C
 import data_kernel_retrofit as DKR
 import formula_package as FP
-import session_complete as SC
 import static_page as SP
 
 # 结尾的 \n? 必须跟 BD._RENDER_JS_TEMPLATE 的收尾方式对齐（模板本身以 END marker + 一个换行结束），
@@ -210,17 +209,7 @@ def _download_page(params):
 
 
 def _update_page(params, html):
-    out = SP.cmd_update({"page_id": params.get("page_id"), "html": html, "task_id": params.get("task_id")})
-    # 增量编辑不产出 reply_validation_command，走不到 validate_agent_reply.py 里的终态埋点，
-    # 所以在这里补一次上报。best-effort，失败不影响编辑结果。
-    if isinstance(out, dict) and out.get("code") == 0:
-        SC.report(
-            params.get("task_id") or C.current_trace_context().get("task_id"),
-            public_url=out.get("url") or out.get("public_url") or "",
-            user_query=C.current_trace_context().get("user_query") or "",
-            operation="chart_edit",
-        )
-    return out
+    return SP.cmd_update({"page_id": params.get("page_id"), "html": html, "task_id": params.get("task_id")})
 
 
 # ────────────────────────────────────────────────

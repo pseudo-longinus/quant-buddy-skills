@@ -171,7 +171,6 @@ import progress_page as PP
 import qbs_job_lifecycle as QJL
 import reply_data_evidence as RDE
 import reply_template_registry as RTR
-import session_complete as SC
 import share_shell_contract as SSC
 import single_stock_reply as SSR
 
@@ -2058,9 +2057,27 @@ def _validate_fork_manifest(params, template_resolution, final_html):
         return None, {"code": 1, "message": "fork 目标 HTML 仍含来源凭证: " + ", ".join(leaked)}
 
     visible_text = _html_text(final_html)
+    required_sections = _unique_strings(manifest.get("required_sections"))
+    raw_section_replacements = manifest.get("required_section_replacements") or {}
+    if not isinstance(raw_section_replacements, dict):
+        return None, {"code": 1, "message": "fork_manifest.required_section_replacements 必须是对象"}
+    required_section_replacements = {}
+    for source_section, target_section in raw_section_replacements.items():
+        source_text = str(source_section or "").strip()
+        target_text = str(target_section or "").strip()
+        if not source_text or source_text not in required_sections or not target_text:
+            return None, {
+                "code": 1,
+                "message": "fork_manifest.required_section_replacements 只能声明 required_sections 的非空替换",
+            }
+        required_section_replacements[source_text] = target_text
     missing_sections = [
-        section for section in _unique_strings(manifest.get("required_sections"))
+        section for section in required_sections
         if section not in visible_text
+        and not (
+            required_section_replacements.get(section)
+            and required_section_replacements[section] in visible_text
+        )
     ]
     if missing_sections:
         return None, {"code": 1, "message": "fork 目标 HTML 缺少核心栏目: " + ", ".join(missing_sections)}
@@ -2104,7 +2121,8 @@ def _validate_fork_manifest(params, template_resolution, final_html):
         "minimum_target_package_count": minimum_packages,
         "minimum_target_grant_count": minimum_grants,
         "credential_count_reduction_reason": reduction_reason,
-        "required_sections": _unique_strings(manifest.get("required_sections")),
+        "required_sections": required_sections,
+        "required_section_replacements": required_section_replacements,
         "required_outputs": required_outputs,
         "package_runtime_check": package_output_check,
         "card_runtime_required": bool(manifest.get("card_runtime_required")),
@@ -2525,6 +2543,9 @@ def _cmd_update_preserve(params, *, endpoint, api_key):
     )
 
 def cmd_upload(params):
+    route_error = _existing_page_mutation_error(params, action="upload")
+    if route_error:
+        return route_error
     cfg = C.load_config_require_key()
     endpoint, api_key = C.endpoint_of(cfg), cfg.get("api_key", "")
 
@@ -3995,6 +4016,7 @@ _ROUTING_UNMATCHED_REASON_CODES = {
     "user_requires_bespoke",
 }
 _FORK_BORROW_MODES = ("inherit", "inherit_augment", "compose")
+_EXISTING_PAGE_ROUTE_BYPASS = object()
 
 
 def _routing_task_id(params):
@@ -4061,11 +4083,11 @@ def _write_routing_credential_record(cred):
 
 
 def _write_routing_credential(task_id, recommend_scope, item_count, templates_full_sha256):
-    """templates 成功后落盘一份范式路由凭据，供 new_page 门禁确认已查过完整范式池。
-    仅记录非凭证信息（scope/数量/sha），失败时静默跳过：凭据缺失本身会被门禁拦下。"""
+    """templates 成功后落盘范式路由凭据，并保留 interpret 已绑定的已有页来源。"""
     task_id = str(task_id or "").strip()
     if not task_id:
         return
+    previous, _, read_error = _read_routing_credential(task_id)
     cred = {
         "version": _ROUTING_CREDENTIAL_VERSION,
         "task_id": task_id,
@@ -4074,8 +4096,11 @@ def _write_routing_credential(task_id, recommend_scope, item_count, templates_fu
         "templates_full_sha256": str(templates_full_sha256 or ""),
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
+    if not read_error and isinstance(previous, dict):
+        for key in ("existing_page_reference", "routing_decision", "decision_revision", "page_id"):
+            if key in previous:
+                cred[key] = previous[key]
     _write_routing_credential_record(cred)
-
 
 def _routing_credential_error(params):
     """new_page 前置门禁：确认当前任务已用 recommend="all" 查过范式卡。
@@ -4108,6 +4133,99 @@ def _routing_credential_error(params):
             "recommend_scope": str(cred.get("recommend_scope") or ""),
         }
     return None
+
+
+def _existing_page_mutation_error(params, *, action):
+    """Block regenerated writes after task-scoped interpret identifies a source template."""
+    params = params if isinstance(params, dict) else {}
+    if params.get("_existing_page_route_bypass") is _EXISTING_PAGE_ROUTE_BYPASS:
+        return None
+    task_id = _routing_task_id(params)
+    if not task_id:
+        return None
+    cred, _, read_error = _read_routing_credential(task_id)
+    if read_error:
+        return read_error
+    reference = (cred or {}).get("existing_page_reference")
+    if not isinstance(reference, dict):
+        return None
+    decision = (cred or {}).get("routing_decision")
+    expected_source = str(reference.get("source_template_id") or "").strip()
+    if isinstance(decision, dict) and decision.get("mode") == "fork":
+        actual_source = str(decision.get("source_template_id") or "").strip()
+        if actual_source == expected_source:
+            return None
+    return {
+        "code": 1,
+        "error": "EXISTING_PAGE_FORK_REQUIRED",
+        "message": (
+            "当前 task 已通过 interpret 识别出不可直接写入的 source_template；"
+            "必须先运行 templates(recommend=\"all\")，再用该来源执行 new_page(mode=fork) → fork_prepare。"
+            "在 fork 决策绑定前禁止 new_asset_page、build_dashboard、upload 或重新生成页面。"
+        ),
+        "task_id": task_id,
+        "action": str(action or ""),
+        "source_template_id": expected_source,
+        "source_public_url": str(reference.get("public_url") or ""),
+        "must_copy_before_write": True,
+        "required_sequence": ["templates", "new_page", "fork_prepare"],
+        "recoverable": True,
+    }
+
+
+def _existing_page_reference_from_interpret(result, url):
+    if not (isinstance(result, dict) and result.get("code") == 0):
+        return None
+    data = result.get("data")
+    if not isinstance(data, dict):
+        return None
+    resource_role = str(data.get("resource_role") or "").strip()
+    if resource_role != "source_template" and data.get("terminal_reply_allowed") is not False:
+        return None
+    source_id = str(data.get("template_id") or data.get("page_id") or "").strip()
+    if not source_id:
+        return None
+    return {
+        "version": "existing_page_reference_v1",
+        "source_template_id": source_id,
+        "page_id": str(data.get("page_id") or "").strip(),
+        "owner": str(data.get("owner") or data.get("user_name") or "").strip(),
+        "resource_role": resource_role or "source_template",
+        "terminal_reply_allowed": bool(data.get("terminal_reply_allowed")),
+        "public_url": str(data.get("public_url") or data.get("url") or url or "").strip(),
+        "recorded_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _record_existing_page_reference(task_id, reference):
+    task_id = str(task_id or "").strip()
+    if not task_id or not isinstance(reference, dict):
+        return None, None
+    cred, _, read_error = _read_routing_credential(task_id)
+    if read_error:
+        return None, read_error
+    cred = dict(cred or {
+        "version": _ROUTING_CREDENTIAL_VERSION,
+        "task_id": task_id,
+        "recommend_scope": "",
+        "item_count": 0,
+        "templates_full_sha256": "",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    })
+    previous = cred.get("existing_page_reference")
+    previous_source = str((previous or {}).get("source_template_id") or "").strip()
+    source_id = str(reference.get("source_template_id") or "").strip()
+    if previous_source and previous_source != source_id:
+        return None, {
+            "code": 1,
+            "error": "EXISTING_PAGE_REFERENCE_CONFLICT",
+            "message": "当前 task 已绑定另一已有页来源，禁止在同一 task 中更换来源页面。",
+            "task_id": task_id,
+            "expected_source_template_id": previous_source,
+            "actual_source_template_id": source_id,
+        }
+    cred["existing_page_reference"] = dict(reference)
+    return _write_routing_credential_record(cred)
 
 
 def _routing_candidates(task_id, cred):
@@ -4369,6 +4487,16 @@ def _validate_routing_decision(params):
 
     mode = str(decision.get("mode") or "").strip().lower()
     reason_code = str(decision.get("reason_code") or "").strip()
+    existing_reference = cred.get("existing_page_reference") if isinstance(cred.get("existing_page_reference"), dict) else None
+    if existing_reference and mode != "fork":
+        return None, {
+            "code": 1,
+            "error": "EXISTING_PAGE_FORK_REQUIRED",
+            "message": "用户提供的已有 source_template 必须复制后修改；禁止改判 direct 或 unmatched。",
+            "task_id": task_id,
+            "source_template_id": str(existing_reference.get("source_template_id") or ""),
+            "must_copy_before_write": True,
+        }
     if mode == "direct":
         return None, {
             "code": 1,
@@ -4380,6 +4508,17 @@ def _validate_routing_decision(params):
         candidate = candidates["index"].get(source_id)
         if not source_id:
             return None, {"code": 1, "error": "ROUTING_SOURCE_TEMPLATE_REQUIRED", "message": "fork 必须提供 source_template_id"}
+        if existing_reference:
+            expected_source = str(existing_reference.get("source_template_id") or "").strip()
+            if source_id != expected_source:
+                return None, {
+                    "code": 1,
+                    "error": "EXISTING_PAGE_SOURCE_CONFLICT",
+                    "message": "fork 来源必须与用户提供并经 interpret 确认的已有页面一致。",
+                    "task_id": task_id,
+                    "expected_source_template_id": expected_source,
+                    "actual_source_template_id": source_id,
+                }
         if not candidate:
             return None, {
                 "code": 1,
@@ -4538,6 +4677,9 @@ def cmd_new_asset_page(params):
             "error": "NEW_ASSET_PAGE_PARAMS_REQUIRED",
             "message": "new_asset_page 需要 task_id（先运行 trace_context.py begin）",
         }
+    route_error = _existing_page_mutation_error({**params, "task_id": task_id}, action="new_asset_page")
+    if route_error:
+        return route_error
 
     cfg = C.load_config_require_key()
     endpoint, api_key = C.endpoint_of(cfg), cfg.get("api_key", "")
@@ -4700,12 +4842,6 @@ def cmd_new_asset_page(params):
         "agent_reply_markdown": markdown,
         "agent_reply_markdown_sha256": markdown_sha256,
     })
-    SC.report(
-        task_id,
-        public_url=contract.get("public_url") or "",
-        user_query=user_query,
-        operation="new_asset_page",
-    )
     C.cleanup_task_temp_files(task_id)
     for key in ("data_sources_file", "data_sources_sha256", "csv_manifest_file", "csv_evidence_file"):
         result.pop(key, None)
@@ -4723,6 +4859,7 @@ def cmd_new_page(params):
         return validation_error
     state, html = _progress_state_and_html(params)
     payload = _progress_publish_payload(params, html, require_page_id=False, state=state)
+    payload["_existing_page_route_bypass"] = _EXISTING_PAGE_ROUTE_BYPASS
     out = cmd_upload(payload)
     if not (isinstance(out, dict) and out.get("code") == 0):
         return out
@@ -5515,19 +5652,42 @@ def _validate_fork_images(html, page_id):
 
 def cmd_interpret(params):
     """Read an existing live page and its current runtime data without fetching page HTML."""
+    params = dict(params or {})
     cfg = C.load_config_require_key()
     endpoint, api_key = C.endpoint_of(cfg), cfg.get("api_key", "")
     url = str(params.get("url") or "").strip()
     if not url:
         return {"code": 1, "error": "PAGE_URL_REQUIRED", "message": "interpret 需要 QuantBuddy 页面 url"}
     query = _up.urlencode({"url": url, "need_data": "true"})
-    return C.http_json(
+    result = C.http_json(
         "GET",
         C.api_url(endpoint, _PATH["download"]) + "?" + query,
         C.headers(api_key),
         timeout=_UPLOAD_TIMEOUT,
     )
-
+    task_id = _routing_task_id(params)
+    reference = _existing_page_reference_from_interpret(result, url) if task_id else None
+    if not reference:
+        return result
+    binding_file, binding_error = _record_existing_page_reference(task_id, reference)
+    if binding_error:
+        return binding_error
+    enriched = dict(result)
+    enriched["existing_page_route"] = {
+        "required": True,
+        "must_copy_before_write": True,
+        "source_template_id": reference["source_template_id"],
+        "source_public_url": reference["public_url"],
+        "binding_file": binding_file,
+        "required_sequence": ["templates", "new_page", "fork_prepare"],
+        "next_command": "static_page.py templates",
+        "forbidden_before_fork_decision": ["new_asset_page", "build_dashboard", "upload", "regenerated_page"],
+        "instruction": (
+            "这是用户指定的已有 source_template 修改任务。先查 templates(recommend=\"all\")，"
+            "随后用本 source_template_id 执行 new_page(mode=fork)，再执行 fork_prepare；禁止直接重新生成页面。"
+        ),
+    }
+    return enriched
 
 def cmd_interpret_csv(params):
     """Hydrate CSV references from the immediately preceding interpret response."""
@@ -7614,6 +7774,7 @@ def cmd_fork_prepare(params):
         "minimum_target_grant_count": minimum_target_grant_count,
         "credential_count_reduction_reason": reduction_reason,
         "required_sections": required_sections,
+        "required_section_replacements": {},
         "context_sections": _unique_strings(context.get("core_sections") or []),
         "required_outputs": required_outputs,
         "source_headings": _html_headings(source_html),
@@ -7803,8 +7964,15 @@ def cmd_fork_review_update(params):
                 "receipt_created": False,
                 "review_update_params_file": update_params_file,
             }
-        with open(paths["manifest_file"], "rb") as handle:
-            manifest_sha256 = hashlib.sha256(handle.read()).hexdigest()
+        required_sections = set(_unique_strings(manifest.get("required_sections")))
+        manifest["required_section_replacements"] = {
+            str(source): str(target)
+            for source, target in (updated.get("page_label_replacements") or {}).items()
+            if str(source) in required_sections and str(target or "").strip()
+        }
+        manifest_bytes = (json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+        _atomic_write_bytes(paths["manifest_file"], manifest_bytes)
+        manifest_sha256 = hashlib.sha256(manifest_bytes).hexdigest()
         with open(paths["working_html_file"], "rb") as handle:
             html_sha256 = hashlib.sha256(handle.read()).hexdigest()
         page_id = str(params.get("target_page_id") or (plan.get("publish_verified") or {}).get("page_id") or "")

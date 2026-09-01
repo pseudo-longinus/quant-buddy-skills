@@ -2,7 +2,7 @@
 name: quant-buddy-view
 slug: quant-buddy-view
 author: guanzhao
-version: 0.6.60
+version: 0.6.64
 description: |
   QBV / quant-buddy-view（用户可能写成 /quant-buddy-view、/qbv、qbv 或 QBV）用于把量化数据做成「公开可分享、实时取数」的网页看板/落地页。
   Use this skill when the user asks to create, update, publish, verify, retrofit, or reuse a Quant Buddy dashboard/static page/template, including shareable pages, public URLs, formula packages, share shell, cover/essence cards, poster/share behavior, single-stock profile pages, valuation/financial profile pages, index-anomaly boards, multi-factor screeners, and commodity daily pages.
@@ -12,7 +12,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 0.6.60
+  version: 0.6.64
   author: guanzhao
   category: quant-finance
   tags: [quant, dashboard, formula-package, static-page, publish, visualization]
@@ -84,7 +84,7 @@ python scripts/static_page.py interpret '{"url":"用户提供的页面 URL"}'
 4. fork/unmatched 调用 `new_page` 时由 Agent 根据 `items_summary` 显式传 `routing_decision`；fork 还必须声明 `borrow_mode=inherit|inherit_augment|compose`。fork 一旦判定只能继承、增强继承或 Compose，禁止改判 unmatched。
 5. `new_asset_page` 成功后原样发送其 `agent_reply_markdown`；direct、fork/unmatched 仍按 `agent_reply_contract` 和回复模板生成证据绑定草稿，再运行返回的 `reply_validation_command`，只有 `valid=true` 才最终回复。
 
-> **多轮追问**：首次用户消息运行 `scripts/trace_context.py begin`；同一 `task_id` 的每条后续用户消息先运行 `scripts/trace_context.py beginTurn`。正常 Agent 必须同时传本轮可选 `agent_intent`：简洁展开上下文指代并写清对象、动作、约束和期望页面/产物，推荐 20～160 字；不得复制用户原话、输出内部推理或提前编造结论。老调用方可省略并按 `null` 继续。一轮内所有 QBV/QBS 工具共享同一 `turn_id`。Turn 是审计旁路：服务端记录失败会返回 `tracking_recorded:false`，但不得阻断建页、更新、取数或发布；本地上下文仍切换并继续。更新既有活页必须继续复用原 `page_id` 与公开 URL。
+> **多轮追问**：首次用户消息运行 `scripts/trace_context.py begin`；同一 `task_id` 的每条后续用户消息先运行 `scripts/trace_context.py beginTurn`。正常 Agent 必须同时传本轮可选 `agent_intent`：简洁展开上下文指代并写清对象、动作、约束和期望页面/产物，推荐 20～160 字；不得复制用户原话、输出内部推理或提前编造结论。老调用方可省略并按 `null` 继续。一轮内所有 QBV/QBS 工具共享同一 `turn_id`。Turn 是审计旁路：服务端记录失败会返回 `tracking_recorded:false`，但不得阻断建页、更新、取数或发布；业务上下文继续切换到真实 `user_query` / `agent_intent`，attempted `turn_id` 不保存、不传播，后续按无 Turn 模式继续。更新既有活页必须继续复用原 `page_id` 与公开 URL。
 
 > **QBS 并行 Handoff**：收到 `qbs_qbv_handoff_v1` 时运行 `scripts/trace_context.py beginHandoff`（兼容 `begin-handoff`），传入 Handoff object 或绝对 `handoff_file`。必须原样复用其中真实 `task_id + turn_id + source_skill_id`，不得再次 `begin/beginTurn`、不得在 QBV 重做 QBS 路由分类。`create/existing_page` 之后仍进入本 Skill 完整 SOP，由 QBV 判断 direct/fork/unmatched、查询 ownership 并执行本人原位更新或他人复制；高风险持久状态未确认时 `beginHandoff` 必须拒绝。
 
@@ -111,6 +111,19 @@ QBV_API_KEY=<本次任务的 key> python scripts/trace_context.py begin '{"user_
 
 **具体资产证据闸门**：除 `new_asset_page` 固定场景外，只要用户点名具体资产，就在 Trace 后、解释资产身份或提交 `routing_decision` 前，按「Trace → 资产映射 → 最小接口验证 → 页面路由」的顺序完成验证：调用 `scripts/qbs_bridge.py resolve_asset_data` 得到平台 ticker 映射，并按页面实际需要探测所需数据角色是否可取数，只记录接口成功/失败、可用字段和结构化错误。页面结构与 direct/fork/unmatched 判断只依据"用户所需能力 × 已验证的平台能力"，不得依据 Agent 对公司上市状态、所有权、资产名称或市场惯例的记忆。验证前不得引入"上市/未上市、公开/私营、代理资产、无行情、只能静态"等限制性前提；若用户没有询问这些身份属性，也不要把它们扩展成分析主线。
 
+
+### 已有 URL 修改强制路由
+
+只有用户明确要求“解读/查看当前页面”且不要求修改时，才使用**不带 `task_id`** 的纯只读 `interpret`，读取后即可按返回证据回答，不进入建页流程。
+
+当用户提供已有 QuantBuddy URL，并表达“改成我的”“基于这个页面换标的/改内容/复制一份”等修改意图时，必须执行以下顺序：
+
+1. `trace_context.py begin` 建立任务；Turn 登记失败仍按非阻塞降级继续，不得把追踪异常变成页面业务错误。
+2. 带同一 `task_id` 调用 `static_page.py interpret`。若返回 `existing_page_route.required=true` 与 `must_copy_before_write=true`，该来源即绑定为本任务唯一已有页来源。
+3. 调用 `templates(recommend="all")`；此步骤只补齐范式池凭据，不能覆盖 interpret 已绑定的来源。
+4. 使用 interpret 返回的 `source_template_id` 调用 `new_page(mode=fork)`，随后立即执行 `new_page → fork_prepare`，消费其结构化 review 与 `publish_command`。
+
+在 fork 决策绑定前，禁止 `new_asset_page`、禁止 `build_dashboard`、禁止 bespoke `upload`，也禁止创建任何 regenerated page；不得把 existing-page mutation 改判成 direct/unmatched，也不得换用另一个 template。只有 `fork_prepare` 明确返回结构化不可复制错误，证明来源页面确实无法复制时，才允许考虑降级。降级结果必须显式声明 `page_context_mode=regenerated` 与 `source_page_context_inherited=false`，不得静默声称已继承来源布局、上下文或运行时合同。
 
 ### 从 QBS 并行交接进入（薄适配，不改变 QBV 独立 SOP）
 
@@ -148,11 +161,13 @@ python scripts/static_page.py new_asset_page '{"task_id":"task_xxx","asset":"贵
   - 不 `new_page`、不注册、不 fork、不研究脚本源码、不先跑 `--help`。`direct_deliver` 的公式结果固定为 summary；grant 完整结果只写 `%TEMP%`，最终回复不得暴露本地路径或凭证。
   - 只有返回 `agent_reply_contract.terminal=true` 且 `operation=direct_finalize` 才允许最终收口；失败时说明具体错误，不得用已发送的链接绕过终态门禁。回复模板和 `page_context` 沿用原页。
   - `direct_deliver` 会返回真实 contract、草稿、校验参数的 `%TEMP%\qbv_<完整 task_id>_*` 文件路径及 `reply_validation_command`。只把 Markdown 写入返回的 `reply_draft_file`，执行返回的命令一次；`valid=true` 后立即最终回复，禁止再次校验、运行 `--help`、扫描临时目录或继续搜索 memory。成功校验会统一清理 contract、draft、params 和 grant 临时结果。
+  - 公网浏览器验收成功后的下一步必须是最终回复；不得再调用 Read/Grep/Bash/浏览器或进入新的研究轮次。若浏览器验收是最后一个可用工具轮次，也必须用已验证 contract/URL 直接收口。
   - 用户之后说"要改这个页面内容" → 转 ② fork（官方/社区链接不能直接改，只能新建自己的链接后改）。
   - 边界：范式匹配但**标的/股票池/指数/市场范围不一致**（如命中的是茅台估值页、用户问的是宁德时代；命中沪深300异动页、用户问中证500）不算直接命中，落到 ②。只有资产无关且市场范围一致的全市场范式，才可不依赖具体标的直接命中。
 - **② fork**（范式命中但标的不符，或用户要改内容）：
   - 先运行 `new_page`，传 `routing_decision:{"mode":"fork","source_template_id":"page_xxx","reason_code":"same_paradigm_different_asset","borrow_mode":"inherit"}`。`inherit_augment` 用于模板结构可沿用但缺分析维度；`compose` 用于合同无法逐项继承、但布局/样式/渲染函数/公式思路或 Grant 形状仍可借鉴。
   - `fork_prepare` 是一次性 task 绑定：重复执行返回 `FORK_ALREADY_BOUND`；确需整体重建必须传 `force_rebuild:true + rebuild_reason`，同 task 禁止换来源模板。
+  - `fork_prepare 返回 publish_command 后` 即进入发布收敛阶段：只填写返回的 review 文件并执行该命令，禁止读取 `scripts/*.py`、运行 `--help` 或探索 `publish_workflow.py` / `fork_runtime_contract.py` 实现；命令失败只按结构化错误修正输入。已创建首链时必须完成 terminal 或明确失败收口，不得让进度页长期停留在 running。
   - `inherit_augment` 向 `fork_prepare` 传 `augmentation_spec`，新增 package/grant 角色与来源角色物理隔离。新增公式必须通过 QBS 验证，marker 必须恰好出现一次且输出必须被实际渲染。
   - `compose` 先运行 `intent_profile` 做 user_term/platform_dimensions/method_terms 三层映射，再用 `research_templates` 提取 credential-free 的栏目 HTML、CSS、渲染函数及合同形状，最后 `fork_compose` 提交借鉴清单。收据及 SHA256 绑定后才允许发布；全部 original 的零借鉴 Compose 被拒绝。
   - **资产替换的职责分工**：Agent 说清楚"换成哪只标的"，脚本负责"这只标的在页面里写成什么样"。来源主资产由脚本从模板公式词频 + 标题推导，代码的实际写法（`SH600900` / `600900.SH` / 裸 `600900`）由脚本扫描来源 HTML 得出，只替换真实存在的写法——不要去猜来源 HTML 里代码写成什么样，你看不到那个文件。多资产/指数类范式推不出主资产时返回 `FORK_SOURCE_ASSET_AMBIGUOUS`（报错自带候选名与可照抄的调用），用 `source_asset` 显式指明后重试。`asset_replacements` 仅作可选覆盖。替换后主资产若仍有残留，在写出工作 HTML 前就返回 `FORK_SOURCE_ASSET_RESIDUAL`，不会等到发布后才发现。
@@ -180,7 +195,7 @@ python scripts/static_page.py new_asset_page '{"task_id":"task_xxx","asset":"贵
   （`chart_edit.py inspect` 判定，多为本次改动之前生成的老页面）或改动本质上要求整页重算/换版式，才落回
   下面的整页重建。
 - **改造已发布/已生成页面**：优先 `scripts/retrofit_share_shell.py`，再 `static_page.py update` 保持同一个 `page_id` / URL；正式 update 应传具体 `change_note`，版式变化显式传 `change_aspect:"layout"`，其它类型可让服务端推断。
-- **Share Shell revision 3 页头边界**：可见页头由官网 `/embed/live-page-header` iframe 托管，活页 Parent Bridge 只执行刷新、收藏、分享、认证导航和移动 WebAgent 动作并校验 `qb-live-page-header-v1`；官网 WebAgent Preview 注入 `qb-live-page-embed-context=webagent-preview` 时不得加载页头或预加载收藏 iframe。官网只改页头视觉不要求逐页刷新；Parent Bridge、通信协议或能力契约变化才提升 revision。
+- **Share Shell revision 4 页面问答边界**：可见页头由官网 `/embed/live-page-header` iframe 托管，活页 Parent Bridge 只执行刷新、收藏、分享、认证导航和移动 WebAgent 动作、页面问题携题自动发送并校验 `qb-live-page-header-v1` / `qb-web-agent-v1`；官网 WebAgent Preview 注入 `qb-live-page-embed-context=webagent-preview` 时不得加载页头或预加载收藏 iframe。官网只改页头视觉不要求逐页刷新；Parent Bridge、通信协议或能力契约变化才提升 revision。
 - **用户可见链接策略**：普通渠道 direct 在 `templates` 命中后、下一次工具调用前发现成 URL，fork/unmatched 在 `new_page` 返回后立即发首链；`feishu-group` 看到 `delivery_policy.emit_intermediate_url=false` 后禁止发送任何非终态 URL，只在 validator 通过后发送 terminal contract 的 playground `public_url`。进度页仍用 `update_progress` 和 `publish_final` 更新同一 `page_id`；未显式传 `change_note` 时，版本修改描述按“状态 + 中文阶段标题 + 用户可见 message”自动生成，正式发布版本默认记录“完成发布：正式活页内容已发布”。
 - **Agent 回复模板**：活页 metadata 可带 `agent_reply_template` 指向本技能 `reply-templates/` 下的回复骨架。`reply-templates/` 是 Agent 最终回复格式，不是活页 HTML 页面模板；不要和在线 `templates` / `template` API 混用。
 - 本 skill 不再内置本地页面样板，不能从本地历史样板目录或低质 HTML 骨架起步。

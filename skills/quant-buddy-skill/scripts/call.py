@@ -45,12 +45,15 @@ from task_context import (
     TaskContextError,
     build_new_session_context,
     build_turn_context,
+    clear_turn_session_context,
     inject_or_validate_task_id,
     inject_or_validate_turn_context,
     may_replace_session_task_id,
     normalize_agent_intent,
     record_turn_tracking_diagnostic,
     session_context_fields,
+    tracking_reason_code,
+    tracking_result_outcome,
     turn_session_fields,
 )
 
@@ -397,8 +400,9 @@ def _update_session_trace(task_id, trace_id):
         pass
 
 
-def _write_session(task_id, user_query=None, task_context=None, turn_context=None):
-    """持久化 Session/Turn；同 task 的非上下文字段不因后续响应而丢失。"""
+def _write_session(task_id, user_query=None, task_context=None, turn_context=None,
+                   clear_turn=False, agent_intent=None):
+    """持久化 Session/Turn；未登记 Turn 时只保留真实业务上下文。"""
     os.makedirs(os.path.dirname(SESSION_FILE), exist_ok=True)
     previous = _read_session_full()
     same_task = str(previous.get("task_id") or "") == str(task_id or "")
@@ -411,6 +415,8 @@ def _write_session(task_id, user_query=None, task_context=None, turn_context=Non
     if turn_context:
         data.update(turn_session_fields(turn_context, previous if same_task else {}))
         data["user_query"] = turn_context.get("user_query")  # legacy readers
+    elif clear_turn:
+        clear_turn_session_context(data, user_query=user_query, agent_intent=agent_intent)
     with open(SESSION_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False)
 
@@ -441,18 +447,16 @@ def _post_turn(endpoint, api_key, channel, path, turn_context, agent_model=None,
     )
     with urllib.request.urlopen(req, timeout=30) as response:
         body = json.loads(response.read().decode("utf-8"))
-    if not isinstance(body, dict) or body.get("code") != 0 or not body.get("success"):
-        raise RuntimeError(f"Turn 创建失败: {body}")
-    if body.get("task_id") not in (None, "", turn_context["task_id"]):
-        raise RuntimeError(f"Turn 响应 task_id 不一致: {body}")
-    # message_id 幂等重试可能返回首次写入时的 canonical turn_id；客户端必须采用服务端值。
-    body["task_id"] = turn_context["task_id"]
-    body["turn_id"] = str(body.get("turn_id") or turn_context["turn_id"]).strip()
-    if not body["turn_id"]:
-        raise RuntimeError(f"Turn 响应缺少 turn_id: {body}")
-    body["agent_intent"] = normalize_agent_intent(
-        body.get("agent_intent") if "agent_intent" in body else turn_context.get("agent_intent")
-    )
+    if not isinstance(body, dict):
+        raise RuntimeError("Turn tracking response is not an object")
+    if body.get("code") == 0 and body.get("success") is not False and body.get("tracking_recorded") is not False:
+        # message_id 幂等重试可能返回首次写入时的 canonical turn_id；客户端必须采用服务端值。
+        body["task_id"] = turn_context["task_id"]
+        if body.get("turn_id") is not None:
+            body["turn_id"] = str(body.get("turn_id") or "").strip()
+        body["agent_intent"] = normalize_agent_intent(
+            body.get("agent_intent") if "agent_intent" in body else turn_context.get("agent_intent")
+        )
     return body
 
 
@@ -1458,13 +1462,15 @@ def main():
                     raw = "{}"
             else:
                 raw = " ".join(sys.argv[2:])
+        attempted_turn = None
         try:
             turn_params = json.loads(raw or "{}")
             session_data = _read_session_full()
-            turn_context = build_turn_context(session_data, turn_params, uuid_factory=uuid.uuid4)
+            attempted_turn = build_turn_context(session_data, turn_params, uuid_factory=uuid.uuid4)
             response = {}
+            trusted_turn = None
             tracking_recorded = False
-            tracking_error = None
+            reason_code = None
             try:
                 cfg = _ex.load_config()
                 api_key = _ex.resolve_api_key(turn_params, cfg)
@@ -1473,43 +1479,82 @@ def main():
                     raise RuntimeError("缺少 endpoint 或 api_key")
                 response = _post_turn(
                     endpoint, api_key, cfg.get("_channel", ""),
-                    "/skill/session/turn", turn_context,
+                    "/skill/session/turn", attempted_turn,
                     agent_model=str(turn_params.get("agent_model") or "").strip() or None,
                     user_id=turn_params.get("user_id"),
                 )
-                turn_context = {
-                    **turn_context,
-                    "turn_id": response["turn_id"],
-                    "agent_intent": response.get("agent_intent"),
-                }
-                tracking_recorded = True
-            except Exception as exc:
-                record_turn_tracking_diagnostic(
-                    SESSION_FILE, "beginTurn", turn_context.get("task_id"),
-                    turn_context.get("turn_id"), exc,
+                tracking_recorded, canonical_turn_id, canonical_intent, reason_code = tracking_result_outcome(
+                    response, attempted_turn["task_id"], attempted_turn["turn_id"]
                 )
-            _write_session(turn_context["task_id"], turn_context=turn_context)
+                if tracking_recorded:
+                    trusted_turn = {
+                        **attempted_turn,
+                        "turn_id": canonical_turn_id,
+                        "agent_intent": (
+                            canonical_intent if "agent_intent" in response
+                            else attempted_turn.get("agent_intent")
+                        ),
+                    }
+                else:
+                    record_turn_tracking_diagnostic(
+                        SESSION_FILE, "beginTurn", attempted_turn.get("task_id"),
+                        attempted_turn.get("turn_id"), response,
+                    )
+            except Exception as exc:
+                reason_code = tracking_reason_code(exc, "TURN_TRACKING_REQUEST_FAILED")
+                record_turn_tracking_diagnostic(
+                    SESSION_FILE, "beginTurn", attempted_turn.get("task_id"),
+                    attempted_turn.get("turn_id"), exc,
+                )
+
+            if trusted_turn:
+                _write_session(trusted_turn["task_id"], turn_context=trusted_turn)
+            else:
+                _write_session(
+                    attempted_turn["task_id"], user_query=attempted_turn["user_query"],
+                    clear_turn=True, agent_intent=attempted_turn.get("agent_intent"),
+                )
             result = {
-                "code": 0, "success": True,
-                "task_id": turn_context["task_id"],
-                "turn_id": turn_context["turn_id"],
-                "created": bool(response.get("created")),
-                "user_query": turn_context["user_query"],
-                "agent_intent": turn_context.get("agent_intent"),
+                "code": 0,
+                "success": True,
+                "task_id": attempted_turn["task_id"],
+                "created": bool(response.get("created")) if tracking_recorded else False,
+                "user_query": attempted_turn["user_query"],
+                "agent_intent": (
+                    trusted_turn.get("agent_intent") if trusted_turn
+                    else attempted_turn.get("agent_intent")
+                ),
                 "tracking_recorded": tracking_recorded,
-                "tracking_error": tracking_error,
+                "blocking": False,
                 "message": (
-                    "新 Turn 上下文已切换；后续工具会自动复用当前 task_id、turn_id 与 user_query。"
+                    "新 Turn 已登记；后续工具会自动复用当前可信 Turn。"
                     if tracking_recorded else
-                    "本轮上下文已切换，可以继续执行后续工具。"
+                    "Turn 追踪未登记，后续业务工具将以无 Turn 模式继续。"
                 ),
             }
+            if trusted_turn:
+                result["turn_id"] = trusted_turn["turn_id"]
+            else:
+                result["reason_code"] = reason_code or "TURN_TRACKING_FAILED"
         except TaskContextError as exc:
-            result = {"code": 1, "error": exc.code, "message": exc.message}
+            result = {
+                "code": 0, "success": True, "tracking_recorded": False,
+                "reason_code": exc.code, "blocking": False,
+                "message": "Turn 追踪未登记，业务流程可以继续。",
+            }
         except Exception as exc:
-            result = {"code": 1, "error": "TURN_BEGIN_FAILED", "message": str(exc)}
+            record_turn_tracking_diagnostic(
+                SESSION_FILE, "beginTurn", (attempted_turn or {}).get("task_id"),
+                (attempted_turn or {}).get("turn_id"), exc,
+            )
+            result = {
+                "code": 0, "success": True, "tracking_recorded": False,
+                "reason_code": tracking_reason_code(exc, "TURN_TRACKING_REQUEST_FAILED"),
+                "blocking": False,
+                "message": "Turn 追踪未登记，业务流程可以继续。",
+            }
         _safe_print(json.dumps(result, ensure_ascii=False, indent=2))
-        sys.exit(0 if result.get("code") == 0 else 1)
+        sys.exit(0)
 
     # ── newSession：独立模式生成 UUID；上游编排模式继承 task_id ──
     if tool_name == "newSession":
@@ -1549,11 +1594,17 @@ def main():
         initial_turn_params = dict(_ns_params)
         initial_turn_params["task_id"] = new_id
         initial_turn_params.setdefault("parent_turn_id", None)
-        try:
-            _turn_context = build_turn_context({}, initial_turn_params, uuid_factory=uuid.uuid4)
-        except TaskContextError as exc:
-            _safe_print(json.dumps({"code": 1, "error": exc.code, "message": exc.message}, ensure_ascii=False))
-            sys.exit(1)
+        _should_adopt_upstream_turn = (
+            not _task_context["report_session_begin"]
+            and bool(str(_ns_params.get("turn_id") or "").strip())
+        )
+        _attempted_turn = None
+        if _task_context["report_session_begin"] or _should_adopt_upstream_turn:
+            try:
+                _attempted_turn = build_turn_context({}, initial_turn_params, uuid_factory=uuid.uuid4)
+            except TaskContextError as exc:
+                _safe_print(json.dumps({"code": 1, "error": exc.code, "message": exc.message}, ensure_ascii=False))
+                sys.exit(1)
         user_id = _ns_params.get("user_id") or None
         # 当前模型：由上层 Agent 在 newSession 时传入，作为 body 参数随 session/begin 上报，
         # 供服务端在 newSession 这条日志上单独落库（与请求头来源相互独立、互不影响）。
@@ -1576,10 +1627,11 @@ def main():
         _channel = ""
 
         # Session/Turn 追踪为旁路：服务端登记失败不得阻断后续业务工具。
-        _tracking_recorded = not _task_context["report_session_begin"]
-        _tracking_error = None
+        _tracking_recorded = False
+        _tracking_reason = None
+        _trusted_turn = None
         try:
-            if _task_context["report_session_begin"]:
+            if _task_context["report_session_begin"] and _attempted_turn:
                 try:
                     _cfg = _ex.load_config()
                     _api_key = _ex.resolve_api_key(_ns_params, _cfg)
@@ -1588,27 +1640,51 @@ def main():
                     if not _endpoint or not _api_key:
                         raise RuntimeError("缺少 endpoint 或 api_key")
                     _turn_response = _post_turn(
-                        _endpoint, _api_key, _channel, "/skill/session/begin", _turn_context,
+                        _endpoint, _api_key, _channel, "/skill/session/begin", _attempted_turn,
                         agent_model=agent_model, user_id=user_id,
                     )
-                    _turn_context = {
-                        **_turn_context,
-                        "turn_id": _turn_response["turn_id"],
-                        "agent_intent": _turn_response.get("agent_intent"),
-                    }
-                    _tracking_recorded = True
-                except Exception as exc:
-                    record_turn_tracking_diagnostic(
-                        SESSION_FILE, "newSession", _turn_context.get("task_id"),
-                        _turn_context.get("turn_id"), exc,
+                    _tracking_recorded, _canonical_turn_id, _canonical_intent, _tracking_reason = tracking_result_outcome(
+                        _turn_response, new_id, _attempted_turn["turn_id"]
                     )
-            _write_session(
-                new_id, user_query=user_query, task_context=_task_context, turn_context=_turn_context
-            )
+                    if _tracking_recorded:
+                        _trusted_turn = {
+                            **_attempted_turn,
+                            "turn_id": _canonical_turn_id,
+                            "agent_intent": (
+                                _canonical_intent if "agent_intent" in _turn_response
+                                else _attempted_turn.get("agent_intent")
+                            ),
+                        }
+                    else:
+                        record_turn_tracking_diagnostic(
+                            SESSION_FILE, "newSession", new_id,
+                            _attempted_turn.get("turn_id"), _turn_response,
+                        )
+                except Exception as exc:
+                    _tracking_reason = tracking_reason_code(exc, "TURN_TRACKING_REQUEST_FAILED")
+                    record_turn_tracking_diagnostic(
+                        SESSION_FILE, "newSession", new_id,
+                        _attempted_turn.get("turn_id"), exc,
+                    )
+            elif _should_adopt_upstream_turn and _attempted_turn:
+                _trusted_turn = _attempted_turn
+                _tracking_recorded = True
+            else:
+                _tracking_reason = "NO_TRUSTED_TURN"
+
+            if _trusted_turn:
+                _write_session(
+                    new_id, user_query=user_query, task_context=_task_context, turn_context=_trusted_turn
+                )
+            else:
+                _write_session(
+                    new_id, user_query=user_query, task_context=_task_context, clear_turn=True,
+                    agent_intent=_ns_params.get("agent_intent"),
+                )
         except Exception as exc:
             _safe_print(json.dumps({
                 "code": 1, "error": "SESSION_CONTEXT_FAILED",
-                "message": str(exc), "task_id": new_id, "turn_id": _turn_context["turn_id"],
+                "message": str(exc), "task_id": new_id,
             }, ensure_ascii=False, indent=2))
             sys.exit(1)
 
@@ -1673,10 +1749,12 @@ def main():
         _result_obj = {
             "code": 0,
             "task_id": new_id,
-            "turn_id": _turn_context["turn_id"],
-            "agent_intent": _turn_context.get("agent_intent"),
+            "agent_intent": (
+                _trusted_turn.get("agent_intent") if _trusted_turn
+                else normalize_agent_intent(_ns_params.get("agent_intent"))
+            ),
             "tracking_recorded": _tracking_recorded,
-            "tracking_error": _tracking_error,
+            "blocking": False,
             "task_mode": _task_context["task_mode"],
             "task_id_source": _task_context["task_id_source"],
             "task_source": _task_context["task_source"],
@@ -1688,7 +1766,9 @@ def main():
                 + (f"检测到 skill 从 {_prev_version} 升级到 {_current_ver}，"
                    "旧上下文中的工具签名/参数可能已失效，必须先重读 SKILL.md 再继续。"
                    if _version_changed else
-                   "task_id 与首个 turn_id 已保存到 .session.json，后续调用自动注入。")
+                   ("可信 Turn 已保存到 .session.json，后续调用自动注入。"
+                    if _tracking_recorded else
+                    "Turn 追踪未登记，后续业务工具将以无 Turn 模式继续。"))
             ),
             "version_check": {
                 "attempted": bool(_should_check_version and _endpoint and _api_key),
@@ -1699,6 +1779,10 @@ def main():
                 "server_update_required": _version_check_server_update_required,
             },
         }
+        if _trusted_turn:
+            _result_obj["turn_id"] = _trusted_turn["turn_id"]
+        if not _tracking_recorded:
+            _result_obj["reason_code"] = _tracking_reason or "TURN_TRACKING_FAILED"
         if _version_check_ignored_reason:
             _result_obj["version_check"]["ignored_reason"] = _version_check_ignored_reason
         _pending_self_update = None
@@ -1751,7 +1835,7 @@ def main():
                     _new_ver = _upgrade.get("new_version") or _activation_latest_version
                     _old_ver = _current_ver
                     try:
-                        _write_session(new_id, user_query=user_query, task_context=_task_context, turn_context=_turn_context)
+                        _write_session(new_id, user_query=user_query, task_context=_task_context, turn_context=_trusted_turn)
                         _new_ver = _read_skill_version() or _new_ver
                     except Exception:
                         pass
@@ -1953,8 +2037,14 @@ def main():
             sys.exit(1)
         # Turn 追踪只做 best-effort 注入；上下文漂移时取消 Turn 关联，但业务继续执行。
         _turn_warnings = []
+        _suppress_session_turn = os.environ.get("QBS_SUPPRESS_SESSION_TURN", "").strip().lower() in (
+            "1", "true", "yes", "on",
+        )
         _needs_rewrite = inject_or_validate_turn_context(
-            session_data, params, warnings=_turn_warnings
+            session_data,
+            params,
+            warnings=_turn_warnings,
+            suppress_session_turn=_suppress_session_turn,
         ) or _needs_rewrite
         for _warning in _turn_warnings:
             sys.stderr.write(

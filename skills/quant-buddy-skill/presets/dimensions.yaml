@@ -3,8 +3,10 @@
 #
 # indicator_id = qw_indicator.ind_id（优先）/ code；selectByComposition 直接用它查库
 # direction    = 服务端元数据方向；请求不可覆盖
-# output_type  = score 用于加权排序，screen 用于集合筛选
-# asset_scope  = v1 用于校验该指标是否支持用户请求市场
+# indicator_type = 细分 / 综合；两者均可参与选股
+# output_type    = score 用于加权排序，screen 用于集合筛选
+# selection      = 物化选股状态；仅导出 selection.ready=true 的指标，as_of 为快照日
+# asset_scope    = 用于校验该指标是否支持用户请求市场
 # ============================================================
 A股_个股情绪:
   - asset_scope:
@@ -14,11 +16,160 @@ A股_个股情绪:
     dimension: 个股情绪
     direction: high_bullish
     indicator_id: ind_a_share_b2c71b60
+    indicator_type: 综合
     name: A股_个股情绪维度分
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: A股_个股情绪维度分
     window: 20
+  - asset_scope:
+      - A股
+    calculation: 隔夜跳空方向强度20%+日内承接25%+近5日涨跌平衡25%+5日收益方向强度30%
+    description: 正值表示短周期价格反馈偏积极，负值表示偏消极；高开继续上涨或低开继续下跌会同向确认，高开回落或低开修复会相互抵消
+    dimension: 个股情绪
+    direction: high_bullish
+    indicator_id: ind_a_share_705da8d0
+    indicator_type: 细分
+    name: A股_价格反馈
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股_价格反馈
+    window: 5
+  - asset_scope:
+      - A股
+    calculation: 近5日量价方向×参与强度；参与强度为成交额量比40%+短期放量30%+换手爆量30%
+    description: 正值表示上涨方向获得更强交易参与，负值表示下跌方向获得更强参与；低参与会压低贡献
+    dimension: 个股情绪
+    direction: high_bullish
+    indicator_id: ind_a_share_6aa3b11b
+    indicator_type: 细分
+    name: A股_参与确认
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股_参与确认
+    window: 20
+  - asset_scope:
+      - A股
+    calculation: 当日极端反馈70%+极端持续方向30%；当日极端反馈在收盘涨停/跌停时为1/-1，否则取维度15有符号价格偏离异动评分；2至5日连续涨跌停状态按40%/30%/20%/10%累积极端持续方向
+    description: 正值表示向上极端反馈，负值表示向下极端反馈；首次涨跌停的异常反馈绝对值为0.7，2/3/4/5日及以上连续涨跌停时绝对值依次为0.82/0.91/0.97/1
+    dimension: 个股情绪
+    direction: high_bullish
+    indicator_id: ind_a_share_6efb77b9
+    indicator_type: 细分
+    name: A股_异常反馈
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股_异常反馈
+    window: 5
+  - asset_scope:
+      - A股
+    calculation: 相对市场35%+行业相对排名持续性40%+跑赢沪深300稳定性25%，围绕自然中点0.5居中
+    description: 正值表示相对市场或行业需求偏强，负值表示相对偏弱；不代表绝对收益必然同方向
+    dimension: 个股情绪
+    direction: high_bullish
+    indicator_id: ind_a_share_e072759a
+    indicator_type: 细分
+    name: A股_相对需求
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股_相对需求
+    window: 20
+  - asset_scope:
+      - A股
+    calculation: 主力资金净占比符号×绝对净占比横截面强度
+    description: 主力净流入为正、净流出为负，绝对影响越大强度越高
+    dimension: 个股情绪
+    direction: high_bullish
+    indicator_id: ind_a_share_453a2fcf
+    indicator_type: 细分
+    name: A股_资金方向
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股_资金方向
+    window: 1
+  - asset_scope:
+      - A股
+    calculation: 前一交易日的日榜和三日榜有符号净主导比例按75%和25%合成；前一交易日未上榜时为0且5%权重退出有效分母
+    description: 正值表示最新已披露榜单中的资金净主导偏正，负值表示偏负；上榜原因健康和拉萨系拥挤不负责定向
+    dimension: 个股情绪
+    direction: high_bullish
+    indicator_id: ind_a_share_711ea03c
+    indicator_type: 细分
+    name: A股_龙虎榜资金方向
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股_龙虎榜资金方向
+    window: 3
 A股_估值性价比:
+  - asset_scope:
+      - A股
+    calculation: 正PB样本中，PB横截面低估值分与历史低估值水位各50%
+    description: 高分表示PB估值更有吸引力；PB小于等于0时不参与排序
+    dimension: 估值性价比
+    direction: high_bullish
+    indicator_id: ind_a_share_pb_valuation_attractiveness
+    indicator_type: 细分
+    name: A股PB估值吸引力
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股PB估值吸引力
+    window: 250
+  - asset_scope:
+      - A股
+    calculation: 正PE样本中，PE横截面低估值分与历史低估值水位各50%
+    description: 高分表示PE估值更有吸引力；PE小于等于0时不参与排序
+    dimension: 估值性价比
+    direction: high_bullish
+    indicator_id: ind_a_share_pe_valuation_attractiveness
+    indicator_type: 细分
+    name: A股PE估值吸引力
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股PE估值吸引力
+    window: 250
+  - asset_scope:
+      - A股
+    calculation: 正PS样本中，PS TTM横截面排序取反
+    description: 高分表示收入维度估值更有吸引力；PS小于等于0时不参与排序
+    dimension: 估值性价比
+    direction: high_bullish
+    indicator_id: ind_a_share_ps_revenue_valuation_attractiveness
+    indicator_type: 细分
+    name: A股PS收入估值吸引力
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股PS收入估值吸引力
+    window: 1
   - asset_scope:
       - A股
     calculation: PE估值吸引力30%、PB估值吸引力25%、PS收入估值吸引力20%、股息率25%
@@ -26,11 +177,96 @@ A股_估值性价比:
     dimension: 估值性价比
     direction: high_bullish
     indicator_id: ind_a_share_valuation_composite
+    indicator_type: 综合
     name: A股估值性价比
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: A股估值性价比
     window: 250
+  - asset_scope:
+      - A股
+    calculation: 非负股息率样本中做横截面排序
+    description: 高分表示股息回报更高；真实零股息保留为0，负值和缺失不参与排序
+    dimension: 估值性价比
+    direction: high_bullish
+    indicator_id: ind_a_share_dividend_yield_attractiveness
+    indicator_type: 细分
+    name: A股股息率吸引力
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股股息率吸引力
+    window: 1
 A股_动量与反转:
+  - asset_scope:
+      - A股
+    calculation: 20日前收盘价 / 60日前收盘价 - 1
+    description: 高分表示较长期动量延续
+    dimension: 动量与反转
+    direction: high_bullish
+    indicator_id: ind_a_share_ef1dbac1
+    indicator_type: 细分
+    name: A股_21至60日动量
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股_21至60日动量
+    window: 60
+  - asset_scope:
+      - A股
+    calculation: 5日累计收益横截面排序
+    description: 高分表示一周级动量强
+    dimension: 动量与反转
+    direction: high_bullish
+    indicator_id: ind_a_share_5d_return_percentile
+    indicator_type: 细分
+    name: A股_5日涨幅百分位
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股_5日涨幅百分位
+    window: 5
+  - asset_scope:
+      - A股
+    calculation: 5日前收盘价 / 20日前收盘价 - 1
+    description: 高分表示剔除最近5日后的中短期动量强
+    dimension: 动量与反转
+    direction: high_bullish
+    indicator_id: ind_a_share_048f80d6
+    indicator_type: 细分
+    name: A股_6至20日动量
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股_6至20日动量
+    window: 20
+  - asset_scope:
+      - A股
+    calculation: 平均涨跌幅之和大于0时计算RSI，并映射强势但不过热区间
+    description: 高分表示强而不过热；无波动或数据缺失时不输出
+    dimension: 动量与反转
+    direction: high_bullish
+    indicator_id: ind_a_share_rsi_strong_not_overheated
+    indicator_type: 细分
+    name: A股_RSI强而不过热
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股_RSI强而不过热
+    window: 14
   - asset_scope:
       - A股
     calculation: 5日10%、6至20日35%、21至60日25%、加速度15%、RSI健康15%，再乘拥挤修正
@@ -38,10 +274,47 @@ A股_动量与反转:
     dimension: 动量与反转
     direction: high_bullish
     indicator_id: ind_a_share_momentum_reversal
+    indicator_type: 综合
     name: A股_动量与反转
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: A股_动量与反转
     window: 60
+  - asset_scope:
+      - A股
+    calculation: 最近5日收益/5 - 第6至10日收益/5
+    description: 高分表示近期相对前一非重叠窗口加速
+    dimension: 动量与反转
+    direction: high_bullish
+    indicator_id: ind_a_share_momentum_acceleration
+    indicator_type: 细分
+    name: A股_动量加速度
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股_动量加速度
+    window: 10
+  - asset_scope:
+      - A股
+    calculation: 5日涨幅、成交额量比、换手率三个分位均超过80%后才连续扣分，最低修正至0.7
+    description: 越接近1表示短期拥挤风险较低
+    dimension: 动量与反转
+    direction: high_bullish
+    indicator_id: ind_a_share_8bcc90dc
+    indicator_type: 细分
+    name: A股_拥挤修正
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股_拥挤修正
+    window: 20
 A股_市场情绪:
   - asset_scope:
       - A股
@@ -50,11 +323,176 @@ A股_市场情绪:
     dimension: 市场情绪
     direction: high_bullish
     indicator_id: ind_a_share_market_sentiment
+    indicator_type: 综合
     name: A股市场情绪
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: A股市场情绪
     window: 60
+  - asset_scope:
+      - A股
+    calculation: 两板以上家数/收盘涨停家数，转60日历史水位，权重5%
+    description: 高分表示连续两日涨停样本在涨停结构中的占比较高
+    dimension: 市场情绪
+    direction: high_bullish
+    indicator_id: ind_a_share_three_board_plus_expansion
+    indicator_type: 细分
+    name: 两板以上扩散
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 两板以上扩散
+    window: 60
+  - asset_scope:
+      - A股
+    calculation: 收盘涨停家数/盘中触板家数，转60日历史水位，权重15%
+    description: 高分表示盘中触板后收盘封住的比例处于较高历史水位
+    dimension: 市场情绪
+    direction: high_bullish
+    indicator_id: ind_a_share_limit_seal_strength
+    indicator_type: 细分
+    name: 封板承接
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 封板承接
+    window: 60
+  - asset_scope:
+      - A股
+    calculation: '`(收盘涨停家数-收盘跌停家数)/(两者合计)`，权重15%'
+    description: 正值表示涨停相对占优，负值表示跌停相对占优
+    dimension: 市场情绪
+    direction: high_bullish
+    indicator_id: ind_a_share_limit_up_down_breadth
+    indicator_type: 细分
+    name: 收盘涨跌停广度
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 收盘涨跌停广度
+    window: 1
+  - asset_scope:
+      - A股
+    calculation: 今日继续涨停家数/昨日涨停有效基数，转60日历史水位，权重15%
+    description: 高分表示昨日涨停股继续晋级的比例较高
+    dimension: 市场情绪
+    direction: high_bullish
+    indicator_id: ind_a_share_prior_limit_up_promotion
+    indicator_type: 细分
+    name: 昨日涨停晋级
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 昨日涨停晋级
+    window: 60
+  - asset_scope:
+      - A股
+    calculation: 昨日涨停股今日红盘率与平均收益各占50%，权重15%
+    description: 高分表示昨日涨停样本今日赚钱效应更强
+    dimension: 市场情绪
+    direction: high_bullish
+    indicator_id: ind_a_share_prior_limit_up_profit_effect
+    indicator_type: 细分
+    name: 昨日涨停赚钱效应
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 昨日涨停赚钱效应
+    window: 60
+  - asset_scope:
+      - A股
+    calculation: 继续跌停率反向、红盘修复率正向，各占50%，权重5%
+    description: 高分表示昨日跌停股延续风险较低、修复较强
+    dimension: 市场情绪
+    direction: high_bullish
+    indicator_id: ind_a_share_prior_limit_down_followthrough_repair
+    indicator_type: 细分
+    name: 昨日跌停延续与修复
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 昨日跌停延续与修复
+    window: 60
+  - asset_scope:
+      - A股
+    calculation: '`(开盘上涨家数-开盘下跌家数)/(两者合计)`，权重5%'
+    description: 正值表示正式开盘上涨家数占优；不代表9:25集合竞价广度
+    dimension: 市场情绪
+    direction: high_bullish
+    indicator_id: ind_a_share_official_opening_breadth
+    indicator_type: 细分
+    name: 正式开盘广度
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 正式开盘广度
+    window: 1
+  - asset_scope:
+      - A股
+    calculation: '`(上涨家数-下跌家数)/(上涨家数+下跌家数)`，权重25%'
+    description: 正值表示上涨家数占优，负值表示下跌家数占优
+    dimension: 市场情绪
+    direction: high_bullish
+    indicator_id: ind_a_share_advance_decline_breadth
+    indicator_type: 细分
+    name: 涨跌家数广度
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 涨跌家数广度
+    window: 1
 A股_异动监控:
+  - asset_scope:
+      - A股
+    calculation: 个股相对对应指数的累计涨跌幅偏离值，主板阈值20%，创业板/科创板阈值30%
+    description: 1表示触发价格偏离异动
+    dimension: 异动监控
+    direction: high_bullish
+    indicator_id: ind_a_share_3d_price_deviation_abnormal
+    indicator_type: 细分
+    name: 3日内价格偏离异动
+    output_type: screen
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: screen
+    source_name: 3日内价格偏离异动
+    window: 3
+  - asset_scope:
+      - A股
+    calculation: 主板交易所换手异动口径：任一窗口日均换手率/前5日日均换手率≥30，且窗口累计换手率≥20%
+    description: 1表示换手突然放大到交易所异动口径
+    dimension: 异动监控
+    direction: high_bullish
+    indicator_id: ind_a_share_3d_turnover_abnormal
+    indicator_type: 细分
+    name: 3日内换手异动
+    output_type: screen
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: screen
+    source_name: 3日内换手异动
+    window: 3
   - asset_scope:
       - A股
     calculation: 10日偏离+100%/-50%、30日偏离+200%/-70%，或10日内多次同向异常波动
@@ -62,10 +500,31 @@ A股_异动监控:
     dimension: 异动监控
     direction: high_bullish
     indicator_id: ind_a_share_severe_abnormal_volatility
+    indicator_type: 综合
     name: 严重异常波动
     output_type: screen
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: screen
     source_name: 严重异常波动
     window: 30
+  - asset_scope:
+      - A股
+    calculation: 最大绝对偏离值/适用阈值，再同市场横截面分位；符号由最大偏离窗口方向决定
+    description: 正值表示向上异动，负值表示向下异动，绝对值越大越异常
+    dimension: 异动监控
+    direction: high_bullish
+    indicator_id: ind_a_share_price_deviation_abnormal_score
+    indicator_type: 细分
+    name: 价格偏离异动评分
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 价格偏离异动评分
+    window: 3
   - asset_scope:
       - A股
     calculation: 3日内价格偏离异动、3日内换手异动、严重异常波动三者取并集
@@ -73,8 +532,13 @@ A股_异动监控:
     dimension: 异动监控
     direction: high_bullish
     indicator_id: ind_a_share_daily_trading_abnormal
+    indicator_type: 综合
     name: 当日交易异动
     output_type: screen
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: screen
     source_name: 当日交易异动
     window: 1
   - asset_scope:
@@ -84,11 +548,128 @@ A股_异动监控:
     dimension: 异动监控
     direction: high_bullish
     indicator_id: ind_a_share_daily_abnormal_score
+    indicator_type: 综合
     name: 当日异动评分
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: 当日异动评分
     window: 1
+  - asset_scope:
+      - A股
+    calculation: 换手倍率对数分位与累计换手分位几何合成
+    description: 越接近1表示换手越异常、越拥挤
+    dimension: 异动监控
+    direction: high_bullish
+    indicator_id: ind_a_share_turnover_volume_spike_score
+    indicator_type: 细分
+    name: 换手爆量评分
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 换手爆量评分
+    window: 3
 A股_形态_波动与风控:
+  - asset_scope:
+      - A股
+    calculation: 20日收益波动率在自身250日水位中过高或过低都扣分
+    description: 高分表示波动处于可交易的中性区间
+    dimension: 形态、波动与风控
+    direction: high_bullish
+    indicator_id: ind_a_share_20d_hist_vol_moderate
+    indicator_type: 细分
+    name: A股_历史波动率适中
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股_历史波动率适中
+    window: 250
+  - asset_scope:
+      - A股
+    calculation: 当前价相对60日高点回撤
+    description: 高分表示回撤可控
+    dimension: 形态、波动与风控
+    direction: high_bullish
+    indicator_id: ind_a_share_60d_drawdown_control
+    indicator_type: 细分
+    name: A股_回撤控制
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股_回撤控制
+    window: 60
+  - asset_scope:
+      - A股
+    calculation: 站回10日均线且20日乖离健康
+    description: 1表示二次买点
+    dimension: 形态、波动与风控
+    direction: high_bullish
+    indicator_id: ind_a_share_ma_pullback_stabilization
+    indicator_type: 细分
+    name: A股_回踩均线企稳
+    output_type: screen
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: screen
+    source_name: A股_回踩均线企稳
+    window: 20
+  - asset_scope:
+      - A股
+    calculation: 收盘价/MA20-1，过高过低都低分
+    description: 高分表示强而不过热
+    dimension: 形态、波动与风控
+    direction: high_bullish
+    indicator_id: ind_a_share_ma20_deviation_health
+    indicator_type: 细分
+    name: A股_均线偏离健康度
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股_均线偏离健康度
+    window: 20
+  - asset_scope:
+      - A股
+    calculation: 收口与开口得分取小作为共同强度，再用价格相对MA20的位置作0.5至1倍连续方向修正
+    description: 高分表示收口与开口同时较强，向上扩张获得更高分，向下扩张仅软降分
+    dimension: 形态、波动与风控
+    direction: high_bullish
+    indicator_id: ind_a_share_bollinger_squeeze_expansion
+    indicator_type: 细分
+    name: A股_布林带收口后开口
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股_布林带收口后开口
+    window: 20
+  - asset_scope:
+      - A股
+    calculation: 开盘相对昨收跳空风险排序后取反
+    description: 高分表示隔夜跳空风险低
+    dimension: 形态、波动与风控
+    direction: high_bullish
+    indicator_id: ind_a_share_stock_gap_risk_health
+    indicator_type: 细分
+    name: A股_跳空健康
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股_跳空健康
+    window: 1
   - asset_scope:
       - A股
     calculation: 历史波动率适中15%、布林收口后开口15%、均线偏离健康20%、60日回撤控制20%、回踩企稳15%、跳空健康15%；再乘跌停流动性健康修正
@@ -96,11 +677,80 @@ A股_形态_波动与风控:
     dimension: 形态、波动与风控
     direction: high_bullish
     indicator_id: ind_a_share_pattern_health
+    indicator_type: 综合
     name: A股形态健康
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: A股形态健康
     window: 250
+  - asset_scope:
+      - A股
+    calculation: '`1-"A股收盘跌停"`，仅识别跌停带来的交易受限和踩踏风险，不把涨停作为通用风险扣分'
+    description: 1表示未收盘跌停，0表示收盘跌停
+    dimension: 形态、波动与风控
+    direction: high_bullish
+    indicator_id: ind_a_share_limit_down_liquidity
+    indicator_type: 细分
+    name: A股跌停流动性健康
+    output_type: screen
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: screen
+    source_name: A股跌停流动性健康
+    window: 1
 A股_现金流质量:
+  - asset_scope:
+      - A股
+    calculation: 仅归母净利润大于0时计算CFO/归母净利润横截面排序
+    description: 高分表示正利润更有现金流支撑；亏损样本不计算该比率
+    dimension: 现金流质量
+    direction: high_bullish
+    indicator_id: ind_a_share_cfo_net_profit_ratio
+    indicator_type: 细分
+    name: A股CFO净利润比
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股CFO净利润比
+    window: 90
+  - asset_scope:
+      - A股
+    calculation: CFO/营业收入横截面排序
+    description: 高分表示收入更能转化为经营现金流
+    dimension: 现金流质量
+    direction: high_bullish
+    indicator_id: ind_a_share_cfo_revenue_ratio
+    indicator_type: 细分
+    name: A股CFO收入比
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股CFO收入比
+    window: 90
+  - asset_scope:
+      - A股
+    calculation: 1-按市场排序分((净利润-CFO)/总资产)
+    description: 高分表示应计利润风险较低
+    dimension: 现金流质量
+    direction: high_bullish
+    indicator_id: ind_a_share_accrual_asset_ratio
+    indicator_type: 细分
+    name: A股应计项资产比
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股应计项资产比
+    window: 90
   - asset_scope:
       - A股
     calculation: CFO净利润比30%、CFO收入比20%、应计项资产比20%、FCF资产比15%、FCF收益率15%；分项缺失按0贡献，固定权重不转移
@@ -108,11 +758,80 @@ A股_现金流质量:
     dimension: 现金流质量
     direction: high_bullish
     indicator_id: ind_a_share_cashflow_quality_composite
+    indicator_type: 综合
     name: A股现金流质量
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: A股现金流质量
     window: 90
+  - asset_scope:
+      - A股
+    calculation: FCF/总市值横截面排序
+    description: 高分表示自由现金流相对市值回报更高
+    dimension: 现金流质量
+    direction: high_bullish
+    indicator_id: ind_a_share_fcf_yield
+    indicator_type: 细分
+    name: A股自由现金流收益率
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股自由现金流收益率
+    window: 90
+  - asset_scope:
+      - A股
+    calculation: (CFO-Capex)/资产总计横截面排序
+    description: 高分表示单位资产产生的自由现金流更好，避免绝对规模偏差
+    dimension: 现金流质量
+    direction: high_bullish
+    indicator_id: ind_18b1bfe8
+    indicator_type: 细分
+    name: A股自由现金流资产比
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股自由现金流资产比
+    window: 90
 A股_盈利成长:
+  - asset_scope:
+      - A股
+    calculation: 经营现金流同比增长横截面排序
+    description: 高分表示经营现金流增长更强
+    dimension: 盈利成长
+    direction: high_bullish
+    indicator_id: ind_a_share_cfo_yoy_growth
+    indicator_type: 细分
+    name: A股CFO同比增长
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股CFO同比增长
+    window: 90
+  - asset_scope:
+      - A股
+    calculation: 归母净利润同比增长横截面排序
+    description: 高分表示利润增速强
+    dimension: 盈利成长
+    direction: high_bullish
+    indicator_id: ind_a_share_net_profit_yoy_growth
+    indicator_type: 细分
+    name: A股归母净利润同比增长
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股归母净利润同比增长
+    window: 90
   - asset_scope:
       - A股
     calculation: 营收同比35%、归母净利润同比40%、CFO同比25%
@@ -120,11 +839,96 @@ A股_盈利成长:
     dimension: 盈利成长
     direction: high_bullish
     indicator_id: ind_a_share_earnings_growth_composite
+    indicator_type: 综合
     name: A股盈利成长
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: A股盈利成长
     window: 90
+  - asset_scope:
+      - A股
+    calculation: 营业收入同比增长横截面排序
+    description: 高分表示收入增速强
+    dimension: 盈利成长
+    direction: high_bullish
+    indicator_id: ind_a_share_revenue_yoy_growth
+    indicator_type: 细分
+    name: A股营收同比增长
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股营收同比增长
+    window: 90
 A股_盈利能力:
+  - asset_scope:
+      - A股
+    calculation: ROA发布日横截面排序
+    description: 高分表示资产赚钱效率高
+    dimension: 盈利能力
+    direction: high_bullish
+    indicator_id: ind_a_share_roa_level
+    indicator_type: 细分
+    name: A股ROA水平
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股ROA水平
+    window: 90
+  - asset_scope:
+      - A股
+    calculation: ROE发布日横截面排序
+    description: 高分表示股东回报能力强
+    dimension: 盈利能力
+    direction: high_bullish
+    indicator_id: ind_a_share_roe_level
+    indicator_type: 细分
+    name: A股ROE水平
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股ROE水平
+    window: 90
+  - asset_scope:
+      - A股
+    calculation: 销售净利率发布日横截面排序
+    description: 高分表示收入转化为净利润的能力更强
+    dimension: 盈利能力
+    direction: high_bullish
+    indicator_id: ind_a_share_net_margin_level
+    indicator_type: 细分
+    name: A股净利率水平
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股净利率水平
+    window: 90
+  - asset_scope:
+      - A股
+    calculation: 销售毛利率发布日横截面排序
+    description: 高分表示定价权或毛利空间更强
+    dimension: 盈利能力
+    direction: high_bullish
+    indicator_id: ind_a_share_gross_margin_level
+    indicator_type: 细分
+    name: A股毛利率水平
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股毛利率水平
+    window: 90
   - asset_scope:
       - A股
     calculation: ROE25%、ROA20%、毛利率20%、净利率20%、营业利润率15%
@@ -132,11 +936,48 @@ A股_盈利能力:
     dimension: 盈利能力
     direction: high_bullish
     indicator_id: ind_a_share_profitability_composite
+    indicator_type: 综合
     name: A股盈利能力
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: A股盈利能力
     window: 90
+  - asset_scope:
+      - A股
+    calculation: 营业利润/营业总收入发布日横截面排序
+    description: 高分表示主业盈利质量更好
+    dimension: 盈利能力
+    direction: high_bullish
+    indicator_id: ind_a_share_operating_profit_margin_level
+    indicator_type: 细分
+    name: A股营业利润率水平
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股营业利润率水平
+    window: 90
 A股_相对强度:
+  - asset_scope:
+      - A股
+    calculation: 每日收益率在申万行业内排序
+    description: 高分表示当日相对同行领先
+    dimension: 相对强度
+    direction: high_bullish
+    indicator_id: ind_d174dbb0
+    indicator_type: 细分
+    name: A股日行业相对强度
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股日行业相对强度
+    window: 1
   - asset_scope:
       - A股
     calculation: 信息比率35%、行业排名持续性40%、跑赢基准稳定性25%
@@ -144,11 +985,96 @@ A股_相对强度:
     dimension: 相对强度
     direction: high_bullish
     indicator_id: ind_a_share_relative_strength
+    indicator_type: 综合
     name: A股相对强度
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: A股相对强度
     window: 20
+  - asset_scope:
+      - A股
+    calculation: 20日平均日超额收益 / 20日超额收益标准差，再做市场内排序
+    description: 高分表示相对沪深300的超额更高且更稳定
+    dimension: 相对强度
+    direction: high_bullish
+    indicator_id: ind_5168b0e9
+    indicator_type: 细分
+    name: A股相对沪深300信息比率
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股相对沪深300信息比率
+    window: 20
+  - asset_scope:
+      - A股
+    calculation: 最近20日行业内每日排名均值
+    description: 高分表示持续而非单日领先同行
+    dimension: 相对强度
+    direction: high_bullish
+    indicator_id: ind_a08fc2e2
+    indicator_type: 细分
+    name: A股行业相对排名持续性
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股行业相对排名持续性
+    window: 20
+  - asset_scope:
+      - A股
+    calculation: 最近20日跑赢沪深300的交易日比例
+    description: 高分表示跑赢基准具有持续性
+    dimension: 相对强度
+    direction: high_bullish
+    indicator_id: ind_32056947
+    indicator_type: 细分
+    name: A股跑赢沪深300稳定性
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股跑赢沪深300稳定性
+    window: 20
 A股_财务安全:
+  - asset_scope:
+      - A股
+    calculation: 流动资产/流动负债横截面排序；流动负债为0或缺失时不参与排序
+    description: 高分表示短期流动性缓冲更充足
+    dimension: 财务安全
+    direction: high_bullish
+    indicator_id: ind_a_share_current_ratio_safety
+    indicator_type: 细分
+    name: A股流动比率安全
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股流动比率安全
+    window: 90
+  - asset_scope:
+      - A股
+    calculation: 货币资金/比较取大(短期借款+一年内到期非流动负债,1)横截面排序
+    description: 高分表示现金覆盖短债能力更强；短债合计为0且货币资金为正时自然排在前列
+    dimension: 财务安全
+    direction: high_bullish
+    indicator_id: ind_a_share_cash_short_debt_safety
+    indicator_type: 细分
+    name: A股现金短债比安全
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股现金短债比安全
+    window: 90
   - asset_scope:
       - A股
     calculation: 资产负债率安全35%、流动比率安全20%、速动比率安全15%、现金短债比安全30%；分项缺失按0贡献，固定权重不转移
@@ -156,11 +1082,192 @@ A股_财务安全:
     dimension: 财务安全
     direction: high_bullish
     indicator_id: ind_a_share_financial_safety_composite
+    indicator_type: 综合
     name: A股财务安全
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: A股财务安全
     window: 90
+  - asset_scope:
+      - A股
+    calculation: 负债合计/资产总计横截面排序取反；资产总计为0或缺失时不参与排序
+    description: 高分表示资产负债表更稳健、杠杆压力更低
+    dimension: 财务安全
+    direction: high_bullish
+    indicator_id: ind_a_share_debt_ratio_safety
+    indicator_type: 细分
+    name: A股资产负债率安全
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股资产负债率安全
+    window: 90
+  - asset_scope:
+      - A股
+    calculation: (流动资产-存货)/流动负债横截面排序；流动负债为0或缺失时不参与排序
+    description: 高分表示更保守口径下的短期偿债能力更强
+    dimension: 财务安全
+    direction: high_bullish
+    indicator_id: ind_a_share_quick_ratio_safety
+    indicator_type: 细分
+    name: A股速动比率安全
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股速动比率安全
+    window: 90
 A股_财务爆雷风险:
+  - asset_scope:
+      - A股
+    calculation: 其他应收款/资产总计横截面排序
+    description: 高分表示其他应收款占资产比例偏高，需排查关联方占用、内部拆借或坏账黑洞
+    dimension: 财务爆雷风险
+    direction: high_bullish
+    indicator_id: ind_a_share_other_receivables_occupation_risk
+    indicator_type: 细分
+    name: A股其他应收占用风险
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股其他应收占用风险
+    window: 90
+  - asset_scope:
+      - A股
+    calculation: 减值冲击风险 ×（70% + 风险资产积累风险30%）
+    description: 高分表示大额减值集中冲击利润，且存在较高风险资产积累，可能集中释放历史包袱
+    dimension: 财务爆雷风险
+    direction: high_bullish
+    indicator_id: ind_a_share_earnings_bath_risk
+    indicator_type: 细分
+    name: A股利润洗澡风险
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股利润洗澡风险
+    window: 90
+  - asset_scope:
+      - A股
+    calculation: 商誉主体风险 ×（70% + 核心利润率同比下滑风险30%）；商誉主体由商誉/权益57%和商誉/资产43%构成
+    description: 高分表示并购溢价高且主业利润率走弱，未来减值弹性大
+    dimension: 财务爆雷风险
+    direction: high_bullish
+    indicator_id: ind_a_share_goodwill_blackhole_risk
+    indicator_type: 细分
+    name: A股商誉黑洞风险
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股商誉黑洞风险
+    window: 90
+  - asset_scope:
+      - A股
+    calculation: 在建工程占比50% + `max(在建工程同比-营收同比, 0)`风险排序50%
+    description: 高分表示在建工程占比高且扩张快，需警惕长期不转固、延迟折旧或资产虚增
+    dimension: 财务爆雷风险
+    direction: high_bullish
+    indicator_id: ind_a_share_cip_abnormal_risk
+    indicator_type: 细分
+    name: A股在建工程异常风险
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股在建工程异常风险
+    window: 90
+  - asset_scope:
+      - A股
+    calculation: '`max(存货同比-营收同比, 0)`，仅正向背离参与排序'
+    description: 高分表示存货扩张快于收入，需警惕压货、滞销或跌价准备不足
+    dimension: 财务爆雷风险
+    direction: high_bullish
+    indicator_id: ind_a_share_inventory_abnormal_warning
+    indicator_type: 细分
+    name: A股存货异常预警
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股存货异常预警
+    window: 90
+  - asset_scope:
+      - A股
+    calculation: 货币资金/资产高 × 有息负债/资产高，并用财务费用压力修正
+    description: 高分表示“账上有钱还大额借钱”的常识冲突，需排查受限资金、资金占用或虚构货币资金
+    dimension: 财务爆雷风险
+    direction: high_bullish
+    indicator_id: ind_a_share_cash_debt_conflict
+    indicator_type: 细分
+    name: A股存贷双高冲突
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股存贷双高冲突
+    window: 90
+  - asset_scope:
+      - A股
+    calculation: '`max(应收账款同比-营收同比, 0)`，仅正向背离参与排序'
+    description: 高分表示应收扩张快于收入，需警惕赊销、回款变差或收入质量
+    dimension: 财务爆雷风险
+    direction: high_bullish
+    indicator_id: ind_a_share_receivable_abnormal_warning
+    indicator_type: 细分
+    name: A股应收异常预警
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股应收异常预警
+    window: 90
+  - asset_scope:
+      - A股
+    calculation: 1 - 核心利润获现率横截面排序；仅当核心利润+其他收益大于0时计算CFO/(核心利润+其他收益)
+    description: 高分表示正的核心利润难以变成经营现金流；分母非正时该分项不计算
+    dimension: 财务爆雷风险
+    direction: high_bullish
+    indicator_id: ind_a_share_core_profit_cash_shortfall
+    indicator_type: 细分
+    name: A股核心利润获现不足
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股核心利润获现不足
+    window: 90
+  - asset_scope:
+      - A股
+    calculation: 核心利润为正且同比改善 × 核心利润获现不足 × 应收或存货异常
+    description: 高分表示利润表改善，但经营现金流与营运资本不配合，形成组合异常
+    dimension: 财务爆雷风险
+    direction: high_bullish
+    indicator_id: ind_a_share_paper_profit_warning
+    indicator_type: 细分
+    name: A股纸面富贵预警
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股纸面富贵预警
+    window: 90
   - asset_scope:
       - A股
     calculation: 应收异常10%、存货异常10%、核心利润获现不足10%、纸面富贵组合强度10%、存贷双高15%、商誉黑洞15%、利润洗澡10%、其他应收占用8%、在建工程异常7%、近4期亏损频次5%
@@ -168,9 +1275,30 @@ A股_财务爆雷风险:
     dimension: 财务爆雷风险
     direction: high_bullish
     indicator_id: ind_a_share_financial_blowup_warning_composite
+    indicator_type: 综合
     name: A股财务爆雷风险
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: A股财务爆雷风险
+    window: 360
+  - asset_scope:
+      - A股
+    calculation: 最近4个报告期亏损次数横截面排序，0次亏损不参与风险排序
+    description: 高分表示近期亏损出现频次更高；不等同于连续4个单季度亏损
+    dimension: 财务爆雷风险
+    direction: high_bullish
+    indicator_id: ind_b47d3197
+    indicator_type: 细分
+    name: A股近4期亏损频次
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股近4期亏损频次
     window: 360
 A股_资金流向:
   - asset_scope:
@@ -180,11 +1308,192 @@ A股_资金流向:
     dimension: 资金流向
     direction: high_bullish
     indicator_id: ind_a_share_capital_flow
+    indicator_type: 综合
     name: A股资金流向
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: A股资金流向
     window: 3
+  - asset_scope:
+      - A股
+    calculation: 主力资金净占比排序
+    description: 高分表示主力资金支持
+    dimension: 资金流向
+    direction: high_bullish
+    indicator_id: ind_a_share_main_net_inflow_strength
+    indicator_type: 细分
+    name: 主力净流入强度
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 主力净流入强度
+    window: 1
+  - asset_scope:
+      - A股
+    calculation: 主力资金净占比滞后1日后的3日均值排序，不包含当日
+    description: 高分表示此前3日主力资金持续支持
+    dimension: 资金流向
+    direction: high_bullish
+    indicator_id: ind_a_share_sustained_main_inflow
+    indicator_type: 细分
+    name: 主力持续流入
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 主力持续流入
+    window: 3
+  - asset_scope:
+      - A股
+    calculation: 主力资金净占比在申万行业内排序
+    description: 高分表示行业内资金更强
+    dimension: 资金流向
+    direction: high_bullish
+    indicator_id: ind_a_share_sector_main_capital_relative_strength
+    indicator_type: 细分
+    name: 行业内主力资金相对强度
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 行业内主力资金相对强度
+    window: 1
 A股_趋势结构:
+  - asset_scope:
+      - A股
+    calculation: 当前收盘价 / 过去20日至昨日最高价
+    description: 高分表示接近或突破短期高点
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_a_share_20d_high_breakout_proximity
+    indicator_type: 细分
+    name: A股_20日高点接近突破
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股_20日高点接近突破
+    window: 20
+  - asset_scope:
+      - A股
+    calculation: 当前收盘价 / 过去60日至昨日最低价
+    description: 高分表示远离中期低点、未进入破位结构
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_a_share_60d_low_distance_from_breakdown
+    indicator_type: 细分
+    name: A股_60日低点远离破位
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股_60日低点远离破位
+    window: 60
+  - asset_scope:
+      - A股
+    calculation: 当前收盘价 / 过去60日至昨日最高价
+    description: 高分表示中期结构强
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_a_share_60d_high_breakout_proximity
+    indicator_type: 细分
+    name: A股_60日高点接近突破
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股_60日高点接近突破
+    window: 60
+  - asset_scope:
+      - A股
+    calculation: 乖离率不高于12%时为1，12%~25%连续降至0.5，25%以上保持0.5
+    description: 越接近1表示趋势未明显过热，避免阈值附近得分跳变
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_a_share_overheat_correction
+    indicator_type: 细分
+    name: A股_不过热修正
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股_不过热修正
+    window: 20
+  - asset_scope:
+      - A股
+    calculation: 收盘价 > MA5 > MA10 > MA20
+    description: 1表示均线顺序确认
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_a_share_ma_bullish_alignment
+    indicator_type: 细分
+    name: A股_均线多头排列
+    output_type: screen
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: screen
+    source_name: A股_均线多头排列
+    window: 20
+  - asset_scope:
+      - A股
+    calculation: 近5日低点高于MA20，近5日高点不低于昨日近10日高点
+    description: 1表示高低点同步上移
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_a_share_short_term_high_low_lift
+    indicator_type: 细分
+    name: A股_短期高低点抬升
+    output_type: screen
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: screen
+    source_name: A股_短期高低点抬升
+    window: 20
+  - asset_scope:
+      - A股
+    calculation: 接近突破连续分 × 成交额量比得分
+    description: 高分表示突破有量能确认
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_a_share_breakout_volume_validity
+    indicator_type: 细分
+    name: A股_突破放量有效性
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股_突破放量有效性
+    window: 60
+  - asset_scope:
+      - A股
+    calculation: MA20 / 20日前MA20 - 1
+    description: 高分表示上行斜率强
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_a_share_trend_slope
+    indicator_type: 细分
+    name: A股_趋势斜率
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股_趋势斜率
+    window: 20
   - asset_scope:
       - A股
     calculation: 20日突破15%、60日突破15%、远离60日低点10%、均线多头15%、趋势斜率20%、突破放量10%、高低点抬升15%，再乘连续不过热修正
@@ -192,11 +1501,64 @@ A股_趋势结构:
     dimension: 趋势结构
     direction: high_bullish
     indicator_id: ind_a_share_trend_structure
+    indicator_type: 综合
     name: A股_趋势结构
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: A股_趋势结构
     window: 60
 A股_运营效率:
+  - asset_scope:
+      - A股
+    calculation: 营业成本/存货横截面排序
+    description: 高分表示存货周转更快；零存货不自动获得高分
+    dimension: 运营效率
+    direction: high_bullish
+    indicator_id: ind_a_share_inventory_turnover
+    indicator_type: 细分
+    name: A股存货周转率
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股存货周转率
+    window: 90
+  - asset_scope:
+      - A股
+    calculation: 营业收入/应收账款横截面排序
+    description: 高分表示回款和赊销周转效率更高；零应收不自动获得高分
+    dimension: 运营效率
+    direction: high_bullish
+    indicator_id: ind_a_share_receivable_turnover
+    indicator_type: 细分
+    name: A股应收账款周转率
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股应收账款周转率
+    window: 90
+  - asset_scope:
+      - A股
+    calculation: 营业收入/资产总计横截面排序
+    description: 高分表示资产使用效率更高；零分母不参与排序
+    dimension: 运营效率
+    direction: high_bullish
+    indicator_id: ind_a_share_total_asset_turnover
+    indicator_type: 细分
+    name: A股总资产周转率
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股总资产周转率
+    window: 90
   - asset_scope:
       - A股
     calculation: 总资产周转率40%、存货周转率30%、应收账款周转率30%；分项缺失按0贡献，固定权重不转移
@@ -204,11 +1566,112 @@ A股_运营效率:
     dimension: 运营效率
     direction: high_bullish
     indicator_id: ind_a_share_operational_efficiency_composite
+    indicator_type: 综合
     name: A股运营效率
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: A股运营效率
     window: 90
 A股_量能与流动性:
+  - asset_scope:
+      - A股
+    calculation: 20日平均(abs(日收益)/去除零值(成交额))横截面排序后取反
+    description: 高分表示近20日平均价格冲击较低；零成交额和缺失日不计算日冲击
+    dimension: 量能与流动性
+    direction: high_bullish
+    indicator_id: ind_a_share_amihud_low_impact_liquidity
+    indicator_type: 细分
+    name: A股_Amihud低冲击流动性
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股_Amihud低冲击流动性
+    window: 20
+  - asset_scope:
+      - A股
+    calculation: 近20日平均成交额排序
+    description: 高分表示基础流动性好
+    dimension: 量能与流动性
+    direction: high_bullish
+    indicator_id: ind_a_share_turnover_amount_activity
+    indicator_type: 细分
+    name: A股_成交额活跃度
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股_成交额活跃度
+    window: 20
+  - asset_scope:
+      - A股
+    calculation: 当日成交额 / 去除零值(过去20日至昨日均额)
+    description: 高分表示相对常态放量；零值或缺失分母不参与排序
+    dimension: 量能与流动性
+    direction: high_bullish
+    indicator_id: ind_a_share_turnover_amount_ratio
+    indicator_type: 细分
+    name: A股_成交额量比
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股_成交额量比
+    window: 20
+  - asset_scope:
+      - A股
+    calculation: 换手率处于健康区间
+    description: 高分表示不过冷不过热
+    dimension: 量能与流动性
+    direction: high_bullish
+    indicator_id: ind_a_share_turnover_rate_moderation
+    indicator_type: 细分
+    name: A股_换手率适中度
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股_换手率适中度
+    window: 1
+  - asset_scope:
+      - A股
+    calculation: 当日成交额 / 去除零值(过去5日至昨日均额)
+    description: 1代表达到1.2倍以上；零值或缺失分母不输出
+    dimension: 量能与流动性
+    direction: high_bullish
+    indicator_id: ind_a_share_short_term_volume_surge_strength
+    indicator_type: 细分
+    name: A股_短期放量强度
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股_短期放量强度
+    window: 5
+  - asset_scope:
+      - A股
+    calculation: 近5日上涨日成交额 / 去除零值(近5日上涨日成交额+近5日下跌日成交额)
+    description: 高分表示方向性成交额更多集中在上涨日；只有上涨日时比例为1，只有下跌日时为0
+    dimension: 量能与流动性
+    direction: high_bullish
+    indicator_id: ind_a_share_price_volume_support
+    indicator_type: 细分
+    name: A股_量价同步承接
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: A股_量价同步承接
+    window: 5
   - asset_scope:
       - A股
     calculation: 成交额量比20%、短期放量5%、换手适中20%、成交额活跃15%、量价承接20%、低冲击20%；分项缺失按0贡献，固定权重不转移
@@ -216,8 +1679,13 @@ A股_量能与流动性:
     dimension: 量能与流动性
     direction: high_bullish
     indicator_id: ind_a_share_volume_liquidity
+    indicator_type: 综合
     name: A股_量能与流动性
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: A股_量能与流动性
     window: 20
 A股_龙虎榜资金席位:
@@ -228,11 +1696,192 @@ A股_龙虎榜资金席位:
     dimension: 龙虎榜资金席位
     direction: high_bullish
     indicator_id: ind_a_share_lhb_capital_seat
+    indicator_type: 综合
     name: A股龙虎榜资金席位
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: A股龙虎榜资金席位
     window: 3
+  - asset_scope:
+      - A股
+    calculation: 三日机构、三日北向、三日知名游资候选、三日活跃营业部净主导比例合成后排序
+    description: 高分表示三日累计榜单中多类正向资金确认较强
+    dimension: 龙虎榜资金席位
+    direction: high_bullish
+    indicator_id: ind_lhb_three_day_capital_confirm
+    indicator_type: 细分
+    name: 三日资金确认
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 三日资金确认
+    window: 3
+  - asset_scope:
+      - A股
+    calculation: 涨幅类上榜给正向确认；下跌类或其它异常波动降低健康度；换手/振幅中性偏低权重
+    description: 高分表示上榜原因更偏正向，低分提示下跌或异常波动风险
+    dimension: 龙虎榜资金席位
+    direction: high_bullish
+    indicator_id: ind_lhb_listing_reason_health
+    indicator_type: 细分
+    name: 上榜原因健康
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 上榜原因健康
+    window: 1
+  - asset_scope:
+      - A股
+    calculation: 北向专用净主导比例在上榜样本内排序
+    description: 高分表示北向专用席位在榜上净买影响更强
+    dimension: 龙虎榜资金席位
+    direction: high_bullish
+    indicator_id: ind_lhb_northbound_net_buy_confirm
+    indicator_type: 细分
+    name: 北向专用净买确认
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 北向专用净买确认
+    window: 1
+  - asset_scope:
+      - A股
+    calculation: 拉萨系闭合组与开放标签净主导比例合成后排序，取反作为健康度
+    description: 高分表示拉萨系净买主导较弱；低分提示散户化/拥挤风险较高
+    dimension: 龙虎榜资金席位
+    direction: high_bullish
+    indicator_id: ind_lhb_lasa_crowding_health
+    indicator_type: 细分
+    name: 拉萨系拥挤健康
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 拉萨系拥挤健康
+    window: 1
+  - asset_scope:
+      - A股
+    calculation: 机构专用净主导比例在上榜样本内排序
+    description: 高分表示机构专用席位净买入对当日成交影响更强
+    dimension: 龙虎榜资金席位
+    direction: high_bullish
+    indicator_id: ind_lhb_institutional_net_buy_confirm
+    indicator_type: 细分
+    name: 机构专用净买确认
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 机构专用净买确认
+    window: 1
+  - asset_scope:
+      - A股
+    calculation: 活跃营业部净主导比例在上榜样本内排序
+    description: 高分表示活跃营业部接力资金较强
+    dimension: 龙虎榜资金席位
+    direction: high_bullish
+    indicator_id: ind_lhb_active_branch_relay
+    indicator_type: 细分
+    name: 活跃营业部接力
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 活跃营业部接力
+    window: 1
+  - asset_scope:
+      - A股
+    calculation: 闭合组知名游资候选净主导比例在上榜样本内排序
+    description: 高分表示知名游资候选资金净买确认较强；因标签置信度限制只称“候选”
+    dimension: 龙虎榜资金席位
+    direction: high_bullish
+    indicator_id: ind_lhb_famous_hot_money_candidate_confirm
+    indicator_type: 细分
+    name: 知名游资候选确认
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 知名游资候选确认
+    window: 1
 期货_动量与反转:
+  - asset_scope:
+      - 期货
+    calculation: 收盘价 / 20日前收盘价 - 1
+    description: 高分表示中期动量强
+    dimension: 动量与反转
+    direction: high_bullish
+    indicator_id: ind_futures_20d_momentum
+    indicator_type: 细分
+    name: 期货_20日动量
+    output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
+    source_name: 期货_20日动量
+    window: 20
+  - asset_scope:
+      - 期货
+    calculation: 5日累计收益横截面排序
+    description: 高分表示一周级动量强
+    dimension: 动量与反转
+    direction: high_bullish
+    indicator_id: ind_futures_5d_return_percentile
+    indicator_type: 细分
+    name: 期货_5日涨幅百分位
+    output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
+    source_name: 期货_5日涨幅百分位
+    window: 5
+  - asset_scope:
+      - 期货
+    calculation: 收盘价 / 60日前收盘价 - 1
+    description: 高分表示中期趋势延续
+    dimension: 动量与反转
+    direction: high_bullish
+    indicator_id: ind_futures_60d_momentum
+    indicator_type: 细分
+    name: 期货_60日动量
+    output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
+    source_name: 期货_60日动量
+    window: 60
+  - asset_scope:
+      - 期货
+    calculation: RSI处于强势但不过热区间
+    description: 高分表示强而不过热
+    dimension: 动量与反转
+    direction: high_bullish
+    indicator_id: ind_futures_rsi_strong_not_overheated
+    indicator_type: 细分
+    name: 期货_RSI强而不过热
+    output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
+    source_name: 期货_RSI强而不过热
+    window: 14
   - asset_scope:
       - 期货
     calculation: 多头动量基础分 - 空头动量基础分，再乘动量健康修正；多空基础分均按5日25%、20日35%、60日25%、加速度15%
@@ -240,11 +1889,208 @@ A股_龙虎榜资金席位:
     dimension: 动量与反转
     direction: high_bullish
     indicator_id: ind_futures_momentum_reversal_direction
+    indicator_type: 综合
     name: 期货_动量与反转方向
     output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
     source_name: 期货_动量与反转方向
     window: 60
+  - asset_scope:
+      - 期货
+    calculation: RSI 位于 20~80 区间
+    description: 1表示未处于极端超买或超卖状态
+    dimension: 动量与反转
+    direction: high_bullish
+    indicator_id: ind_futures_momentum_health_modifier
+    indicator_type: 细分
+    name: 期货_动量健康修正
+    output_type: screen
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: screen
+    source_name: 期货_动量健康修正
+    window: 14
+  - asset_scope:
+      - 期货
+    calculation: 近5日均收益 - 近10日均收益
+    description: 高分表示近期加速
+    dimension: 动量与反转
+    direction: high_bullish
+    indicator_id: ind_futures_momentum_acceleration
+    indicator_type: 细分
+    name: 期货_动量加速度
+    output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
+    source_name: 期货_动量加速度
+    window: 10
 期货_形态_波动与风控:
+  - asset_scope:
+      - 期货
+    calculation: 当前价相对60日低点反弹幅度
+    description: 高分表示反弹可控，空头结构未被明显破坏
+    dimension: 形态、波动与风控
+    direction: high_bullish
+    indicator_id: ind_60d_bounce_control
+    indicator_type: 细分
+    name: 期货_60日反弹控制
+    output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
+    source_name: 期货_60日反弹控制
+    window: 60
+  - asset_scope:
+      - 期货
+    calculation: 20日收益波动率在自身250日水位中过高或过低都扣分
+    description: 高分表示波动处于可交易的中性区间
+    dimension: 形态、波动与风控
+    direction: high_bullish
+    indicator_id: ind_futures_20d_hist_vol_moderate
+    indicator_type: 细分
+    name: 期货_历史波动率适中
+    output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
+    source_name: 期货_历史波动率适中
+    window: 250
+  - asset_scope:
+      - 期货
+    calculation: 收盘价低于10日均线且20日负乖离健康
+    description: 1表示反抽受压的空头二次入场形态
+    dimension: 形态、波动与风控
+    direction: high_bullish
+    indicator_id: ind_ma_bounce_resistance
+    indicator_type: 细分
+    name: 期货_反抽均线受压
+    output_type: screen
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: screen
+    source_name: 期货_反抽均线受压
+    window: 20
+  - asset_scope:
+      - 期货
+    calculation: 当前价相对60日高点回撤
+    description: 高分表示回撤可控
+    dimension: 形态、波动与风控
+    direction: high_bullish
+    indicator_id: ind_futures_60d_drawdown_control
+    indicator_type: 细分
+    name: 期货_回撤控制
+    output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
+    source_name: 期货_回撤控制
+    window: 60
+  - asset_scope:
+      - 期货
+    calculation: 站回10日均线且20日乖离健康
+    description: 1表示二次买点
+    dimension: 形态、波动与风控
+    direction: high_bullish
+    indicator_id: ind_futures_ma_pullback_stabilization
+    indicator_type: 细分
+    name: 期货_回踩均线企稳
+    output_type: screen
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: screen
+    source_name: 期货_回踩均线企稳
+    window: 20
+  - asset_scope:
+      - 期货
+    calculation: 收盘价/MA20-1，过高过低都低分
+    description: 高分表示强而不过热
+    dimension: 形态、波动与风控
+    direction: high_bullish
+    indicator_id: ind_futures_ma20_deviation_health
+    indicator_type: 细分
+    name: 期货_均线偏离健康度
+    output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
+    source_name: 期货_均线偏离健康度
+    window: 20
+  - asset_scope:
+      - 期货
+    calculation: 收盘价低于 MA20 但负乖离不过度
+    description: 高分表示空头趋势未过度超跌
+    dimension: 形态、波动与风控
+    direction: high_bullish
+    indicator_id: ind_ma20_deviation_short_health
+    indicator_type: 细分
+    name: 期货_均线偏离空头健康
+    output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
+    source_name: 期货_均线偏离空头健康
+    window: 20
+  - asset_scope:
+      - 期货
+    calculation: 收口与开口得分取小作为共同强度，再用价格相对MA20的位置作0.5至1倍连续方向修正
+    description: 高分表示收口与开口同时较强，向上扩张获得更高分，向下扩张仅软降分
+    dimension: 形态、波动与风控
+    direction: high_bullish
+    indicator_id: ind_futures_bollinger_squeeze_expansion
+    indicator_type: 细分
+    name: 期货_布林带收口后开口
+    output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
+    source_name: 期货_布林带收口后开口
+    window: 20
+  - asset_scope:
+      - 期货
+    calculation: 历史波动适中40%、波动收敛40%、布林开口20%
+    description: 高分表示波动状态允许多空方向信号发挥
+    dimension: 形态、波动与风控
+    direction: high_bullish
+    indicator_id: ind_futures_vol_health_modifier
+    indicator_type: 细分
+    name: 期货_波动健康修正
+    output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
+    source_name: 期货_波动健康修正
+    window: 250
+  - asset_scope:
+      - 期货
+    calculation: 20日收益波动率 / 60日收益波动率，排序后取反
+    description: 高分表示近期波动收敛
+    dimension: 形态、波动与风控
+    direction: high_bullish
+    indicator_id: ind_futures_20d_volatility_contraction
+    indicator_type: 细分
+    name: 期货_波动率收敛
+    output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
+    source_name: 期货_波动率收敛
+    window: 60
   - asset_scope:
       - 期货
     calculation: 形态多头基础分 - 形态空头基础分，再乘波动健康修正；多空基础分均按均线偏离40%、回撤/反弹35%、回踩/受压25%
@@ -252,11 +2098,32 @@ A股_龙虎榜资金席位:
     dimension: 形态、波动与风控
     direction: high_bullish
     indicator_id: ind_futures_pattern_health
+    indicator_type: 综合
     name: 期货形态健康方向
     output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
     source_name: 期货形态健康方向
     window: 250
 期货_期货供需:
+  - asset_scope:
+      - 期货
+    calculation: 库存历史水位取反
+    description: 高分表示库存偏低
+    dimension: 期货供需
+    direction: high_bullish
+    indicator_id: ind_futures_low_inventory
+    indicator_type: 细分
+    name: 期货低库存
+    output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
+    source_name: 期货低库存
+    window: 250
   - asset_scope:
       - 期货
     calculation: 低库存40%、去库30%、现货强度30% 减去 高库存40%、累库30%、现货弱度30%
@@ -264,11 +2131,160 @@ A股_龙虎榜资金席位:
     dimension: 期货供需
     direction: high_bullish
     indicator_id: ind_futures_supply_demand_direction
+    indicator_type: 综合
     name: 期货供需方向
     output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
     source_name: 期货供需方向
     window: 250
+  - asset_scope:
+      - 期货
+    calculation: 20日库存下降强度排序
+    description: 高分表示去库更强
+    dimension: 期货供需
+    direction: high_bullish
+    indicator_id: ind_futures_destocking_change
+    indicator_type: 细分
+    name: 期货去库变化
+    output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
+    source_name: 期货去库变化
+    window: 20
+  - asset_scope:
+      - 期货
+    calculation: 20日现货价格走弱强度
+    description: 高分表示现货走弱
+    dimension: 期货供需
+    direction: high_bullish
+    indicator_id: ind_futures_spot_price_weakness
+    indicator_type: 细分
+    name: 期货现货弱度
+    output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
+    source_name: 期货现货弱度
+    window: 20
+  - asset_scope:
+      - 期货
+    calculation: 20日现货价格变化强度排序
+    description: 高分表示现货走强
+    dimension: 期货供需
+    direction: high_bullish
+    indicator_id: ind_futures_spot_price_strength
+    indicator_type: 细分
+    name: 期货现货强度
+    output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
+    source_name: 期货现货强度
+    window: 20
+  - asset_scope:
+      - 期货
+    calculation: 20日库存上升强度排序
+    description: 高分表示累库更强
+    dimension: 期货供需
+    direction: high_bullish
+    indicator_id: ind_futures_restocking_change
+    indicator_type: 细分
+    name: 期货累库变化
+    output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
+    source_name: 期货累库变化
+    window: 20
+  - asset_scope:
+      - 期货
+    calculation: 库存历史水位
+    description: 高分表示库存偏高
+    dimension: 期货供需
+    direction: high_bullish
+    indicator_id: ind_futures_high_inventory
+    indicator_type: 细分
+    name: 期货高库存
+    output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
+    source_name: 期货高库存
+    window: 250
 期货_相对强度:
+  - asset_scope:
+      - 期货
+    calculation: 最近20日每日市场排名均值
+    description: 高分表示一个月内持续领先同池品种
+    dimension: 相对强度
+    direction: high_bullish
+    indicator_id: ind_8b427e74
+    indicator_type: 细分
+    name: 期货20日市场相对排名持续性
+    output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
+    source_name: 期货20日市场相对排名持续性
+    window: 20
+  - asset_scope:
+      - 期货
+    calculation: 最近20日处于期货池每日排名前半区的比例
+    description: 高分表示领先状态出现频繁
+    dimension: 相对强度
+    direction: high_bullish
+    indicator_id: ind_6ae935a8
+    indicator_type: 细分
+    name: 期货20日市场领先稳定性
+    output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
+    source_name: 期货20日市场领先稳定性
+    window: 20
+  - asset_scope:
+      - 期货
+    calculation: 最近60日每日市场排名均值
+    description: 高分表示中期持续领先同池品种
+    dimension: 相对强度
+    direction: high_bullish
+    indicator_id: ind_0c2ad10b
+    indicator_type: 细分
+    name: 期货60日市场相对排名持续性
+    output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
+    source_name: 期货60日市场相对排名持续性
+    window: 60
+  - asset_scope:
+      - 期货
+    calculation: 每日收益率在期货池内排序
+    description: 高分表示当日相对同池品种领先
+    dimension: 相对强度
+    direction: high_bullish
+    indicator_id: ind_15cffded
+    indicator_type: 细分
+    name: 期货日市场相对强度
+    output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
+    source_name: 期货日市场相对强度
+    window: 1
   - asset_scope:
       - 期货
     calculation: 20日持续性45%、60日持续性35%、20日领先稳定性20%，再映射到[-1,1]
@@ -276,11 +2292,240 @@ A股_龙虎榜资金席位:
     dimension: 相对强度
     direction: high_bullish
     indicator_id: ind_futures_relative_strength_direction
+    indicator_type: 综合
     name: 期货相对强度方向
     output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
     source_name: 期货相对强度方向
     window: 60
 期货_趋势结构:
+  - asset_scope:
+      - 期货
+    calculation: 当前收盘价 / 过去20日至昨日最高价
+    description: 高分表示接近或突破短期高点
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_futures_20d_high_breakout_proximity
+    indicator_type: 细分
+    name: 期货_20日高点接近突破
+    output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
+    source_name: 期货_20日高点接近突破
+    window: 20
+  - asset_scope:
+      - 期货
+    calculation: 1 - 当前价/60日低点横截面排序分
+    description: 高分表示接近或跌破中期低点，空头结构更明确
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_60d_low_breakdown_proximity
+    indicator_type: 细分
+    name: 期货_60日低点接近跌破
+    output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
+    source_name: 期货_60日低点接近跌破
+    window: 60
+  - asset_scope:
+      - 期货
+    calculation: 当前收盘价 / 过去60日至昨日最低价
+    description: 高分表示远离中期低点、未进入破位结构
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_futures_60d_low_distance_from_breakdown
+    indicator_type: 细分
+    name: 期货_60日低点远离破位
+    output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
+    source_name: 期货_60日低点远离破位
+    window: 60
+  - asset_scope:
+      - 期货
+    calculation: 当前收盘价 / 过去60日至昨日最高价
+    description: 高分表示中期结构强
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_futures_60d_high_breakout_proximity
+    indicator_type: 细分
+    name: 期货_60日高点接近突破
+    output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
+    source_name: 期货_60日高点接近突破
+    window: 60
+  - asset_scope:
+      - 期货
+    calculation: 1 - 当前价/60日高点横截面排序分
+    description: 高分表示远离中期高点，多头突破结构弱、空头结构更占优
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_60d_high_distance_from_breakout
+    indicator_type: 细分
+    name: 期货_60日高点远离突破
+    output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
+    source_name: 期货_60日高点远离突破
+    window: 60
+  - asset_scope:
+      - 期货
+    calculation: 20日均线乖离率 < 25%
+    description: 1表示趋势未明显过热
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_futures_overheat_correction
+    indicator_type: 细分
+    name: 期货_不过热修正
+    output_type: screen
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: screen
+    source_name: 期货_不过热修正
+    window: 20
+  - asset_scope:
+      - 期货
+    calculation: 收盘价 > MA5 > MA10 > MA20
+    description: 1表示均线顺序确认
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_futures_ma_bullish_alignment
+    indicator_type: 细分
+    name: 期货_均线多头排列
+    output_type: screen
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: screen
+    source_name: 期货_均线多头排列
+    window: 20
+  - asset_scope:
+      - 期货
+    calculation: 收盘价 < MA5 < MA10 < MA20
+    description: 1表示期货空头均线顺序确认
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_ma_bearish_alignment
+    indicator_type: 细分
+    name: 期货_均线空头排列
+    output_type: screen
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: screen
+    source_name: 期货_均线空头排列
+    window: 20
+  - asset_scope:
+      - 期货
+    calculation: 近5日高点低于MA20，近5日低点不高于昨日近10日低点
+    description: 1表示高低点同步下移
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_short_term_high_low_drop
+    indicator_type: 细分
+    name: 期货_短期高低点下移
+    output_type: screen
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: screen
+    source_name: 期货_短期高低点下移
+    window: 20
+  - asset_scope:
+      - 期货
+    calculation: 近5日低点高于MA20，近5日高点不低于昨日近10日高点
+    description: 1表示高低点同步上移
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_futures_short_term_high_low_lift
+    indicator_type: 细分
+    name: 期货_短期高低点抬升
+    output_type: screen
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: screen
+    source_name: 期货_短期高低点抬升
+    window: 20
+  - asset_scope:
+      - 期货
+    calculation: 接近突破连续分 × 成交额量比得分
+    description: 高分表示突破有量能确认
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_futures_breakout_volume_validity
+    indicator_type: 细分
+    name: 期货_突破放量有效性
+    output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
+    source_name: 期货_突破放量有效性
+    window: 60
+  - asset_scope:
+      - 期货
+    calculation: 20日均线乖离率在 ±25% 以内
+    description: 1表示多空方向都未处于过度偏离状态
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_futures_trend_health_modifier
+    indicator_type: 细分
+    name: 期货_趋势健康修正
+    output_type: screen
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: screen
+    source_name: 期货_趋势健康修正
+    window: 20
+  - asset_scope:
+      - 期货
+    calculation: MA20 / 20日前MA20 - 1
+    description: 高分表示上行斜率强
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_futures_trend_slope
+    indicator_type: 细分
+    name: 期货_趋势斜率
+    output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
+    source_name: 期货_趋势斜率
+    window: 20
+  - asset_scope:
+      - 期货
+    calculation: 1 - MA20斜率排序分
+    description: 高分表示下行斜率强
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_trend_slope_bearish
+    indicator_type: 细分
+    name: 期货_趋势斜率空头
+    output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
+    source_name: 期货_趋势斜率空头
+    window: 20
   - asset_scope:
       - 期货
     calculation: 多头基础分 - 空头基础分，再乘趋势健康修正；多空基础分均按高低点结构48%、均线15%、斜率17%、放量12%、短期高低点8%
@@ -288,11 +2533,176 @@ A股_龙虎榜资金席位:
     dimension: 趋势结构
     direction: high_bullish
     indicator_id: ind_futures_trend_structure_direction
+    indicator_type: 综合
     name: 期货_趋势结构方向
     output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
     source_name: 期货_趋势结构方向
     window: 60
+  - asset_scope:
+      - 期货
+    calculation: 接近跌破连续分 × 成交额量比得分
+    description: 高分表示下跌破位有量能确认
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_breakdown_volume_validity
+    indicator_type: 细分
+    name: 期货_跌破放量有效性
+    output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
+    source_name: 期货_跌破放量有效性
+    window: 60
 期货_量能与流动性:
+  - asset_scope:
+      - 期货
+    calculation: 近20日平均成交量排序
+    description: 高分表示合约手数基础流动性好
+    dimension: 量能与流动性
+    direction: high_bullish
+    indicator_id: ind_futures_volume_activity
+    indicator_type: 细分
+    name: 期货_成交量活跃度
+    output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
+    source_name: 期货_成交量活跃度
+    window: 20
+  - asset_scope:
+      - 期货
+    calculation: 当日成交量 / 过去20日至昨日均量
+    description: 高分表示合约手数维度相对放量
+    dimension: 量能与流动性
+    direction: high_bullish
+    indicator_id: ind_futures_turnover_volume_ratio
+    indicator_type: 细分
+    name: 期货_成交量量比
+    output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
+    source_name: 期货_成交量量比
+    window: 20
+  - asset_scope:
+      - 期货
+    calculation: 当日成交额 / 过去20日至昨日均额
+    description: 高分表示相对常态放量
+    dimension: 量能与流动性
+    direction: high_bullish
+    indicator_id: ind_futures_turnover_amount_ratio
+    indicator_type: 细分
+    name: 期货_成交额量比
+    output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
+    source_name: 期货_成交额量比
+    window: 20
+  - asset_scope:
+      - 期货
+    calculation: abs(日收益)/成交量 排序后取反
+    description: 高分表示单位手数冲击更低
+    dimension: 量能与流动性
+    direction: high_bullish
+    indicator_id: ind_futures_lot_low_impact_liquidity
+    indicator_type: 细分
+    name: 期货_手数低冲击流动性
+    output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
+    source_name: 期货_手数低冲击流动性
+    window: 20
+  - asset_scope:
+      - 期货
+    calculation: 成交额/成交量/短期放量综合 × 5日涨幅强度
+    description: 高分表示上涨方向有放量确认
+    dimension: 量能与流动性
+    direction: high_bullish
+    indicator_id: ind_futures_directional_volume_bull_confirm
+    indicator_type: 细分
+    name: 期货_方向放量多头确认
+    output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
+    source_name: 期货_方向放量多头确认
+    window: 20
+  - asset_scope:
+      - 期货
+    calculation: 成交额/成交量/短期放量综合 × 5日跌幅强度
+    description: 高分表示下跌方向有放量确认
+    dimension: 量能与流动性
+    direction: high_bullish
+    indicator_id: ind_futures_directional_volume_bear_confirm
+    indicator_type: 细分
+    name: 期货_方向放量空头确认
+    output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
+    source_name: 期货_方向放量空头确认
+    window: 20
+  - asset_scope:
+      - 期货
+    calculation: 成交量活跃50%、手数低冲击流动性50%
+    description: 高分表示多空方向信号更可交易
+    dimension: 量能与流动性
+    direction: high_bullish
+    indicator_id: ind_futures_liquidity_health
+    indicator_type: 细分
+    name: 期货_流动性健康
+    output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
+    source_name: 期货_流动性健康
+    window: 20
+  - asset_scope:
+      - 期货
+    calculation: 当日成交额 / 过去5日至昨日均额
+    description: 1代表达到1.2倍以上
+    dimension: 量能与流动性
+    direction: high_bullish
+    indicator_id: ind_futures_short_term_volume_surge_strength
+    indicator_type: 细分
+    name: 期货_短期放量强度
+    output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
+    source_name: 期货_短期放量强度
+    window: 5
+  - asset_scope:
+      - 期货
+    calculation: 上涨日成交额合计 / 下跌日成交额合计
+    description: 高分表示上涨有承接
+    dimension: 量能与流动性
+    direction: high_bullish
+    indicator_id: ind_futures_price_volume_support
+    indicator_type: 细分
+    name: 期货_量价同步承接
+    output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
+    source_name: 期货_量价同步承接
+    window: 5
   - asset_scope:
       - 期货
     calculation: 量能多头确认基础分 - 量能空头确认基础分，再乘流动性健康修正
@@ -300,8 +2710,13 @@ A股_龙虎榜资金席位:
     dimension: 量能与流动性
     direction: high_bullish
     indicator_id: ind_futures_volume_liquidity_direction
+    indicator_type: 综合
     name: 期货_量能与流动性方向
     output_type: score
+    selection:
+      as_of: 20260825
+      ready: true
+      vector_type: score
     source_name: 期货_量能与流动性方向
     window: 20
 港股_个股情绪:
@@ -312,11 +2727,144 @@ A股_龙虎榜资金席位:
     dimension: 个股情绪
     direction: high_bullish
     indicator_id: ind_hk_a9930a1c
+    indicator_type: 综合
     name: 港股_个股情绪维度分
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: 港股_个股情绪维度分
     window: 20
+  - asset_scope:
+      - 港股
+    calculation: 隔夜跳空方向强度20%+日内承接25%+近5日涨跌平衡25%+5日收益方向强度30%
+    description: 正值表示短周期价格反馈偏积极，负值表示偏消极；高开继续上涨或低开继续下跌会同向确认，高开回落或低开修复会相互抵消
+    dimension: 个股情绪
+    direction: high_bullish
+    indicator_id: ind_hk_3b787a97
+    indicator_type: 细分
+    name: 港股_价格反馈
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股_价格反馈
+    window: 5
+  - asset_scope:
+      - 港股
+    calculation: 近5日量价方向×参与强度；参与强度为成交额量比60%+短期放量40%
+    description: 正值表示上涨方向获得更强交易参与，负值表示下跌方向获得更强参与；低参与会压低贡献
+    dimension: 个股情绪
+    direction: high_bullish
+    indicator_id: ind_hk_86cd2abf
+    indicator_type: 细分
+    name: 港股_参与确认
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股_参与确认
+    window: 20
+  - asset_scope:
+      - 港股
+    calculation: 近20日交易连续性40%+成交额活跃度30%+低冲击流动性30%
+    description: 1表示当前方向分有连续成交、足够成交额和较低价格冲击支持；低分只缩小方向强度，不代表消极情绪
+    dimension: 个股情绪
+    direction: high_bullish
+    indicator_id: ind_hk_9933f2d2
+    indicator_type: 细分
+    name: 港股_情绪测量置信度
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股_情绪测量置信度
+    window: 20
+  - asset_scope:
+      - 港股
+    calculation: 相对市场35%+行业相对排名持续性40%+跑赢恒生综指稳定性25%，围绕自然中点0.5居中
+    description: 正值表示相对市场或行业需求偏强，负值表示相对偏弱；不代表绝对收益必然同方向
+    dimension: 个股情绪
+    direction: high_bullish
+    indicator_id: ind_hk_a24bcc87
+    indicator_type: 细分
+    name: 港股_相对需求
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股_相对需求
+    window: 20
 港股_估值性价比:
+  - asset_scope:
+      - 港股
+    calculation: 正PB样本中，横截面低估值分与250日历史低估值水位各50%
+    description: 高分表示PB更有吸引力；提高权重以适配港股金融、地产和资产型公司占比较高的结构
+    dimension: 估值性价比
+    direction: high_bullish
+    indicator_id: ind_59578ca4
+    indicator_type: 细分
+    name: 港股PB估值吸引力
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股PB估值吸引力
+    window: 250
+  - asset_scope:
+      - 港股
+    calculation: 正PCF样本中，横截面低估值分与250日历史低估值水位各50%
+    description: 高分表示经营现金流对应的估值更便宜，补充利润口径可能受到的一次性项目扰动
+    dimension: 估值性价比
+    direction: high_bullish
+    indicator_id: ind_7a3680f5
+    indicator_type: 细分
+    name: 港股PCF现金估值吸引力
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股PCF现金估值吸引力
+    window: 250
+  - asset_scope:
+      - 港股
+    calculation: 正PE样本中，横截面低估值分与250日历史低估值水位各50%
+    description: 高分表示PE更低且处于自身较低水位
+    dimension: 估值性价比
+    direction: high_bullish
+    indicator_id: ind_80ffe557
+    indicator_type: 细分
+    name: 港股PE估值吸引力
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股PE估值吸引力
+    window: 250
+  - asset_scope:
+      - 港股
+    calculation: 正PS样本中横截面排序取反
+    description: 高分表示收入估值更低
+    dimension: 估值性价比
+    direction: high_bullish
+    indicator_id: ind_d931eb98
+    indicator_type: 细分
+    name: 港股PS收入估值吸引力
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股PS收入估值吸引力
+    window: 1
   - asset_scope:
       - 港股
     calculation: PE20%、PB20%、PS10%、PCF20%、股息率30%
@@ -324,11 +2872,96 @@ A股_龙虎榜资金席位:
     dimension: 估值性价比
     direction: high_bullish
     indicator_id: ind_68128bb2
+    indicator_type: 综合
     name: 港股估值性价比
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: 港股估值性价比
     window: 250
+  - asset_scope:
+      - 港股
+    calculation: 非负股息率样本中做横截面排序
+    description: 高分表示股息回报更高；提高权重以反映港股高股息资产的重要性
+    dimension: 估值性价比
+    direction: high_bullish
+    indicator_id: ind_2912e20f
+    indicator_type: 细分
+    name: 港股股息率吸引力
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股股息率吸引力
+    window: 1
 港股_动量与反转:
+  - asset_scope:
+      - 港股
+    calculation: 20日前收盘价 / 60日前收盘价 - 1
+    description: 高分表示较长期动量延续
+    dimension: 动量与反转
+    direction: high_bullish
+    indicator_id: ind_hk_e46e2234
+    indicator_type: 细分
+    name: 港股_21至60日动量
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股_21至60日动量
+    window: 60
+  - asset_scope:
+      - 港股
+    calculation: 5日累计收益横截面排序
+    description: 高分表示一周级动量强
+    dimension: 动量与反转
+    direction: high_bullish
+    indicator_id: ind_hk_5d_return_percentile
+    indicator_type: 细分
+    name: 港股_5日涨幅百分位
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股_5日涨幅百分位
+    window: 5
+  - asset_scope:
+      - 港股
+    calculation: 5日前收盘价 / 20日前收盘价 - 1
+    description: 高分表示剔除最近5日后的中短期动量强
+    dimension: 动量与反转
+    direction: high_bullish
+    indicator_id: ind_hk_0d6ce4db
+    indicator_type: 细分
+    name: 港股_6至20日动量
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股_6至20日动量
+    window: 20
+  - asset_scope:
+      - 港股
+    calculation: 平均涨跌幅之和大于0时计算RSI，并映射强势但不过热区间
+    description: 高分表示强而不过热；无波动或数据缺失时不输出
+    dimension: 动量与反转
+    direction: high_bullish
+    indicator_id: ind_hk_rsi_strong_not_overheated
+    indicator_type: 细分
+    name: 港股_RSI强而不过热
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股_RSI强而不过热
+    window: 14
   - asset_scope:
       - 港股
     calculation: 5日10%、6至20日35%、21至60日25%、加速度15%、RSI健康15%
@@ -336,11 +2969,128 @@ A股_龙虎榜资金席位:
     dimension: 动量与反转
     direction: high_bullish
     indicator_id: ind_hk_momentum_reversal
+    indicator_type: 综合
     name: 港股_动量与反转
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: 港股_动量与反转
     window: 60
+  - asset_scope:
+      - 港股
+    calculation: 最近5日收益/5 - 第6至10日收益/5
+    description: 高分表示近期相对前一非重叠窗口加速
+    dimension: 动量与反转
+    direction: high_bullish
+    indicator_id: ind_hk_momentum_acceleration
+    indicator_type: 细分
+    name: 港股_动量加速度
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股_动量加速度
+    window: 10
 港股_形态_波动与风控:
+  - asset_scope:
+      - 港股
+    calculation: 20日收益波动率在自身250日水位中过高或过低都扣分
+    description: 高分表示波动处于可交易的中性区间
+    dimension: 形态、波动与风控
+    direction: high_bullish
+    indicator_id: ind_hk_20d_hist_vol_moderate
+    indicator_type: 细分
+    name: 港股_历史波动率适中
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股_历史波动率适中
+    window: 250
+  - asset_scope:
+      - 港股
+    calculation: 当前价相对60日高点回撤
+    description: 高分表示回撤可控
+    dimension: 形态、波动与风控
+    direction: high_bullish
+    indicator_id: ind_hk_60d_drawdown_control
+    indicator_type: 细分
+    name: 港股_回撤控制
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股_回撤控制
+    window: 60
+  - asset_scope:
+      - 港股
+    calculation: 站回10日均线且20日乖离健康
+    description: 1表示二次买点
+    dimension: 形态、波动与风控
+    direction: high_bullish
+    indicator_id: ind_hk_ma_pullback_stabilization
+    indicator_type: 细分
+    name: 港股_回踩均线企稳
+    output_type: screen
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: screen
+    source_name: 港股_回踩均线企稳
+    window: 20
+  - asset_scope:
+      - 港股
+    calculation: 收盘价/MA20-1，过高过低都低分
+    description: 高分表示强而不过热
+    dimension: 形态、波动与风控
+    direction: high_bullish
+    indicator_id: ind_hk_ma20_deviation_health
+    indicator_type: 细分
+    name: 港股_均线偏离健康度
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股_均线偏离健康度
+    window: 20
+  - asset_scope:
+      - 港股
+    calculation: 收口与开口得分取小作为共同强度，再用价格相对MA20的位置作0.5至1倍连续方向修正
+    description: 高分表示收口与开口同时较强，向上扩张获得更高分，向下扩张仅软降分
+    dimension: 形态、波动与风控
+    direction: high_bullish
+    indicator_id: ind_hk_bollinger_squeeze_expansion
+    indicator_type: 细分
+    name: 港股_布林带收口后开口
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股_布林带收口后开口
+    window: 20
+  - asset_scope:
+      - 港股
+    calculation: 开盘相对昨收跳空风险排序后取反
+    description: 高分表示隔夜跳空风险低
+    dimension: 形态、波动与风控
+    direction: high_bullish
+    indicator_id: ind_hk_stock_gap_risk_health
+    indicator_type: 细分
+    name: 港股_跳空健康
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股_跳空健康
+    window: 1
   - asset_scope:
       - 港股
     calculation: 历史波动率适中15%、布林收口后开口15%、均线偏离健康20%、60日回撤控制20%、回踩企稳15%、跳空健康15%
@@ -348,11 +3098,64 @@ A股_龙虎榜资金席位:
     dimension: 形态、波动与风控
     direction: high_bullish
     indicator_id: ind_hk_pattern_health
+    indicator_type: 综合
     name: 港股形态健康
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: 港股形态健康
     window: 250
 港股_现金流质量:
+  - asset_scope:
+      - 港股
+    calculation: 仅归属净利润大于0时计算CFO/归属净利润横截面排序
+    description: 高分表示正利润有经营现金流支撑
+    dimension: 现金流质量
+    direction: high_bullish
+    indicator_id: ind_50dfc670
+    indicator_type: 细分
+    name: 港股CFO净利润比
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股CFO净利润比
+    window: 90
+  - asset_scope:
+      - 港股
+    calculation: CFO/营业收入横截面排序
+    description: 高分表示收入能转化为经营现金流
+    dimension: 现金流质量
+    direction: high_bullish
+    indicator_id: ind_f26c5681
+    indicator_type: 细分
+    name: 港股CFO收入比
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股CFO收入比
+    window: 90
+  - asset_scope:
+      - 港股
+    calculation: 1-按市场排序分((归属净利润-CFO)/总资产)
+    description: 高分表示利润对应的应计风险较低
+    dimension: 现金流质量
+    direction: high_bullish
+    indicator_id: ind_d1637481
+    indicator_type: 细分
+    name: 港股应计项资产比
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股应计项资产比
+    window: 90
   - asset_scope:
       - 港股
     calculation: CFO净利润25%、CFO收入20%、应计风险控制20%、FCF资产比15%、FCF收益率20%
@@ -360,11 +3163,80 @@ A股_龙虎榜资金席位:
     dimension: 现金流质量
     direction: high_bullish
     indicator_id: ind_fd5b895f
+    indicator_type: 综合
     name: 港股现金流质量
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: 港股现金流质量
     window: 90
+  - asset_scope:
+      - 港股
+    calculation: 数据库标准化自由现金流收益率横截面排序
+    description: 高分表示自由现金流对应的股权回报更高
+    dimension: 现金流质量
+    direction: high_bullish
+    indicator_id: ind_93cabf84
+    indicator_type: 细分
+    name: 港股自由现金流收益率
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股自由现金流收益率
+    window: 90
+  - asset_scope:
+      - 港股
+    calculation: 公司自由现金流/资产总计横截面排序
+    description: 高分表示单位资产产生自由现金流能力更强
+    dimension: 现金流质量
+    direction: high_bullish
+    indicator_id: ind_ba856b8f
+    indicator_type: 细分
+    name: 港股自由现金流资产比
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股自由现金流资产比
+    window: 90
 港股_盈利成长:
+  - asset_scope:
+      - 港股
+    calculation: 单季经营活动现金流同比横截面排序
+    description: 高分表示经营现金流增长强；提高权重以约束利润增长质量
+    dimension: 盈利成长
+    direction: high_bullish
+    indicator_id: ind_a2907140
+    indicator_type: 细分
+    name: 港股CFO同比增长
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股CFO同比增长
+    window: 90
+  - asset_scope:
+      - 港股
+    calculation: 单季归属净利润同比横截面排序
+    description: 高分表示归属股东利润增长强
+    dimension: 盈利成长
+    direction: high_bullish
+    indicator_id: ind_06a3f418
+    indicator_type: 细分
+    name: 港股归属净利润同比增长
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股归属净利润同比增长
+    window: 90
   - asset_scope:
       - 港股
     calculation: 营收同比30%、归属净利润同比35%、CFO同比35%
@@ -372,11 +3244,80 @@ A股_龙虎榜资金席位:
     dimension: 盈利成长
     direction: high_bullish
     indicator_id: ind_72e0c2b6
+    indicator_type: 综合
     name: 港股盈利成长
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: 港股盈利成长
     window: 90
+  - asset_scope:
+      - 港股
+    calculation: 单季营业收入同比横截面排序
+    description: 高分表示收入增长强
+    dimension: 盈利成长
+    direction: high_bullish
+    indicator_id: ind_57eef380
+    indicator_type: 细分
+    name: 港股营收同比增长
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股营收同比增长
+    window: 90
 港股_盈利能力:
+  - asset_scope:
+      - 港股
+    calculation: 单季净利润率缺失填充后横截面排序
+    description: 高分表示收入转化为净利润能力强
+    dimension: 盈利能力
+    direction: high_bullish
+    indicator_id: ind_b8a9069f
+    indicator_type: 细分
+    name: 港股净利率水平
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股净利率水平
+    window: 90
+  - asset_scope:
+      - 港股
+    calculation: 单季权益回报率缺失填充后横截面排序
+    description: 高分表示股东资本回报能力强
+    dimension: 盈利能力
+    direction: high_bullish
+    indicator_id: ind_126abcd5
+    indicator_type: 细分
+    name: 港股权益回报率水平
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股权益回报率水平
+    window: 90
+  - asset_scope:
+      - 港股
+    calculation: 单季毛利率缺失填充后横截面排序
+    description: 高分表示产品或服务毛利空间更强
+    dimension: 盈利能力
+    direction: high_bullish
+    indicator_id: ind_a764290a
+    indicator_type: 细分
+    name: 港股毛利率水平
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股毛利率水平
+    window: 90
   - asset_scope:
       - 港股
     calculation: 权益回报率、资产回报率、毛利率、净利率、营业利润率各20%
@@ -384,11 +3325,64 @@ A股_龙虎榜资金席位:
     dimension: 盈利能力
     direction: high_bullish
     indicator_id: ind_2437cd7e
+    indicator_type: 综合
     name: 港股盈利能力
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: 港股盈利能力
     window: 90
+  - asset_scope:
+      - 港股
+    calculation: 单季营业利润率缺失填充后横截面排序
+    description: 高分表示经营层面盈利能力强
+    dimension: 盈利能力
+    direction: high_bullish
+    indicator_id: ind_e3ff9b2f
+    indicator_type: 细分
+    name: 港股营业利润率水平
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股营业利润率水平
+    window: 90
+  - asset_scope:
+      - 港股
+    calculation: 单季资产回报率缺失填充后横截面排序
+    description: 高分表示资产赚钱效率高
+    dimension: 盈利能力
+    direction: high_bullish
+    indicator_id: ind_f53ba986
+    indicator_type: 细分
+    name: 港股资产回报率水平
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股资产回报率水平
+    window: 90
 港股_相对强度:
+  - asset_scope:
+      - 港股
+    calculation: 每日收益率在恒生二级行业内排序
+    description: 高分表示当日相对同行领先
+    dimension: 相对强度
+    direction: high_bullish
+    indicator_id: ind_16ecf1d3
+    indicator_type: 细分
+    name: 港股日行业相对强度
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股日行业相对强度
+    window: 1
   - asset_scope:
       - 港股
     calculation: 信息比率35%、行业排名持续性40%、跑赢基准稳定性25%
@@ -396,11 +3390,96 @@ A股_龙虎榜资金席位:
     dimension: 相对强度
     direction: high_bullish
     indicator_id: ind_hk_relative_strength
+    indicator_type: 综合
     name: 港股相对强度
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: 港股相对强度
     window: 20
+  - asset_scope:
+      - 港股
+    calculation: 20日平均日超额收益 / 20日超额收益标准差，再做市场内排序
+    description: 高分表示相对恒生综指的超额更高且更稳定
+    dimension: 相对强度
+    direction: high_bullish
+    indicator_id: ind_7279ee78
+    indicator_type: 细分
+    name: 港股相对恒生综指信息比率
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股相对恒生综指信息比率
+    window: 20
+  - asset_scope:
+      - 港股
+    calculation: 最近20日行业内每日排名均值
+    description: 高分表示持续而非单日领先同行
+    dimension: 相对强度
+    direction: high_bullish
+    indicator_id: ind_782bacbb
+    indicator_type: 细分
+    name: 港股行业相对排名持续性
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股行业相对排名持续性
+    window: 20
+  - asset_scope:
+      - 港股
+    calculation: 最近20日跑赢恒生综指的交易日比例
+    description: 高分表示跑赢基准具有持续性
+    dimension: 相对强度
+    direction: high_bullish
+    indicator_id: ind_62c33588
+    indicator_type: 细分
+    name: 港股跑赢恒生综指稳定性
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股跑赢恒生综指稳定性
+    window: 20
 港股_财务安全:
+  - asset_scope:
+      - 港股
+    calculation: 单季流动比率横截面排序
+    description: 高分表示短期流动性缓冲更充足
+    dimension: 财务安全
+    direction: high_bullish
+    indicator_id: ind_22fc3401
+    indicator_type: 细分
+    name: 港股流动比率安全
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股流动比率安全
+    window: 90
+  - asset_scope:
+      - 港股
+    calculation: 现金及现金等价物/比较取大(短期债务,1)横截面排序
+    description: 高分表示现金覆盖短期债务能力更强
+    dimension: 财务安全
+    direction: high_bullish
+    indicator_id: ind_a8bc8e48
+    indicator_type: 细分
+    name: 港股现金短债比安全
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股现金短债比安全
+    window: 90
   - asset_scope:
       - 港股
     calculation: 资产负债率30%、流动比率20%、速动比率15%、现金短债比35%
@@ -408,11 +3487,160 @@ A股_龙虎榜资金席位:
     dimension: 财务安全
     direction: high_bullish
     indicator_id: ind_66402014
+    indicator_type: 综合
     name: 港股财务安全
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: 港股财务安全
     window: 90
+  - asset_scope:
+      - 港股
+    calculation: 单季资产负债率横截面排序取反
+    description: 高分表示总杠杆压力相对更低
+    dimension: 财务安全
+    direction: high_bullish
+    indicator_id: ind_e8152d3a
+    indicator_type: 细分
+    name: 港股资产负债率安全
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股资产负债率安全
+    window: 90
+  - asset_scope:
+      - 港股
+    calculation: 单季速动比率横截面排序
+    description: 高分表示扣除存货后的偿债能力更强
+    dimension: 财务安全
+    direction: high_bullish
+    indicator_id: ind_c89ae86e
+    indicator_type: 细分
+    name: 港股速动比率安全
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股速动比率安全
+    window: 90
 港股_财务爆雷风险:
+  - asset_scope:
+      - 港股
+    calculation: 正净债务/EBITDA横截面排序
+    description: 高分表示债务相对经营盈利负担较重
+    dimension: 财务爆雷风险
+    direction: high_bullish
+    indicator_id: ind_ca520290
+    indicator_type: 细分
+    name: 港股净债务/EBITDA风险
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股净债务/EBITDA风险
+    window: null
+  - asset_scope:
+      - 港股
+    calculation: 利息覆盖率横截面排序取反
+    description: 高分表示经营利润覆盖利息能力较弱
+    dimension: 财务爆雷风险
+    direction: high_bullish
+    indicator_id: ind_7345c8bc
+    indicator_type: 细分
+    name: 港股利息覆盖不足
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股利息覆盖不足
+    window: null
+  - asset_scope:
+      - 港股
+    calculation: 正利润质量样本横截面排序取反
+    description: 高分表示利润转化为经营现金流的能力相对较弱
+    dimension: 财务爆雷风险
+    direction: high_bullish
+    indicator_id: ind_210ea2cd
+    indicator_type: 细分
+    name: 港股利润获现不足
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股利润获现不足
+    window: null
+  - asset_scope:
+      - 港股
+    calculation: 商誉及无形资产/总资产横截面排序
+    description: 高分表示并购溢价和无形资产减值弹性更大
+    dimension: 财务爆雷风险
+    direction: high_bullish
+    indicator_id: ind_66a35535
+    indicator_type: 细分
+    name: 港股商誉及无形资产风险
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股商誉及无形资产风险
+    window: null
+  - asset_scope:
+      - 港股
+    calculation: '`max(存货同比-营收同比,0)` 横截面排序'
+    description: 高分表示存货扩张快于收入
+    dimension: 财务爆雷风险
+    direction: high_bullish
+    indicator_id: ind_0308ad11
+    indicator_type: 细分
+    name: 港股存货异常预警
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股存货异常预警
+    window: null
+  - asset_scope:
+      - 港股
+    calculation: 现金资产比排序分 × 债务资产比排序分
+    description: 高分表示现金和有息债务同时偏高
+    dimension: 财务爆雷风险
+    direction: high_bullish
+    indicator_id: ind_b4d93b23
+    indicator_type: 细分
+    name: 港股存贷双高冲突
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股存贷双高冲突
+    window: null
+  - asset_scope:
+      - 港股
+    calculation: '`max(应收账款净额同比-营收同比,0)` 横截面排序'
+    description: 高分表示应收扩张快于收入
+    dimension: 财务爆雷风险
+    direction: high_bullish
+    indicator_id: ind_fdbae5a1
+    indicator_type: 细分
+    name: 港股应收异常预警
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股应收异常预警
+    window: null
   - asset_scope:
       - 港股
     calculation: 应收12%、存货10%、获现不足18%、存贷双高15%、商誉及无形资产15%、净债务/EBITDA12%、利息覆盖不足10%、亏损频次8%
@@ -420,11 +3648,64 @@ A股_龙虎榜资金席位:
     dimension: 财务爆雷风险
     direction: high_bullish
     indicator_id: ind_07a09fe5
+    indicator_type: 综合
     name: 港股财务爆雷风险
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: 港股财务爆雷风险
     window: null
+  - asset_scope:
+      - 港股
+    calculation: 最近4个报告期亏损次数横截面排序
+    description: 高分表示近期亏损出现更频繁
+    dimension: 财务爆雷风险
+    direction: high_bullish
+    indicator_id: ind_f9a541c1
+    indicator_type: 细分
+    name: 港股近4期亏损频次
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股近4期亏损频次
+    window: null
 港股_资金流向:
+  - asset_scope:
+      - 港股
+    calculation: 南向持股比例变化排序
+    description: 高分表示南向增持
+    dimension: 资金流向
+    direction: high_bullish
+    indicator_id: ind_hk_southbound_holding_change
+    indicator_type: 细分
+    name: 南向持股变化
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 南向持股变化
+    window: 20
+  - asset_scope:
+      - 港股
+    calculation: 南向持股比例历史水位
+    description: 高分表示南向资金持续关注
+    dimension: 资金流向
+    direction: high_bullish
+    indicator_id: ind_hk_southbound_holding_level
+    indicator_type: 细分
+    name: 南向持股水平
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 南向持股水平
+    window: 250
   - asset_scope:
       - 港股
     calculation: 南向持股变化70%、南向持股水平30%
@@ -432,11 +3713,144 @@ A股_龙虎榜资金席位:
     dimension: 资金流向
     direction: high_bullish
     indicator_id: ind_hk_capital_attention
+    indicator_type: 综合
     name: 港股资金关注
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: 港股资金关注
     window: 250
 港股_趋势结构:
+  - asset_scope:
+      - 港股
+    calculation: 当前收盘价 / 过去20日至昨日最高价
+    description: 高分表示接近或突破短期高点
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_hk_20d_high_breakout_proximity
+    indicator_type: 细分
+    name: 港股_20日高点接近突破
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股_20日高点接近突破
+    window: 20
+  - asset_scope:
+      - 港股
+    calculation: 当前收盘价 / 过去60日至昨日最低价
+    description: 高分表示远离中期低点、未进入破位结构
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_hk_60d_low_distance_from_breakdown
+    indicator_type: 细分
+    name: 港股_60日低点远离破位
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股_60日低点远离破位
+    window: 60
+  - asset_scope:
+      - 港股
+    calculation: 当前收盘价 / 过去60日至昨日最高价
+    description: 高分表示中期结构强
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_hk_60d_high_breakout_proximity
+    indicator_type: 细分
+    name: 港股_60日高点接近突破
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股_60日高点接近突破
+    window: 60
+  - asset_scope:
+      - 港股
+    calculation: 乖离率不高于12%时为1，12%~25%连续降至0.5，25%以上保持0.5
+    description: 越接近1表示趋势未明显过热，避免阈值附近得分跳变
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_hk_overheat_correction
+    indicator_type: 细分
+    name: 港股_不过热修正
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股_不过热修正
+    window: 20
+  - asset_scope:
+      - 港股
+    calculation: 收盘价 > MA5 > MA10 > MA20
+    description: 1表示均线顺序确认
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_hk_ma_bullish_alignment
+    indicator_type: 细分
+    name: 港股_均线多头排列
+    output_type: screen
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: screen
+    source_name: 港股_均线多头排列
+    window: 20
+  - asset_scope:
+      - 港股
+    calculation: 近5日低点高于MA20，近5日高点不低于昨日近10日高点
+    description: 1表示高低点同步上移
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_hk_short_term_high_low_lift
+    indicator_type: 细分
+    name: 港股_短期高低点抬升
+    output_type: screen
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: screen
+    source_name: 港股_短期高低点抬升
+    window: 20
+  - asset_scope:
+      - 港股
+    calculation: 接近突破连续分 × 成交额量比得分
+    description: 高分表示突破有量能确认
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_hk_breakout_volume_validity
+    indicator_type: 细分
+    name: 港股_突破放量有效性
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股_突破放量有效性
+    window: 60
+  - asset_scope:
+      - 港股
+    calculation: MA20 / 20日前MA20 - 1
+    description: 高分表示上行斜率强
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_hk_trend_slope
+    indicator_type: 细分
+    name: 港股_趋势斜率
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股_趋势斜率
+    window: 20
   - asset_scope:
       - 港股
     calculation: 20日突破15%、60日突破15%、远离60日低点10%、均线多头15%、趋势斜率20%、突破放量10%、高低点抬升15%，再乘连续不过热修正
@@ -444,11 +3858,64 @@ A股_龙虎榜资金席位:
     dimension: 趋势结构
     direction: high_bullish
     indicator_id: ind_hk_trend_structure
+    indicator_type: 综合
     name: 港股_趋势结构
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: 港股_趋势结构
     window: 60
 港股_运营效率:
+  - asset_scope:
+      - 港股
+    calculation: 数据库标准化单季存货周转率横截面排序
+    description: 高分表示存货周转更快；无存货公司的该项保持缺失
+    dimension: 运营效率
+    direction: high_bullish
+    indicator_id: ind_6387cd86
+    indicator_type: 细分
+    name: 港股存货周转率
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股存货周转率
+    window: 90
+  - asset_scope:
+      - 港股
+    calculation: 数据库标准化单季应收账款周转率横截面排序
+    description: 高分表示应收款回收和赊销周转更快
+    dimension: 运营效率
+    direction: high_bullish
+    indicator_id: ind_84269ed6
+    indicator_type: 细分
+    name: 港股应收账款周转率
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股应收账款周转率
+    window: 90
+  - asset_scope:
+      - 港股
+    calculation: 数据库标准化单季资产周转率横截面排序
+    description: 高分表示资产创造收入的效率更高
+    dimension: 运营效率
+    direction: high_bullish
+    indicator_id: ind_9e177320
+    indicator_type: 细分
+    name: 港股资产周转率
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股资产周转率
+    window: 90
   - asset_scope:
       - 港股
     calculation: 资产周转率35%、存货周转率30%、应收账款周转率35%；固定权重不转移
@@ -456,11 +3923,96 @@ A股_龙虎榜资金席位:
     dimension: 运营效率
     direction: high_bullish
     indicator_id: ind_9cc487ce
+    indicator_type: 综合
     name: 港股运营效率
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: 港股运营效率
     window: 90
 港股_量能与流动性:
+  - asset_scope:
+      - 港股
+    calculation: 20日平均(abs(日收益)/去除零值(成交额))横截面排序后取反
+    description: 高分表示近20日平均价格冲击较低；零成交额和缺失日不计算日冲击
+    dimension: 量能与流动性
+    direction: high_bullish
+    indicator_id: ind_hk_amihud_low_impact_liquidity
+    indicator_type: 细分
+    name: 港股_Amihud低冲击流动性
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股_Amihud低冲击流动性
+    window: 20
+  - asset_scope:
+      - 港股
+    calculation: 近20日平均成交额排序
+    description: 高分表示基础流动性好
+    dimension: 量能与流动性
+    direction: high_bullish
+    indicator_id: ind_hk_turnover_amount_activity
+    indicator_type: 细分
+    name: 港股_成交额活跃度
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股_成交额活跃度
+    window: 20
+  - asset_scope:
+      - 港股
+    calculation: 当日成交额 / 去除零值(过去20日至昨日均额)
+    description: 高分表示相对常态放量；零值或缺失分母不参与排序
+    dimension: 量能与流动性
+    direction: high_bullish
+    indicator_id: ind_hk_turnover_amount_ratio
+    indicator_type: 细分
+    name: 港股_成交额量比
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股_成交额量比
+    window: 20
+  - asset_scope:
+      - 港股
+    calculation: 当日成交额 / 去除零值(过去5日至昨日均额)
+    description: 1代表达到1.2倍以上；零值或缺失分母不输出
+    dimension: 量能与流动性
+    direction: high_bullish
+    indicator_id: ind_hk_short_term_volume_surge_strength
+    indicator_type: 细分
+    name: 港股_短期放量强度
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股_短期放量强度
+    window: 5
+  - asset_scope:
+      - 港股
+    calculation: 近5日上涨日成交额 / 去除零值(近5日上涨日成交额+近5日下跌日成交额)
+    description: 高分表示方向性成交额更多集中在上涨日；只有上涨日时比例为1，只有下跌日时为0
+    dimension: 量能与流动性
+    direction: high_bullish
+    indicator_id: ind_hk_price_volume_support
+    indicator_type: 细分
+    name: 港股_量价同步承接
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 港股_量价同步承接
+    window: 5
   - asset_scope:
       - 港股
     calculation: 成交额量比25%、短期放量10%、成交额活跃20%、量价承接20%、低冲击25%；分项缺失按0贡献，固定权重不转移
@@ -468,8 +4020,13 @@ A股_龙虎榜资金席位:
     dimension: 量能与流动性
     direction: high_bullish
     indicator_id: ind_hk_volume_liquidity
+    indicator_type: 综合
     name: 港股_量能与流动性
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: 港股_量能与流动性
     window: 20
 美股_个股情绪:
@@ -480,11 +4037,128 @@ A股_龙虎榜资金席位:
     dimension: 个股情绪
     direction: high_bullish
     indicator_id: ind_us_75c5415b
+    indicator_type: 综合
     name: 美股_个股情绪维度分
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: 美股_个股情绪维度分
     window: 60
+  - asset_scope:
+      - 美股
+    calculation: 隔夜跳空方向强度20%+日内承接25%+近5日涨跌平衡25%+5日收益方向强度30%
+    description: 正值表示短周期价格反馈偏积极，负值表示偏消极；高开继续上涨或低开继续下跌会同向确认，高开回落或低开修复会相互抵消
+    dimension: 个股情绪
+    direction: high_bullish
+    indicator_id: ind_us_2ebd2092
+    indicator_type: 细分
+    name: 美股_价格反馈
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股_价格反馈
+    window: 5
+  - asset_scope:
+      - 美股
+    calculation: 近5日量价方向×参与强度；参与强度为成交额量比60%+短期放量40%
+    description: 正值表示上涨方向获得更强交易参与，负值表示下跌方向获得更强参与；低参与会压低贡献
+    dimension: 个股情绪
+    direction: high_bullish
+    indicator_id: ind_us_d4ff00be
+    indicator_type: 细分
+    name: 美股_参与确认
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股_参与确认
+    window: 20
+  - asset_scope:
+      - 美股
+    calculation: 20日市场相对持续性45%+21至60日持续性35%+20日领先稳定性20%，围绕自然中点0.5居中
+    description: 正值表示相对市场需求偏强，负值表示相对偏弱；不代表绝对收益必然同方向
+    dimension: 个股情绪
+    direction: high_bullish
+    indicator_id: ind_us_01e3231b
+    indicator_type: 细分
+    name: 美股_相对需求
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股_相对需求
+    window: 60
 美股_估值性价比:
+  - asset_scope:
+      - 美股
+    calculation: 正PB样本中，横截面低估值分与250日历史低估值水位各50%
+    description: 高分表示PB更有吸引力；仅保留低权重，降低无形资产和回购对账面价值的结构性影响
+    dimension: 估值性价比
+    direction: high_bullish
+    indicator_id: ind_73ce9181
+    indicator_type: 细分
+    name: 美股PB估值吸引力
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股PB估值吸引力
+    window: 250
+  - asset_scope:
+      - 美股
+    calculation: 正PCF样本中，横截面低估值分与250日历史低估值水位各50%
+    description: 高分表示经营现金流对应的估值更便宜
+    dimension: 估值性价比
+    direction: high_bullish
+    indicator_id: ind_8755f535
+    indicator_type: 细分
+    name: 美股PCF现金估值吸引力
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股PCF现金估值吸引力
+    window: 250
+  - asset_scope:
+      - 美股
+    calculation: 正PE样本中，横截面低估值分与250日历史低估值水位各50%
+    description: 高分表示PE更低且处于自身较低水位
+    dimension: 估值性价比
+    direction: high_bullish
+    indicator_id: ind_2cb911b7
+    indicator_type: 细分
+    name: 美股PE估值吸引力
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股PE估值吸引力
+    window: 250
+  - asset_scope:
+      - 美股
+    calculation: 正PS样本中横截面排序取反
+    description: 高分表示收入估值更低，覆盖尚未盈利但有收入的公司
+    dimension: 估值性价比
+    direction: high_bullish
+    indicator_id: ind_8bef3b60
+    indicator_type: 细分
+    name: 美股PS收入估值吸引力
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股PS收入估值吸引力
+    window: 1
   - asset_scope:
       - 美股
     calculation: PE30%、PB10%、PS25%、PCF25%、股息率10%
@@ -492,11 +4166,96 @@ A股_龙虎榜资金席位:
     dimension: 估值性价比
     direction: high_bullish
     indicator_id: ind_99404a69
+    indicator_type: 综合
     name: 美股估值性价比
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: 美股估值性价比
     window: 250
+  - asset_scope:
+      - 美股
+    calculation: 非负股息率样本中做横截面排序
+    description: 高分表示股息率更高；低权重避免惩罚以回购替代分红的公司
+    dimension: 估值性价比
+    direction: high_bullish
+    indicator_id: ind_f6e20a12
+    indicator_type: 细分
+    name: 美股股息率吸引力
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股股息率吸引力
+    window: 1
 美股_动量与反转:
+  - asset_scope:
+      - 美股
+    calculation: 20日前收盘价 / 60日前收盘价 - 1
+    description: 高分表示较长期动量延续
+    dimension: 动量与反转
+    direction: high_bullish
+    indicator_id: ind_us_c900e8f9
+    indicator_type: 细分
+    name: 美股_21至60日动量
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股_21至60日动量
+    window: 60
+  - asset_scope:
+      - 美股
+    calculation: 5日累计收益横截面排序
+    description: 高分表示一周级动量强
+    dimension: 动量与反转
+    direction: high_bullish
+    indicator_id: ind_us_5d_return_percentile
+    indicator_type: 细分
+    name: 美股_5日涨幅百分位
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股_5日涨幅百分位
+    window: 5
+  - asset_scope:
+      - 美股
+    calculation: 5日前收盘价 / 20日前收盘价 - 1
+    description: 高分表示剔除最近5日后的中短期动量强
+    dimension: 动量与反转
+    direction: high_bullish
+    indicator_id: ind_us_b5aac174
+    indicator_type: 细分
+    name: 美股_6至20日动量
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股_6至20日动量
+    window: 20
+  - asset_scope:
+      - 美股
+    calculation: 平均涨跌幅之和大于0时计算RSI，并映射强势但不过热区间
+    description: 高分表示强而不过热；无波动或数据缺失时不输出
+    dimension: 动量与反转
+    direction: high_bullish
+    indicator_id: ind_us_rsi_strong_not_overheated
+    indicator_type: 细分
+    name: 美股_RSI强而不过热
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股_RSI强而不过热
+    window: 14
   - asset_scope:
       - 美股
     calculation: 5日10%、6至20日35%、21至60日25%、加速度15%、RSI健康15%
@@ -504,11 +4263,128 @@ A股_龙虎榜资金席位:
     dimension: 动量与反转
     direction: high_bullish
     indicator_id: ind_us_momentum_reversal
+    indicator_type: 综合
     name: 美股_动量与反转
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: 美股_动量与反转
     window: 60
+  - asset_scope:
+      - 美股
+    calculation: 最近5日收益/5 - 第6至10日收益/5
+    description: 高分表示近期相对前一非重叠窗口加速
+    dimension: 动量与反转
+    direction: high_bullish
+    indicator_id: ind_us_momentum_acceleration
+    indicator_type: 细分
+    name: 美股_动量加速度
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股_动量加速度
+    window: 10
 美股_形态_波动与风控:
+  - asset_scope:
+      - 美股
+    calculation: 20日收益波动率在自身250日水位中过高或过低都扣分
+    description: 高分表示波动处于可交易的中性区间
+    dimension: 形态、波动与风控
+    direction: high_bullish
+    indicator_id: ind_us_20d_hist_vol_moderate
+    indicator_type: 细分
+    name: 美股_历史波动率适中
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股_历史波动率适中
+    window: 250
+  - asset_scope:
+      - 美股
+    calculation: 当前价相对60日高点回撤
+    description: 高分表示回撤可控
+    dimension: 形态、波动与风控
+    direction: high_bullish
+    indicator_id: ind_us_60d_drawdown_control
+    indicator_type: 细分
+    name: 美股_回撤控制
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股_回撤控制
+    window: 60
+  - asset_scope:
+      - 美股
+    calculation: 站回10日均线且20日乖离健康
+    description: 1表示二次买点
+    dimension: 形态、波动与风控
+    direction: high_bullish
+    indicator_id: ind_us_ma_pullback_stabilization
+    indicator_type: 细分
+    name: 美股_回踩均线企稳
+    output_type: screen
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: screen
+    source_name: 美股_回踩均线企稳
+    window: 20
+  - asset_scope:
+      - 美股
+    calculation: 收盘价/MA20-1，过高过低都低分
+    description: 高分表示强而不过热
+    dimension: 形态、波动与风控
+    direction: high_bullish
+    indicator_id: ind_us_ma20_deviation_health
+    indicator_type: 细分
+    name: 美股_均线偏离健康度
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股_均线偏离健康度
+    window: 20
+  - asset_scope:
+      - 美股
+    calculation: 收口与开口得分取小作为共同强度，再用价格相对MA20的位置作0.5至1倍连续方向修正
+    description: 高分表示收口与开口同时较强，向上扩张获得更高分，向下扩张仅软降分
+    dimension: 形态、波动与风控
+    direction: high_bullish
+    indicator_id: ind_us_bollinger_squeeze_expansion
+    indicator_type: 细分
+    name: 美股_布林带收口后开口
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股_布林带收口后开口
+    window: 20
+  - asset_scope:
+      - 美股
+    calculation: 开盘相对昨收跳空风险排序后取反
+    description: 高分表示隔夜跳空风险低
+    dimension: 形态、波动与风控
+    direction: high_bullish
+    indicator_id: ind_us_stock_gap_risk_health
+    indicator_type: 细分
+    name: 美股_跳空健康
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股_跳空健康
+    window: 1
   - asset_scope:
       - 美股
     calculation: 历史波动率适中15%、布林收口后开口15%、均线偏离健康20%、60日回撤控制20%、回踩企稳15%、跳空健康15%
@@ -516,11 +4392,64 @@ A股_龙虎榜资金席位:
     dimension: 形态、波动与风控
     direction: high_bullish
     indicator_id: ind_us_pattern_health
+    indicator_type: 综合
     name: 美股形态健康
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: 美股形态健康
     window: 250
 美股_现金流质量:
+  - asset_scope:
+      - 美股
+    calculation: 仅归属净利润大于0时计算CFO/归属净利润横截面排序
+    description: 高分表示正利润有经营现金流支撑
+    dimension: 现金流质量
+    direction: high_bullish
+    indicator_id: ind_bff0facc
+    indicator_type: 细分
+    name: 美股CFO净利润比
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股CFO净利润比
+    window: 90
+  - asset_scope:
+      - 美股
+    calculation: CFO/营业收入横截面排序
+    description: 高分表示收入能转化为经营现金流
+    dimension: 现金流质量
+    direction: high_bullish
+    indicator_id: ind_f5e061e4
+    indicator_type: 细分
+    name: 美股CFO收入比
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股CFO收入比
+    window: 90
+  - asset_scope:
+      - 美股
+    calculation: 1-按市场排序分((归属净利润-CFO)/总资产)
+    description: 高分表示应计利润风险较低
+    dimension: 现金流质量
+    direction: high_bullish
+    indicator_id: ind_4a82edbd
+    indicator_type: 细分
+    name: 美股应计项资产比
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股应计项资产比
+    window: 90
   - asset_scope:
       - 美股
     calculation: CFO净利润20%、CFO收入15%、应计风险控制20%、FCF资产比20%、FCF收益率25%
@@ -528,11 +4457,80 @@ A股_龙虎榜资金席位:
     dimension: 现金流质量
     direction: high_bullish
     indicator_id: ind_257a3697
+    indicator_type: 综合
     name: 美股现金流质量
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: 美股现金流质量
     window: 90
+  - asset_scope:
+      - 美股
+    calculation: 数据库标准化自由现金流收益率横截面排序
+    description: 高分表示自由现金流相对股权价值更高；提高权重以适配现金流估值的重要性
+    dimension: 现金流质量
+    direction: high_bullish
+    indicator_id: ind_b8e30fec
+    indicator_type: 细分
+    name: 美股自由现金流收益率
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股自由现金流收益率
+    window: 90
+  - asset_scope:
+      - 美股
+    calculation: 公司自由现金流/资产总计横截面排序
+    description: 高分表示单位资产自由现金流更强
+    dimension: 现金流质量
+    direction: high_bullish
+    indicator_id: ind_98eeb7d6
+    indicator_type: 细分
+    name: 美股自由现金流资产比
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股自由现金流资产比
+    window: 90
 美股_盈利成长:
+  - asset_scope:
+      - 美股
+    calculation: 单季经营活动现金流同比横截面排序
+    description: 高分表示经营现金流增长强
+    dimension: 盈利成长
+    direction: high_bullish
+    indicator_id: ind_dec7901a
+    indicator_type: 细分
+    name: 美股CFO同比增长
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股CFO同比增长
+    window: 90
+  - asset_scope:
+      - 美股
+    calculation: 单季归属净利润同比横截面排序
+    description: 高分表示归属股东利润增长强
+    dimension: 盈利成长
+    direction: high_bullish
+    indicator_id: ind_e592a333
+    indicator_type: 细分
+    name: 美股归属净利润同比增长
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股归属净利润同比增长
+    window: 90
   - asset_scope:
       - 美股
     calculation: 营收同比40%、归属净利润同比35%、CFO同比25%
@@ -540,11 +4538,80 @@ A股_龙虎榜资金席位:
     dimension: 盈利成长
     direction: high_bullish
     indicator_id: ind_8b5c3bf9
+    indicator_type: 综合
     name: 美股盈利成长
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: 美股盈利成长
     window: 90
+  - asset_scope:
+      - 美股
+    calculation: 单季营业收入同比横截面排序
+    description: 高分表示收入扩张强；提高权重以覆盖盈利前成长公司
+    dimension: 盈利成长
+    direction: high_bullish
+    indicator_id: ind_06719f08
+    indicator_type: 细分
+    name: 美股营收同比增长
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股营收同比增长
+    window: 90
 美股_盈利能力:
+  - asset_scope:
+      - 美股
+    calculation: 单季净利润率缺失填充后横截面排序
+    description: 高分表示收入最终转化为净利润能力强
+    dimension: 盈利能力
+    direction: high_bullish
+    indicator_id: ind_d3ecd996
+    indicator_type: 细分
+    name: 美股净利率水平
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股净利率水平
+    window: 90
+  - asset_scope:
+      - 美股
+    calculation: 单季权益回报率缺失填充后横截面排序
+    description: 高分表示股东资本回报能力强；与资产回报率共同使用，降低回购和杠杆对单一ROE的影响
+    dimension: 盈利能力
+    direction: high_bullish
+    indicator_id: ind_54f585d9
+    indicator_type: 细分
+    name: 美股权益回报率水平
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股权益回报率水平
+    window: 90
+  - asset_scope:
+      - 美股
+    calculation: 单季毛利率缺失填充后横截面排序
+    description: 高分表示产品、软件或平台的毛利空间强
+    dimension: 盈利能力
+    direction: high_bullish
+    indicator_id: ind_22535b3c
+    indicator_type: 细分
+    name: 美股毛利率水平
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股毛利率水平
+    window: 90
   - asset_scope:
       - 美股
     calculation: 权益回报率20%、资产回报率15%、毛利率25%、净利率15%、营业利润率25%
@@ -552,11 +4619,112 @@ A股_龙虎榜资金席位:
     dimension: 盈利能力
     direction: high_bullish
     indicator_id: ind_81d84fd2
+    indicator_type: 综合
     name: 美股盈利能力
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: 美股盈利能力
     window: 90
+  - asset_scope:
+      - 美股
+    calculation: 单季营业利润率缺失填充后横截面排序
+    description: 高分表示核心经营盈利能力强，提高权重以减少非经营和税务项目扰动
+    dimension: 盈利能力
+    direction: high_bullish
+    indicator_id: ind_e3d69b5e
+    indicator_type: 细分
+    name: 美股营业利润率水平
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股营业利润率水平
+    window: 90
+  - asset_scope:
+      - 美股
+    calculation: 单季资产回报率缺失填充后横截面排序
+    description: 高分表示资产赚钱效率高
+    dimension: 盈利能力
+    direction: high_bullish
+    indicator_id: ind_434071c1
+    indicator_type: 细分
+    name: 美股资产回报率水平
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股资产回报率水平
+    window: 90
 美股_相对强度:
+  - asset_scope:
+      - 美股
+    calculation: 最近20日每日市场排名均值
+    description: 高分表示一个月内持续领先市场
+    dimension: 相对强度
+    direction: high_bullish
+    indicator_id: ind_bdb00ca8
+    indicator_type: 细分
+    name: 美股20日市场相对排名持续性
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股20日市场相对排名持续性
+    window: 20
+  - asset_scope:
+      - 美股
+    calculation: 最近20日处于市场每日排名前半区的比例
+    description: 高分表示领先状态出现频繁
+    dimension: 相对强度
+    direction: high_bullish
+    indicator_id: ind_0d5d628e
+    indicator_type: 细分
+    name: 美股20日市场领先稳定性
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股20日市场领先稳定性
+    window: 20
+  - asset_scope:
+      - 美股
+    calculation: 排除最近20日后，前40个交易日每日市场排名均值
+    description: 高分表示较早的中期窗口持续领先市场，避免与最近20日重复
+    dimension: 相对强度
+    direction: high_bullish
+    indicator_id: ind_26e1e2a2
+    indicator_type: 细分
+    name: 美股21至60日市场相对排名持续性
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股21至60日市场相对排名持续性
+    window: 60
+  - asset_scope:
+      - 美股
+    calculation: 每日收益率在美股池内排序
+    description: 高分表示当日相对市场领先
+    dimension: 相对强度
+    direction: high_bullish
+    indicator_id: ind_988ea15d
+    indicator_type: 细分
+    name: 美股日市场相对强度
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股日市场相对强度
+    window: 1
   - asset_scope:
       - 美股
     calculation: 20日持续性45%、21至60日持续性35%、20日领先稳定性20%
@@ -564,11 +4732,48 @@ A股_龙虎榜资金席位:
     dimension: 相对强度
     direction: high_bullish
     indicator_id: ind_us_relative_strength
+    indicator_type: 综合
     name: 美股相对强度
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: 美股相对强度
     window: 60
 美股_财务安全:
+  - asset_scope:
+      - 美股
+    calculation: 单季流动比率横截面排序
+    description: 高分表示短期流动性缓冲更充足
+    dimension: 财务安全
+    direction: high_bullish
+    indicator_id: ind_f76dbf8a
+    indicator_type: 细分
+    name: 美股流动比率安全
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股流动比率安全
+    window: 90
+  - asset_scope:
+      - 美股
+    calculation: 现金及现金等价物/比较取大(短期债务,1)横截面排序
+    description: 高分表示现金覆盖短期债务能力更强；提高权重以识别现金缓冲
+    dimension: 财务安全
+    direction: high_bullish
+    indicator_id: ind_58b13a68
+    indicator_type: 细分
+    name: 美股现金短债比安全
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股现金短债比安全
+    window: 90
   - asset_scope:
       - 美股
     calculation: 资产负债率25%、流动比率20%、速动比率20%、现金短债比35%
@@ -576,11 +4781,160 @@ A股_龙虎榜资金席位:
     dimension: 财务安全
     direction: high_bullish
     indicator_id: ind_feaaf7b1
+    indicator_type: 综合
     name: 美股财务安全
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: 美股财务安全
     window: 90
+  - asset_scope:
+      - 美股
+    calculation: 单季资产负债率横截面排序取反
+    description: 高分表示总杠杆压力相对更低
+    dimension: 财务安全
+    direction: high_bullish
+    indicator_id: ind_0778f53c
+    indicator_type: 细分
+    name: 美股资产负债率安全
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股资产负债率安全
+    window: 90
+  - asset_scope:
+      - 美股
+    calculation: 单季速动比率横截面排序
+    description: 高分表示扣除存货后的偿债能力更强
+    dimension: 财务安全
+    direction: high_bullish
+    indicator_id: ind_b99b65ac
+    indicator_type: 细分
+    name: 美股速动比率安全
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股速动比率安全
+    window: 90
 美股_财务爆雷风险:
+  - asset_scope:
+      - 美股
+    calculation: 正净债务/EBITDA横截面排序
+    description: 高分表示债务相对经营盈利负担较重
+    dimension: 财务爆雷风险
+    direction: high_bullish
+    indicator_id: ind_2c5f072c
+    indicator_type: 细分
+    name: 美股净债务/EBITDA风险
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股净债务/EBITDA风险
+    window: null
+  - asset_scope:
+      - 美股
+    calculation: 利息覆盖率横截面排序取反
+    description: 高分表示经营利润覆盖利息能力较弱
+    dimension: 财务爆雷风险
+    direction: high_bullish
+    indicator_id: ind_92e6b9ba
+    indicator_type: 细分
+    name: 美股利息覆盖不足
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股利息覆盖不足
+    window: null
+  - asset_scope:
+      - 美股
+    calculation: 正利润质量样本横截面排序取反
+    description: 高分表示利润转化为经营现金流的能力相对较弱
+    dimension: 财务爆雷风险
+    direction: high_bullish
+    indicator_id: ind_5b3bc508
+    indicator_type: 细分
+    name: 美股利润获现不足
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股利润获现不足
+    window: null
+  - asset_scope:
+      - 美股
+    calculation: 商誉及无形资产/总资产横截面排序
+    description: 高分表示并购和无形资产减值弹性更大
+    dimension: 财务爆雷风险
+    direction: high_bullish
+    indicator_id: ind_fbee1bf7
+    indicator_type: 细分
+    name: 美股商誉及无形资产风险
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股商誉及无形资产风险
+    window: null
+  - asset_scope:
+      - 美股
+    calculation: '`max(存货同比-营收同比,0)` 横截面排序'
+    description: 高分表示存货扩张快于收入
+    dimension: 财务爆雷风险
+    direction: high_bullish
+    indicator_id: ind_c037d4fd
+    indicator_type: 细分
+    name: 美股存货异常预警
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股存货异常预警
+    window: null
+  - asset_scope:
+      - 美股
+    calculation: 现金资产比排序分 × 债务资产比排序分
+    description: 高分表示现金和债务同时偏高
+    dimension: 财务爆雷风险
+    direction: high_bullish
+    indicator_id: ind_cc4b5f48
+    indicator_type: 细分
+    name: 美股存贷双高冲突
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股存贷双高冲突
+    window: null
+  - asset_scope:
+      - 美股
+    calculation: '`max(应收账款净额同比-营收同比,0)` 横截面排序'
+    description: 高分表示应收扩张快于收入
+    dimension: 财务爆雷风险
+    direction: high_bullish
+    indicator_id: ind_4fd8b2b0
+    indicator_type: 细分
+    name: 美股应收异常预警
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股应收异常预警
+    window: null
   - asset_scope:
       - 美股
     calculation: 应收12%、存货8%、获现不足18%、存贷双高12%、商誉及无形资产18%、净债务/EBITDA12%、利息覆盖不足12%、亏损频次8%
@@ -588,11 +4942,160 @@ A股_龙虎榜资金席位:
     dimension: 财务爆雷风险
     direction: high_bullish
     indicator_id: ind_f4db58d1
+    indicator_type: 综合
     name: 美股财务爆雷风险
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: 美股财务爆雷风险
     window: null
+  - asset_scope:
+      - 美股
+    calculation: 最近4个报告期亏损次数横截面排序
+    description: 高分表示近期亏损出现更频繁
+    dimension: 财务爆雷风险
+    direction: high_bullish
+    indicator_id: ind_4c282ac1
+    indicator_type: 细分
+    name: 美股近4期亏损频次
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股近4期亏损频次
+    window: null
 美股_趋势结构:
+  - asset_scope:
+      - 美股
+    calculation: 当前收盘价 / 过去20日至昨日最高价
+    description: 高分表示接近或突破短期高点
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_us_20d_high_breakout_proximity
+    indicator_type: 细分
+    name: 美股_20日高点接近突破
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股_20日高点接近突破
+    window: 20
+  - asset_scope:
+      - 美股
+    calculation: 当前收盘价 / 过去60日至昨日最低价
+    description: 高分表示远离中期低点、未进入破位结构
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_us_60d_low_distance_from_breakdown
+    indicator_type: 细分
+    name: 美股_60日低点远离破位
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股_60日低点远离破位
+    window: 60
+  - asset_scope:
+      - 美股
+    calculation: 当前收盘价 / 过去60日至昨日最高价
+    description: 高分表示中期结构强
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_us_60d_high_breakout_proximity
+    indicator_type: 细分
+    name: 美股_60日高点接近突破
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股_60日高点接近突破
+    window: 60
+  - asset_scope:
+      - 美股
+    calculation: 乖离率不高于12%时为1，12%~25%连续降至0.5，25%以上保持0.5
+    description: 越接近1表示趋势未明显过热，避免阈值附近得分跳变
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_us_overheat_correction
+    indicator_type: 细分
+    name: 美股_不过热修正
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股_不过热修正
+    window: 20
+  - asset_scope:
+      - 美股
+    calculation: 收盘价 > MA5 > MA10 > MA20
+    description: 1表示均线顺序确认
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_us_ma_bullish_alignment
+    indicator_type: 细分
+    name: 美股_均线多头排列
+    output_type: screen
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: screen
+    source_name: 美股_均线多头排列
+    window: 20
+  - asset_scope:
+      - 美股
+    calculation: 近5日低点高于MA20，近5日高点不低于昨日近10日高点
+    description: 1表示高低点同步上移
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_us_short_term_high_low_lift
+    indicator_type: 细分
+    name: 美股_短期高低点抬升
+    output_type: screen
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: screen
+    source_name: 美股_短期高低点抬升
+    window: 20
+  - asset_scope:
+      - 美股
+    calculation: 接近突破连续分 × 成交额量比得分
+    description: 高分表示突破有量能确认
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_us_breakout_volume_validity
+    indicator_type: 细分
+    name: 美股_突破放量有效性
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股_突破放量有效性
+    window: 60
+  - asset_scope:
+      - 美股
+    calculation: MA20 / 20日前MA20 - 1
+    description: 高分表示上行斜率强
+    dimension: 趋势结构
+    direction: high_bullish
+    indicator_id: ind_us_trend_slope
+    indicator_type: 细分
+    name: 美股_趋势斜率
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股_趋势斜率
+    window: 20
   - asset_scope:
       - 美股
     calculation: 20日突破15%、60日突破15%、远离60日低点10%、均线多头15%、趋势斜率20%、突破放量10%、高低点抬升15%，再乘连续不过热修正
@@ -600,11 +5103,80 @@ A股_龙虎榜资金席位:
     dimension: 趋势结构
     direction: high_bullish
     indicator_id: ind_us_trend_structure
+    indicator_type: 综合
     name: 美股_趋势结构
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: 美股_趋势结构
     window: 60
 美股_运营效率:
+  - asset_scope:
+      - 美股
+    calculation: 数据库标准化单季固定资产周转率横截面排序
+    description: 高分表示固定资产创造收入的效率更高；降低权重以避免轻资产公司机械占优
+    dimension: 运营效率
+    direction: high_bullish
+    indicator_id: ind_d549e9ca
+    indicator_type: 细分
+    name: 美股固定资产周转率
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股固定资产周转率
+    window: 90
+  - asset_scope:
+      - 美股
+    calculation: 数据库标准化单季存货周转率横截面排序
+    description: 高分表示存货周转更快；无存货公司的该项保持缺失
+    dimension: 运营效率
+    direction: high_bullish
+    indicator_id: ind_15677b9c
+    indicator_type: 细分
+    name: 美股存货周转率
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股存货周转率
+    window: 90
+  - asset_scope:
+      - 美股
+    calculation: 数据库标准化单季应收账款周转率横截面排序
+    description: 高分表示应收款回收和赊销周转更快
+    dimension: 运营效率
+    direction: high_bullish
+    indicator_id: ind_0e3d0320
+    indicator_type: 细分
+    name: 美股应收账款周转率
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股应收账款周转率
+    window: 90
+  - asset_scope:
+      - 美股
+    calculation: 数据库标准化单季资产周转率横截面排序
+    description: 高分表示资产创造收入的效率更高
+    dimension: 运营效率
+    direction: high_bullish
+    indicator_id: ind_afe0203d
+    indicator_type: 细分
+    name: 美股资产周转率
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股资产周转率
+    window: 90
   - asset_scope:
       - 美股
     calculation: 资产周转率30%、存货周转率25%、应收账款周转率30%、固定资产周转率15%；固定权重不转移
@@ -612,11 +5184,96 @@ A股_龙虎榜资金席位:
     dimension: 运营效率
     direction: high_bullish
     indicator_id: ind_82ebb393
+    indicator_type: 综合
     name: 美股运营效率
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: 美股运营效率
     window: 90
 美股_量能与流动性:
+  - asset_scope:
+      - 美股
+    calculation: 20日平均(abs(日收益)/去除零值(成交额))横截面排序后取反
+    description: 高分表示近20日平均价格冲击较低；零成交额和缺失日不计算日冲击
+    dimension: 量能与流动性
+    direction: high_bullish
+    indicator_id: ind_us_amihud_low_impact_liquidity
+    indicator_type: 细分
+    name: 美股_Amihud低冲击流动性
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股_Amihud低冲击流动性
+    window: 20
+  - asset_scope:
+      - 美股
+    calculation: 近20日平均成交额排序
+    description: 高分表示基础流动性好
+    dimension: 量能与流动性
+    direction: high_bullish
+    indicator_id: ind_us_turnover_amount_activity
+    indicator_type: 细分
+    name: 美股_成交额活跃度
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股_成交额活跃度
+    window: 20
+  - asset_scope:
+      - 美股
+    calculation: 当日成交额 / 去除零值(过去20日至昨日均额)
+    description: 高分表示相对常态放量；零值或缺失分母不参与排序
+    dimension: 量能与流动性
+    direction: high_bullish
+    indicator_id: ind_us_turnover_amount_ratio
+    indicator_type: 细分
+    name: 美股_成交额量比
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股_成交额量比
+    window: 20
+  - asset_scope:
+      - 美股
+    calculation: 当日成交额 / 去除零值(过去5日至昨日均额)
+    description: 1代表达到1.2倍以上；零值或缺失分母不输出
+    dimension: 量能与流动性
+    direction: high_bullish
+    indicator_id: ind_us_short_term_volume_surge_strength
+    indicator_type: 细分
+    name: 美股_短期放量强度
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股_短期放量强度
+    window: 5
+  - asset_scope:
+      - 美股
+    calculation: 近5日上涨日成交额 / 去除零值(近5日上涨日成交额+近5日下跌日成交额)
+    description: 高分表示方向性成交额更多集中在上涨日；只有上涨日时比例为1，只有下跌日时为0
+    dimension: 量能与流动性
+    direction: high_bullish
+    indicator_id: ind_us_price_volume_support
+    indicator_type: 细分
+    name: 美股_量价同步承接
+    output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
+    source_name: 美股_量价同步承接
+    window: 5
   - asset_scope:
       - 美股
     calculation: 成交额量比25%、短期放量10%、成交额活跃20%、量价承接20%、低冲击25%；分项缺失按0贡献，固定权重不转移
@@ -624,7 +5281,12 @@ A股_龙虎榜资金席位:
     dimension: 量能与流动性
     direction: high_bullish
     indicator_id: ind_us_volume_liquidity
+    indicator_type: 综合
     name: 美股_量能与流动性
     output_type: score
+    selection:
+      as_of: 20260826
+      ready: true
+      vector_type: score
     source_name: 美股_量能与流动性
     window: 20

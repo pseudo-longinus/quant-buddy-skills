@@ -32,12 +32,15 @@ from task_context import (
     TaskContextError,
     build_new_session_context,
     build_turn_context,
+    clear_turn_session_context,
     inject_or_validate_task_id,
     inject_or_validate_turn_context,
     may_replace_session_task_id,
     normalize_agent_intent,
     record_turn_tracking_diagnostic,
     session_context_fields,
+    tracking_reason_code,
+    tracking_result_outcome,
     turn_session_fields,
 )
 
@@ -308,7 +311,8 @@ class QuantAPI:
         except Exception:
             return {}
 
-    def _write_session(self, task_id: str, user_query: str = None, task_context: dict = None, turn_context: dict = None):
+    def _write_session(self, task_id: str, user_query: str = None, task_context: dict = None,
+                       turn_context: dict = None, clear_turn: bool = False, agent_intent: str = None):
         previous = self._read_session_full()
         same_task = str(previous.get("task_id") or "") == str(task_id or "")
         data = dict(previous) if same_task and not task_context else {}
@@ -320,6 +324,8 @@ class QuantAPI:
         if turn_context:
             data.update(turn_session_fields(turn_context, previous if same_task else {}))
             data["user_query"] = turn_context.get("user_query")
+        elif clear_turn:
+            clear_turn_session_context(data, user_query=user_query, agent_intent=agent_intent)
         os.makedirs(os.path.dirname(self._session_file), exist_ok=True)
         with open(self._session_file, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False)
@@ -347,18 +353,16 @@ class QuantAPI:
         req = urllib.request.Request(f"{endpoint}{path}", data=body, headers=headers, method="POST")
         with urllib.request.urlopen(req, timeout=30) as response:
             result = json.loads(response.read().decode("utf-8"))
-        if not isinstance(result, dict) or result.get("code") != 0 or not result.get("success"):
-            raise RuntimeError(f"Turn 创建失败: {result}")
-        if result.get("task_id") not in (None, "", turn_context["task_id"]):
-            raise RuntimeError(f"Turn 响应 task_id 不一致: {result}")
-        # message_id 幂等重试可返回首次写入的 canonical turn_id，后续上下文采用服务端值。
-        result["task_id"] = turn_context["task_id"]
-        result["turn_id"] = str(result.get("turn_id") or turn_context["turn_id"]).strip()
-        if not result["turn_id"]:
-            raise RuntimeError(f"Turn 响应缺少 turn_id: {result}")
-        result["agent_intent"] = normalize_agent_intent(
-            result.get("agent_intent") if "agent_intent" in result else turn_context.get("agent_intent")
-        )
+        if not isinstance(result, dict):
+            raise RuntimeError("Turn tracking response is not an object")
+        if result.get("code") == 0 and result.get("success") is not False and result.get("tracking_recorded") is not False:
+            # message_id 幂等重试可返回首次写入的 canonical turn_id，后续上下文采用服务端值。
+            result["task_id"] = turn_context["task_id"]
+            if result.get("turn_id") is not None:
+                result["turn_id"] = str(result.get("turn_id") or "").strip()
+            result["agent_intent"] = normalize_agent_intent(
+                result.get("agent_intent") if "agent_intent" in result else turn_context.get("agent_intent")
+            )
         return result
 
     def _report_session_begin(self, turn_context: dict):
@@ -447,31 +451,60 @@ class QuantAPI:
                 raise RuntimeError("USER_QUERY_REQUIRED: newSession 需要首轮用户原话 user_query")
             turn_params = dict(params)
             turn_params["task_id"] = new_id
-            try:
-                turn_context = build_turn_context({}, turn_params, uuid_factory=_uuid.uuid4)
-            except TaskContextError as exc:
-                raise RuntimeError(f"{exc.code}: {exc.message}") from exc
-            tracking_recorded = not task_context["report_session_begin"]
-            tracking_error = None
-            if task_context["report_session_begin"]:
-                try:
-                    turn_result = self._report_session_begin(turn_context)
-                    server_turn_id = turn_result.get("turn_id") if isinstance(turn_result, dict) else None
-                    canonical_turn_id = server_turn_id.strip() if isinstance(server_turn_id, str) else ""
-                    turn_context = {
-                        **turn_context,
-                        "turn_id": canonical_turn_id or turn_context["turn_id"],
-                        "agent_intent": turn_result.get("agent_intent"),
-                    }
-                    tracking_recorded = True
-                except Exception as exc:
-                    record_turn_tracking_diagnostic(
-                        self._session_file, "newSession", turn_context.get("task_id"),
-                        turn_context.get("turn_id"), exc,
-                    )
-            self._write_session(
-                new_id, user_query=user_query, task_context=task_context, turn_context=turn_context
+            attempted_turn = None
+            trusted_turn = None
+            tracking_recorded = False
+            reason_code = None
+            should_adopt_upstream_turn = (
+                not task_context["report_session_begin"] and bool(str(params.get("turn_id") or "").strip())
             )
+            if task_context["report_session_begin"] or should_adopt_upstream_turn:
+                try:
+                    attempted_turn = build_turn_context({}, turn_params, uuid_factory=_uuid.uuid4)
+                except TaskContextError as exc:
+                    raise RuntimeError(f"{exc.code}: {exc.message}") from exc
+
+            if task_context["report_session_begin"] and attempted_turn:
+                try:
+                    turn_result = self._report_session_begin(attempted_turn)
+                    tracking_recorded, canonical_turn_id, canonical_intent, reason_code = tracking_result_outcome(
+                        turn_result, new_id, attempted_turn["turn_id"]
+                    )
+                    if tracking_recorded:
+                        trusted_turn = {
+                            **attempted_turn,
+                            "turn_id": canonical_turn_id,
+                            "agent_intent": (
+                                canonical_intent if "agent_intent" in turn_result
+                                else attempted_turn.get("agent_intent")
+                            ),
+                        }
+                    else:
+                        record_turn_tracking_diagnostic(
+                            self._session_file, "newSession", new_id,
+                            attempted_turn.get("turn_id"), turn_result,
+                        )
+                except Exception as exc:
+                    reason_code = tracking_reason_code(exc, "TURN_TRACKING_REQUEST_FAILED")
+                    record_turn_tracking_diagnostic(
+                        self._session_file, "newSession", new_id,
+                        attempted_turn.get("turn_id"), exc,
+                    )
+            elif should_adopt_upstream_turn and attempted_turn:
+                trusted_turn = attempted_turn
+                tracking_recorded = True
+            else:
+                reason_code = "NO_TRUSTED_TURN"
+
+            if trusted_turn:
+                self._write_session(
+                    new_id, user_query=user_query, task_context=task_context, turn_context=trusted_turn
+                )
+            else:
+                self._write_session(
+                    new_id, user_query=user_query, task_context=task_context, clear_turn=True,
+                    agent_intent=params.get("agent_intent"),
+                )
             _cur_ver = _read_skill_version(self.skill_root)
             _changed = bool(_prev_ver and _prev_ver != _cur_ver)
 
@@ -481,8 +514,10 @@ class QuantAPI:
             _resp = {
                 "code": 0,
                 "task_id": new_id,
-                "turn_id": turn_context["turn_id"],
-                "agent_intent": turn_context.get("agent_intent"),
+                "agent_intent": (
+                    trusted_turn.get("agent_intent") if trusted_turn
+                    else normalize_agent_intent(params.get("agent_intent"))
+                ),
                 "task_mode": task_context["task_mode"],
                 "task_id_source": task_context["task_id_source"],
                 "task_source": task_context["task_source"],
@@ -490,15 +525,21 @@ class QuantAPI:
                 "version_changed_from_last_session": _changed,
                 "previous_skill_version": _prev_ver if _changed else None,
                 "tracking_recorded": tracking_recorded,
-                "tracking_error": tracking_error,
+                "blocking": False,
                 "message": (
                     f"{'上游 task_id 已继承' if task_context['task_id_locked'] else '新 session 已创建'}（skill {_cur_ver}）。"
                     + (f"检测到 skill 从 {_prev_ver} 升级到 {_cur_ver}，"
                        "必须先重读 SKILL.md 再继续。"
                        if _changed else
-                       "task_id 与首个 turn_id 已保存到 .session.json。")
+                       ("可信 Turn 已保存到 session，后续业务工具会自动复用。"
+                        if tracking_recorded else
+                        "Turn 追踪未登记，后续业务工具将以无 Turn 模式继续。"))
                 ),
             }
+            if trusted_turn:
+                _resp["turn_id"] = trusted_turn["turn_id"]
+            if not tracking_recorded:
+                _resp["reason_code"] = reason_code or "TURN_TRACKING_FAILED"
             if _qbs_update_required:
                 _resp["update_required"] = True
                 _resp["latest_version"] = _ver_info.get("latest_version")
@@ -540,43 +581,67 @@ class QuantAPI:
             if self._task_id:
                 session_data["task_id"] = self._task_id
             try:
-                turn_context = build_turn_context(session_data, params, uuid_factory=_uuid.uuid4)
+                attempted_turn = build_turn_context(session_data, params, uuid_factory=_uuid.uuid4)
             except TaskContextError as exc:
                 raise RuntimeError(f"{exc.code}: {exc.message}") from exc
             tracking_recorded = False
-            tracking_error = None
+            reason_code = None
             result = {}
+            trusted_turn = None
             try:
-                result = self._report_turn_begin(turn_context)
-                server_turn_id = result.get("turn_id") if isinstance(result, dict) else None
-                canonical_turn_id = server_turn_id.strip() if isinstance(server_turn_id, str) else ""
-                turn_context = {
-                    **turn_context,
-                    "turn_id": canonical_turn_id or turn_context["turn_id"],
-                    "agent_intent": result.get("agent_intent"),
-                }
-                tracking_recorded = True
-            except Exception as exc:
-                record_turn_tracking_diagnostic(
-                    self._session_file, "beginTurn", turn_context.get("task_id"),
-                    turn_context.get("turn_id"), exc,
+                result = self._report_turn_begin(attempted_turn)
+                tracking_recorded, canonical_turn_id, canonical_intent, reason_code = tracking_result_outcome(
+                    result, attempted_turn["task_id"], attempted_turn["turn_id"]
                 )
-            self._write_session(turn_context["task_id"], turn_context=turn_context)
-            return {
+                if tracking_recorded:
+                    trusted_turn = {
+                        **attempted_turn,
+                        "turn_id": canonical_turn_id,
+                        "agent_intent": (
+                            canonical_intent if "agent_intent" in result
+                            else attempted_turn.get("agent_intent")
+                        ),
+                    }
+                else:
+                    record_turn_tracking_diagnostic(
+                        self._session_file, "beginTurn", attempted_turn.get("task_id"),
+                        attempted_turn.get("turn_id"), result,
+                    )
+            except Exception as exc:
+                reason_code = tracking_reason_code(exc, "TURN_TRACKING_REQUEST_FAILED")
+                record_turn_tracking_diagnostic(
+                    self._session_file, "beginTurn", attempted_turn.get("task_id"),
+                    attempted_turn.get("turn_id"), exc,
+                )
+            if trusted_turn:
+                self._write_session(trusted_turn["task_id"], turn_context=trusted_turn)
+            else:
+                self._write_session(
+                    attempted_turn["task_id"], user_query=attempted_turn["user_query"],
+                    clear_turn=True, agent_intent=attempted_turn.get("agent_intent"),
+                )
+            response = {
                 "code": 0, "success": True,
-                "task_id": turn_context["task_id"],
-                "turn_id": turn_context["turn_id"],
-                "created": bool(result.get("created")),
-                "user_query": turn_context["user_query"],
-                "agent_intent": turn_context.get("agent_intent"),
+                "task_id": attempted_turn["task_id"],
+                "created": bool(result.get("created")) if tracking_recorded else False,
+                "user_query": attempted_turn["user_query"],
+                "agent_intent": (
+                    trusted_turn.get("agent_intent") if trusted_turn
+                    else attempted_turn.get("agent_intent")
+                ),
                 "tracking_recorded": tracking_recorded,
-                "tracking_error": tracking_error,
+                "blocking": False,
                 "message": (
-                    "新 Turn 上下文已切换；后续工具会自动复用当前 task_id、turn_id 与 user_query。"
+                    "新 Turn 已登记；后续工具会自动复用当前可信 Turn。"
                     if tracking_recorded else
-                    "本轮上下文已切换，可以继续执行后续工具。"
+                    "Turn 追踪未登记，后续业务工具将以无 Turn 模式继续。"
                 ),
             }
+            if trusted_turn:
+                response["turn_id"] = trusted_turn["turn_id"]
+            else:
+                response["reason_code"] = reason_code or "TURN_TRACKING_FAILED"
+            return response
 
         # ── 版本守卫：检测旧会话与当前 skill 版本是否匹配 ─────────────
         _cur_ver = _read_skill_version(self.skill_root)
@@ -731,7 +796,7 @@ class QuantAPI:
         self, user_query: str, turn_id: str = None, message_id: str = None,
         parent_turn_id: str = None, agent_intent: str = None,
     ) -> str:
-        """切换当前 Turn；服务端追踪失败时仍提交本地上下文并继续业务。"""
+        """Best-effort 切换 Turn；登记失败时返回 None，业务调用继续。"""
         params = {"user_query": user_query}
         if agent_intent is not None:
             params["agent_intent"] = agent_intent
@@ -742,9 +807,7 @@ class QuantAPI:
         if parent_turn_id is not None:
             params["parent_turn_id"] = parent_turn_id
         result = self._call("beginTurn", params)
-        if not result.get("turn_id"):
-            raise RuntimeError(f"beginTurn 未返回 turn_id: {result}")
-        return result["turn_id"]
+        return result.get("turn_id")
 
     # ────────────────────────────────────────────
     # 核心工具（与 SKILL.md 工具表一一对应）
@@ -788,7 +851,10 @@ class QuantAPI:
             "begin_date": begin_date,
         }
         params.update(kwargs)
-        return self._unwrap(self._call("runMultiFormulaBatchStream", params))
+        result = self._unwrap(self._call("runMultiFormulaBatchStream", params))
+        if isinstance(result, dict):
+            result.setdefault("ids", self.extract_obj_id_list(result))
+        return result
 
     def refresh_snapshot_time(self, task_id: str = None) -> dict:
         """强制刷新指定 session 的分钟数据截止时间。"""
@@ -883,26 +949,88 @@ class QuantAPI:
     # ────────────────────────────────────────────
 
     @staticmethod
-    def extract_obj_ids(formula_result: dict) -> dict:
-        """从 run_multi_formula 结果中提取 {leftName: obj_id} 映射。
+    def _formula_result_items(formula_result):
+        """Yield formula result items in server order without normalizing IDs."""
+        seen_containers = set()
 
-        这是最常用的后处理步骤——公式执行后需要拿到 data_id 才能 read_data。
-        """
+        def visit(value):
+            if isinstance(value, list):
+                identity = id(value)
+                if identity in seen_containers:
+                    return
+                seen_containers.add(identity)
+                for item in value:
+                    if isinstance(item, dict):
+                        yield item
+                        yield from visit(item)
+                    elif isinstance(item, list):
+                        yield from visit(item)
+            elif isinstance(value, dict):
+                identity = id(value)
+                if identity in seen_containers:
+                    return
+                seen_containers.add(identity)
+                for key in ("results", "data", "items"):
+                    nested = value.get(key)
+                    if isinstance(nested, (list, dict)):
+                        yield from visit(nested)
+
+        if isinstance(formula_result, (dict, list)):
+            yield from visit(formula_result)
+
+    @staticmethod
+    def _formula_item_obj_id(item):
+        """Choose the read_data-compatible object ID, preserving exact server bytes."""
+        if not isinstance(item, dict):
+            return None
+        candidates = [
+            item.get("data_id"),
+            item.get("indexinfo_id"),
+        ]
+        index_info = item.get("index_info")
+        if isinstance(index_info, dict):
+            candidates.extend([
+                index_info.get("data_id"),
+                index_info.get("indexinfo_id"),
+                index_info.get("_id"),
+                index_info.get("id"),
+                index_info.get("index_id"),
+            ])
+        candidates.extend([
+            item.get("expression_id"),
+            item.get("_id"),
+            item.get("id"),
+            item.get("index_id"),
+        ])
+        for candidate in candidates:
+            if isinstance(candidate, str) and candidate:
+                return candidate
+        return None
+
+    @classmethod
+    def extract_obj_ids(cls, formula_result: dict) -> dict:
+        """从公式结果中提取 {leftName: obj_id}，兼容顶层/嵌套 results。"""
         id_map = {}
-        if not isinstance(formula_result, dict):
-            return id_map
-        for item in (formula_result.get("data") or []):
-            if not isinstance(item, dict):
-                continue
-            left_name = item.get("leftName") or item.get("index_title") or ""
-            obj_id = None
-            if isinstance(item.get("index_info"), dict):
-                obj_id = item["index_info"].get("_id") or item["index_info"].get("id")
-            if not obj_id:
-                obj_id = item.get("_id") or item.get("id") or item.get("index_id")
-            if obj_id and left_name:
+        for item in cls._formula_result_items(formula_result):
+            left_name = item.get("leftName") or item.get("index_title")
+            if not left_name and isinstance(item.get("index_info"), dict):
+                left_name = item["index_info"].get("index_title")
+            obj_id = cls._formula_item_obj_id(item)
+            if obj_id is not None and left_name:
                 id_map[left_name] = obj_id
         return id_map
+
+    @classmethod
+    def extract_obj_id_list(cls, formula_result: dict) -> list:
+        """Return de-duplicated read_data IDs in the exact order/bytes returned by the server."""
+        ordered = []
+        seen = set()
+        for item in cls._formula_result_items(formula_result):
+            obj_id = cls._formula_item_obj_id(item)
+            if obj_id is not None and obj_id not in seen:
+                ordered.append(obj_id)
+                seen.add(obj_id)
+        return ordered
 
     @staticmethod
     def extract_sample_values(item: dict):

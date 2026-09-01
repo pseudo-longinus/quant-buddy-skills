@@ -89,19 +89,31 @@ def _read_session(path):
 
 
 def _configure_bridge_trace_context(params):
-    """Use the persisted QBV Turn as the canonical cross-skill audit context.
-
-    Business-tool params sometimes carry a narrowed/internal query description. Once
-    trace_context begin/beginTurn has persisted the real user message, that operational
-    text must not overwrite the same turn_id's user_query while syncing QBS.
-    """
+    """Use only a persisted trusted QBV Turn as canonical bridge context."""
     context_params = dict(params)
     nested = params.get("trace_context") if isinstance(params.get("trace_context"), dict) else {}
     task_id = str(params.get("task_id") or nested.get("task_id") or os.environ.get("QBV_TASK_ID") or "").strip()
     persisted = C.read_task_trace_context(task_id) if task_id else {}
+    persisted_untrusted = bool(persisted) and persisted.get("current_turn_trusted") is False
     persisted_turn_id = str(persisted.get("current_turn_id") or "").strip()
     persisted_user_query = str(persisted.get("current_user_query") or "").strip()
-    if persisted_turn_id and persisted_user_query:
+    if persisted_untrusted:
+        context_params.pop("turn_id", None)
+        context_params.pop("previous_turn_id", None)
+        if isinstance(context_params.get("trace_context"), dict):
+            nested_context = dict(context_params["trace_context"])
+            nested_context.pop("turn_id", None)
+            nested_context.pop("previous_turn_id", None)
+            context_params["trace_context"] = nested_context
+        if task_id:
+            context_params["task_id"] = task_id
+        explicit_user_query = str(
+            context_params.get("user_query") or context_params.get("userQuery")
+            or nested.get("user_query") or os.environ.get("QBV_USER_QUERY") or ""
+        ).strip()
+        if persisted_user_query and not explicit_user_query:
+            context_params["user_query"] = persisted_user_query
+    elif persisted_turn_id and persisted_user_query:
         context_params["task_id"] = task_id
         context_params["turn_id"] = persisted_turn_id
         context_params["user_query"] = persisted_user_query
@@ -116,14 +128,80 @@ def _configure_bridge_trace_context(params):
     return C.configure_trace_context(context_params)
 
 
-def _turn_sync_succeeded(completed):
-    if completed.returncode != 0:
-        return False
+def _decode_completed_payload(completed):
     try:
         payload = json.loads(completed.stdout.decode("utf-8-sig"))
     except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _turn_sync_succeeded(completed, expected_task_id, expected_turn_id):
+    if completed.returncode != 0:
         return False
-    return isinstance(payload, dict) and payload.get("code") == 0
+    payload = _decode_completed_payload(completed)
+    if not payload or payload.get("code") != 0 or payload.get("tracking_recorded") is False:
+        return False
+    returned_task_id = str(payload.get("task_id") or "").strip()
+    returned_turn_id = str(payload.get("turn_id") or "").strip()
+    return (
+        returned_task_id == str(expected_task_id or "").strip()
+        and returned_turn_id == str(expected_turn_id or "").strip()
+        and bool(returned_turn_id)
+    )
+
+
+def _command_succeeded(completed):
+    if completed.returncode != 0:
+        return False
+    payload = _decode_completed_payload(completed)
+    return bool(payload and payload.get("code") == 0)
+
+
+def _drop_untrusted_turn(params):
+    params.pop("turn_id", None)
+    params.pop("previous_turn_id", None)
+    nested = params.get("trace_context")
+    if isinstance(nested, dict):
+        nested = dict(nested)
+        nested.pop("turn_id", None)
+        nested.pop("previous_turn_id", None)
+        params["trace_context"] = nested
+    return params
+
+
+def _sanitize_qbs_turn_session(call_script, env, task_id, user_query, agent_model, stale_turn_id):
+    """Clear a stale QBS Turn without creating a replacement; never blocks business calls."""
+    sanitize_params = {
+        "task_mode": "inherit", "task_id": task_id,
+        "task_source": "quant-buddy-view", "user_query": user_query,
+    }
+    if agent_model:
+        sanitize_params["agent_model"] = agent_model
+    sanitize = _invoke(call_script, "newSession", sanitize_params, env)
+    if not _command_succeeded(sanitize):
+        C.record_turn_tracking_diagnostic(
+            task_id, stale_turn_id, "clearUntrustedTurn",
+            _decode_completed_payload(sanitize) or {
+                "returncode": sanitize.returncode,
+                "stderr": sanitize.stderr.decode("utf-8", errors="replace")[:4000],
+            },
+        )
+    return sanitize
+
+
+def _record_turn_sync_failure(task_id, attempted_turn_id, operation, completed):
+    payload = _decode_completed_payload(completed)
+    detail = payload if payload is not None else {
+        "returncode": completed.returncode,
+        "stderr": completed.stderr.decode("utf-8", errors="replace")[:4000],
+    }
+    C.record_turn_tracking_diagnostic(task_id, attempted_turn_id, operation, detail)
+    reason = C.tracking_reason_code(detail, "TURN_SYNC_FAILED")
+    print(
+        f"[qbs_bridge] {operation} degraded ({reason}); continuing business tool without turn_id.",
+        file=sys.stderr,
+    )
 
 
 def _session_ready(path, task_id):
@@ -1171,12 +1249,12 @@ def main():
 
     task_id = str(params.get("task_id") or "").strip()
     context = _configure_bridge_trace_context(params)
-    task_id = str(context.get("task_id") or task_id).strip()
+    task_id = str(context.get("task_id") or "").strip()
     turn_id = str(context.get("turn_id") or "").strip()
     user_query = str(context.get("user_query") or "").strip()
     agent_intent = C.normalize_agent_intent(context.get("agent_intent"))
-    if not task_id or not turn_id or not user_query:
-        missing = [key for key, value in (("task_id", task_id), ("turn_id", turn_id), ("user_query", user_query)) if not value]
+    if not task_id or not user_query:
+        missing = [key for key, value in (("task_id", task_id), ("user_query", user_query)) if not value]
         print(json.dumps({"code": 1, "error": "QBV_TRACE_CONTEXT_REQUIRED", "missing": missing}, ensure_ascii=False))
         return 1
 
@@ -1195,34 +1273,59 @@ def main():
 
     env = dict(os.environ)
     env["QBS_SESSION_KEY"] = session_key
+    env.pop("QBS_SUPPRESS_SESSION_TURN", None)
     env.setdefault("PYTHONUTF8", "1")
-    # 身份跨 skill 传递：两边的「本次调用用哪个 key」通道同档但不同名（QBV_API_KEY / QBS_API_KEY），
-    # 光靠继承 os.environ 传不过去——qbs 不认识 QBV_API_KEY，会一路兜底到它自己 config.json 里的
-    # 默认账号，于是用户的取数调用被记到那个账号名下（计费归错账，终态推送也显示错用户）。
-    # 桥接层是唯一同时知道两套变量名的地方，翻译责任在这里。
     _forward_api_key(env)
 
+    session_path = _session_path(qbs_root, session_key)
+    turn_trusted = bool(turn_id)
     bootstrapped = False
-    if not _session_ready(_session_path(qbs_root, session_key), task_id):
+    if not _session_ready(session_path, task_id):
         bootstrap_params = {
             "task_mode": "inherit",
             "task_id": task_id,
             "task_source": "quant-buddy-view",
-            "turn_id": turn_id,
             "user_query": user_query,
             "agent_intent": agent_intent,
         }
+        if turn_trusted:
+            bootstrap_params["turn_id"] = turn_id
         if agent_model:
             bootstrap_params["agent_model"] = agent_model
         bootstrap = _invoke(call_script, "newSession", bootstrap_params, env)
-        if bootstrap.returncode != 0:
-            sys.stdout.buffer.write(bootstrap.stdout)
-            sys.stderr.buffer.write(bootstrap.stderr)
-            return bootstrap.returncode or 1
-        bootstrapped = True
+        if turn_trusted:
+            if _turn_sync_succeeded(bootstrap, task_id, turn_id):
+                bootstrapped = True
+            else:
+                _record_turn_sync_failure(task_id, turn_id, "newSession", bootstrap)
+                turn_trusted = False
+                turn_id = ""
+                retry_params = dict(bootstrap_params)
+                retry_params.pop("turn_id", None)
+                retry_params.pop("agent_intent", None)
+                retry = _invoke(call_script, "newSession", retry_params, env)
+                bootstrapped = _command_succeeded(retry)
+                if not bootstrapped:
+                    C.record_turn_tracking_diagnostic(
+                        task_id, None, "newSession.noTurn", _decode_completed_payload(retry) or {
+                            "returncode": retry.returncode,
+                            "stderr": retry.stderr.decode("utf-8", errors="replace")[:4000],
+                        },
+                    )
+        else:
+            bootstrapped = _command_succeeded(bootstrap)
+            if not bootstrapped:
+                C.record_turn_tracking_diagnostic(
+                    task_id, None, "newSession.noTurn", _decode_completed_payload(bootstrap) or {
+                        "returncode": bootstrap.returncode,
+                        "stderr": bootstrap.stderr.decode("utf-8", errors="replace")[:4000],
+                    },
+                )
 
-    qbs_session = _read_session(_session_path(qbs_root, session_key))
-    if not bootstrapped and str(qbs_session.get("current_turn_id") or "") != turn_id:
+    qbs_session = _read_session(session_path)
+    qbs_turn_trusted = qbs_session.get("current_turn_trusted") is not False
+    qbs_turn_id = str(qbs_session.get("current_turn_id") or "").strip()
+    if turn_trusted and not bootstrapped and (not qbs_turn_trusted or qbs_turn_id != turn_id):
         sync_params = {
             "task_id": task_id, "turn_id": turn_id, "user_query": user_query,
             "agent_intent": agent_intent,
@@ -1230,19 +1333,33 @@ def main():
         }
         sync_params = {key: value for key, value in sync_params.items() if value}
         sync = _invoke(call_script, "beginTurn", sync_params, env)
-        if not _turn_sync_succeeded(sync):
-            # Turn tracking is an audit sidecar. The business request below already carries
-            # canonical QBV task/turn/query fields, so a sync failure must stay diagnostic.
-            print(
-                "[qbs_bridge] Turn sync failed; continuing business tool with canonical QBV context.",
-                file=sys.stderr,
-            )
+        if not _turn_sync_succeeded(sync, task_id, turn_id):
+            _record_turn_sync_failure(task_id, turn_id, "beginTurn", sync)
+            turn_trusted = False
+            turn_id = ""
+            if qbs_turn_id:
+                _sanitize_qbs_turn_session(
+                    call_script, env, task_id, user_query, agent_model, qbs_turn_id
+                )
+    elif not turn_trusted and qbs_turn_id:
+        # Clear a stale QBS Turn before the business call; this is session hygiene, not Turn creation.
+        _sanitize_qbs_turn_session(
+            call_script, env, task_id, user_query, agent_model, qbs_turn_id
+        )
+
+    if not turn_trusted:
+        # Even if best-effort session sanitization failed, downstream QBS calls must not
+        # revive an older trusted Turn from disk. This flag is local to call.py and is
+        # never forwarded to the business API.
+        env["QBS_SUPPRESS_SESSION_TURN"] = "1"
 
     params["task_id"] = task_id
-    params["turn_id"] = turn_id
     params["user_query"] = user_query
-    # agent_intent is Turn metadata. The authoritative Turn has already been created/synced,
-    # so ordinary data/business tools resolve it by turn_id instead of duplicating the text.
+    if turn_trusted and turn_id:
+        params["turn_id"] = turn_id
+    else:
+        _drop_untrusted_turn(params)
+    # agent_intent is Turn metadata and never belongs in ordinary business calls.
     params.pop("agent_intent", None)
     if tool_name == "validate_package_set":
         payload = _validate_package_set(call_script, params, env)

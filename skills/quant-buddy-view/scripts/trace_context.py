@@ -24,35 +24,59 @@ def _host_result(params, next_step=None):
     if not host:
         return None
     previous = C.read_task_trace_context(host["task_id"])
-    previous_turn_id = str(previous.get("current_turn_id") or "").strip() or None
-    if previous_turn_id == host["turn_id"]:
+    host_turn_id = str(host.get("turn_id") or "").strip() or None
+    previous_trusted = previous.get("current_turn_trusted") is not False
+    previous_turn_id = (
+        str(previous.get("current_turn_id") or "").strip() or None
+        if previous_trusted else None
+    )
+    if host_turn_id and previous_turn_id == host_turn_id:
         previous_turn_id = previous.get("previous_turn_id")
     C.configure_trace_context({
         **params,
         "task_id": host["task_id"],
-        "turn_id": host["turn_id"],
         "user_query": host["user_query"],
+        **({"turn_id": host_turn_id} if host_turn_id else {}),
     })
     agent_model = C.current_trace_context().get("agent_model")
     task_root = C.task_temp_dir(host["task_id"], create=True)
-    if not _commit_context(
-        host["task_id"], host["turn_id"], host["user_query"], previous_turn_id, agent_model
-    ):
-        return {"code": 1, "error": "TRACE_CONTEXT_PERSIST_FAILED"}
+    persisted = _commit_context(
+        host["task_id"], host_turn_id, host["user_query"], previous_turn_id, agent_model,
+        turn_trusted=bool(host_turn_id),
+    )
+    tracking_recorded = bool(host_turn_id and persisted)
+    if not persisted:
+        C.set_trace_context(
+            host["task_id"], host["user_query"], agent_model=agent_model,
+        )
+        C.record_turn_tracking_diagnostic(
+            host["task_id"], host_turn_id, "host.persist",
+            {"reason_code": "TRACE_CONTEXT_PERSIST_FAILED"},
+        )
     result = {
         "code": 0,
         "success": True,
         "task_id": host["task_id"],
-        "turn_id": host["turn_id"],
         "user_query": host["user_query"],
-        "parent_turn_id": previous_turn_id,
         "created": False,
-        "tracking_recorded": True,
+        "tracking_recorded": tracking_recorded,
+        "blocking": False,
         "tracking_owner": "claw-backend",
         "host_managed": True,
         "task_temp_dir": str(task_root),
-        "instruction": "Host 已建立本轮 Turn；后续 QBV/QBS 工具必须复用当前 task_id 与 turn_id。",
+        "instruction": (
+            "Host 已建立可信 Turn；后续 QBV/QBS 工具复用当前 task_id 与 turn_id。"
+            if tracking_recorded else
+            "Host 未提供可持久化的可信 Turn；后续 QBV/QBS 工具以无 Turn 模式继续。"
+        ),
     }
+    if tracking_recorded:
+        result["turn_id"] = host_turn_id
+        result["parent_turn_id"] = previous_turn_id
+    else:
+        result["reason_code"] = (
+            "TRACE_CONTEXT_PERSIST_FAILED" if host_turn_id else "HOST_TURN_ID_MISSING"
+        )
     if next_step:
         result["next_step"] = next_step
     return result
@@ -91,15 +115,17 @@ def _restore_process_context(snapshot):
 
 
 def _commit_context(task_id, turn_id, user_query, previous_turn_id, agent_model, handoff_context=None,
-                    agent_intent=None):
+                    agent_intent=None, turn_trusted=True):
+    trusted_turn_id = turn_id if turn_trusted else None
+    trusted_parent_turn_id = previous_turn_id if turn_trusted else None
     if not C.persist_task_trace_context(
-        task_id, turn_id, user_query, previous_turn_id=previous_turn_id, agent_model=agent_model,
-        handoff_context=handoff_context, agent_intent=agent_intent,
+        task_id, trusted_turn_id, user_query, previous_turn_id=trusted_parent_turn_id, agent_model=agent_model,
+        handoff_context=handoff_context, agent_intent=agent_intent, turn_trusted=turn_trusted,
     ):
         return False
     C.set_trace_context(
         task_id, user_query, api_key_override=C._API_KEY_OVERRIDE, agent_model=agent_model,
-        turn_id=turn_id, previous_turn_id=previous_turn_id, agent_intent=agent_intent,
+        turn_id=trusted_turn_id, previous_turn_id=trusted_parent_turn_id, agent_intent=agent_intent,
     )
     return True
 
@@ -114,6 +140,8 @@ def _reuse_active_handoff_turn(params, task_id, user_query):
     previous = C.read_task_trace_context(task_id)
     handoff_context = previous.get("handoff_context")
     if not isinstance(handoff_context, dict):
+        return None
+    if previous.get("current_turn_trusted") is False:
         return None
 
     persisted_turn_id = str(previous.get("current_turn_id") or "").strip()
@@ -168,20 +196,22 @@ def cmd_begin(params):
     task_id = str(params.get("task_id") or uuid.uuid4()).strip()
     user_query = str(params.get("user_query") or params.get("userQuery") or "").strip()
     if not user_query:
-        return {"code": 1, "error": "USER_QUERY_REQUIRED", "message": "trace begin 需要 user_query（用户原始问题）"}
+        return {
+            "code": 0, "success": True, "tracking_recorded": False,
+            "reason_code": "USER_QUERY_REQUIRED", "blocking": False,
+            "task_id": task_id,
+        }
 
     handoff_reuse = _reuse_active_handoff_turn(params, task_id, user_query)
     if handoff_reuse is not None:
         return handoff_reuse
 
-    cfg = C.load_config_require_key()
-    endpoint, api_key = C.endpoint_of(cfg), cfg.get("api_key", "")
-    turn_id = str(params.get("turn_id") or uuid.uuid4()).strip()
+    attempted_turn_id = str(params.get("turn_id") or uuid.uuid4()).strip()
     previous_process_context = _snapshot_process_context()
     agent_intent = C.normalize_agent_intent(params.get("agent_intent"))
     context_params = {
         "task_id": task_id,
-        "turn_id": turn_id,
+        "turn_id": attempted_turn_id,
         "user_query": user_query,
         "agent_intent": agent_intent,
     }
@@ -189,8 +219,14 @@ def cmd_begin(params):
         context_params["agent_model"] = params.get("agent_model")
     C.configure_trace_context(context_params)
     agent_model = C.current_trace_context().get("agent_model")
-    body = _turn_payload(params, task_id, turn_id, user_query)
+    C.set_trace_context(
+        task_id, user_query, api_key_override=C._API_KEY_OVERRIDE, agent_model=agent_model,
+        turn_id=attempted_turn_id, agent_intent=agent_intent,
+    )
+    body = _turn_payload(params, task_id, attempted_turn_id, user_query)
     try:
+        cfg = C.load_config_require_key()
+        endpoint, api_key = C.endpoint_of(cfg), cfg.get("api_key", "")
         out = C.http_json(
             "POST", C.api_url(endpoint, "/skill/session/begin"), C.headers(api_key), body, timeout=30,
         )
@@ -199,54 +235,78 @@ def cmd_begin(params):
             "code": -1, "success": False,
             "error": {"code": "TURN_TRACKING_REQUEST_FAILED", "message": str(exc)},
         }
-    tracking_recorded = bool(isinstance(out, dict) and out.get("code") == 0 and out.get("success"))
-    tracking_error = None
-    if tracking_recorded and out.get("task_id") in (None, "", task_id):
-        # message_id 幂等重试可能返回首次写入的 canonical turn_id。
-        turn_id = str(out.get("turn_id") or turn_id).strip()
+    tracking_recorded, canonical_turn_id, canonical_intent, reason_code = C.tracking_result_outcome(
+        out, task_id, attempted_turn_id
+    )
+    trusted_turn_id = None
+    if tracking_recorded:
+        trusted_turn_id = canonical_turn_id
         if "agent_intent" in out:
-            agent_intent = C.normalize_agent_intent(out.get("agent_intent"))
+            agent_intent = canonical_intent
     else:
-        tracking_recorded = False
-        C.record_turn_tracking_diagnostic(task_id, turn_id, "begin", out)
+        C.record_turn_tracking_diagnostic(task_id, attempted_turn_id, "begin", out)
+
     task_root = C.task_temp_dir(task_id, create=True)
-    if not _commit_context(task_id, turn_id, user_query, None, agent_model, agent_intent=agent_intent):
+    if not _commit_context(
+        task_id, trusted_turn_id, user_query, None, agent_model,
+        agent_intent=agent_intent, turn_trusted=tracking_recorded,
+    ):
         _restore_process_context(previous_process_context)
-        return {"code": 1, "error": "TRACE_CONTEXT_PERSIST_FAILED", "message": "服务端已创建 Turn，但本地上下文持久化失败"}
-    return {
-        "code": 0, "task_id": task_id, "turn_id": turn_id, "user_query": user_query,
+        C.set_trace_context(task_id, user_query, agent_model=agent_model, agent_intent=agent_intent)
+        C.record_turn_tracking_diagnostic(
+            task_id, attempted_turn_id, "begin.persist", {"reason_code": "TRACE_CONTEXT_PERSIST_FAILED"}
+        )
+        tracking_recorded = False
+        trusted_turn_id = None
+        reason_code = "TRACE_CONTEXT_PERSIST_FAILED"
+
+    result = {
+        "code": 0,
+        "success": True,
+        "task_id": task_id,
+        "user_query": user_query,
         "agent_intent": agent_intent,
         "created": bool(out.get("created")) if tracking_recorded else False,
-        "tracking_recorded": tracking_recorded, "tracking_error": tracking_error,
-        "task_temp_dir": str(task_root), "next_step": "templates",
+        "tracking_recorded": tracking_recorded,
+        "blocking": False,
+        "task_temp_dir": str(task_root),
+        "next_step": "templates",
         "instruction": (
-            "后续每个 quant-buddy-view 命令传入此 task_id；独立进程会自动恢复当前 turn_id。"
-            "简单单一 A 股分析可直接 new_asset_page，跳过 templates/new_page；其余场景先 "
-            "templates(recommend=\"all\") 判定路由。"
-            "同一 Session 的下一条用户追问先调用 trace_context.py beginTurn；同一页面继续复用 page_id/URL。"
+            "后续每个 quant-buddy-view 命令传入此 task_id；有可信 Turn 时独立进程自动恢复。"
+            "继续按模板或 new_asset_page 等正常工作流执行；Turn 追踪失败不会阻断页面、数据或发布流程。"
         ),
     }
+    if trusted_turn_id:
+        result["turn_id"] = trusted_turn_id
+    else:
+        result["reason_code"] = reason_code or "TURN_TRACKING_FAILED"
+    return result
 
 
 def cmd_begin_turn(params):
     host_result = _host_result(params)
     if host_result:
         return host_result
-    cfg = C.load_config_require_key()
-    endpoint, api_key = C.endpoint_of(cfg), cfg.get("api_key", "")
     task_id = str(params.get("task_id") or "").strip()
     user_query = str(params.get("user_query") or params.get("userQuery") or "").strip()
     if not task_id or not user_query:
         missing = [name for name, value in (("task_id", task_id), ("user_query", user_query)) if not value]
-        return {"code": 1, "error": "TURN_CONTEXT_REQUIRED", "missing": missing}
+        return {
+            "code": 0, "success": True, "tracking_recorded": False,
+            "reason_code": "TURN_CONTEXT_REQUIRED", "blocking": False,
+            "missing": missing,
+        }
     previous = C.read_task_trace_context(task_id)
-    parent_turn_id = str(params.get("parent_turn_id") or previous.get("current_turn_id") or "").strip() or None
-    turn_id = str(params.get("turn_id") or uuid.uuid4()).strip()
+    previous_trusted = previous.get("current_turn_trusted") is not False
+    parent_turn_id = str(
+        params.get("parent_turn_id") or (previous.get("current_turn_id") if previous_trusted else "") or ""
+    ).strip() or None
+    attempted_turn_id = str(params.get("turn_id") or uuid.uuid4()).strip()
     previous_process_context = _snapshot_process_context()
     agent_intent = C.normalize_agent_intent(params.get("agent_intent"))
     context_params = {
         "task_id": task_id,
-        "turn_id": turn_id,
+        "turn_id": attempted_turn_id,
         "user_query": user_query,
         "agent_intent": agent_intent,
     }
@@ -254,8 +314,14 @@ def cmd_begin_turn(params):
         context_params["agent_model"] = params.get("agent_model")
     C.configure_trace_context(context_params)
     agent_model = C.current_trace_context().get("agent_model")
-    body = _turn_payload(params, task_id, turn_id, user_query, parent_turn_id)
+    C.set_trace_context(
+        task_id, user_query, api_key_override=C._API_KEY_OVERRIDE, agent_model=agent_model,
+        turn_id=attempted_turn_id, previous_turn_id=parent_turn_id, agent_intent=agent_intent,
+    )
+    body = _turn_payload(params, task_id, attempted_turn_id, user_query, parent_turn_id)
     try:
+        cfg = C.load_config_require_key()
+        endpoint, api_key = C.endpoint_of(cfg), cfg.get("api_key", "")
         out = C.http_json(
             "POST", C.api_url(endpoint, "/skill/session/turn"), C.headers(api_key), body, timeout=30,
         )
@@ -264,29 +330,51 @@ def cmd_begin_turn(params):
             "code": -1, "success": False,
             "error": {"code": "TURN_TRACKING_REQUEST_FAILED", "message": str(exc)},
         }
-    tracking_recorded = bool(isinstance(out, dict) and out.get("code") == 0 and out.get("success"))
-    tracking_error = None
-    if tracking_recorded and out.get("task_id") in (None, "", task_id):
-        # message_id 幂等重试可能返回首次写入的 canonical turn_id。
-        turn_id = str(out.get("turn_id") or turn_id).strip()
+    tracking_recorded, canonical_turn_id, canonical_intent, reason_code = C.tracking_result_outcome(
+        out, task_id, attempted_turn_id
+    )
+    trusted_turn_id = None
+    if tracking_recorded:
+        trusted_turn_id = canonical_turn_id
         if "agent_intent" in out:
-            agent_intent = C.normalize_agent_intent(out.get("agent_intent"))
+            agent_intent = canonical_intent
     else:
-        tracking_recorded = False
-        C.record_turn_tracking_diagnostic(task_id, turn_id, "beginTurn", out)
+        C.record_turn_tracking_diagnostic(task_id, attempted_turn_id, "beginTurn", out)
+
     if not _commit_context(
-        task_id, turn_id, user_query, parent_turn_id, agent_model, agent_intent=agent_intent
+        task_id, trusted_turn_id, user_query, parent_turn_id, agent_model,
+        agent_intent=agent_intent, turn_trusted=tracking_recorded,
     ):
         _restore_process_context(previous_process_context)
-        return {"code": 1, "error": "TRACE_CONTEXT_PERSIST_FAILED"}
-    return {
-        "code": 0, "success": True, "task_id": task_id, "turn_id": turn_id,
-        "parent_turn_id": parent_turn_id, "user_query": user_query,
+        C.set_trace_context(task_id, user_query, agent_model=agent_model, agent_intent=agent_intent)
+        C.record_turn_tracking_diagnostic(
+            task_id, attempted_turn_id, "beginTurn.persist", {"reason_code": "TRACE_CONTEXT_PERSIST_FAILED"}
+        )
+        tracking_recorded = False
+        trusted_turn_id = None
+        reason_code = "TRACE_CONTEXT_PERSIST_FAILED"
+
+    result = {
+        "code": 0,
+        "success": True,
+        "task_id": task_id,
+        "user_query": user_query,
         "agent_intent": agent_intent,
         "created": bool(out.get("created")) if tracking_recorded else False,
-        "tracking_recorded": tracking_recorded, "tracking_error": tracking_error,
-        "instruction": "本轮后续 QBV/QBS 工具会共享此 turn_id；更新既有页面时继续复用原 page_id/URL。",
+        "tracking_recorded": tracking_recorded,
+        "blocking": False,
+        "instruction": (
+            "可信 Turn 已登记，后续 QBV/QBS 工具复用该 Turn。"
+            if tracking_recorded else
+            "Turn 追踪未登记，后续页面、数据和发布工具以无 Turn 模式继续。"
+        ),
     }
+    if trusted_turn_id:
+        result["turn_id"] = trusted_turn_id
+        result["parent_turn_id"] = parent_turn_id
+    else:
+        result["reason_code"] = reason_code or "TURN_TRACKING_FAILED"
+    return result
 
 
 def _load_handoff(params):

@@ -31,6 +31,16 @@ python scripts/static_page.py new_asset_page '{"task_id":"task_xxx","asset":"贵
 
 任一条件不满足就进入第 0 步，不要把定制单股页或多资产请求塞进快速通道。快速通道创建的是调用者自己的页面；后续内容修改复用现有 `update(page_id)`。
 
+## -0.25. 已有 URL 修改强制路由
+
+“只解读这个页面”是只读任务：调用不带 `task_id` 的 `interpret`，不创建页面。只要用户提供已有 URL 并要求修改、换标的、复制成自己的页面，就必须执行：
+
+`trace_context begin → interpret(task_id) → templates(recommend="all") → new_page(mode=fork, source_template_id=<interpret 返回>) → fork_prepare`。
+
+`interpret` 返回 `existing_page_route.required=true` / `must_copy_before_write=true` 后，task-scoped 路由凭据会持久化该来源；后续 `templates` 不得覆盖。fork 来源必须逐字等于 interpret 返回的 `source_template_id`，existing-page mutation 禁止改判 unmatched。
+
+在 fork 决策绑定前：禁止 `new_asset_page`、禁止 `build_dashboard`、禁止 bespoke `upload` 或任何 regenerated page。只有 `fork_prepare` 明确返回结构化不可复制错误后，才允许评估降级；降级交付必须写明 `page_context_mode=regenerated`、`source_page_context_inherited=false`，不得宣称已经复制原布局或上下文。
+
 ## 0. 查范式卡判命中
 
 ```bash
@@ -83,6 +93,7 @@ fork/unmatched 都必须由 Agent 在 `new_page.routing_decision` 中显式记�
    脚本生成 `fork_manifest_v2`、脱敏 `*.fork.html`、credential-free `*.fork-review.json`、`*.publish-plan.json` 和任务绑定；原始来源 HTML 仅供内部 SHA/凭证校验。
 3. Agent只编辑脱敏 HTML 和 review。来源 package/grant 通道、Grant kind/query_type/fields/dimensions/window/result mode及CSV/inline合同默认继承；主资产的公式/文案替换已由上一步的 `target_asset` 推导完成，同业矩阵填写 `target_slots`，复杂跨资产公式填写完整 `target_formulas`。**同业资产不在主资产替换范围内**（残留检查也会跳过它们），必须由你在 review 阶段选定目标同业——系统不替 Agent 选。
 4. 运行 `fork_prepare` 返回的 `publish_command`，不要手写 package/grant、Marker、reads、Grant payload 或完整 workflow JSON。
+   - `fork_prepare 返回 publish_command 后` 已进入发布收敛阶段：禁止读取 `scripts/*.py`、运行 `--help` 或研究 `publish_workflow.py` / `fork_runtime_contract.py` 源码；只填返回的 review 决策并执行命令，按结构化错误修正。
 5. 发布器在第一次网络写入前依次检查 review完整性、来源凭证残留、Marker唯一性、required outputs/公式左值/reads、PE/PB 水位公式的明确算法与正整数窗口、Grant合同差异和Card Runtime假凭证结构；fork 默认继承来源模板已验证的水位口径。
 6. Package验证和注册从同一 `{formulas,reads,begin_date}` 合同派生；Grant验证和注册使用同一 `kind + payload` fingerprint。`validate_grant_set`支持 `fast_query`、`stockProfile` 和 `selectByComposition`。
 7. 每个runtime role只注册一次；正文与Card共享合同由发布器自动向全部Marker扇出替换，然后上传图片、写prepared HTML并单次调用`publish_verified`。
@@ -121,5 +132,6 @@ fork/unmatched 创建首链后，如果资产库证明存在 A/H、同名代码�
 - 每个 package/grant 最多查询一次，仅明确瞬时网络失败允许重试一次。
 - direct 命中后禁止研究脚本实现、运行子命令 `--help` 或重复调用 `template/query/finalize`；使用 `direct_deliver` 的紧凑结果继续生成回复。
 - `new_asset_page` 成功后直接原样发送 `agent_reply_markdown`，不进入 validator；其余分支在 validator 返回 `valid=true` 后立即最终回复，禁止再次校验、运行 `--help`、扫描临时目录或继续 memory 搜索。
+- 已创建首链的任务必须进入 terminal 成功或明确失败终态，不得让进度页长期停留在 running；公网浏览器验收成功后的下一步必须是最终回复，禁止任何额外工具调用。
 - 性能门槛：普通渠道模板命中到首链 ≤5 秒；所有渠道 terminal 到最终回复 ≤45 秒、端到端 ≤120 秒、用户可见消息间隔 ≤60 秒。
 - 未跑浏览器验收时，只能声明公开 URL 和实时接口可访问。

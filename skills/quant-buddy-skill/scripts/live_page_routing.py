@@ -363,11 +363,19 @@ def _has_explicit_validation_receipt(validated_roles: Any, validation_receipts: 
 def _validated_role_data_ids(validated_roles: Any) -> set[str]:
     if not isinstance(validated_roles, list):
         return set()
-    return {
-        str(item.get("data_id")).strip()
-        for item in validated_roles
-        if isinstance(item, dict) and str(item.get("data_id") or "").strip()
-    }
+    data_ids: set[str] = set()
+    for item in validated_roles:
+        if not isinstance(item, dict):
+            continue
+        data_id = item.get("data_id")
+        if isinstance(data_id, str) and data_id.strip():
+            data_ids.add(data_id)
+        plural = item.get("data_ids")
+        if isinstance(plural, list):
+            for candidate in plural:
+                if isinstance(candidate, str) and candidate.strip():
+                    data_ids.add(candidate)
+    return data_ids
 
 
 def _validation_receipt_root() -> Path:

@@ -8,7 +8,7 @@
 - `shell.html`：官网页头 iframe Host、轻量 fallback、页尾、投研仓/鉴权/Web Agent iframe 与分享海报弹层结构。
 - `shell.css`：页头 Host/fallback、暗色品牌外壳、弹层和移动端约束；完整可见页头视觉在官网 endpoint 中维护。
 - `poster.js`：固定海报页头/页尾、大二维码、canvas 绘制；默认前端截取页面主体作为预览，失败时再程序化降级，宁缺毋滥。
-- `shell.js`：官网页头 Parent Bridge、刷新、投研仓与鉴权通信、移动端 Web Agent 底部对话框、桌面端 Playground 跳转、分享弹层、复制链接、复制图片、下载 PNG 行为。
+- `shell.js`：官网页头 Parent Bridge、刷新、投研仓与鉴权通信、移动端 Web Agent 底部对话框、桌面端 Playground 跳转、页面问题携题自动发送、分享弹层、复制链接、复制图片、下载 PNG 行为。
 
 ## 模板契约
 
@@ -40,9 +40,9 @@ load();
 
 ## 版本与 artifact 契约
 
-- 当前目标为 `share-shell-v2 / revision 3`，必须包含 `research_warehouse`、`brand_warehouse_navigation`、`mobile_web_agent_sheet`、`desktop_playground_navigation`、`agent_page_refresh`、`official_header_iframe` 六项能力。
+- 当前目标为 `share-shell-v2 / revision 4`，必须包含 `research_warehouse`、`brand_warehouse_navigation`、`mobile_web_agent_sheet`、`desktop_playground_navigation`、`agent_page_refresh`、`official_header_iframe` 七项能力。
 - 编译后的 HTML 注入 `QB_SHARE_SHELL_VERSION` 和 `QB_SHARE_SHELL_REVISION`，供服务端 fail-closed 检测；未识别版本或 revision 不得标记为 verified。
-- `scripts/share_shell_contract.py` 只提取 `QB_SHELL_CSS/HEADER/RESEARCH_WAREHOUSE/FOOTER/MODAL/JS` 六组 Marker，统一换行和区块首尾空白后计算 SHA-256。当前标准 artifact hash 为 `8d3463e9e96b6830958a04820da56f95352e99980cadb2010f0c6722ac507e88`。
+- `scripts/share_shell_contract.py` 只提取 `QB_SHELL_CSS/HEADER/RESEARCH_WAREHOUSE/FOOTER/MODAL/JS` 六组 Marker，统一换行和区块首尾空白后计算 SHA-256。当前标准 artifact hash 由 canonical managed shell 生成，并必须与后台目标策略一致。
 - `refresh_share_shell:true` 只能替换这六组 Marker；正文、Data Kernel、实时数据脚本和 Card Runtime 必须保持不变。
 - 完整可见页头由官网 `/embed/live-page-header` 托管：纯视觉与排版调整只更新官网 endpoint，不需要逐页刷新。只有 Parent Bridge、`qb-live-page-header-v1` 通信协议或能力契约变化才提升 `contract.json` revision，并同步检测规则、后台目标策略和回归测试。
 

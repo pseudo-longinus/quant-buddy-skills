@@ -9,6 +9,39 @@
 
 ---
 
+## [4.25.32] — 2026-09-01
+
+### QBS→QBV 复数对象 ID 直传
+
+- `validated_roles[].data_ids` 按服务端返回顺序确定性展开为唯一 role，原始 ID 不截断、不改写、不排序，并同步 `page_intent.required_roles`。
+- Validation Receipt 自动发现同时识别单数 `data_id` 与复数 `data_ids`，避免多资产公式结果在 Handoff 阶段因缺少单数证据字段而失败。
+- 回归数据中的回测图表问题改为自包含策略描述，不再依赖批处理不存在的上一轮上下文。
+
+## [4.25.31] — 2026-08-31
+
+### Turn 追踪非阻塞与公式对象 ID 直传
+
+- Turn 登记失败统一返回 `code:0 + tracking_recorded:false + blocking:false`；attempted Turn 只写诊断日志，不保存为可信上下文，也不进入业务请求或 `x-turn-id`。
+- 无可信 Turn 时继续携带真实 `task_id`、`user_query` 与 `agent_intent` 执行业务；内部工具调用和重试不因追踪降级生成新 User Turn。
+- 公式结果支持从顶层/嵌套 `results` 提取 `data_id`、`indexinfo_id`、`expression_id` 与通用 ID，并提供按服务端原始字节顺序排列的 `ids` 供 `read_data` 直接消费。
+- 增加 2026-08-31 事故脱敏 Trace Replay，锁定幽灵 Turn 不传播、正确对象 ID 不改写，以及全部 item 失败仍可由 Agent 继续修正。
+
+
+### 对齐细分指标组合选股契约
+
+- `selectByComposition` 的 QBS 路由不再把 `indicator_type:"综合"` 当作准入条件：已物化、当前可选的细分与综合指标均可进入选择器。
+- 选股位置改为按 `output_type` 分配：score 用于 `composition` / `score_filters` / screen 模式排序，screen 用于 `screens`；在线目录的 `selection_ready`、`selection_mode`、`as_of` 用于预检，服务端选择器仍是最终校验。
+- `dimensions.yaml` 明确为本地候选快照，不再被表述为选择器唯一来源或实时可选性证明；细分指标和本地未命中项可通过 `listDimensionIndicators` 在线发现。
+- 同步更新组合选股工作流、工具说明和指标库说明，补充 `score_filters`、日期对齐、可选性错误及 compact/verbose 贡献拆解的当前接口契约。
+
+## [4.25.30] — 2026-08-28
+
+### 个股画像返回千维上一有效值
+
+- `stockProfile` 契约补充千维动态维度：最新值来自 `qw_indicator`，`previous_value` / `previous_date` 来自 `qw_indicator_history` 中严格早于最新日期的上一有效记录。
+- `fast_query` 路由边界补充“画像上一值 / 前后两期对比”场景，统一转 `stockProfile`，不再临时拼接历史或公式补算。
+- 明确数值型千维指标保留 0、跳过空值，布尔型指标的 `previous_*` 表示上一次命中；历史不足时仅省略前值字段。
+
 ## [4.25.29] — 2026-08-26
 
 ### 自更新备份改为受管理目录

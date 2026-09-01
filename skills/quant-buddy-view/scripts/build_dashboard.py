@@ -1830,6 +1830,11 @@ def cmd_build(params):
         routing, _, routing_error = SP._read_routing_credential(task_id)
         if routing_error:
             return routing_error
+        existing_page_error = SP._existing_page_mutation_error(
+            {**(params or {}), "task_id": task_id}, action="build_dashboard"
+        )
+        if existing_page_error:
+            return existing_page_error
         decision = (routing or {}).get("routing_decision") if isinstance((routing or {}).get("routing_decision"), dict) else {}
         if decision.get("mode") == "fork":
             borrow_mode = str(decision.get("borrow_mode") or "")

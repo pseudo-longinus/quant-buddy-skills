@@ -486,6 +486,59 @@ def _load_validation_receipt_file(
     )
 
 
+def _expand_validated_roles(values: Any) -> tuple[list[Dict[str, Any]], Dict[str, list[str]]]:
+    roles = _list("validated_roles", values)
+    expanded: list[Dict[str, Any]] = []
+    role_expansions: Dict[str, list[str]] = {}
+    for index, raw in enumerate(roles):
+        item = dict(_object(f"validated_roles[{index}]", raw))
+        role = _text("role", item.get("role"))
+        if "data_ids" not in item:
+            expanded.append(item)
+            continue
+        if _compact_optional(item.get("data_id")) is not None:
+            raise ComputationCapsuleError(
+                "AMBIGUOUS_DATA_IDS",
+                f"validated_roles[{index}] 不得同时包含 data_id 和 data_ids",
+            )
+        raw_ids = item.get("data_ids")
+        if not isinstance(raw_ids, list) or not raw_ids:
+            raise ComputationCapsuleError(
+                "INVALID_DATA_IDS",
+                f"validated_roles[{index}].data_ids 必须是非空 JSON array",
+            )
+        expanded_roles = []
+        width = max(2, len(str(len(raw_ids))))
+        for position, raw_data_id in enumerate(raw_ids, start=1):
+            if not isinstance(raw_data_id, str) or not raw_data_id.strip():
+                raise ComputationCapsuleError(
+                    "INVALID_DATA_ID",
+                    f"validated_roles[{index}].data_ids[{position - 1}] 必须是非空字符串",
+                )
+            expanded_role = f"{role}__{position:0{width}d}"
+            child = dict(item)
+            child.pop("data_ids", None)
+            child["role"] = expanded_role
+            child["role_group"] = role
+            # Keep the exact server-returned identifier. Do not trim, case-fold,
+            # normalize, sort, or otherwise rewrite it.
+            child["data_id"] = raw_data_id
+            expanded.append(child)
+            expanded_roles.append(expanded_role)
+        role_expansions[role] = expanded_roles
+    return expanded, role_expansions
+
+
+def _expand_required_roles(values: Any, role_expansions: Dict[str, list[str]]) -> list[str]:
+    expanded = []
+    for role in _normalize_roles(values):
+        candidates = role_expansions.get(role, [role])
+        for candidate in candidates:
+            if candidate not in expanded:
+                expanded.append(candidate)
+    return expanded
+
+
 def build_computation_capsule_from_validated_roles(
     *,
     task_id: Any,
@@ -508,10 +561,10 @@ def build_computation_capsule_from_validated_roles(
     task_value = _text("task_id", task_id)
     turn_value = _text("turn_id", turn_id)
     query_value = _text("user_query", user_query)
-    roles = _list("validated_roles", validated_roles)
+    roles, role_expansions = _expand_validated_roles(validated_roles)
     if not roles:
         raise ComputationCapsuleError("VALIDATED_ROLES_REQUIRED", "validated_roles 至少需要一个已验证 role")
-    role_names = [_text("role", _object(f"validated_roles[{index}]", raw).get("role")) for index, raw in enumerate(roles)]
+    role_names = [_text("role", raw.get("role")) for raw in roles]
     if isinstance(page_intent, str):
         lowered_roles = " ".join(role_names).lower()
         if "industry" in lowered_roles and ("rank" in lowered_roles or "ranking" in lowered_roles):
@@ -541,7 +594,13 @@ def build_computation_capsule_from_validated_roles(
         page_intent.setdefault("question_to_answer", query_value)
         page_intent.setdefault("recommended_page_type", "interactive_analysis")
         page_intent.setdefault("primary_visualization", "primary_chart")
-        page_intent.setdefault("required_roles", role_names)
+        if page_intent.get("required_roles") is None:
+            page_intent["required_roles"] = role_names
+        else:
+            page_intent["required_roles"] = _expand_required_roles(
+                page_intent.get("required_roles"),
+                role_expansions,
+            )
 
     contracts = []
     outputs = []
@@ -582,14 +641,19 @@ def build_computation_capsule_from_validated_roles(
         else:
             contract = _object("contract", item.get("contract"))
             kind = _compact_optional(item.get("kind")) or _compact_optional(contract.get("kind")) or _compact_optional(contract.get("type")) or "validated_contract"
+        role_group = _compact_optional(item.get("role_group"))
         contracts.append({
             "role": role,
             "kind": kind,
             "contract": contract,
+            **({"role_group": role_group} if role_group else {}),
             **({"contract_fingerprint": item.get("contract_fingerprint")} if item.get("contract_fingerprint") else {}),
         })
 
-        output = {"role": role}
+        output = {
+            "role": role,
+            **({"role_group": role_group} if role_group else {}),
+        }
         if data_id:
             output.update({
                 "evidence_kind": "quant_buddy_data_id",
@@ -603,7 +667,7 @@ def build_computation_capsule_from_validated_roles(
         else:
             raise ComputationCapsuleError(
                 "OUTPUT_EVIDENCE_REQUIRED",
-                f"validated_roles[{index}] 必须包含 artifact_file、data 或 data_id",
+                f"validated_roles[{index}] 必须包含 artifact_file、data、data_id 或 data_ids",
             )
         if "asset_count" in item and "row_count" not in item:
             output["row_count"] = item.get("asset_count")

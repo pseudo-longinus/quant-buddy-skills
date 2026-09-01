@@ -1,12 +1,13 @@
 {
   "version": "share-shell-v2",
-  "revision": 3,
+  "revision": 4,
   "required_capabilities": [
     "research_warehouse",
     "brand_warehouse_navigation",
     "mobile_web_agent_sheet",
     "desktop_playground_navigation",
     "agent_page_refresh",
-    "official_header_iframe"
+    "official_header_iframe",
+    "web_agent_auto_submit"
   ]
 }

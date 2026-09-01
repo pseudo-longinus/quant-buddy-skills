@@ -12,6 +12,10 @@ TASK_MODE_INHERIT = "inherit"
 _TASK_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _TURN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _MAX_AGENT_INTENT_CHARS = 300
+_TURN_SESSION_KEYS = (
+    "current_turn_id",
+    "previous_turn_id",
+)
 
 
 def record_turn_tracking_diagnostic(session_file, operation, task_id, turn_id, detail):
@@ -159,6 +163,42 @@ def normalize_agent_intent(value):
     return normalized[:_MAX_AGENT_INTENT_CHARS] or None
 
 
+def tracking_reason_code(detail, default="TURN_TRACKING_FAILED"):
+    """Extract a stable tracking reason without exposing diagnostic text."""
+    if isinstance(detail, dict):
+        direct = detail.get("reason_code")
+        if isinstance(direct, str) and direct.strip():
+            return direct.strip()
+        error = detail.get("error")
+        if isinstance(error, dict):
+            nested = error.get("code")
+            if isinstance(nested, str) and nested.strip():
+                return nested.strip()
+        if isinstance(error, str) and error.strip():
+            return error.strip()
+    code = getattr(detail, "code", None)
+    if isinstance(code, str) and code.strip():
+        return code.strip()
+    return default
+
+
+def tracking_result_outcome(result, expected_task_id, attempted_turn_id):
+    """Return (recorded, canonical_turn_id, canonical_intent, reason_code)."""
+    if not isinstance(result, dict):
+        return False, None, None, "TURN_TRACKING_RESPONSE_INVALID"
+    if result.get("code") != 0 or result.get("success") is False or result.get("tracking_recorded") is False:
+        return False, None, None, tracking_reason_code(result)
+    if result.get("task_id") not in (None, "", expected_task_id):
+        return False, None, None, "TURN_TASK_CONTEXT_MISMATCH"
+    canonical_turn_id = str(result.get("turn_id") or "").strip()
+    if not canonical_turn_id:
+        return False, None, None, "TURN_ID_MISSING"
+    canonical_intent = normalize_agent_intent(
+        result.get("agent_intent") if "agent_intent" in result else None
+    )
+    return True, canonical_turn_id, canonical_intent, None
+
+
 def build_turn_context(session, params=None, uuid_factory=None):
     """Build one immutable user-turn context without mutating the session."""
     session = session if isinstance(session, dict) else {}
@@ -207,6 +247,7 @@ def turn_session_fields(turn_context, previous_session=None):
         initial_agent_intent = normalize_agent_intent(turn_context.get("agent_intent"))
     return {
         "current_turn_id": turn_context.get("turn_id"),
+        "current_turn_trusted": True,
         "current_user_query": turn_context.get("user_query"),
         "current_agent_intent": normalize_agent_intent(turn_context.get("agent_intent")),
         "previous_turn_id": turn_context.get("parent_turn_id"),
@@ -215,18 +256,54 @@ def turn_session_fields(turn_context, previous_session=None):
     }
 
 
-def inject_or_validate_turn_context(session, params, warnings=None):
+def clear_turn_session_context(session, user_query=None, agent_intent=None):
+    """Remove any propagatable Turn while retaining the real business context."""
+    session = session if isinstance(session, dict) else {}
+    had_initial_query = bool(session.get("initial_user_query"))
+    for key in _TURN_SESSION_KEYS:
+        session.pop(key, None)
+    session["current_turn_trusted"] = False
+    if user_query is not None:
+        query = str(user_query).strip()
+        session["user_query"] = query
+        session["current_user_query"] = query
+        if not had_initial_query:
+            session["initial_user_query"] = query
+    session["current_agent_intent"] = normalize_agent_intent(agent_intent)
+    if "initial_agent_intent" not in session and not had_initial_query:
+        session["initial_agent_intent"] = normalize_agent_intent(agent_intent)
+    return session
+
+
+def inject_or_validate_turn_context(session, params, warnings=None, suppress_session_turn=False):
     """Best-effort Turn injection; tracing drift never blocks a business tool."""
     session = session if isinstance(session, dict) else {}
     params = params if isinstance(params, dict) else {}
     warnings = warnings if isinstance(warnings, list) else []
     turn_id = str(session.get("current_turn_id") or "").strip()
+    turn_trusted = (
+        bool(turn_id)
+        and session.get("current_turn_trusted") is not False
+        and not suppress_session_turn
+    )
     current_query = str(session.get("current_user_query") or session.get("user_query") or "").strip()
     request_turn_id = str(params.get("turn_id") or "").strip()
     request_query = str(params.get("user_query") or params.get("userQuery") or "").strip()
 
-    turn_mismatch = bool(turn_id and request_turn_id and request_turn_id != turn_id)
-    query_mismatch = bool(turn_id and current_query and request_query and request_query != current_query)
+    if not turn_trusted:
+        changed = "turn_id" in params
+        params.pop("turn_id", None)
+        if request_query and "user_query" not in params:
+            params["user_query"] = request_query
+            params.pop("userQuery", None)
+            changed = True
+        elif current_query and not request_query:
+            params["user_query"] = current_query
+            changed = True
+        return changed
+
+    turn_mismatch = bool(request_turn_id and request_turn_id != turn_id)
+    query_mismatch = bool(current_query and request_query and request_query != current_query)
     if turn_mismatch or query_mismatch:
         warnings.append({
             "code": "TURN_CONTEXT_MISMATCH",

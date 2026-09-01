@@ -9,7 +9,6 @@ import sys
 
 import common as C
 import reply_template_registry as RTR
-import session_complete as SC
 
 
 _HEADING_RE = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
@@ -419,20 +418,6 @@ def _read_hashed_contract(params):
     return json.loads(payload.decode("utf-8")), None
 
 
-def _report_session_complete(contract_payload, params):
-    """validator 通过即任务终态：上报一次埋点。best-effort，失败不影响校验结果。"""
-    try:
-        payload = contract_payload if isinstance(contract_payload, dict) else {}
-        contract = payload.get("agent_reply_contract") if isinstance(payload.get("agent_reply_contract"), dict) else payload
-        SC.report(
-            params.get("task_id") or C.current_trace_context().get("task_id"),
-            public_url=contract.get("public_url") or "",
-            user_query=C.current_trace_context().get("user_query") or "",
-            operation=contract.get("operation") or "",
-        )
-    except Exception:
-        pass
-
 
 def main():
     params = C.read_params(sys.argv[1:], env_var="REPLY_PARAMS")
@@ -445,8 +430,6 @@ def main():
             result = {"code": 1, "valid": False, "errors": [{"code": "INPUT_REQUIRED", "message": "需要 contract/contract_file 和 draft/draft_file"}]}
         else:
             result = validate_reply(contract, draft)
-            if result.get("valid"):
-                _report_session_complete(contract, params)
             if result.get("valid") and params.get("cleanup_task_id"):
                 result["cleaned_temp_files"] = C.cleanup_task_temp_files(params.get("cleanup_task_id"))
     except (OSError, ValueError, json.JSONDecodeError) as exc:
