@@ -494,14 +494,9 @@ For more strategy examples, integration questions, roadmap updates, and real res
         <sub>Personal WeChat</sub>
       </td>
       <td align="center">
-        <img src="assets/wechat_group_qr9.jpg" width="180" alt="WeChat group QR code" />
+        <img src="assets/wechat_group_qr10.png" width="180" alt="QuantBuddy research discussion WeChat group QR code" />
         <br/>
-        <sub>WeChat Group</sub>
-      </td>
-      <td align="center">
-        <img src="assets/feishu_group_qr2.png" width="180" alt="Feishu group QR code" />
-        <br/>
-        <sub>Feishu Group</sub>
+        <sub>QuantBuddy Research Discussion Group</sub>
       </td>
     </tr>
   </table>
