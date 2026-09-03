@@ -123,7 +123,7 @@ const QB = (function () {
     if (data == null) return false;
     if (Array.isArray(data)) return data.length > 0;
     if (typeof data !== 'object') return data !== '';
-    for (const k of ['range_data', 'last_value', 'last_day_stats', 'last_valid_per_asset']) {
+    for (const k of ['range_data', 'last_value', 'last_day_stats', 'last_column_full', 'last_valid_per_asset']) {
       if (data[k] != null) return hasUsefulData(data[k]);
     }
     if (Array.isArray(data.values)) return data.values.some(v => Array.isArray(v) ? v.some(x => x != null) : v != null);
@@ -636,31 +636,38 @@ const QB = (function () {
   // 只要数值数组（画 sparkline 常用）：QB.values(out,'SC_px',{dropZero:true})
   function values(out, key, opts) { return series(out, key, opts).map(p => p.v); }
 
-  /* 榜单：last_day_stats.top_values[]（[{ asset, name, value }, ...]）。 */
-  function topValues(out, key) {
-    const d = _data(out, key);
-    return (d && d.last_day_stats && d.last_day_stats.top_values) || [];
-  }
-  function statDate(out, key) {
-    const d = _data(out, key);
-    return (d && d.last_day_stats && d.last_day_stats.date) || null;
-  }
-
-  function perAsset(out, key) {
-    const d = _data(out, key);
-    const p = d && d.last_valid_per_asset;
-    if (!p) return [];
-    if (Array.isArray(p)) return p;
+  function sectionRows(section, allowObjectMap) {
+    if (!section) return [];
+    if (Array.isArray(section)) return section;
     for (const k of ['items', 'records', 'rows', 'values']) {
-      if (Array.isArray(p[k])) return p[k];
+      if (Array.isArray(section[k])) return section[k];
     }
-    if (typeof p === 'object') {
-      return Object.keys(p).map(asset => {
-        const v = p[asset];
+    if (allowObjectMap && typeof section === 'object') {
+      return Object.keys(section).map(asset => {
+        const v = section[asset];
         return (v && typeof v === 'object') ? Object.assign({ asset }, v) : { asset, value: v };
       });
     }
     return [];
+  }
+
+  /* 榜单：优先 last_day_stats.top_values[]，完整截面则读取 last_column_full.values[]。 */
+  function topValues(out, key) {
+    const d = _data(out, key);
+    const stats = d && d.last_day_stats;
+    if (stats && Array.isArray(stats.top_values)) return stats.top_values;
+    return sectionRows(d && d.last_column_full, false);
+  }
+  function statDate(out, key) {
+    const d = _data(out, key);
+    return (d && d.last_day_stats && d.last_day_stats.date) ||
+      (d && d.last_column_full && d.last_column_full.date) || null;
+  }
+
+  function perAsset(out, key) {
+    const d = _data(out, key);
+    if (d && d.last_valid_per_asset) return sectionRows(d.last_valid_per_asset, true);
+    return sectionRows(d && d.last_column_full, false);
   }
 
   function perAssetMap(out, key) {

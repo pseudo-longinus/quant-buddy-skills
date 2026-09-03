@@ -296,13 +296,16 @@ function normalize(data) {
   }
   if (typeof data === 'object') {
     // 解包公式包按 read_mode 命名的外层 key：range_data / last_value / last_day_stats / last_valid_per_asset
-    for (const wk of ['range_data', 'last_value', 'last_day_stats', 'last_valid_per_asset']) {
+    for (const wk of ['range_data', 'last_value', 'last_day_stats', 'last_column_full', 'last_valid_per_asset']) {
       if (data[wk] && typeof data[wk] === 'object') return normalize(data[wk]);
     }
     if (Array.isArray(data.columns) && Array.isArray(data.rows)) return {columns: data.columns, rows: data.rows};
-    // 截面榜单：top_values / items / rows 是对象数组
+    // 截面榜单：top_values / items / records / last_column_full.values 是对象数组
     for (const ak of ['top_values', 'items', 'records']) {
       if (Array.isArray(data[ak])) return normalize(data[ak]);
+    }
+    if (Array.isArray(data.values) && data.values.every(v => v && typeof v === 'object' && !Array.isArray(v))) {
+      return normalize(data.values);
     }
     // 序列：x 轴候选 + y 轴候选成对出现（range_data 的 dates/values 即走这里）
     const xk = ['dates', 'date', 'x', 'index', 'labels', 'categories'].find(k => Array.isArray(data[k]));
@@ -1523,12 +1526,19 @@ def _inspect_output_data(data):
             err = data.get("error") or data.get("message") or data.get("reason") or "未提供错误详情"
             return f"data.success=false：{err}"
         # 解包按 read_mode 命名的外层 key（与前端 normalize 对齐）
-        for wk in ("range_data", "last_value", "last_day_stats", "last_valid_per_asset"):
+        for wk in ("range_data", "last_value", "last_day_stats", "last_column_full", "last_valid_per_asset"):
             inner = data.get(wk)
             if isinstance(inner, (dict, list)):
                 return _inspect_output_data(inner)
+        values = data.get("values")
+        if isinstance(values, list) and (not values or all(isinstance(v, dict) for v in values)):
+            if not values:
+                return "截面 values 为空（目标日期之前无可用数据）"
+            if not any(_is_number(row.get("value")) for row in values):
+                return "截面 values 不含有效数值"
+            return None
         if "dates" in data or "values" in data:   # 序列（range_data）
-            dates, values = data.get("dates"), data.get("values")
+            dates = data.get("dates")
             if not dates or not values:
                 return "range_data 的 dates/values 为空（疑似区间无数据/日期类型不符）"
             flat = []
@@ -1579,7 +1589,7 @@ def _last_numeric(data):
     if data is None:
         return None, None
     if isinstance(data, dict):
-        for wk in ("range_data", "last_value", "last_day_stats", "last_valid_per_asset"):
+        for wk in ("range_data", "last_value", "last_day_stats", "last_column_full", "last_valid_per_asset"):
             inner = data.get(wk)
             if isinstance(inner, (dict, list)):
                 return _last_numeric(inner)
@@ -1600,6 +1610,10 @@ def _last_numeric(data):
                             if _is_number(series[i]):
                                 d = dates[i] if i < len(dates) else None
                                 return float(series[i]), d
+                if values and all(isinstance(row, dict) for row in values):
+                    for row in reversed(values):
+                        if _is_number(row.get("value")):
+                            return float(row["value"]), row.get("date") or data.get("date")
             return None, None
         if "value" in data and _is_number(data.get("value")):
             return float(data.get("value")), data.get("date")

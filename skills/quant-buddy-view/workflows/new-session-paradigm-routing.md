@@ -31,15 +31,16 @@ python scripts/static_page.py new_asset_page '{"task_id":"task_xxx","asset":"贵
 
 任一条件不满足就进入第 0 步，不要把定制单股页或多资产请求塞进快速通道。快速通道创建的是调用者自己的页面；后续内容修改复用现有 `update(page_id)`。
 
-## -0.25. 已有 URL 修改强制路由
+## -0.25. 已有 URL 修改按写权限路由
 
-“只解读这个页面”是只读任务：调用不带 `task_id` 的 `interpret`，不创建页面。只要用户提供已有 URL 并要求修改、换标的、复制成自己的页面，就必须执行：
+“只解读这个页面”是只读任务：调用不带 `task_id` 的 `interpret`，不创建页面。用户要求修改时执行 `trace_context begin → interpret(task_id)`，随后读取 `existing_page_route.mode`：
 
-`trace_context begin → interpret(task_id) → templates(recommend="all") → new_page(mode=fork, source_template_id=<interpret 返回>) → fork_prepare`。
+- `in_place`：原 `page_id` 可由 owner/page admin 原位更新；旧服务端没有 capability 时，写权限由 `updateStaticPage` 最终校验。直接编辑/生成 HTML，再调用 `update(page_id=<interpret 绑定页>)`，不查 templates、不建首链。`new_page`、`new_asset_page`、`upload` 均视为错误的替代页创建。
+- `fork`：不可原位写入的公共来源页，继续 `templates(recommend="all") → new_page(mode=fork, source_template_id=<interpret 返回>) → fork_prepare`。task-scoped 凭据持久化来源，templates 不得覆盖；fork 来源必须逐字等于 interpret 返回的 `source_template_id`，不得改判 unmatched。
 
-`interpret` 返回 `existing_page_route.required=true` / `must_copy_before_write=true` 后，task-scoped 路由凭据会持久化该来源；后续 `templates` 不得覆盖。fork 来源必须逐字等于 interpret 返回的 `source_template_id`，existing-page mutation 禁止改判 unmatched。
+服务端详情优先返回可信 `can_update_in_place` / `access_role`；客户端不接受自报管理员参数。旧合同的 `resource_role="existing_page"` 只允许尝试同 page_id 的 `update`，最终以服务端 owner/page-admin 鉴权为准；`FORBIDDEN` 后再走 Fork。
 
-在 fork 决策绑定前：禁止 `new_asset_page`、禁止 `build_dashboard`、禁止 bespoke `upload` 或任何 regenerated page。只有 `fork_prepare` 明确返回结构化不可复制错误后，才允许评估降级；降级交付必须写明 `page_context_mode=regenerated`、`source_page_context_inherited=false`，不得宣称已经复制原布局或上下文。
+Fork 路径在决策绑定前禁止 `new_asset_page`、`build_dashboard`、bespoke `upload` 或任何 regenerated page。只有 `fork_prepare` 明确返回结构化不可复制错误后，才允许评估降级；降级交付必须写明 `page_context_mode=regenerated`、`source_page_context_inherited=false`。
 
 ## 0. 查范式卡判命中
 

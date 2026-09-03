@@ -9,6 +9,39 @@
 
 ---
 
+## [0.6.67] — 2026-09-03
+
+### Fork 目标页最终写回门禁修复
+
+- 修复不可原位写入来源页完成 `new_page(mode=fork) → fork_prepare` 后，`publish_final` 仍被 `EXISTING_PAGE_FORK_REQUIRED` 错误拦截的回归。
+- fork task binding 现在显式绑定 `target_page_id`；仅当 interpret 来源、routing decision 来源、new_page 创建页、fork binding 来源/目标及 prepared/published 状态全部一致时，允许 `update` 写入 fork 目标页。
+- 保持失败关闭：直接更新来源页、更新其他 page_id、binding 缺失/损坏、来源不一致或目标不一致仍拒绝，避免借 fork 流程改写任意页面。
+- 新增从 foreign interpret、templates、new_page、fork binding 到 `cmd_update` 的路由回归，锁定合法目标放行及来源页/第三方页继续拦截。
+
+---
+
+## [0.6.66] — 2026-09-03
+
+### 管理员与 Owner 原位更新路由修复
+
+- 修复 0.6.64 将所有 task-scoped 已有页修改无条件判为 Fork 的回归：`interpret` 现在区分 `in_place` 与 `fork`，可写页保持原 `page_id` / URL，走 `update`。
+- 接收服务端可信 `can_update_in_place` / `access_role`；兼容尚未返回 capability 的旧服务端，对 `resource_role=existing_page` 只允许同 page_id 更新，并由 `updateStaticPage` 最终执行 owner/page-admin 鉴权。
+- 服务端对原位更新返回 `FORBIDDEN` / HTTP 403 时，将 task-scoped 凭据持久化切换为 Fork，清除不兼容路由状态，并返回 `templates → new_page → fork_prepare` 恢复路径。
+- 替代页创建仍被阻止；不可写来源页继续强制 templates → fork → fork_prepare。补充管理员、旧合同、错误目标 page_id、缺少 page_id 与授权拒绝后的完整路由回归测试。
+
+---
+
+## [0.6.65] — 2026-09-03
+
+### 单股终态链接按自然流式顺序收尾
+
+- `new_asset_page` 的确定性回复不再在标题下提前输出公开链接；完成全部数据章节、综合观察和数据免责声明后，才追加 `可分享实时活页` Markdown 链接及“若效果不满意，页面可进一步升级”。
+- 此收尾约束扩展至所有带 `agent_reply_contract.public_url` 的终态回复：direct、fork、unmatched、发布和既有页面活页化均由回复 validator 拦截提前出现或不符合最终块格式的链接；通用、全球资产与 HTML 活页化模板同步调整。
+- 同步 Skill 规则、模板契约与回归测试，避免宿主前端搬运链接导致流式期间链接抢先显示。
+- 单股确定性回复去除数据免责声明之前的冗余分割线，保留“免责声明 → 分割线 → 最终链接与升级提示”的视觉层级。
+
+---
+
 ## [0.6.64] — 2026-09-01
 
 ### 已有页面修改强制 Fork 路由

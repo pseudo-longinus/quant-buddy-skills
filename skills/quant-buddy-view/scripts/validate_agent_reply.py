@@ -15,6 +15,7 @@ _HEADING_RE = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
 _FENCED_MARKDOWN_RE = re.compile(r"```markdown\s*(.*?)```", re.IGNORECASE | re.DOTALL)
 _UNRESOLVED_FIELD_RE = re.compile(r"\{[^{}\r\n]+\}")
 _TABLE_SEPARATOR_CELL_RE = re.compile(r"^:?-{3,}:?$")
+_LIVE_PAGE_UPGRADE_HINT = "若效果不满意，页面可进一步升级"
 _MISSING_VALUES = {"", "--", "—", "本轮未返回", "不适用", "n/a", "na"}
 _SENSITIVE_PATTERNS = [
     ("windows_local_path", re.compile(r"(?i)(?:^|[\s(])(?:[a-z]:\\|file:///)")),
@@ -312,6 +313,20 @@ def _delivery_constraint_errors(contract, draft):
     }], table_count
 
 
+def _live_page_delivery_errors(public_url, draft):
+    """Require the share link to be the natural final Markdown block."""
+    if not public_url or public_url not in draft:
+        return []
+    expected = f"可分享实时活页：[{public_url}]({public_url})\n{_LIVE_PAGE_UPGRADE_HINT}"
+    if str(draft).rstrip().endswith(expected):
+        return []
+    return [{
+        "code": "PUBLIC_URL_NOT_FINAL",
+        "message": "公开活页链接必须作为最终两行输出，下一行固定为页面升级提示",
+        "expected_final_block": expected,
+    }]
+
+
 def validate_reply(contract_payload, draft):
     contract_payload = contract_payload if isinstance(contract_payload, dict) else {}
     contract = contract_payload.get("agent_reply_contract") if isinstance(contract_payload.get("agent_reply_contract"), dict) else contract_payload
@@ -323,6 +338,8 @@ def validate_reply(contract_payload, draft):
         errors.append({"code": "PUBLIC_URL_REQUIRED", "message": "终态 contract 缺少 public_url"})
     elif public_url not in draft:
         errors.append({"code": "PUBLIC_URL_MISSING", "message": "最终回复未包含终态 public_url"})
+    else:
+        errors.extend(_live_page_delivery_errors(public_url, draft))
 
     if contract.get("require_page_id_in_reply") is True:
         page_id = str(contract.get("page_id") or "").strip()

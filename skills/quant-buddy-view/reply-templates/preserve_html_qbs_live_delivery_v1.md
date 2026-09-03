@@ -19,7 +19,7 @@ source_playbooks: []
 - `source_html_fallback_published=false`：不得声称页面已更新，需简要说明托管写入也未成功。
 - 只陈述已经由终态响应和 contract 验证的迁移结果，不扩写页面业务数据、趋势、分位或投资判断。
 - 不改写或概括用户页面正文，不把原页面重新描述成通用 dashboard。
-- 必须包含终态 `page_id` 和公开活页链接。
+- 必须包含终态 `page_id`；公开活页链接必须作为整条回复的最终两行输出：`可分享实时活页：[{public_url}]({public_url})`，下一行固定为“若效果不满意，页面可进一步升级”。
 - 不暴露本地文件路径、非 QBS 源接口、package/grant signature、API Key 或内部验收日志。
 
 ## Markdown 骨架
@@ -38,7 +38,9 @@ source_playbooks: []
 ## 交付信息
 
 - `page_id`：`{page_id}`
-- [打开实时活页]({public_url})
+
+可分享实时活页：[{public_url}]({public_url})
+若效果不满意，页面可进一步升级
 ```
 
 ### partial / failed，快照保底写入成功
@@ -56,5 +58,7 @@ source_playbooks: []
 ## 交付信息
 
 - `page_id`：`{page_id}`
-- [打开当前活页]({public_url})
+
+可分享实时活页：[{public_url}]({public_url})
+若效果不满意，页面可进一步升级
 ```

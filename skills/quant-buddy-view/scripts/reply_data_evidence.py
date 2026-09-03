@@ -89,7 +89,9 @@ def extract_read_data_items(payload):
         for key in ("data", "results", "items"):
             if isinstance(data.get(key), list):
                 return [item for item in data[key] if isinstance(item, dict)]
-        if any(key in data for key in ("id", "data_id", "last_value", "last_day_stats", "range_data")):
+        if any(key in data for key in (
+            "id", "data_id", "last_value", "last_day_stats", "last_column_full", "last_valid_per_asset", "range_data"
+        )):
             return [data]
     if isinstance(data, list):
         return [item for item in data if isinstance(item, dict)]
@@ -122,6 +124,20 @@ def _range_series(item):
     return _valid_series(dates, values)
 
 
+def _section_block(item):
+    if not isinstance(item, dict):
+        return None
+    for key in ("last_column_full", "last_valid_per_asset"):
+        if isinstance(item.get(key), dict):
+            return item[key]
+    nested = item.get("data")
+    if isinstance(nested, dict):
+        for key in ("last_column_full", "last_valid_per_asset"):
+            if isinstance(nested.get(key), dict):
+                return nested[key]
+    return None
+
+
 def compact_formula_read(output_name, data_id, read_mode, item):
     item = redact(item if isinstance(item, dict) else {})
     compact = {
@@ -143,6 +159,14 @@ def compact_formula_read(output_name, data_id, read_mode, item):
         top_values = stats.get("top_values")
         if isinstance(top_values, list):
             compact["top_values"] = redact(top_values[:20])
+    section = _section_block(item)
+    if isinstance(section, dict):
+        rows = section.get("values")
+        if isinstance(rows, list):
+            compact["top_values"] = redact(rows[:20])
+            compact["valid_sample_count"] = len(rows)
+            row_dates = [row.get("date") for row in rows if isinstance(row, dict) and row.get("date") is not None]
+            compact.setdefault("latest_date", section.get("date") or (row_dates[-1] if row_dates else None))
     series = _range_series(item)
     if series:
         compact.update({

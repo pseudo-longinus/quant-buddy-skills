@@ -1823,6 +1823,7 @@ def _bind_fork_task(params, manifest, manifest_file):
         "status": "prepared",
         "task_id": task_id,
         "source_template_id": str(manifest.get("source_template_id") or ""),
+        "target_page_id": str(manifest.get("target_page_id") or params.get("target_page_id") or "").strip(),
         "fork_manifest_file": os.path.abspath(manifest_file),
         "source_html_sha256": str(manifest.get("source_html_sha256") or ""),
         "source_url": str(manifest.get("source_url") or ""),
@@ -1841,6 +1842,7 @@ def _bind_fork_task(params, manifest, manifest_file):
         "status": binding["status"],
         "task_id": task_id,
         "source_template_id": binding["source_template_id"],
+        "target_page_id": binding["target_page_id"],
         "binding_file": binding_file,
         "revision": binding["revision"],
         "working_html_file": binding["working_html_file"],
@@ -1905,6 +1907,7 @@ def _apply_fork_task_binding(params):
         "status": binding.get("status") or "prepared",
         "task_id": task_id,
         "source_template_id": bound_source,
+        "target_page_id": str(binding.get("target_page_id") or ""),
         "binding_file": binding_file,
         "fork_manifest_file": bound_manifest_file,
         "source_injected": not bool(explicit_source),
@@ -2486,6 +2489,9 @@ def _cmd_update_preserve(params, *, endpoint, api_key):
         "POST", C.api_url(endpoint, _PATH["update"]), C.headers(api_key), snapshot_body,
         timeout=_UPLOAD_TIMEOUT,
     )
+    route_transition = _transition_existing_page_to_fork(params, snapshot_out)
+    if route_transition:
+        return route_transition
     snapshot_ok = isinstance(snapshot_out, dict) and snapshot_out.get("code") == 0
     sequence = ["snapshot_update"] if snapshot_ok else []
     if not snapshot_ok:
@@ -2522,6 +2528,9 @@ def _cmd_update_preserve(params, *, endpoint, api_key):
         "POST", C.api_url(endpoint, _PATH["update"]), C.headers(api_key), live_body,
         timeout=_UPLOAD_TIMEOUT,
     )
+    route_transition = _transition_existing_page_to_fork(params, live_out)
+    if route_transition:
+        return route_transition
     if not isinstance(live_out, dict) or live_out.get("code") != 0:
         return _finalize_preserve_response(
             _merge_preserve_response(snapshot_out, None, page_id=page_id),
@@ -2641,11 +2650,13 @@ def cmd_upload(params):
 
 
 def cmd_update(params):
-    cfg = C.load_config_require_key()
-    endpoint, api_key = C.endpoint_of(cfg), cfg.get("api_key", "")
-
     if not params.get("page_id"):
         return {"code": 1, "message": "update 需要 page_id（要替换哪个已发布页面）"}
+    route_error = _existing_page_update_error(params)
+    if route_error:
+        return route_error
+    cfg = C.load_config_require_key()
+    endpoint, api_key = C.endpoint_of(cfg), cfg.get("api_key", "")
 
     if _is_preserve_html_qbs_live(params):
         return _cmd_update_preserve(params, endpoint=endpoint, api_key=api_key)
@@ -2709,6 +2720,9 @@ def cmd_update(params):
         body["agent_reply_template"] = None
     out = C.http_json("POST", C.api_url(endpoint, _PATH["update"]),
                       C.headers(api_key), body, timeout=_UPLOAD_TIMEOUT)
+    route_transition = _transition_existing_page_to_fork(params, out)
+    if route_transition:
+        return route_transition
     if isinstance(out, dict):
         if reply_resolution:
             out["agent_reply_template_resolution"] = reply_resolution
@@ -4135,8 +4149,173 @@ def _routing_credential_error(params):
     return None
 
 
+def _existing_page_route_mode(reference):
+    """Resolve an interpret-bound page to same-page update or fork.
+
+    New servers return a trusted can_update_in_place capability. Older servers are
+    still safe for resource_role=existing_page: the update endpoint remains the
+    authorization authority and rejects non-owner/non-admin callers.
+    """
+    if not isinstance(reference, dict):
+        return None
+    capability = reference.get("can_update_in_place")
+    if capability is True:
+        return "in_place"
+    if capability is False:
+        return "fork"
+    if str(reference.get("resource_role") or "").strip() == "existing_page":
+        return "in_place"
+    return "fork"
+
+
+def _server_update_authorization_denied(result):
+    """Recognize only structured update authorization failures, never caller hints."""
+    if not isinstance(result, dict) or result.get("code") == 0:
+        return False
+    values = [
+        result.get("code"),
+        result.get("status"),
+        result.get("status_code"),
+        result.get("error_code"),
+        result.get("reason_code"),
+    ]
+    error = result.get("error")
+    if isinstance(error, dict):
+        values.extend((
+            error.get("code"), error.get("status"), error.get("status_code"),
+            error.get("error_code"), error.get("reason_code"),
+        ))
+    elif error is not None:
+        values.append(error)
+    normalized = {str(value).strip().upper() for value in values if value is not None}
+    return bool(normalized.intersection({"403", "FORBIDDEN", "HTTP_403", "HTTP 403"}))
+
+
+def _transition_existing_page_to_fork(params, server_result):
+    """Persist a server-denied same-page update as a task-scoped fork route."""
+    if not _server_update_authorization_denied(server_result):
+        return None
+    params = params if isinstance(params, dict) else {}
+    task_id = _routing_task_id(params)
+    if not task_id:
+        return None
+    cred, _, read_error = _read_routing_credential(task_id)
+    if read_error:
+        return read_error
+    reference = (cred or {}).get("existing_page_reference")
+    if not isinstance(reference, dict) or _existing_page_route_mode(reference) != "in_place":
+        return None
+
+    recorded_at = datetime.now(timezone.utc).isoformat()
+    reference = dict(reference)
+    reference["can_update_in_place"] = False
+    reference["access_role"] = "reader"
+    reference["authorization_denied"] = {
+        "version": "existing_page_authorization_denial_v1",
+        "source": "updateStaticPage",
+        "error_code": "FORBIDDEN",
+        "recorded_at": recorded_at,
+    }
+    cred = dict(cred)
+    cred["existing_page_reference"] = reference
+    for key in ("routing_decision", "decision_revision", "decision_recorded_at", "page_id"):
+        cred.pop(key, None)
+    cred["status"] = "fork_required"
+    cred["route_transition"] = {
+        "version": "existing_page_route_transition_v1",
+        "from_mode": "in_place",
+        "to_mode": "fork",
+        "reason_code": "UPDATE_FORBIDDEN",
+        "recorded_at": recorded_at,
+    }
+    binding_file, write_error = _write_routing_credential_record(cred)
+    if write_error:
+        return {
+            "code": 1,
+            "error": "EXISTING_PAGE_ROUTE_TRANSITION_FAILED",
+            "message": "服务端拒绝原位更新，但 fork 路由状态未能持久化。",
+            "task_id": task_id,
+            "authorization_error": "FORBIDDEN",
+            "routing_credential_error": write_error,
+        }
+    return {
+        "code": 1,
+        "error": "EXISTING_PAGE_FORK_REQUIRED",
+        "message": "服务端拒绝原位更新；当前 task 已切换为 fork 路由，必须复制来源页后修改。",
+        "task_id": task_id,
+        "mode": "fork",
+        "source_template_id": str(reference.get("source_template_id") or ""),
+        "source_public_url": str(reference.get("public_url") or ""),
+        "must_copy_before_write": True,
+        "preserve_page_id": False,
+        "required_sequence": ["templates", "new_page", "fork_prepare"],
+        "authorization_error": "FORBIDDEN",
+        "binding_file": binding_file,
+        "recoverable": True,
+    }
+
+
+def _existing_page_update_error(params):
+    """Keep task-scoped existing-page updates bound to the interpreted page."""
+    params = params if isinstance(params, dict) else {}
+    task_id = _routing_task_id(params)
+    if not task_id:
+        return None
+    cred, _, read_error = _read_routing_credential(task_id)
+    if read_error:
+        return read_error
+    reference = (cred or {}).get("existing_page_reference")
+    if not isinstance(reference, dict):
+        return None
+    if _existing_page_route_mode(reference) != "in_place":
+        source_template_id = str(reference.get("source_template_id") or "").strip()
+        actual_page_id = str(params.get("page_id") or "").strip()
+        decision = (cred or {}).get("routing_decision")
+        binding, _, binding_error = _read_fork_task_binding(task_id)
+        if binding_error:
+            return binding_error
+        bound_target_page_id = str((binding or {}).get("target_page_id") or "").strip()
+        bound_source_template_id = str((binding or {}).get("source_template_id") or "").strip()
+        decision_source_template_id = str((decision or {}).get("source_template_id") or "").strip()
+        created_page_id = str((cred or {}).get("page_id") or "").strip()
+        binding_status = str((binding or {}).get("status") or "").strip()
+        if (
+            isinstance(decision, dict)
+            and decision.get("mode") == "fork"
+            and binding_status in {"prepared", "published"}
+            and source_template_id
+            and bound_source_template_id == source_template_id
+            and decision_source_template_id == source_template_id
+            and bound_target_page_id
+            and actual_page_id == bound_target_page_id
+            and created_page_id == bound_target_page_id
+        ):
+            return None
+        return {
+            "code": 1,
+            "error": "EXISTING_PAGE_FORK_REQUIRED",
+            "message": "当前 interpret 绑定的是不可原位写入的来源页，必须复制后修改。",
+            "task_id": task_id,
+            "source_template_id": source_template_id,
+            "must_copy_before_write": True,
+            "required_sequence": ["templates", "new_page", "fork_prepare"],
+        }
+    expected_page_id = str(reference.get("page_id") or reference.get("source_template_id") or "").strip()
+    actual_page_id = str(params.get("page_id") or "").strip()
+    if expected_page_id and actual_page_id != expected_page_id:
+        return {
+            "code": 1,
+            "error": "EXISTING_PAGE_UPDATE_TARGET_CONFLICT",
+            "message": "原位更新必须写回 interpret 绑定的同一个 page_id，禁止在当前 task 中改写其他页面。",
+            "task_id": task_id,
+            "expected_page_id": expected_page_id,
+            "actual_page_id": actual_page_id,
+        }
+    return None
+
+
 def _existing_page_mutation_error(params, *, action):
-    """Block regenerated writes after task-scoped interpret identifies a source template."""
+    """Block replacement-page creation after task-scoped interpret binds an existing page."""
     params = params if isinstance(params, dict) else {}
     if params.get("_existing_page_route_bypass") is _EXISTING_PAGE_ROUTE_BYPASS:
         return None
@@ -4149,8 +4328,26 @@ def _existing_page_mutation_error(params, *, action):
     reference = (cred or {}).get("existing_page_reference")
     if not isinstance(reference, dict):
         return None
-    decision = (cred or {}).get("routing_decision")
     expected_source = str(reference.get("source_template_id") or "").strip()
+    if _existing_page_route_mode(reference) == "in_place":
+        return {
+            "code": 1,
+            "error": "EXISTING_PAGE_UPDATE_REQUIRED",
+            "message": (
+                "当前 task 绑定的是可原位更新的已有活页；禁止创建替代页面。"
+                "请生成或编辑 HTML 后使用 static_page.py update 写回原 page_id，"
+                "最终写权限由 updateStaticPage 服务端按 owner/page_admin 校验。"
+            ),
+            "task_id": task_id,
+            "action": str(action or ""),
+            "page_id": str(reference.get("page_id") or expected_source),
+            "source_public_url": str(reference.get("public_url") or ""),
+            "must_copy_before_write": False,
+            "preserve_page_id": True,
+            "required_sequence": ["update"],
+            "recoverable": True,
+        }
+    decision = (cred or {}).get("routing_decision")
     if isinstance(decision, dict) and decision.get("mode") == "fork":
         actual_source = str(decision.get("source_template_id") or "").strip()
         if actual_source == expected_source:
@@ -4185,7 +4382,7 @@ def _existing_page_reference_from_interpret(result, url):
     source_id = str(data.get("template_id") or data.get("page_id") or "").strip()
     if not source_id:
         return None
-    return {
+    reference = {
         "version": "existing_page_reference_v1",
         "source_template_id": source_id,
         "page_id": str(data.get("page_id") or "").strip(),
@@ -4195,6 +4392,11 @@ def _existing_page_reference_from_interpret(result, url):
         "public_url": str(data.get("public_url") or data.get("url") or url or "").strip(),
         "recorded_at": datetime.now(timezone.utc).isoformat(),
     }
+    if isinstance(data.get("can_update_in_place"), bool):
+        reference["can_update_in_place"] = data["can_update_in_place"]
+    if str(data.get("access_role") or "").strip():
+        reference["access_role"] = str(data.get("access_role")).strip()
+    return reference
 
 
 def _record_existing_page_reference(task_id, reference):
@@ -4488,6 +4690,17 @@ def _validate_routing_decision(params):
     mode = str(decision.get("mode") or "").strip().lower()
     reason_code = str(decision.get("reason_code") or "").strip()
     existing_reference = cred.get("existing_page_reference") if isinstance(cred.get("existing_page_reference"), dict) else None
+    if existing_reference and _existing_page_route_mode(existing_reference) == "in_place":
+        return None, {
+            "code": 1,
+            "error": "EXISTING_PAGE_UPDATE_REQUIRED",
+            "message": "当前 task 绑定的是可原位更新的已有活页，禁止 new_page/fork 创建替代链接。",
+            "task_id": task_id,
+            "page_id": str(existing_reference.get("page_id") or existing_reference.get("source_template_id") or ""),
+            "must_copy_before_write": False,
+            "preserve_page_id": True,
+            "required_sequence": ["update"],
+        }
     if existing_reference and mode != "fork":
         return None, {
             "code": 1,
@@ -5673,20 +5886,44 @@ def cmd_interpret(params):
     if binding_error:
         return binding_error
     enriched = dict(result)
-    enriched["existing_page_route"] = {
-        "required": True,
-        "must_copy_before_write": True,
-        "source_template_id": reference["source_template_id"],
-        "source_public_url": reference["public_url"],
-        "binding_file": binding_file,
-        "required_sequence": ["templates", "new_page", "fork_prepare"],
-        "next_command": "static_page.py templates",
-        "forbidden_before_fork_decision": ["new_asset_page", "build_dashboard", "upload", "regenerated_page"],
-        "instruction": (
-            "这是用户指定的已有 source_template 修改任务。先查 templates(recommend=\"all\")，"
-            "随后用本 source_template_id 执行 new_page(mode=fork)，再执行 fork_prepare；禁止直接重新生成页面。"
-        ),
-    }
+    if _existing_page_route_mode(reference) == "in_place":
+        enriched["existing_page_route"] = {
+            "required": True,
+            "mode": "in_place",
+            "must_copy_before_write": False,
+            "preserve_page_id": True,
+            "page_id": reference["page_id"] or reference["source_template_id"],
+            "source_public_url": reference["public_url"],
+            "binding_file": binding_file,
+            "access_role": reference.get("access_role") or "server_authorized",
+            "authorization": (
+                "page_detail_capability" if reference.get("can_update_in_place") is True
+                else "update_endpoint"
+            ),
+            "required_sequence": ["update"],
+            "next_command": "static_page.py update",
+            "forbidden_replacement_commands": ["new_page", "new_asset_page", "upload"],
+            "instruction": (
+                "这是已有活页原位更新任务。保持 page_id 与公开 URL 不变，"
+                "生成或编辑 HTML 后使用 static_page.py update；服务端将按 owner/page_admin 再次校验写权限。"
+            ),
+        }
+    else:
+        enriched["existing_page_route"] = {
+            "required": True,
+            "mode": "fork",
+            "must_copy_before_write": True,
+            "source_template_id": reference["source_template_id"],
+            "source_public_url": reference["public_url"],
+            "binding_file": binding_file,
+            "required_sequence": ["templates", "new_page", "fork_prepare"],
+            "next_command": "static_page.py templates",
+            "forbidden_before_fork_decision": ["new_asset_page", "build_dashboard", "upload", "regenerated_page"],
+            "instruction": (
+                "这是用户指定但不可原位更新的来源页修改任务。先查 templates(recommend=\"all\")，"
+                "随后用本 source_template_id 执行 new_page(mode=fork)，再执行 fork_prepare；禁止直接重新生成页面。"
+            ),
+        }
     return enriched
 
 def cmd_interpret_csv(params):
@@ -7759,6 +7996,7 @@ def cmd_fork_prepare(params):
         "version": _FORK_MANIFEST_VERSION,
         "prepared_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
         "source_template_id": str(record.get("template_id") or record.get("page_id") or source_template_id),
+        "target_page_id": target_page_id,
         "source_url": source_url,
         "source_html_file": source_html_file,
         "working_html_file": working_html_file,

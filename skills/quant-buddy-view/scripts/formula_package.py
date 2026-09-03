@@ -76,7 +76,7 @@ _PATH = {
 # 取数（SSE）可能等待服务端重算，给足超时
 _QUERY_TIMEOUT = 1800
 _DEFAULT_TIMEOUT = 600
-_ALLOWED_READ_MODES = {"last_day_stats", "last_valid_per_asset", "range_data"}
+_ALLOWED_READ_MODES = {"last_day_stats", "last_column_full", "last_valid_per_asset", "range_data"}
 _ASSIGN_RE = re.compile(r"(?<![<>=!])=(?!=)")
 
 
@@ -324,7 +324,7 @@ def _unwrap_read_data(data):
     current = data
     while isinstance(current, dict):
         nested = None
-        for key in ("range_data", "last_value", "last_day_stats", "last_valid_per_asset"):
+        for key in ("range_data", "last_value", "last_day_stats", "last_column_full", "last_valid_per_asset"):
             if isinstance(current.get(key), (dict, list)):
                 nested = current[key]
                 break
@@ -370,6 +370,12 @@ def summarize_output_data(data):
                         _series_summary(series, dates, names[idx] if idx < len(names) else f"series_{idx + 1}")
                         for idx, series in enumerate(values)
                     ]
+                }
+            if values and all(isinstance(item, dict) for item in values):
+                return {
+                    "latest_date": data.get("date") or data.get("trade_date") or data.get("computed_at"),
+                    "top_values": values[:20],
+                    "valid_sample_count": len(values),
                 }
         if _is_number(data.get("value")):
             value = float(data["value"])
@@ -439,7 +445,11 @@ def _compact_query_result(result, result_mode):
                     ]
                 }
             else:
-                summary = {key: summary.get(key) for key in ("latest_value", "latest_date", "latest_values") if key in summary}
+                summary = {
+                    key: summary.get(key)
+                    for key in ("latest_value", "latest_date", "latest_values", "top_values")
+                    if key in summary
+                }
         compact_outputs[name] = {
             "read_mode": item.get("read_mode"),
             "data_id": item.get("data_id"),

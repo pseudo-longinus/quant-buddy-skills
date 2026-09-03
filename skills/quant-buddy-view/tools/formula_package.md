@@ -74,7 +74,7 @@ QBS_IMPORT_CRED_DIR='D:/.../quant-buddy-skill/output/formula_packages' \
 |------|------|------|------|
 | `output` | `string` | ✅ | 产出标识 = 某条公式左侧变量名 |
 | `read_mode` | `string` | ✅ | 读取模式，见下表 |
-| `mode_params` | `object` | ❌ | 模式参数；`range_data` 必填 `lookback_days`（滚动窗口回溯天数，正整数）|
+| `mode_params` | `object` | ❌ | 模式参数；`last_day_stats` / `last_column_full` 可选 `date` 或 `offset`，`range_data` 必填 `lookback_days` |
 
 > 未列入 `reads` 的公式 = 中间变量，只算不对外。每个 `output` 只能一个 `read_mode`。
 
@@ -82,10 +82,14 @@ QBS_IMPORT_CRED_DIR='D:/.../quant-buddy-skill/output/formula_packages' \
 
 | read_mode | 适用 | `mode_params` | `data` 关键结构 | 建议 panel.type |
 |-----------|------|---------------|----------------|----------------|
-| `last_day_stats` | 2维截面 / 1维序列 | — | 2维：`last_day_stats.{date,top_values[],valid_count,...}`；1维：`last_value.{date,value}` | 2维→`table`；1维→`number` |
-| `last_valid_per_asset` | 2维截面 | `max_rows`(默认8000) | `last_valid_per_asset[]`（每资产末值） | `table` |
-| `range_data`（滚动窗口）| 1维序列 / 2维 | `lookback_days`✅（回溯天数，区间=`[今天-N, 今天]`）、`assets`、`max_cells`、`nan_handling`(`keep`/`fill_forward`/`drop_rows`) | `range_data.{dates[],values[],series_name,valid_count,null_count,zero_count,first_valid_date,last_valid_date}` | `line` |
+| `last_day_stats` | 2维截面 / 1维序列 | `date` 或 `offset`（互斥，可选） | 2维：`last_day_stats.{date,top_values[],valid_count,...}`；1维：`last_value.{date,value}` | 2维→`table`；1维→`number` |
+| `last_column_full` | 完整截面列（2维）/ 截止日序列（1维） | `date` 或 `offset`（互斥，可选）、`max_rows`、`allow_zero_values` | 2维：`last_column_full.{date,values[],returned_rows,valid_rows,is_truncated,...}`；1维：截至目标日的有效时间序列 | `table` / `list` |
+| `last_valid_per_asset` | 2维截面 | `max_rows`(默认8000) | `last_valid_per_asset[]`（每资产末值）；不支持 `date`/`offset` | `table` |
+| `range_data`（滚动窗口）| 1维序列 / 2维 | `lookback_days`✅（回溯天数，区间=`[今天-N, 今天]`）、`assets`、`max_cells`、`nan_handling`(`keep`/`fill_forward`/`drop_rows`) | `range_data.{dates[],values[],series_name,valid_count,null_count,zero_count,first_valid_date,last_valid_date}`；不支持 `date`/`offset` | `line` |
 
+> **单列日期参数**：`date` 接受 `YYYYMMDD` 或 `YYYY-MM-DD`，读取不晚于该日的最近有效数据；`offset` 是相对每次查询当天的自然日偏移（`0`=截至今天，`1`=截至昨天），不是第 N 个交易日，也不是相对注册日。两者不能同时传。不传时继续按原模式读取最新数据，旧请求与返回结构不变。
+> `build_dashboard` 和 `assets/data-kernel.js` 会自动解包 `last_column_full.values`；自建页优先使用 `QB.topValues()` / `QB.perAsset()`，不必手写 wrapper 路径。
+>
 > **`range_data` 是滚动窗口**：注册只给 `lookback_days`（近一年=365、近半年=180、近一季=90），取数时服务端现算成 `[今天-N, 今天]`。看板是 live 数据源，这样折线才会随时间滚动到最近，而不是停在注册当天。旧版 `start_date`+`end_date` 仍兼容（按跨度滚到今天），但别再指定绝对 `end_date`。
 > `build_dashboard` 的渲染器会自动解包上述外层 key 并归一为图/表，多数情况下 panel 只需写 `output` + `type` 即可。
 > `range_data` 取数返回里**附带数据质量元信息**（服务端实算，无需自己遍历 `values`）：`valid_count`（有效点数）、`null_count`（空/NaN 点数）、`zero_count`（值为 0 的点数）、`first_valid_date` / `last_valid_date`（首/末个有效值的日期）。可据此判断序列是否近期断更（`last_valid_date` 落后于今天）、是否大面积空值，再决定要不要换 `lookback_days` 或提示用户。
@@ -99,7 +103,7 @@ QBS_IMPORT_CRED_DIR='D:/.../quant-buddy-skill/output/formula_packages' \
 - 支持多输出左值，如 `NAV, HOLD = 回测(...)`。
 - 左值不能重复。
 - `reads` 必须非空，且 `reads[].output` 必须命中公式左值。
-- `read_mode` 只允许 `last_day_stats`、`last_valid_per_asset`、`range_data`。
+- `read_mode` 只允许 `last_day_stats`、`last_column_full`、`last_valid_per_asset`、`range_data`。
 - `read_mode=last_value` 会阻断，并提示改用 `last_day_stats`。
 
 ## 取数（SSE）

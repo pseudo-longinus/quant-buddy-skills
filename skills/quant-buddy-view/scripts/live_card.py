@@ -198,7 +198,7 @@ def card_runtime_script():
   function unwrap(data){
     if (data && data.data != null && (data.read_mode || data.data_id || data.error == null)) data = data.data;
     if (isObj(data)) {
-      var keys = ["last_value", "last_day_stats", "last_valid_per_asset", "range_data"];
+      var keys = ["last_value", "last_day_stats", "last_column_full", "last_valid_per_asset", "range_data"];
       for (var i = 0; i < keys.length; i++) if (data[keys[i]] != null) return unwrap(data[keys[i]]);
     }
     return data;

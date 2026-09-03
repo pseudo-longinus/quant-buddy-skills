@@ -575,7 +575,7 @@ RUNTIME = r"""<script id="qb-card-runtime-v1" data-qb-card-runtime>
   function unwrap(v){
     if (v && v.data != null && (v.read_mode || v.data_id || v.error == null)) v = v.data;
     if (isObj(v)) {
-      var keys = ["last_value", "last_day_stats", "last_valid_per_asset"];
+      var keys = ["last_value", "last_day_stats", "last_column_full", "last_valid_per_asset"];
       for (var i=0;i<keys.length;i++) if (v[keys[i]] != null) return unwrap(v[keys[i]]);
     }
     return v;

@@ -2,7 +2,7 @@
 name: quant-buddy-view
 slug: quant-buddy-view
 author: guanzhao
-version: 0.6.64
+version: 0.6.67
 description: |
   QBV / quant-buddy-view（用户可能写成 /quant-buddy-view、/qbv、qbv 或 QBV）用于把量化数据做成「公开可分享、实时取数」的网页看板/落地页。
   Use this skill when the user asks to create, update, publish, verify, retrofit, or reuse a Quant Buddy dashboard/static page/template, including shareable pages, public URLs, formula packages, share shell, cover/essence cards, poster/share behavior, single-stock profile pages, valuation/financial profile pages, index-anomaly boards, multi-factor screeners, and commodity daily pages.
@@ -12,7 +12,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 0.6.64
+  version: 0.6.67
   author: guanzhao
   category: quant-finance
   tags: [quant, dashboard, formula-package, static-page, publish, visualization]
@@ -112,18 +112,18 @@ QBV_API_KEY=<本次任务的 key> python scripts/trace_context.py begin '{"user_
 **具体资产证据闸门**：除 `new_asset_page` 固定场景外，只要用户点名具体资产，就在 Trace 后、解释资产身份或提交 `routing_decision` 前，按「Trace → 资产映射 → 最小接口验证 → 页面路由」的顺序完成验证：调用 `scripts/qbs_bridge.py resolve_asset_data` 得到平台 ticker 映射，并按页面实际需要探测所需数据角色是否可取数，只记录接口成功/失败、可用字段和结构化错误。页面结构与 direct/fork/unmatched 判断只依据"用户所需能力 × 已验证的平台能力"，不得依据 Agent 对公司上市状态、所有权、资产名称或市场惯例的记忆。验证前不得引入"上市/未上市、公开/私营、代理资产、无行情、只能静态"等限制性前提；若用户没有询问这些身份属性，也不要把它们扩展成分析主线。
 
 
-### 已有 URL 修改强制路由
+### 已有 URL 修改按写权限原位更新或 Fork
 
 只有用户明确要求“解读/查看当前页面”且不要求修改时，才使用**不带 `task_id`** 的纯只读 `interpret`，读取后即可按返回证据回答，不进入建页流程。
 
-当用户提供已有 QuantBuddy URL，并表达“改成我的”“基于这个页面换标的/改内容/复制一份”等修改意图时，必须执行以下顺序：
+用户要求修改已有 QuantBuddy URL 时，先 `trace_context.py begin`，再带同一 `task_id` 调用 `static_page.py interpret`。必须按返回的 `existing_page_route.mode` 分流，不能把所有已有页一律判成 Fork：
 
-1. `trace_context.py begin` 建立任务；Turn 登记失败仍按非阻塞降级继续，不得把追踪异常变成页面业务错误。
-2. 带同一 `task_id` 调用 `static_page.py interpret`。若返回 `existing_page_route.required=true` 与 `must_copy_before_write=true`，该来源即绑定为本任务唯一已有页来源。
-3. 调用 `templates(recommend="all")`；此步骤只补齐范式池凭据，不能覆盖 interpret 已绑定的来源。
-4. 使用 interpret 返回的 `source_template_id` 调用 `new_page(mode=fork)`，随后立即执行 `new_page → fork_prepare`，消费其结构化 review 与 `publish_command`。
+- `mode="in_place"`：调用者是 owner/page admin，或旧版详情合同返回 `resource_role="existing_page"`、由 `updateStaticPage` 在写入时做最终权限校验。保持原 `page_id`、公开 URL、包/Grant、Share Shell 与运行时身份，使用 `static_page.py update`（以及需要时的 `update_progress` / `publish_verified`）写回原页。禁止 `new_page`、`new_asset_page`、`upload` 创建替代链接，也不需要再次查询 `templates`。若服务端返回 `FORBIDDEN`，停止写入并转入下述 Fork 路径，不得伪造 `is_page_admin`。
+- `mode="fork"`：当前详情明确 `can_update_in_place=false`，或该页是不可直接写入的 `source_template`。依次执行 `templates(recommend="all") → new_page(mode=fork, source_template_id=<interpret 返回>) → fork_prepare`；templates 只补齐范式池凭据，不能覆盖 interpret 已绑定的来源。
 
-在 fork 决策绑定前，禁止 `new_asset_page`、禁止 `build_dashboard`、禁止 bespoke `upload`，也禁止创建任何 regenerated page；不得把 existing-page mutation 改判成 direct/unmatched，也不得换用另一个 template。只有 `fork_prepare` 明确返回结构化不可复制错误，证明来源页面确实无法复制时，才允许考虑降级。降级结果必须显式声明 `page_context_mode=regenerated` 与 `source_page_context_inherited=false`，不得静默声称已继承来源布局、上下文或运行时合同。
+可信权限字段由服务端 `getPageDetail` 返回：`can_update_in_place` 与 `access_role=owner|page_admin|reader`。客户端不得相信调用参数里自报的 `is_page_admin`；旧服务端尚未返回 capability 时，只允许尝试写回 interpret 绑定的同一个 `page_id`，并以 `updateStaticPage` 的 owner/page-admin 鉴权结果为准。
+
+Fork 路径在决策绑定前禁止 `new_asset_page`、`build_dashboard`、bespoke `upload` 或任何 regenerated page；不得改判 unmatched 或偷换来源。只有 `fork_prepare` 明确返回结构化不可复制错误后，才允许评估降级，并显式声明 `page_context_mode=regenerated` 与 `source_page_context_inherited=false`。
 
 ### 从 QBS 并行交接进入（薄适配，不改变 QBV 独立 SOP）
 
@@ -151,7 +151,7 @@ python scripts/qbs_handoff_adapter.py evaluate '{"handoff_file":"D:/.../handoff.
 python scripts/static_page.py new_asset_page '{"task_id":"task_xxx","asset":"贵州茅台","user_query":"分析贵州茅台"}'
 ```
 
-该命令直接调用服务端固定场景，并在内部读取 SHA256 绑定 evidence、生成证据化分析、上报终态和清理临时文件。前五个数据章节按有数据才生成表格、整篇最多五表；计算维度以 stock profile 的稳定画像维度为主证据、有效收盘价 CSV 的日涨跌/均线/价格位置为补充，两路均无可核验字段时才整节省略，且后续可见章节自动连续编号。消息面章节暂不输出，综合观察最多五条代表性事实且不重复铺陈全部证据。分位字段原样使用 `render_token`，不继承 PE/PB 等基础指标单位；CSV 明确返回的 `%` 仍保留。成功结果包含 `reply_ready:true + agent_reply_markdown + agent_reply_markdown_sha256`；Agent 必须立即原样发送 `agent_reply_markdown`，禁止读取大结果/evidence、手写辅助脚本、扫描临时目录、另建草稿或运行 validator。CSV 单项失败只删除对应字段并写 warning；完全没有可核验证据或成稿失败时 fail closed，不得退化成一句链接或重复调用。后续若用户要改这张自有页面，继续使用 `update` 保持同一个 `page_id` / URL。
+该命令直接调用服务端固定场景，并在内部读取 SHA256 绑定 evidence、生成证据化分析、上报终态和清理临时文件。前五个数据章节按有数据才生成表格、整篇最多五表；计算维度以 stock profile 的稳定画像维度为主证据、有效收盘价 CSV 的日涨跌/均线/价格位置为补充，两路均无可核验字段时才整节省略，且后续可见章节自动连续编号。消息面章节暂不输出，综合观察最多五条代表性事实且不重复铺陈全部证据。分位字段原样使用 `render_token`，不继承 PE/PB 等基础指标单位；CSV 明确返回的 `%` 仍保留。成功结果包含 `reply_ready:true + agent_reply_markdown + agent_reply_markdown_sha256`；Agent 必须立即原样发送 `agent_reply_markdown`，禁止读取大结果/evidence、手写辅助脚本、扫描临时目录、另建草稿或运行 validator。该确定性成稿会把 `可分享实时活页` 和“若效果不满意，页面可进一步升级”作为数据免责声明之后的最终两行；不要在流式输出前段补发、重排或前端搬运该链接。CSV 单项失败只删除对应字段并写 warning；完全没有可核验证据或成稿失败时 fail closed，不得退化成一句链接或重复调用。后续若用户要改这张自有页面，继续使用 `update` 保持同一个 `page_id` / URL。
 
 不满足上述窄条件时，**只运行一次 `scripts/static_page.py templates`**。它调用统一 public 列表，由服务端完成官方精选+社区的去重、排序和分页；不要再手工重复调用。返回值是 `item_count` + 覆盖全部候选的 `items_summary`（不再是原始 items 全量打印），完整候选落盘在 `full_result_file`；正常路由判断只需要读 `items_summary`，不需要也不应该去读 `full_result_file`。
 
@@ -210,7 +210,7 @@ python scripts/static_page.py new_asset_page '{"task_id":"task_xxx","asset":"贵
 - fork 必须使用 `fork_prepare` 绑定来源和 manifest，最终 `publish_final` 保持首链 URL、移除来源凭证并保留必需栏目/输出/Card Runtime；详细门禁见 [workflows/new-session-paradigm-routing.md](workflows/new-session-paradigm-routing.md)。
 - prepared fork task 禁止 `build_dashboard`；v2只填写生成的 review-update 决策文件，依次运行 `review_update_command` 和 `publish_command`。只有旧 v1任务继续使用手工 `fork_validate` 路径。
 - 带 `task_id` 的进度从 `package_register` 起必须传同任务的结构化验证证据：实时页提交 `route_receipt`、`grant_receipts`、`formula_receipts`，且 `selected_routes` 必须逐项对应实际注册凭证；自由文本 `validation_not_required_reason` 不再放行。纯静态内容只能用 `static_content_only`；资产实时探测全部数据级失败时只能凭 `live_data_route_receipt_v1` 使用 `static_after_live_probe`。
-- `new_asset_page` 的最终回复只允许原样发送 `agent_reply_markdown`；该分支不返回草稿、evidence 路径或校验命令。其他终态回复必须按回复模板输出并且只能使用 contract 的 `public_url`；`feishu-group` 下该字段必须是 `https://www.quantbuddy.cn/playground/<owner>/<page_id>`。一般模板依据 `reply_render_policy` 与 `reply_data_availability` 删除结构性不存在的字段、整列、整行和空可选章节。`single_stock_deep_dive_v1` 还必须读取 SHA256 绑定的 `reply_data_evidence_file`，保留全部七节标题，有数据的模板字段全部输出，整节无数据使用标准说明；只有有效结构中的偶发缺值才写 `--`。若 `delivery_policy.max_markdown_tables` 存在，整篇不得超过该表格数，超出的结构改用列表或行内文本且不得丢数据。validator 返回 `valid=true` 后原样发送 `validated_markdown`，不得再次压缩或改写，也不得暴露原始托管 URL、本地路径、凭证或内部日志。
+- `new_asset_page` 的最终回复只允许原样发送 `agent_reply_markdown`；该分支不返回草稿、evidence 路径或校验命令。其他终态回复必须按回复模板输出并且只能使用 contract 的 `public_url`；`feishu-group` 下该字段必须是 `https://www.quantbuddy.cn/playground/<owner>/<page_id>`。**只要终态回复包含 `public_url`，必须把 `可分享实时活页：[{public_url}]({public_url})` 作为最后倒数第二行，最后一行固定为“若效果不满意，页面可进一步升级”；链接不得在正文、章节或免责声明中提前出现。**一般模板依据 `reply_render_policy` 与 `reply_data_availability` 删除结构性不存在的字段、整列、整行和空可选章节。`single_stock_deep_dive_v1` 还必须读取 SHA256 绑定的 `reply_data_evidence_file`，保留全部七节标题，有数据的模板字段全部输出，整节无数据使用标准说明；只有有效结构中的偶发缺值才写 `--`。若 `delivery_policy.max_markdown_tables` 存在，整篇不得超过该表格数，超出的结构改用列表或行内文本且不得丢数据。validator 返回 `valid=true` 后原样发送 `validated_markdown`，不得再次压缩或改写，也不得暴露原始托管 URL、本地路径、凭证或内部日志。
 - 除 `new_asset_page` 外，最终回复前只运行一次发布器返回的 `reply_validation_command`。`reply_validation_env` 是进程内执行专用值，CLI 与持久化报告只允许返回 `[REDACTED]` 和 `reply_validation_env_keys`，禁止输出真实凭证。若发布时显式设置了 `QBV_API_KEY`，validator 命令必须继承同一个现有环境变量；未显式覆盖时由 `config.json/config.local.json` 解析默认账号，发布器返回中不携带默认配置 key。禁止把 key 拼进命令串或另写参数文件。validator 必须读取发布器生成的 `contract_file + contract_sha256`，不得手工重建精简 contract。direct 使用 `direct_deliver` 返回的完整 task ID 路径和命令，成功后自动清理。`valid=true` 后不再执行任何工具调用。
 - 没有 terminal contract 禁止完成任务。唯一例外是成功的 `waiting_input` checkpoint。
 - 性能门槛：普通渠道模板命中到首链不超过 5 秒；所有渠道 terminal 到最终回复不超过 45 秒，完整活页任务以 10 分钟内完成为常态目标，用户可见消息间隔不超过 60 秒。回复证据补读不设额外人工截止时间，但必须按模板字段过滤、相同模式批量读取且每批最多10个；禁止公式重算和 package/grant 重查。

@@ -307,7 +307,7 @@ def render(*, evidence_file, evidence_sha256, asset, public_url):
     lines = [
         f"**{identity}全面分析**", "",
         f"时间：截至 {as_of} | 数据来源：QB / 活页实时数据", "",
-        f"可分享实时活页：{public_url}", "", "---",
+        "---",
     ]
     visible_data_sections = [
         section for section in SECTIONS[:-1]
@@ -339,5 +339,13 @@ def render(*, evidence_file, evidence_sha256, asset, public_url):
         lines.append("未返回的维度不作推断；建议结合后续实时更新继续观察，不据此预测短期涨跌或目标价。")
     else:
         lines.append(STANDARD_NO_DATA_TEXT)
-    lines.extend(["", "---", "", f"> 数据截至 {as_of}；不构成投资建议。"])
+    # Keep the delivery block as the literal end of the reply.  The browser
+    # streams this Markdown incrementally, so emitting the public URL above
+    # the evidence sections makes the link appear before the analysis ends.
+    lines.extend([
+        "", f"> 数据截至 {as_of}；不构成投资建议。",
+        "", "---", "",
+        f"可分享实时活页：[{public_url}]({public_url})",
+        "若效果不满意，页面可进一步升级",
+    ])
     return "\n".join(lines) + "\n"
