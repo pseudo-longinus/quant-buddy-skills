@@ -21,7 +21,10 @@
 - 单资产/单序列最新值 → `last_day_stats`（1维序列返回 `last_value{date,value}`）
 - 单序列一段时间走势（画 sparkline / 折线）→ `range_data`（返回 `range_data{dates,values}`）
 - 全市场截面 TopN / 覆盖率 → `last_day_stats`（2维返回 `top_values` 等）
+- 全市场某个截止日的完整截面列 → `last_column_full`（2维返回 `values[]`，适合 table/list）
 - 每资产最后有效值 → `last_valid_per_asset`
+
+`last_day_stats` / `last_column_full` 可选传 `mode_params.date` 或 `offset`：`date` 取不晚于指定日的最近有效数据；`offset` 是相对查询当天的自然日偏移。两者互斥，不传时继续使用原来的最新数据模式。
 
 > 约束：单包公式 ≤ 100、对外产出 ≤ 20；**每个 output 只能一个 read_mode**。
 
@@ -37,8 +40,8 @@
     "SC_px  = 收盘价(沪原油主连)"
   ],
   "reads": [
-    { "output": "SC_ret", "read_mode": "last_day_stats" },
-    { "output": "AG_ret", "read_mode": "last_day_stats" },
+    { "output": "SC_ret", "read_mode": "last_day_stats", "mode_params": { "offset": 1 } },
+    { "output": "AG_ret", "read_mode": "last_day_stats", "mode_params": { "date": "2026-08-31" } },
     { "output": "SC_px",  "read_mode": "range_data",
       "mode_params": { "lookback_days": 30 } }
   ],
