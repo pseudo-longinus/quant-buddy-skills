@@ -130,7 +130,7 @@ python scripts/static_page.py verify_card_runtime '{"page_ids":["page_xxx","page
 
 `new_asset_page` 面向“简单分析一只 A 股、港股或美股并给我页面”这类窄场景。先用 `trace_context.py begin` 建立 new session，再调用一次本命令；不查询 templates、不创建进度页、不执行 fork，也不要求 Agent 另跑 quant-buddy-skill 验证或自行注册 Grant。
 
-命令返回的 `agent_reply_markdown` 已按飞书卡片约束排版：五个数据章节有数据才生成表格，整篇最多五表；消息面、超出表格预算的内容和综合观察使用带空行的短列表。综合观察最多五条、每条只选 2～4 个主题匹配的代表性证据，不再重复前文全部字段；历史分位保留原始 `render_token`，不追加 PE/PB 等基础指标单位，CSV 明确给出的 `%` 仍保留。
+命令返回 `agent_reply_markdown_draft`：前五章是按飞书卡片约束排好的完整可见数据，整篇最多五表；第六章只有唯一 `summary_marker`。同一结果中的 `agent_summary_request` 携带原始 `user_query`，当前 Agent直接依据用户目的和前五章数据撰写综合观察，再替换 marker。无需关键词分类、专用生成器或第二次工具调用；总结只引用草稿已有事实，首句直接回答，后续解释最相关证据，避免机械复述全部字段。走势类请求使用条件式判断，不输出确定涨跌承诺、目标价或精确买卖点。
 
 参数：
 
@@ -138,12 +138,12 @@ python scripts/static_page.py verify_card_runtime '{"page_ids":["page_xxx","page
 |---|---|---|
 | `task_id` | ✅ | 本次 Trace task_id；CLI 同时通过 `x-task-id` 透传 |
 | `asset` | ✅ | 单只 A 股、港股或美股名称或代码，如 `贵州茅台` / `600519.SH`、`腾讯控股` / `0700.HK`、`苹果公司` / `AAPL.O` |
-| `user_query` | ❌ | 用户原始问题；省略时复用 Trace Context 中的 user_query |
+| `user_query` | ❌ | 用户原始问题；省略时复用 Trace Context 中的 user_query，并原样交给当前 Agent作为第六章写作目标。调用方不得改写成笼统的“分析某股票”而丢失真实目的 |
 | `ttl_days` | ❌ | 页面与固定 Data Grant 有效期 |
 
 适用边界：单一 A 股、港股或美股的简单综合分析/画像/行情估值财务概览、只需返回页面。服务端只按 `tkrsInfo.market_id` 区分：`1/2` 为 A 股、`8` 为港股、`18/19` 为美股；其他 market_id 当前不支持，不使用代码格式或刷新字段兜底。金额按标的原币展示，港美股画像或部分字段稀疏时页面只展示可用模块。若用户要求定制栏目或版式、指定额外指标/公式/图表、对比、多标的、指数、期货、选股或回测，继续走 `templates → direct/fork/unmatched`。
 
-服务端固定生成 profile / market_series / financial_report 三份 Data Grant，并按 `(user, task_id, 标准标题)` 幂等。脚本在内部材料化 SHA256 绑定证据并确定性生成报告：stock profile 的稳定画像维度作为计算维度主证据，有效收盘价 CSV 补充日涨跌、均线和价格位置；两路均无可核验字段时才省略该节，并将后续可见章节连续编号。当前暂不输出消息面章节。成功返回 `reply_ready:true`、`agent_reply_markdown`、其 SHA256 和 `agent_reply_contract.terminal=true`。调用方立即原样发送 `agent_reply_markdown`；不要读取证据、创建草稿、扫描临时目录或运行 `validate_agent_reply.py`。命令完成前已 best-effort 上报终态并清理临时文件，不输出 HTML、grant_id、signature、package_id 或内部 `_profile`。
+服务端固定生成 profile / market_series / financial_report 三份 Data Grant，并按 `(user, task_id, 标准标题)` 幂等。脚本在内部材料化 SHA256 绑定证据并生成回复草稿：stock profile 的稳定画像维度作为计算维度主证据，有效收盘价 CSV 补充日涨跌、均线和价格位置；两路均无可核验字段时才省略该节，并将后续可见章节连续编号。当前暂不输出消息面章节。成功返回 `reply_ready:true`、`agent_reply_markdown_draft`、草稿 SHA256、`agent_summary_request` 和 `agent_reply_contract.terminal=true`。当前 Agent只替换唯一 marker 并立即最终回复；不要读取临时 evidence、扫描目录、运行 validator 或调用其它工具。命令完成前已 best-effort 上报终态并清理临时文件，不输出 HTML、grant_id、signature、package_id 或内部 `_profile`。
 
 常见业务错误包括：`ASSET_NOT_FOUND`、`ASSET_NOT_ASHARE`、`SOURCE_TAG_NOT_FOUND`、`SOURCE_PAGE_NOT_FOUND`、`GRANT_REGISTER_FAILED`、`PAGE_UPLOAD_FAILED`。后端 `code != 0` 时脚本原样返回错误结构，不伪装成成功页面。
 
@@ -717,7 +717,7 @@ python scripts/static_page.py unpublish_community '{"page_id":"page_xxx"}'
 |---|---|
 | `NEW_ASSET_PAGE_PARAMS_REQUIRED` | new_asset_page 缺少 asset 或 task_id |
 | `NEW_ASSET_PAGE_REPLY_EVIDENCE_FAILED` / `NEW_ASSET_PAGE_EVIDENCE_EMPTY` | new_asset_page 无法生成非空、可核验的字段证据；失败前清理任务临时文件 |
-| `NEW_ASSET_PAGE_REPLY_RENDER_FAILED` | new_asset_page 证据哈希、字段结构或确定性成稿失败；不会退化成交付单链接 |
+| `NEW_ASSET_PAGE_REPLY_RENDER_FAILED` | new_asset_page 证据哈希、字段结构或回复草稿生成失败；不会退化成交付单链接 |
 | `ASSET_NOT_FOUND` / `ASSET_MARKET_UNSUPPORTED` | new_asset_page 未识别到资产，或其 `tkrsInfo.market_id` 不是当前允许的 `1/2/8/18/19` |
 | `SOURCE_TAG_NOT_FOUND` / `SOURCE_PAGE_NOT_FOUND` / `SOURCE_PAGE_MARKET_UNSUPPORTED` | new_asset_page 正式环境未配置合法 `recommend:模板` 来源页，或来源页未声明支持目标市场 |
 | `GRANT_REGISTER_FAILED` / `PAGE_UPLOAD_FAILED` | new_asset_page 固定授权注册或页面上传失败 |

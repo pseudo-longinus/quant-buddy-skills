@@ -9,6 +9,28 @@
 
 ---
 
+## [0.6.69] — 2026-09-05
+
+### 来源凭证引用与运行凭证分层校验
+
+- 修复 Fork 来源校验把 `data-qb-agent-readable` 的 `application/json` 方法论区块内 `package_id` / `grant_id` 引用误算为可执行凭证，进而因 ID 与 signature 全文次数不等而错误触发 `SOURCE_CREDENTIAL_UNPAIRED`。
+- 运行凭证现在按实际 ID/signature 配对位置校验；仅允许 Agent-readable JSON 中的额外 ID 作为只读引用，普通脚本中的裸 ID 和任何未配对 signature 继续失败关闭。
+- Fork manifest 新增可选 `package_references` / `grant_references` Marker；预检、V1/V2 注册替换及 Grant 降级同步处理引用 Marker，确保注册后方法论引用跟随新凭证 ID 且不复制 signature。
+- 增加真实来源页回放形态、仅引用无运行凭证、可执行裸 ID、Package/Grant 引用预检及 V1/V2 注册替换回归。
+
+---
+
+## [0.6.68] — 2026-09-04
+
+### 单股综合观察由当前 Agent按用户目的生成
+
+- `new_asset_page` 不再用关键词分类器或代码内置主题生成第六章，也不因用户目的不同退出已经选定的快速通道。
+- 脚本确定性生成前五章数据和最终链接块，第六章只保留唯一 marker；结果通过 `agent_reply_markdown_draft + agent_summary_request` 把原始问题与全部可见数据交给当前 Agent。
+- 当前 Agent直接理解用户目的并补写综合观察：首句回答问题，只选相关证据解释；走势类使用条件式判断，财报点评聚焦报告表现，证据不足时明确边界。
+- 删除本轮曾尝试的目的词表、分类门禁及财报/走势专用生成器，保持实现简洁；新增草稿 marker、原始 query 交接和最终回复契约回归。
+
+---
+
 ## [0.6.67] — 2026-09-03
 
 ### Fork 目标页最终写回门禁修复

@@ -65,7 +65,7 @@ upload 参数：
     先用 tags 子命令查询可用场景/范式：python scripts/static_page.py tags
 new_asset_page 参数：asset 必填（A 股名称或代码）；user_query / ttl_days 可选。
     仅用于无定制内容、对比、多标的或指定额外产出的简单单股分析；trace begin 后可跳过 templates/new_page。
-    成功会材料化证据并在命令内部确定性生成严格证据化回复，直接返回 agent_reply_markdown；
+    成功会材料化证据、生成含综合观察 marker 的完整数据草稿，并返回给当前 Agent补写第六章；
     stdout 不返回 data_sources 内容、HTML、Grant、signature 或内部 profile。
 new_page 参数：title / message / current_step / page_status / steps / required_input 可选；正式 task 还必须在 templates(recommend="all") 后由 Agent 传 routing_decision：
     fork 用 {mode:"fork",source_template_id,reason_code}；unmatched 用 {mode:"unmatched",closest_template_id,reason_code,reason}。
@@ -4894,10 +4894,10 @@ def cmd_new_asset_page(params):
     if route_error:
         return route_error
 
+    user_query = str(params.get("user_query") or trace_context.get("user_query") or "").strip()
     cfg = C.load_config_require_key()
     endpoint, api_key = C.endpoint_of(cfg), cfg.get("api_key", "")
     body = {"task_id": task_id, "asset": asset}
-    user_query = str(params.get("user_query") or trace_context.get("user_query") or "").strip()
     if user_query:
         body["user_query"] = user_query
     if params.get("ttl_days") is not None:
@@ -5027,7 +5027,7 @@ def cmd_new_asset_page(params):
         return {
             "code": 1,
             "error": "NEW_ASSET_PAGE_REPLY_RENDER_FAILED",
-            "message": f"new_asset_page 确定性报告生成失败：{exc}",
+            "message": f"new_asset_page 回复草稿生成失败：{exc}",
             "operation": "new_asset_page",
             "task_id": task_id,
             "page_id": out.get("page_id") or "",
@@ -5042,18 +5042,30 @@ def cmd_new_asset_page(params):
     result.pop("agent_reply_template_file", None)
     contract.update({
         "reply_ready": True,
-        "reply_mode": "deterministic_single_stock_v1",
-        "agent_reply_markdown_sha256": markdown_sha256,
-        "final_response_required": "send_agent_reply_markdown_verbatim",
+        "reply_mode": "agent_authored_summary_v1",
+        "agent_summary_required": True,
+        "summary_marker": SSR.AGENT_SUMMARY_MARKER,
+        "agent_reply_markdown_draft_sha256": markdown_sha256,
+        "final_response_required": "replace_summary_marker_and_send",
         "final_response_steps": [
-            "Send the top-level agent_reply_markdown verbatim as the final answer.",
-            "Do not read temporary evidence, draft a replacement, run reply validation, or invoke another tool.",
+            "Read the current user request and the top-level agent_reply_markdown_draft.",
+            "Replace the exact summary_marker with a concise section that directly answers the user's actual purpose.",
+            "Use only evidence already displayed in sections one through five; explain relationships instead of repeating every field.",
+            "For outlook questions, give a conditional assessment and confirmation/risk conditions, not a guaranteed prediction.",
+            "Do not alter the other sections or the final link block; send the completed Markdown immediately without another tool call.",
         ],
     })
     result.update({
         "reply_ready": True,
-        "agent_reply_markdown": markdown,
-        "agent_reply_markdown_sha256": markdown_sha256,
+        "agent_summary_required": True,
+        "agent_reply_markdown_draft": markdown,
+        "agent_reply_markdown_draft_sha256": markdown_sha256,
+        "agent_summary_request": {
+            "user_query": user_query,
+            "summary_marker": SSR.AGENT_SUMMARY_MARKER,
+            "evidence_source": "agent_reply_markdown_draft 的第一至第五章",
+            "instruction": "直接回答用户目的，只使用草稿中的数据，提炼结论与关键依据；不要机械复述全部章节。",
+        },
     })
     C.cleanup_task_temp_files(task_id)
     for key in ("data_sources_file", "data_sources_sha256", "csv_manifest_file", "csv_evidence_file"):

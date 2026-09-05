@@ -47,6 +47,15 @@ _CONST_CREDENTIAL_ID_RE = re.compile(
     r"(?P<id_quote>[\"'])(?P<credential_id>(?:pkg|dg|grant)_[^\"']+)(?P=id_quote)",
     re.I,
 )
+_HTML_SCRIPT_BLOCK_RE = re.compile(
+    r"<script\b(?P<attrs>[^>]*)>(?P<body>[\s\S]*?)</script\s*>",
+    re.I,
+)
+_APPLICATION_JSON_ATTR_RE = re.compile(
+    r"\btype\s*=\s*(?:[\"']application/json[\"']|application/json)(?=\s|$)",
+    re.I,
+)
+_AGENT_READABLE_ATTR_RE = re.compile(r"\bdata-qb-agent-readable(?:\s*=|\s|$)", re.I)
 
 
 class ForkRuntimeError(ValueError):
@@ -337,13 +346,35 @@ def _credential_kind(credential_id, id_key=""):
     return ""
 
 
-def _constant_credential_pairs(html):
-    """Pair bespoke JS constants by their full variable-name prefix.
+def _agent_readable_json_ranges(html):
+    """Return body ranges for non-executable, Agent-readable JSON script blocks."""
+    ranges = []
+    for match in _HTML_SCRIPT_BLOCK_RE.finditer(str(html or "")):
+        attrs = str(match.group("attrs") or "")
+        if _APPLICATION_JSON_ATTR_RE.search(attrs) and _AGENT_READABLE_ATTR_RE.search(attrs):
+            ranges.append(match.span("body"))
+    return ranges
 
-    Supported shapes include PACKAGE_ID + SIGNATURE,
-    ROSTER_PACKAGE_ID + ROSTER_SIGNATURE, and
-    FUND_GRANT_ID + FUND_GRANT_SIGNATURE.
-    """
+
+def _span_is_within(span, ranges):
+    start, end = span
+    return any(start >= range_start and end <= range_end for range_start, range_end in ranges)
+
+
+def _literal_spans(text, value):
+    spans = []
+    start = 0
+    while value:
+        index = text.find(value, start)
+        if index < 0:
+            break
+        spans.append((index, index + len(value)))
+        start = index + len(value)
+    return spans
+
+
+def _constant_credential_pair_occurrences(html):
+    """Pair bespoke JS constants by their full variable-name prefix."""
     text = str(html or "")
     pairs = []
     for match in _CONST_CREDENTIAL_ID_RE.finditer(text):
@@ -361,8 +392,55 @@ def _constant_credential_pairs(html):
                 "kind": kind,
                 "credential_id": str(match.group("credential_id") or "").strip(),
                 "signature": str(signature_match.group("signature") or "").strip(),
+                "id_span": match.span("credential_id"),
+                "signature_span": signature_match.span("signature"),
             })
     return pairs
+
+
+def _credential_pair_occurrences(html):
+    text = str(html or "")
+    agent_readable_ranges = _agent_readable_json_ranges(text)
+    candidates = []
+    for pattern in (_LONG_PAIR_RE, _SHORT_PAIR_RE):
+        for match in pattern.finditer(text):
+            id_span = match.span("credential_id")
+            signature_span = match.span("signature")
+            # Agent-readable methodology JSON can cite an active credential ID, but it is not
+            # an executable credential surface and must not manufacture a signature pair.
+            if _span_is_within(id_span, agent_readable_ranges):
+                continue
+            credential_id = str(match.group("credential_id") or "").strip()
+            signature = str(match.group("signature") or "").strip()
+            candidates.append({
+                "kind": _credential_kind(credential_id, match.groupdict().get("id_key") or ""),
+                "credential_id": credential_id,
+                "signature": signature,
+                "id_span": id_span,
+                "signature_span": signature_span,
+            })
+    candidates.extend(_constant_credential_pair_occurrences(text))
+    unique = []
+    seen = set()
+    for candidate in candidates:
+        key = (
+            candidate.get("kind"),
+            candidate.get("credential_id"),
+            candidate.get("signature"),
+            tuple(candidate.get("id_span") or ()),
+            tuple(candidate.get("signature_span") or ()),
+        )
+        if key not in seen:
+            seen.add(key)
+            unique.append(candidate)
+    return unique
+
+
+def _constant_credential_pairs(html):
+    return [
+        {key: value for key, value in pair.items() if key not in ("id_span", "signature_span")}
+        for pair in _constant_credential_pair_occurrences(html)
+    ]
 
 
 def discover_credential_pairs(html, *, reject_ambiguous=True):
@@ -371,15 +449,7 @@ def discover_credential_pairs(html, *, reject_ambiguous=True):
     seen = set()
     id_to_signatures = defaultdict(set)
     signature_to_ids = defaultdict(set)
-    candidates = []
-    for pattern in (_LONG_PAIR_RE, _SHORT_PAIR_RE):
-        for match in pattern.finditer(html or ""):
-            credential_id = str(match.group("credential_id") or "").strip()
-            signature = str(match.group("signature") or "").strip()
-            kind = _credential_kind(credential_id, match.groupdict().get("id_key") or "")
-            candidates.append({"kind": kind, "credential_id": credential_id, "signature": signature})
-    candidates.extend(_constant_credential_pairs(html))
-    for candidate in candidates:
+    for candidate in _credential_pair_occurrences(html):
         credential_id = str(candidate.get("credential_id") or "").strip()
         signature = str(candidate.get("signature") or "").strip()
         kind = str(candidate.get("kind") or "").strip()
@@ -407,6 +477,7 @@ def discover_credential_pairs(html, *, reject_ambiguous=True):
             shared_signatures=shared_signatures,
         )
     return pairs
+
 def _contract_indexes(template_record):
     packages = {}
     grants = {}
@@ -440,6 +511,22 @@ def _replace_all_with_markers(html, value, marker_factory):
         out.extend((part, markers[index]))
     out.append(parts[-1])
     return "".join(out), markers
+
+
+def _replace_spans(html, replacements):
+    """Replace non-overlapping source spans in one pass, preserving original offsets."""
+    text = str(html or "")
+    ordered = sorted(replacements, key=lambda item: (item[0], item[1]))
+    cursor = 0
+    out = []
+    for start, end, replacement in ordered:
+        if start < cursor or start < 0 or end < start or end > len(text):
+            raise ForkRuntimeError("FORK_MARKERIZE_INCOMPLETE", "凭证 Marker 替换区间重叠或越界")
+        out.append(text[cursor:start])
+        out.append(replacement)
+        cursor = end
+    out.append(text[cursor:])
+    return "".join(out)
 
 
 def _surface_hints(html, credential_id):
@@ -808,6 +895,18 @@ def build_runtime_artifacts(html, template_record, replacements=None, primary_so
     pairs = discover_credential_pairs(html)
     package_index, grant_index = _contract_indexes(template_record or {})
     working = str(html or "")
+    discovered_credentials = {(pair.get("kind"), pair.get("credential_id")) for pair in pairs}
+    for kind, contract_index in (("package", package_index), ("grant", grant_index)):
+        for credential_id in contract_index:
+            if credential_id in working and (kind, credential_id) not in discovered_credentials:
+                raise ForkRuntimeError(
+                    "SOURCE_CREDENTIAL_UNPAIRED",
+                    f"来源 {kind} 凭证只有 ID 引用，没有可执行 ID/signature 对",
+                    credential_id=credential_id,
+                    id_count=working.count(credential_id),
+                    signature_count=0,
+                    paired_count=0,
+                )
     roles = []
     role_names = set()
     for ordinal, pair in enumerate(pairs, start=1):
@@ -849,28 +948,64 @@ def build_runtime_artifacts(html, template_record, replacements=None, primary_so
             raise ForkRuntimeError("SOURCE_RUNTIME_CONTRACT_MISSING", f"来源 Grant 缺少 kind/payload 合同: {credential_id}")
             suffix += 1
         role_names.add(role_id)
-        id_count = working.count(credential_id)
-        sig_count = working.count(signature)
-        if id_count != sig_count or id_count < 1:
+        pair_occurrences = [
+            occurrence for occurrence in _credential_pair_occurrences(working)
+            if occurrence.get("kind") == kind
+            and occurrence.get("credential_id") == credential_id
+            and occurrence.get("signature") == signature
+        ]
+        paired_id_spans = sorted({tuple(item["id_span"]) for item in pair_occurrences})
+        paired_signature_spans = sorted({tuple(item["signature_span"]) for item in pair_occurrences})
+        all_id_spans = _literal_spans(working, credential_id)
+        all_signature_spans = _literal_spans(working, signature)
+        agent_readable_ranges = _agent_readable_json_ranges(working)
+        paired_id_span_set = set(paired_id_spans)
+        reference_spans = [
+            span for span in all_id_spans
+            if span not in paired_id_span_set and _span_is_within(span, agent_readable_ranges)
+        ]
+        unsafe_id_spans = [
+            span for span in all_id_spans
+            if span not in paired_id_span_set and span not in set(reference_spans)
+        ]
+        unpaired_signature_spans = [
+            span for span in all_signature_spans if span not in set(paired_signature_spans)
+        ]
+        id_count = len(all_id_spans)
+        sig_count = len(all_signature_spans)
+        if (
+            not paired_id_spans
+            or len(paired_id_spans) != len(paired_signature_spans)
+            or unsafe_id_spans
+            or unpaired_signature_spans
+        ):
             raise ForkRuntimeError(
                 "SOURCE_CREDENTIAL_UNPAIRED",
-                f"来源 {kind} 凭证 ID/signature 出现次数不一致",
+                f"来源 {kind} 凭证包含未配对的可执行 ID/signature",
                 credential_id=credential_id,
                 id_count=id_count,
                 signature_count=sig_count,
+                paired_count=len(paired_id_spans),
+                reference_count=len(reference_spans),
+                unsafe_id_count=len(unsafe_id_spans),
+                unpaired_signature_count=len(unpaired_signature_spans),
             )
         prefix = _marker_prefix(role_id)
         occurrences = _surface_hints(working, credential_id)
-        working, id_markers = _replace_all_with_markers(
-            working,
-            credential_id,
-            lambda number: f"__QBV_{prefix}_ID_{number:03d}__",
-        )
-        working, signature_markers = _replace_all_with_markers(
-            working,
-            signature,
-            lambda number: f"__QBV_{prefix}_SIG_{number:03d}__",
-        )
+        id_markers = [f"__QBV_{prefix}_ID_{number:03d}__" for number in range(1, len(paired_id_spans) + 1)]
+        signature_markers = [f"__QBV_{prefix}_SIG_{number:03d}__" for number in range(1, len(paired_signature_spans) + 1)]
+        reference_markers = [f"__QBV_{prefix}_REF_{number:03d}__" for number in range(1, len(reference_spans) + 1)]
+        marker_replacements = [
+            (start, end, id_markers[index])
+            for index, (start, end) in enumerate(paired_id_spans)
+        ] + [
+            (start, end, signature_markers[index])
+            for index, (start, end) in enumerate(paired_signature_spans)
+        ] + [
+            (start, end, reference_markers[index])
+            for index, (start, end) in enumerate(reference_spans)
+        ]
+        working = _replace_spans(working, marker_replacements)
         if kind == "package":
             source_contract, target_contract, formula_analysis = _package_contracts(
                 source_item, replacements, primary_sources
@@ -895,6 +1030,7 @@ def build_runtime_artifacts(html, template_record, replacements=None, primary_so
             "markers": {
                 "package_id" if kind == "package" else "grant_id": id_markers,
                 "signature": signature_markers,
+                **({"package_references" if kind == "package" else "grant_references": reference_markers} if reference_markers else {}),
             },
             "occurrences": occurrences,
         }
@@ -1225,6 +1361,12 @@ def validate_manifest_html(manifest, html):
             raise ForkRuntimeError("FORK_MARKER_INVALID", f"runtime role ID/signature Marker 数量不一致: {role.get('role_id')}")
         all_markers.extend(id_markers)
         all_markers.extend(sig_markers)
+        reference_key = "package_references" if kind == "package" else "grant_references"
+        if reference_key in markers:
+            reference_markers = markers.get(reference_key)
+            if not isinstance(reference_markers, list) or not reference_markers or any(not str(marker or "").strip() for marker in reference_markers):
+                raise ForkRuntimeError("FORK_MARKER_INVALID", f"runtime role 引用 Marker 必须是非空数组: {role.get('role_id')}")
+            all_markers.extend(reference_markers)
         source_id = str(role.get("source_credential_id") or "")
         if source_id and source_id in str(html or ""):
             raise ForkRuntimeError("SOURCE_CREDENTIAL_LEAK", "working HTML 仍含来源凭证")
@@ -1262,6 +1404,12 @@ def validate_manifest_html(manifest, html):
             raise ForkRuntimeError("FORK_MARKER_INVALID", f"augmented role ID/signature Marker 数量不一致: {role_id}")
         all_markers.extend(id_markers)
         all_markers.extend(sig_markers)
+        reference_key = "package_references" if kind == "package" else "grant_references"
+        if reference_key in markers:
+            reference_markers = markers.get(reference_key)
+            if not isinstance(reference_markers, list) or not reference_markers or any(not str(marker or "").strip() for marker in reference_markers):
+                raise ForkRuntimeError("FORK_MARKER_INVALID", f"augmented role 引用 Marker 必须是非空数组: {role_id}")
+            all_markers.extend(reference_markers)
     expected_manifest_fingerprint = str(manifest.get("contract_fingerprint") or "")
     if expected_manifest_fingerprint:
         actual_manifest_fingerprint = contract_fingerprint([

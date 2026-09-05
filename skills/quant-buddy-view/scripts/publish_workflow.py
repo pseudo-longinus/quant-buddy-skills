@@ -59,12 +59,16 @@ def _marker_specs(packages, grants, images=None):
             raise ValueError(f"packages[{index}].markers 必须是对象")
         specs.extend(_marker_values(markers.get("package_id"), f"packages[{index}].markers.package_id"))
         specs.extend(_marker_values(markers.get("signature"), f"packages[{index}].markers.signature"))
+        if "package_references" in markers:
+            specs.extend(_marker_values(markers.get("package_references"), f"packages[{index}].markers.package_references"))
     for index, item in enumerate(grants):
         markers = item.get("markers") if isinstance(item, dict) else None
         if not isinstance(markers, dict):
             raise ValueError(f"grants[{index}].markers 必须是对象")
         specs.extend(_marker_values(markers.get("grant_id"), f"grants[{index}].markers.grant_id"))
         specs.extend(_marker_values(markers.get("signature"), f"grants[{index}].markers.signature"))
+        if "grant_references" in markers:
+            specs.extend(_marker_values(markers.get("grant_references"), f"grants[{index}].markers.grant_references"))
     for index, item in enumerate(images or []):
         if not isinstance(item, dict):
             raise ValueError(f"images[{index}] 必须是对象")
@@ -198,8 +202,11 @@ def _apply_grant_degradation(grants, html, validation):
     for item in grants:
         if str(item.get("name") or item.get("role_id") or "") not in dropped_names:
             continue
-        for key in ("grant_id", "signature"):
-            for _, marker in _marker_values((item.get("markers") or {}).get(key), f"{key}.marker"):
+        markers = item.get("markers") or {}
+        for key in ("grant_id", "signature", "grant_references"):
+            if key not in markers:
+                continue
+            for _, marker in _marker_values(markers.get(key), f"{key}.marker"):
                 html = html.replace(marker, "")
     return kept, failed, html, None
 
@@ -341,6 +348,13 @@ def _card_runtime_preview_html(html, packages, grants, images):
             f"sig_qbv_preflight_{index}",
             f"packages[{index}].markers.signature",
         )
+        if "package_references" in markers:
+            preview = _replace_marker_field(
+                preview,
+                markers.get("package_references"),
+                f"pkg_qbv_preflight_{index}",
+                f"packages[{index}].markers.package_references",
+            )
     for index, item in enumerate(grants):
         markers = item["markers"]
         preview = _replace_marker_field(
@@ -355,6 +369,13 @@ def _card_runtime_preview_html(html, packages, grants, images):
             f"grant_sig_qbv_preflight_{index}",
             f"grants[{index}].markers.signature",
         )
+        if "grant_references" in markers:
+            preview = _replace_marker_field(
+                preview,
+                markers.get("grant_references"),
+                f"grant_qbv_preflight_{index}",
+                f"grants[{index}].markers.grant_references",
+            )
     for index, item in enumerate(images or []):
         preview = _replace_once(
             preview,
@@ -557,6 +578,8 @@ def _run_workflow_v1(params):
         markers = item["markers"]
         html = _replace_marker_field(html, markers["package_id"], result["package_id"], f"packages[{index}].package_id")
         html = _replace_marker_field(html, markers["signature"], result["signature"], f"packages[{index}].signature")
+        if "package_references" in markers:
+            html = _replace_marker_field(html, markers["package_references"], result["package_id"], f"packages[{index}].package_references")
         registered_packages.append({"name": str(item.get("name") or index), "package_id": result["package_id"]})
 
     registered_grants = []
@@ -569,6 +592,8 @@ def _run_workflow_v1(params):
         markers = item["markers"]
         html = _replace_marker_field(html, markers["grant_id"], result["grant_id"], f"grants[{index}].grant_id")
         html = _replace_marker_field(html, markers["signature"], result["signature"], f"grants[{index}].signature")
+        if "grant_references" in markers:
+            html = _replace_marker_field(html, markers["grant_references"], result["grant_id"], f"grants[{index}].grant_references")
         registered_grants.append({"name": str(item.get("name") or index), "grant_id": result["grant_id"]})
 
     uploaded_images = []
@@ -856,6 +881,8 @@ def _run_workflow_v2(params):
         markers = item["markers"]
         html = _replace_marker_field(html, markers["package_id"], result["package_id"], f"packages[{index}].package_id")
         html = _replace_marker_field(html, markers["signature"], result["signature"], f"packages[{index}].signature")
+        if "package_references" in markers:
+            html = _replace_marker_field(html, markers["package_references"], result["package_id"], f"packages[{index}].package_references")
         registered_packages.append({"name": item["name"], "package_id": result["package_id"], "contract_fingerprint": item["contract_fingerprint"]})
     timings["package_registration_ms"] = round((time.perf_counter() - started) * 1000)
 
@@ -869,6 +896,8 @@ def _run_workflow_v2(params):
         markers = item["markers"]
         html = _replace_marker_field(html, markers["grant_id"], result["grant_id"], f"grants[{index}].grant_id")
         html = _replace_marker_field(html, markers["signature"], result["signature"], f"grants[{index}].signature")
+        if "grant_references" in markers:
+            html = _replace_marker_field(html, markers["grant_references"], result["grant_id"], f"grants[{index}].grant_references")
         registered_grants.append({"name": item["name"], "grant_id": result["grant_id"], "contract_fingerprint": item["contract_fingerprint"]})
     timings["grant_registration_ms"] = round((time.perf_counter() - started) * 1000)
 

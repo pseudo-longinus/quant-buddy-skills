@@ -27,7 +27,7 @@ QBV_API_KEY=<本次任务的 key> python scripts/trace_context.py begin '{"user_
 python scripts/static_page.py new_asset_page '{"task_id":"task_xxx","asset":"贵州茅台","user_query":"分析贵州茅台"}'
 ```
 
-该命令直接调用 `POST /skill/newAssetPage`，由服务端完成资产解析、固定来源页实例替换和三份固定 Data Grant 注册；脚本内部材料化 SHA256 绑定 evidence、确定性生成七节成稿、上报终态并清理临时文件。成稿最多使用五张数据表，表外内容按短列表分组，第七节只提炼最多五条代表性事实，不重复全部证据；分位字段不继承基础指标单位。Agent 不查 `templates`、不运行 `new_page/fork_prepare`、不另跑 QBS 预验证、不自行注册 Grant。成功后立即原样发送 `agent_reply_markdown`；禁止读取 evidence/大结果、手写辅助脚本、扫描临时目录、另建草稿或运行 validator。
+命令调用 `POST /skill/newAssetPage`，由服务端完成资产解析、固定来源页实例替换和三份固定 Data Grant 注册；脚本内部材料化 SHA256 绑定 evidence，并生成最多五张数据表的 `agent_reply_markdown_draft`。前五章保留完整数据，第六章放置唯一 `summary_marker`；当前 Agent按同一结果中的 `agent_summary_request`，结合原始 `user_query` 和前五章数据直接撰写贴合用户目的的总结，只替换 marker 后立即发送。禁止关键词分类、固定主题摘要、读取临时 evidence、扫描目录、另建草稿、运行 validator 或调用其它工具。
 
 任一条件不满足就进入第 0 步，不要把定制单股页或多资产请求塞进快速通道。快速通道创建的是调用者自己的页面；后续内容修改复用现有 `update(page_id)`。
 
@@ -132,7 +132,7 @@ fork/unmatched 创建首链后，如果资产库证明存在 A/H、同名代码�
 - 没有 terminal contract 禁止完成业务任务；唯一可暂停例外是成功的 `waiting_input` checkpoint，且用户回复后必须同任务续跑。
 - 每个 package/grant 最多查询一次，仅明确瞬时网络失败允许重试一次。
 - direct 命中后禁止研究脚本实现、运行子命令 `--help` 或重复调用 `template/query/finalize`；使用 `direct_deliver` 的紧凑结果继续生成回复。
-- `new_asset_page` 成功后直接原样发送 `agent_reply_markdown`，不进入 validator；其余分支在 validator 返回 `valid=true` 后立即最终回复，禁止再次校验、运行 `--help`、扫描临时目录或继续 memory 搜索。
+- `new_asset_page` 成功后由当前 Agent补写 `agent_reply_markdown_draft` 的唯一综合观察 marker，随后立即发送，不进入 validator；其余分支在 validator 返回 `valid=true` 后立即最终回复，禁止再次校验、运行 `--help`、扫描临时目录或继续 memory 搜索。
 - 已创建首链的任务必须进入 terminal 成功或明确失败终态，不得让进度页长期停留在 running；公网浏览器验收成功后的下一步必须是最终回复，禁止任何额外工具调用。
 - 性能门槛：普通渠道模板命中到首链 ≤5 秒；所有渠道 terminal 到最终回复 ≤45 秒、端到端 ≤120 秒、用户可见消息间隔 ≤60 秒。
 - 未跑浏览器验收时，只能声明公开 URL 和实时接口可访问。
