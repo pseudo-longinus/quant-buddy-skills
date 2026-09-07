@@ -1450,7 +1450,14 @@ def main(argv: Optional[list[str]] = None) -> int:
                 bool(params.get("persistence_confirmed", False)),
             )
         elif command == "handoff":
-            result = build_qbv_handoff(**params)
+            # Be idempotent for callers that accidentally pass an already-built
+            # handoff file back to this command. Revalidate it instead of leaking
+            # a Python signature error about ``schema_version``.
+            result = (
+                validate_qbv_handoff(params)
+                if params.get("schema_version") == SCHEMA_VERSION
+                else build_qbv_handoff(**params)
+            )
         elif command == "prepare-fast-query-page":
             result = prepare_fast_query_page(**params)
         elif command == "prepare-industry-ranking-page":
@@ -1461,6 +1468,8 @@ def main(argv: Optional[list[str]] = None) -> int:
             handoff = params.get("handoff")
             if handoff is None and params.get("handoff_file"):
                 handoff = json.loads(Path(params["handoff_file"]).read_text(encoding="utf-8-sig"))
+            if handoff is None and params.get("schema_version") == SCHEMA_VERSION:
+                handoff = params
             result = prepare_qbv_job(
                 handoff,
                 target_skill_id=params.get("target_skill_id"),

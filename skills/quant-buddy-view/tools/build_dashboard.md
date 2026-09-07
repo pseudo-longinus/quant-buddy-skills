@@ -42,6 +42,7 @@ BD_PARAMS='{"title":"...","panels":[...],"upload":true}' python scripts/build_da
 
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
+| `task_id` | string | 发布时必填 | `trace_context begin/beginHandoff` 返回的当前任务 ID；`upload/update_page_id` 成功后据此生成 hash-bound 终态回复校验文件 |
 | `title` | string | ✅ | 看板标题（`<title>` + 页头） |
 | `subtitle` | string | ❌ | 副标题 |
 | `description` | string | ❌ | 页面说明（≤1000 字），仅作 `static_page` 列表/详情展示；显式传才随 upload/update 透传，不传则不动 |
@@ -95,12 +96,14 @@ Default brand logo: standard pages inline `assets/logo.svg` into the share heade
 
 | 字段 | 必填 | 说明 |
 |---|---|---|
-| `output` | ✅* | 对应公式包 `reads` 的产出名（= query 返回 outputs 的 key）。`text` 面板不需要；数据授权面板改填 `grant_id`，二者其一 |
-| `grant_id` | ✅* | 数据授权面板：填 `dg_...`，构建期自动补 signature、运行时走 `queryDataGrant`（普通 JSON）。与 `output` 互斥，可与公式包面板同页混用 |
+| `output` | ✅* | 单个公式包产出名（= query 返回 outputs 的 key）。`text` 面板不需要；多序列图改用 `outputs`；数据授权面板改填 `grant_id` |
+| `outputs` | ✅* | 多序列 `line/bar` 的公式包产出名数组，例如 `["mt_close","wly_close","lzlj_close"]`；构建期会逐项体检，manifest 也会记录全部产出 |
+| `grant_id` | ✅* | 数据授权面板：填 `dg_...`，构建期自动补 signature、运行时走 `queryDataGrant`（普通 JSON）。与 `output/outputs` 互斥，可与公式包面板同页混用 |
 | `title` | ❌ | 面板标题，缺省用 `output` |
 | `type` | ❌ | `line` / `bar` / `radar`（雷达图） / `table`（默认） / `number` / `text` / `raw` |
 | `x` | ❌ | line/bar 横轴字段（缺省取首列；range_data 自动取 dates） |
 | `y` | ❌ | line/bar 纵轴字段数组（缺省取除 x 外的数值列） |
+| `transform` | ❌ | line/bar 展示层派生：`cumulative_return_pct` 把各序列首个有效值归零后显示累计收益率；`drawdown_pct` 按各序列运行峰值显示回撤率。两者只基于页面实时取得的原始序列计算，不缓存、不改写源数据 |
 | `columns` | ❌ | table 指定列（缺省自动推断） |
 | `value_field` | ❌ | number 取值字段（缺省取**最后一个数值列的末个有效值**，自动跳过尾部 null；range_data 即取序列值，不会误命中日期列。仅当默认列不对时才需指定） |
 | `unit` | ❌ | number 单位 |
@@ -116,7 +119,7 @@ Default brand logo: standard pages inline `assets/logo.svg` into the share heade
 > 渲染器会自动把公式包各 read_mode 的 `data` 归一为 {列, 行}：
 > `range_data.{dates,values}` → 折线；`last_day_stats` 对 1 维序列返回的 `last_value.{date,value}` → 数值；
 > `last_day_stats.top_values[]` / `last_valid_per_asset[]` → 表格。多数 panel 只需写 `output` + `type`。
-> 渲染器已内置：整数日期 `YYYYMMDD` → `YYYY-MM-DD`、裁掉序列尾部 null、折线 `connectNulls`、number 跳空取末个有效值——**这些后处理不必再在 spec 里手写**。
+> 渲染器已内置：整数日期 `YYYYMMDD` → `YYYY-MM-DD`、裁掉序列尾部 null、折线 `connectNulls`、number 跳空取末个有效值。多资产收益/回撤直接对同一组价格 `outputs` 分别使用 `transform:"cumulative_return_pct"` 与 `transform:"drawdown_pct"`，**禁止为此读取 `assets/data-kernel.js` 或手写一套 bespoke 取数运行时**。
 > `text` 面板不需要 `output`，构建期体检会跳过它；适合在单标的画像页里放一句摘要或观察点。
 
 > ⚠️ **构建期取数失败即硬失败**：构建时会先取一次数做质量体检（只用于校验，不内联进 HTML）。若有任一产出失败或体检为空（如 range_data 全 null / 区间无数据），`build_dashboard` 返回 `code:1` 并在 `failed_outputs` 指明哪个 output、疑因，**不生成 HTML**。务必检查返回 `code`，不要把「没报错」当成功。
@@ -204,3 +207,13 @@ python scripts/build_dashboard.py '{
 - 详见 [guides/bespoke-page.md](../guides/bespoke-page.md) 「图表类可视化」一节。
 
 > 端到端示例：[workflows/dashboard-end-to-end.md](../workflows/dashboard-end-to-end.md)。
+## 5. 发布后的终态回复校验（不可跳过）
+
+当 spec 带 `upload:true` 或 `update_page_id` 时，必须同时传当前 `task_id`。发布成功且返回 terminal `agent_reply_contract` 后，`build_dashboard.py` 会在顶层返回：
+
+- `agent_reply_contract_file` + `agent_reply_contract_sha256`
+- `reply_draft_file`
+- `reply_validation_params_file`
+- `reply_validation_command`
+
+公网浏览器验收通过后，把最终 Markdown **原样写入返回的 `reply_draft_file`**，再执行发布器原样返回的 `reply_validation_command`；不得手工重建 contract、hash 或验证参数。只有 validator 返回 `valid:true` 才能发送最终回复，并在此后停止调用工具。缺少这些字段说明发布链路尚未形成完整终态门禁，不能把页面判为交付完成。

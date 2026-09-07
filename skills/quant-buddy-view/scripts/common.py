@@ -113,12 +113,20 @@ SKILL_VERSION = _read_skill_version()
 SKILL_CHANNEL = _read_skill_channel()
 
 # ── Windows 下强制 stdout/stderr 使用 UTF-8，避免服务端返回 emoji 时崩溃 ──
-# line_buffering=True：每次 print 立即 flush，避免 PowerShell 首次读到空输出。
-# 必须在任何 print 之前设置。
-if hasattr(sys.stdout, "buffer"):
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace", line_buffering=True)
-if hasattr(sys.stderr, "buffer"):
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace", line_buffering=True)
+# 不要创建共享同一 buffer 的新 TextIOWrapper；若另一个模块随后再次包装，前一个
+# wrapper 析构时会把底层流一并关闭。原地 reconfigure 可安全支持同进程重复 import。
+def _configure_stdio_utf8():
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if not callable(reconfigure):
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
+        except (AttributeError, OSError, ValueError):
+            pass
+
+
+_configure_stdio_utf8()
 
 
 # ────────────────────────────────────────────────

@@ -6587,6 +6587,19 @@ def _task_receipt_path(task_id, name, *, create=False):
     return path
 
 
+def _intent_profile_copyable_example(params):
+    return {
+        "task_id": _routing_task_id(params) or "task_xxx",
+        "page_type": str(params.get("page_type") or "多资产对比"),
+        "asset_scope": {"kind": "sector", "name": "目标资产组", "market": "A股"},
+        "dimensions": [
+            {"user_term": "实时行情", "platform_dimensions": ["close", "pct_chg"], "method_terms": ["横向比较"]},
+            {"user_term": "估值", "platform_dimensions": ["pe_ttm", "pb"], "method_terms": ["估值比较"]},
+            {"user_term": "市值", "platform_dimensions": ["market_cap"], "method_terms": ["规模比较"]},
+        ],
+    }
+
+
 def cmd_intent_profile(params):
     task_id = _routing_task_id(params)
     if not task_id:
@@ -6595,24 +6608,38 @@ def cmd_intent_profile(params):
     if not isinstance(scope, dict) or str(scope.get("kind") or "") not in _INTENT_ASSET_SCOPE_KINDS:
         return {
             "code": 1, "error": "INTENT_ASSET_SCOPE_REQUIRED",
-            "message": f"asset_scope.kind 必填，取值 {list(_INTENT_ASSET_SCOPE_KINDS)}。",
+            "message": f"asset_scope.kind 必填，取值 {list(_INTENT_ASSET_SCOPE_KINDS)}。请复制 example_intent_profile 后按用户请求修改。",
+            "example_intent_profile": _intent_profile_copyable_example(params),
         }
     if scope["kind"] in ("sector", "index") and not str(scope.get("name") or "").strip():
-        return {"code": 1, "error": "INTENT_ASSET_SCOPE_REQUIRED", "message": "sector/index 必须提供 name。"}
+        return {
+            "code": 1, "error": "INTENT_ASSET_SCOPE_REQUIRED",
+            "message": "sector/index 必须提供 name。请复制 example_intent_profile 后按用户请求修改。",
+            "example_intent_profile": _intent_profile_copyable_example(params),
+        }
     raw_dimensions = params.get("dimensions")
     if not isinstance(raw_dimensions, list) or not raw_dimensions:
-        return {"code": 1, "error": "INTENT_DIMENSIONS_REQUIRED", "message": "dimensions 必须是非空数组。"}
+        return {
+            "code": 1, "error": "INTENT_DIMENSIONS_REQUIRED",
+            "message": "dimensions 必须是非空数组。请复制 example_intent_profile 后按用户请求修改。",
+            "example_intent_profile": _intent_profile_copyable_example(params),
+        }
     dimensions = []
     for entry in raw_dimensions:
         if not isinstance(entry, dict):
-            return {"code": 1, "error": "INTENT_DIMENSIONS_REQUIRED", "message": "dimensions 每项必须是对象。"}
+            return {
+                "code": 1, "error": "INTENT_DIMENSIONS_REQUIRED",
+                "message": "dimensions 每项必须是对象。请复制 example_intent_profile 后按用户请求修改。",
+                "example_intent_profile": _intent_profile_copyable_example(params),
+            }
         user_term = str(entry.get("user_term") or "").strip()
         platform_dimensions = _unique_strings(entry.get("platform_dimensions"))
         method_terms = _unique_strings(entry.get("method_terms"))
         if not user_term or not platform_dimensions or not method_terms:
             return {
                 "code": 1, "error": "INTENT_LAYER_MAPPING_REQUIRED",
-                "message": "每个维度必须同时声明 user_term、platform_dimensions 和 method_terms。",
+                "message": "每个维度必须同时声明 user_term、platform_dimensions 和 method_terms。请复制 example_intent_profile 后按用户请求修改。",
+                "example_intent_profile": _intent_profile_copyable_example(params),
             }
         dimensions.append({
             "user_term": user_term,
@@ -6800,6 +6827,39 @@ def _compose_borrowable_refs(entry):
     return _unique_strings([x for x in refs if not x.endswith(":")])
 
 
+def _compose_borrow_plan_example(task_id, source, entry):
+    refs = _compose_borrowable_refs(entry)
+    preferred = next((x for x in refs if x.startswith("section:")), None)
+    preferred = preferred or next((x for x in refs if x.startswith("snippet:")), None)
+    preferred = preferred or (refs[0] if refs else "")
+    if preferred.startswith(("section:", "heading:")):
+        level = "layout+style"
+    elif preferred.startswith("snippet:"):
+        level = "layout+style+script"
+    elif preferred.startswith("output:"):
+        level = "formula"
+    else:
+        level = "grant_shape"
+    dimensions = [
+        str(x.get("user_term") or "").strip()
+        for x in ((_read_intent_profile(task_id) or {}).get("dimensions") or [])
+        if isinstance(x, dict) and str(x.get("user_term") or "").strip()
+    ]
+    modules = [{
+        "module": dimensions[0] if dimensions else "来源结构借鉴",
+        "dimension": dimensions[0] if dimensions else "",
+        "borrow_level": level,
+        "borrowed_from": {"page_id": source, "ref": preferred},
+        "adaptation": "保留可借鉴结构或渲染模式，替换为当前用户范围与数据合同",
+    }]
+    modules.extend({
+        "module": dimension, "dimension": dimension, "borrow_level": "original",
+        "analysis_role": "目标页业务维度",
+        "rationale": "来源模板未直接覆盖该维度，按当前用户请求原创实现",
+    } for dimension in dimensions[1:])
+    return {"modules": modules}
+
+
 def cmd_research_templates(params):
     task_id = _routing_task_id(params)
     if not task_id:
@@ -6807,7 +6867,16 @@ def cmd_research_templates(params):
     raw_ids = params.get("template_ids") or params.get("page_ids") or []
     page_ids = _unique_strings([raw_ids] if isinstance(raw_ids, str) else raw_ids)
     if not page_ids:
-        return {"code": 1, "error": "RESEARCH_TEMPLATE_IDS_REQUIRED", "message": "需要 template_ids。"}
+        source_hint = str(params.get("source_template_id") or params.get("page_id") or "page_source").strip()
+        return {
+            "code": 1, "error": "RESEARCH_TEMPLATE_IDS_REQUIRED",
+            "message": "需要 template_ids。请复制 example_research_templates 后替换来源页 ID。",
+            "example_research_templates": {
+                "task_id": task_id, "template_ids": [source_hint],
+                "include": list(_RESEARCH_INCLUDE_KINDS),
+                "purpose": str(params.get("purpose") or "提取无凭证布局、样式、渲染模式与合同形状"),
+            },
+        }
     if len(page_ids) > _RESEARCH_MAX_TEMPLATES:
         return {"code": 1, "error": "RESEARCH_TEMPLATE_LIMIT_EXCEEDED", "limit": _RESEARCH_MAX_TEMPLATES}
     raw_include = params.get("include")
@@ -6841,6 +6910,12 @@ def cmd_research_templates(params):
         "templates_summary": [{
             "page_id": x["page_id"], "title": x["title"],
             "borrowable_refs": _compose_borrowable_refs(x),
+            "fork_compose_example": {
+                "task_id": task_id,
+                "source_template_id": x["page_id"],
+                "research_digest_sha256": digest["digest_sha256"],
+                "borrow_plan": _compose_borrow_plan_example(task_id, x["page_id"], x),
+            },
         } for x in templates],
     }
 
@@ -6877,7 +6952,22 @@ def cmd_fork_compose(params):
         return {"code": 1, "error": "COMPOSE_SOURCE_NOT_IN_DIGEST", "available_template_ids": sorted(entries)}
     modules = ((params.get("borrow_plan") or {}).get("modules") if isinstance(params.get("borrow_plan"), dict) else None)
     if not isinstance(modules, list) or not modules:
-        return {"code": 1, "error": "COMPOSE_BORROW_PLAN_REQUIRED", "borrowable_refs": _compose_borrowable_refs(entry)}
+        return {
+            "code": 1, "error": "COMPOSE_BORROW_PLAN_REQUIRED",
+            "message": "不要传顶层 borrowed_refs；请传 borrow_plan.modules，并覆盖 intent_profile 的每个 user_term。",
+            "required_shape": {
+                "borrow_plan": {
+                    "modules": [{
+                        "module": "string", "dimension": "intent_profile.user_term",
+                        "borrow_level": list(_COMPOSE_BORROW_LEVELS),
+                        "borrowed_from": {"page_id": source, "ref": "borrowable_refs 中的一项"},
+                        "adaptation": "string",
+                    }],
+                },
+            },
+            "example_borrow_plan": _compose_borrow_plan_example(task_id, source, entry),
+            "borrowable_refs": _compose_borrowable_refs(entry),
+        }
     borrowable, provenance, claimed, borrowed_count = set(_compose_borrowable_refs(entry)), [], set(), 0
     for module in modules:
         if not isinstance(module, dict) or str(module.get("borrow_level") or "") not in _COMPOSE_BORROW_LEVELS:
@@ -7166,7 +7256,7 @@ def _write_agent_reply_artifacts(task_id, finalized):
         "agent_reply_contract_sha256": contract_sha256,
         "reply_draft_file": draft_file,
         "reply_validation_params_file": params_file,
-        "reply_validation_command": _command_string([sys.executable, os.path.join(C.SCRIPT_DIR, "validate_agent_reply.py"), f"@{params_file}"]),
+        "reply_validation_command": _command_string(["python", "scripts/validate_agent_reply.py", f"@{Path(params_file).as_posix()}"]),
         "reply_validation_env": validation_env,
     }
 

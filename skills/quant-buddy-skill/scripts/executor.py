@@ -89,12 +89,22 @@ def _trace_headers(params=None, *, api_key=None, accept=None, content_type=None)
     return headers
 
 # ── Windows 下强制 stdout/stderr 使用 UTF-8，避免服务端返回 emoji 等字符时崩溃 ──
-# line_buffering=True：每次 print 立即 flush，避免 PowerShell 终端首次读到空输出。
-# 必须在任何 print 调用之前设置。
-if hasattr(sys.stdout, 'buffer'):
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace', line_buffering=True)
-if hasattr(sys.stderr, 'buffer'):
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace', line_buffering=True)
+# 不要用新的 TextIOWrapper 包装现有 stream.buffer：executor/common 在同一进程内依次
+# import 时，旧 wrapper 析构会关闭共享 buffer，导致 pytest 报 ``I/O operation on
+# closed file``。原地 reconfigure 不转移 buffer 所有权，也兼容 pytest 捕获流。
+def _configure_stdio_utf8():
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if not callable(reconfigure):
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
+        except (AttributeError, OSError, ValueError):
+            # StringIO、已关闭流或宿主不允许重配时保持原状；输出路径另有 replace 兜底。
+            pass
+
+
+_configure_stdio_utf8()
 
 # scripts/ 目录的上一级即 skill 包根目录，config.json 在根目录
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))

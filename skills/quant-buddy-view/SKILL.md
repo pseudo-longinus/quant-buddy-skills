@@ -2,7 +2,7 @@
 name: quant-buddy-view
 slug: quant-buddy-view
 author: guanzhao
-version: 0.6.69
+version: 0.6.70
 description: |
   QBV / quant-buddy-view（用户可能写成 /quant-buddy-view、/qbv、qbv 或 QBV）用于把量化数据做成「公开可分享、实时取数」的网页看板/落地页。
   Use this skill when the user asks to create, update, publish, verify, retrofit, or reuse a Quant Buddy dashboard/static page/template, including shareable pages, public URLs, formula packages, share shell, cover/essence cards, poster/share behavior, single-stock profile pages, valuation/financial profile pages, index-anomaly boards, multi-factor screeners, and commodity daily pages.
@@ -12,7 +12,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 0.6.69
+  version: 0.6.70
   author: guanzhao
   category: quant-finance
   tags: [quant, dashboard, formula-package, static-page, publish, visualization]
@@ -109,7 +109,30 @@ QBV_API_KEY=<本次任务的 key> python scripts/trace_context.py begin '{"user_
 
 保存返回的 `task_id`，并把它加入本次任务后续每个 `static_page.py`、`formula_package.py`、`data_grant.py` 参数。脚本会通过 `x-task-id` 请求头透传，使后台能从提问一直聚合到最终活页链接。`new_asset_page` / `templates` / `upload` / `update` / `publish_final` / `publish_verified` 缺少 Trace Context 时必须停止执行。QBV 编排中的 quant-buddy-skill 工具统一通过 `scripts/qbs_bridge.py <tool> @params.json` 调用，并显式传同一 `task_id + user_query`；bridge 会用 task-scoped session 继承 task_id，禁止生成第二个 session id。
 
+> `build_dashboard.py` 也属于上述“后续每个命令”：只要 spec 含 `upload:true` 或 `update_page_id`，必须写入同一 `task_id`。成功结果会返回 hash-bound `reply_draft_file + reply_validation_command`；公网验收后必须写草稿并运行该命令，只有 `valid:true` 才能最终回复，之后停止工具调用。
+
 **具体资产证据闸门**：除 `new_asset_page` 固定场景外，只要用户点名具体资产，就在 Trace 后、解释资产身份或提交 `routing_decision` 前，按「Trace → 资产映射 → 最小接口验证 → 页面路由」的顺序完成验证：调用 `scripts/qbs_bridge.py resolve_asset_data` 得到平台 ticker 映射，并按页面实际需要探测所需数据角色是否可取数，只记录接口成功/失败、可用字段和结构化错误。页面结构与 direct/fork/unmatched 判断只依据"用户所需能力 × 已验证的平台能力"，不得依据 Agent 对公司上市状态、所有权、资产名称或市场惯例的记忆。验证前不得引入"上市/未上市、公开/私营、代理资产、无行情、只能静态"等限制性前提；若用户没有询问这些身份属性，也不要把它们扩展成分析主线。
+
+`resolve_asset_data` 的输入合同必须直接按下面形状写入新的 `output/*.json`，不要先猜 schema、不要把多只资产拼成一个 `asset` 字符串，也不要为每只资产各写一份参数文件：
+
+```json
+{
+  "task_id": "<同一 task_id>",
+  "user_query": "<当前用户原问题>",
+  "assets": ["贵州茅台", "五粮液", "泸州老窖"],
+  "required_roles": {
+    "snapshot": ["close", "pct_chg", "pe_ttm", "pb", "market_cap"]
+  },
+  "optional_fields": ["turnover_rate"]
+}
+```
+
+- 单资产用 `"asset":"贵州茅台"`；多资产用 `"assets":[...]`，二者不能并存。多资产由 bridge 在**一次 CLI 调用**内逐资产验证并聚合收据。
+- `required_roles` 只需写实际需要的 role；省略的 `profile/snapshot/report/formula` 自动视为空数组。每个 role 的规范值是字符串数组，也兼容 `{"fields":[...]}`。
+- 多资产探测阶段的 `formula` 必须留空或省略；跨资产公共公式只在探测后用 `validate_package_set` 验证一次，禁止每个资产重复验证/注册同一公式包。
+- **`output/` 是跨会话残留的 scratch，不是示例库**：禁止 Grep/Read 旧 `output/*.json` 来拼本次参数，尤其禁止复制其中旧 `task_id`、旧凭证、旧公式或损坏 JSON；参数形状只从当前 `SKILL.md` / `tools/*.md` / `workflows/*.md` 获取。
+- 含双引号的公式必须写成合法 JSON 转义；优先使用无嵌套引号的等价公式（如 `mt_close = 收盘价(贵州茅台)`）。写入后直接执行对应 CLI，让 JSON parser 作为反馈，不要读取旧 scratch 文件“找范例”。
+- 多资产累计收益/回撤优先走标准看板：同一组价格 `outputs` 分别配置 `transform:"cumulative_return_pct"` 与 `transform:"drawdown_pct"`，估值另用 Data Grant table。此能力已由 `build_dashboard` 内置，禁止为它 Grep/Read `assets/data-kernel.js` 或手写 bespoke SSE/Grant runtime；详见 `workflows/dashboard-end-to-end.md` 的最短路径。
 
 
 ### 已有 URL 修改按写权限原位更新或 Fork
@@ -118,7 +141,7 @@ QBV_API_KEY=<本次任务的 key> python scripts/trace_context.py begin '{"user_
 
 用户要求修改已有 QuantBuddy URL 时，先 `trace_context.py begin`，再带同一 `task_id` 调用 `static_page.py interpret`。必须按返回的 `existing_page_route.mode` 分流，不能把所有已有页一律判成 Fork：
 
-- `mode="in_place"`：调用者是 owner/page admin，或旧版详情合同返回 `resource_role="existing_page"`、由 `updateStaticPage` 在写入时做最终权限校验。保持原 `page_id`、公开 URL、包/Grant、Share Shell 与运行时身份，使用 `static_page.py update`（以及需要时的 `update_progress` / `publish_verified`）写回原页。禁止 `new_page`、`new_asset_page`、`upload` 创建替代链接，也不需要再次查询 `templates`。若服务端返回 `FORBIDDEN`，停止写入并转入下述 Fork 路径，不得伪造 `is_page_admin`。
+- `mode="in_place"`：调用者是 owner/page admin，或旧版详情合同返回 `resource_role="existing_page"`、由 `updateStaticPage` 在写入时做最终权限校验。保持原 `page_id`、公开 URL、包/Grant、Share Shell 与运行时身份，使用 `static_page.py update`（以及需要时的 `update_progress` / `publish_verified`）写回原页。禁止 `new_page`、`new_asset_page`、`upload` 创建替代链接，也不需要再次查询 `templates`。若 `chart_edit.py` 返回 `LEGACY_PAGE / NO_RENDER_JS_MARKER`，而用户已明确要求修改本人页面并保持原链接，则必要的技术性结构升级已获授权：立即按 `workflows/edit-existing-chart.md` 的 legacy fallback 下载、最小重建、浏览器预检并 `update` 同一页，不得二次询问是否升级，也不得停在本地 HTML。只有缺失信息会改变业务语义时才询问。若服务端返回 `FORBIDDEN`，停止写入并转入下述 Fork 路径，不得伪造 `is_page_admin`。
 - `mode="fork"`：当前详情明确 `can_update_in_place=false`，或该页是不可直接写入的 `source_template`。依次执行 `templates(recommend="all") → new_page(mode=fork, source_template_id=<interpret 返回>) → fork_prepare`；templates 只补齐范式池凭据，不能覆盖 interpret 已绑定的来源。
 
 可信权限字段由服务端 `getPageDetail` 返回：`can_update_in_place` 与 `access_role=owner|page_admin|reader`。客户端不得相信调用参数里自报的 `is_page_admin`；旧服务端尚未返回 capability 时，只允许尝试写回 interpret 绑定的同一个 `page_id`，并以 `updateStaticPage` 的 owner/page-admin 鉴权结果为准。
@@ -169,8 +192,8 @@ python scripts/static_page.py new_asset_page '{"task_id":"task_xxx","asset":"贵
   - `fork_prepare` 是一次性 task 绑定：重复执行返回 `FORK_ALREADY_BOUND`；确需整体重建必须传 `force_rebuild:true + rebuild_reason`，同 task 禁止换来源模板。
   - `fork_prepare 返回 publish_command 后` 即进入发布收敛阶段：只填写返回的 review 文件并执行该命令，禁止读取 `scripts/*.py`、运行 `--help` 或探索 `publish_workflow.py` / `fork_runtime_contract.py` 实现；命令失败只按结构化错误修正输入。已创建首链时必须完成 terminal 或明确失败收口，不得让进度页长期停留在 running。
   - `inherit_augment` 向 `fork_prepare` 传 `augmentation_spec`，新增 package/grant 角色与来源角色物理隔离。新增公式必须通过 QBS 验证，marker 必须恰好出现一次且输出必须被实际渲染。
-  - `compose` 先运行 `intent_profile` 做 user_term/platform_dimensions/method_terms 三层映射，再用 `research_templates` 提取 credential-free 的栏目 HTML、CSS、渲染函数及合同形状，最后 `fork_compose` 提交借鉴清单。收据及 SHA256 绑定后才允许发布；全部 original 的零借鉴 Compose 被拒绝。
-  - **资产替换的职责分工**：Agent 说清楚"换成哪只标的"，脚本负责"这只标的在页面里写成什么样"。来源主资产由脚本从模板公式词频 + 标题推导，代码的实际写法（`SH600900` / `600900.SH` / 裸 `600900`）由脚本扫描来源 HTML 得出，只替换真实存在的写法——不要去猜来源 HTML 里代码写成什么样，你看不到那个文件。多资产/指数类范式推不出主资产时返回 `FORK_SOURCE_ASSET_AMBIGUOUS`（报错自带候选名与可照抄的调用），用 `source_asset` 显式指明后重试。`asset_replacements` 仅作可选覆盖。替换后主资产若仍有残留，在写出工作 HTML 前就返回 `FORK_SOURCE_ASSET_RESIDUAL`，不会等到发布后才发现。
+  - `compose` 先运行 `intent_profile` 做 user_term/platform_dimensions/method_terms 三层映射，再用 `research_templates` 提取 credential-free 的栏目 HTML、CSS、渲染函数及合同形状，最后 `fork_compose` 提交借鉴清单。收据及 SHA256 绑定后才允许发布；全部 original 的零借鉴 Compose 被拒绝。 `fork_compose` 必须传 `borrow_plan.modules`（不是顶层 `borrowed_refs`），并逐项认领 intent profile 的每个 `user_term`；优先复制 `research_templates.templates_summary[].fork_compose_example` 后修改，遇到 `COMPOSE_BORROW_PLAN_REQUIRED` 必须按返回示例重试，不得停在 running 进度页。
+  - Compose 参数必须一次写完整：`intent_profile` 至少传 `{"task_id":"task_xxx","asset_scope":{"kind":"sector","name":"目标资产组","market":"A股"},"dimensions":[{"user_term":"实时行情","platform_dimensions":["close","pct_chg"],"method_terms":["横向比较"]}]}`；`research_templates` 传 `{"task_id":"task_xxx","template_ids":["page_source"]}`。任一结构化错误若返回 `example_intent_profile`、`example_research_templates` 或 `fork_compose_example`，必须直接复制该完整示例后修改并重试，不能逐字段猜测。  - **资产替换的职责分工**：Agent 说清楚"换成哪只标的"，脚本负责"这只标的在页面里写成什么样"。来源主资产由脚本从模板公式词频 + 标题推导，代码的实际写法（`SH600900` / `600900.SH` / 裸 `600900`）由脚本扫描来源 HTML 得出，只替换真实存在的写法——不要去猜来源 HTML 里代码写成什么样，你看不到那个文件。多资产/指数类范式推不出主资产时返回 `FORK_SOURCE_ASSET_AMBIGUOUS`（报错自带候选名与可照抄的调用），用 `source_asset` 显式指明后重试。`asset_replacements` 仅作可选覆盖。替换后主资产若仍有残留，在写出工作 HTML 前就返回 `FORK_SOURCE_ASSET_RESIDUAL`，不会等到发布后才发现。
   - Agent只在 `fork_prepare` 生成的 `review_update_params_file.decisions` 中填写 `required_decisions` 声明的业务决策：规则性同业矩阵填 `target_slots`，复杂跨资产公式填 `target_formulas`，标签替换填 `page_label_replacements`。`decisions` 已按角色预生成嵌套占位骨架（`{"roles":{"<role_id>":{...}}}`），只需要在骨架里补全空值，不要新增/改写顶层字段，也不要把 `required_decisions` 里的扁平 `decision_id`（如 `roles.package.package_001.target_formulas`）当成提交用的 key。禁止直接编辑标准 fork HTML/review。
   - Grant按来源角色完整继承 `kind/query_type/fields/dimensions/window_days/result_mode` 与 CSV/inline 合同，只允许自动修改 manifest 声明的资产范围字段；其他变化必须填写 `contract_change_reason`。
   - 继承 Grant 的数据级失败可降级并继续发布存活角色；鉴权/配额/协议等系统级失败仍阻断。若页面仍用 `queryDataGrant` 无条件消费失败 Grant，返回 `GRANT_DEGRADATION_UNSAFE`，不得用空凭证假降级。
@@ -332,6 +355,7 @@ npx skills update pseudo-longinus/quant-buddy-skills -y
 | `scripts/data_grant.py` | `register` / `query` / `list` / `revoke` / `refresh` | 数据授权：把一次 fastQuery/stockProfile/selectByComposition 请求钉死成 `grant_id`+`signature`，页面免 key 直取有界数据（取舍见「数据授权 vs 公式包」） | [tools/data_grant.md](tools/data_grant.md) |
 | `scripts/build_dashboard.py` | （单命令，`emit:"panel_block"` 走局部产出） | spec → live 实时取数看板 HTML；局部产出模式只生成带 marker 的图表 `<script>` 片段，供 bespoke 页面内嵌图表用 | [tools/build_dashboard.md](tools/build_dashboard.md) |
 | `scripts/stock_comparison.py` | `apply @params.json` | 为 `stock_analysis_instance_v1` 原生收盘价图并入基准序列、双 Y 轴和数据表；保持 `#priceChart` 单一 owner，拒绝用通用 panel 二次接管 | [tools/stock_comparison.md](tools/stock_comparison.md) |
+| `scripts/stock_window.py` | `apply @params.json` | 为 legacy `stock_analysis_instance_v1` 设置滚动展示窗口；生成受控 HTML 后必须浏览器预检并 update 原 `page_id` | [tools/stock_window.md](tools/stock_window.md) |
 | `scripts/chart_edit.py` | `inspect` / `add_series`（支持 `axis:"right"` 双轴）/ `remove_series` / `set_window` / `query_data` | 已发布页面单个图表的增删改查：只动被要求的那一处，不重新验证/计算页面上其它无关系列 | [tools/chart_edit.md](tools/chart_edit.md) |
 | `scripts/compile_bespoke_page.py` | （单命令） | **【shell 处理脚本】** bespoke 主体 HTML → 内联公共 share shell / logo / qr-mini / data-kernel 的自包含 HTML | [guides/share-shell.md](guides/share-shell.md) |
 | `scripts/retrofit_share_shell.py` | （单命令） | **【shell 处理脚本】** 旧 HTML/已发布页面 → 删除旧二维码/旧页头/旧页尾，套入公共 share shell（`assets/share-shell/`），可原链接 update | [tools/retrofit_share_shell.md](tools/retrofit_share_shell.md) |
@@ -350,6 +374,7 @@ npx skills update pseudo-longinus/quant-buddy-skills -y
 
 > **三条生产路**：固定页面先复用在线模板；标准看板走 `build_dashboard`（声明式快路）；要自定义版式/SVG 的设计页才写 bespoke 主体 HTML。
 > **stock 原生图表 owner 门禁**：`stock_analysis_instance_v1` 的 `#priceChart` 始终由页面原生 runtime 持有；禁止用 `build_dashboard.py emit="panel_block"` 注入第二个 renderer。增加沪深300等基准线时必须使用 `scripts/stock_comparison.py` 扩展原生 load/render/table 生命周期。
+> **stock legacy 时间窗口门禁**：`stock_analysis_instance_v1` 缺少 `QBV_RENDER_JS` marker 时，改窗口必须使用 `scripts/stock_window.py apply`，不要生成或执行 `output/*.py` 临时补丁。转换后必须本地浏览器预检、`static_page.py update` 同一页并做公网验收。
 > 数据层统一调 `assets/data-kernel.js`（`QB.query` 取数、`QB.series/lastValue/topValues` 解包清洗），别再每页各抄 `fetch`/解包、各踩"假 0/缺口"的坑。见 [guides/bespoke-page.md](guides/bespoke-page.md)。
 > 发布前用 `scripts/verify_page.mjs <html_file> --require-browser` 检查桌面与 390px/320px 移动端，确保无 `QB_SHARED_` / `replace_with_signature` / `pkg_replace` 残留、存在 `<h1>`、无关键横向溢出和核心取数脚本错误。页面声明 `stock_analysis_instance_v1` 且在 `data_sources.benchmark_series` 或 `comparison.benchmark_series` 配置基准时，脚本还会在 runtime pending 归零后等待稳定窗口，并强制检查最终 canvas、个股/基准两条有效图表序列、共同交易日、基准右侧 Y 轴、双 Y 轴和数据表列；同时静态拒绝原生 runtime 与 panel_block 共同接管 `#priceChart`。不能只因 runtime ready 或首帧短暂出现就视为对比页已交付。含范式卡 artifact 的页面加 `--card-runtime`（或 `--card-runtime-only`）验收 artifact/manifest/独立 hydrate。Playwright 不在默认 Node 搜索路径时，可用 `QBV_PLAYWRIGHT_MODULE_ROOT` 指向包含 `playwright/` 的 `node_modules` 根目录；可用 `CHROME_PATH` 指定浏览器可执行文件，未指定时自动发现 Chrome/Edge。若机器没有 Playwright/Chrome/Edge，脚本会明确标记为 `static-only`，不能当完整浏览器验收。
 

@@ -9,6 +9,20 @@
 
 ---
 
+## [0.6.70] — 2026-09-07
+
+### 多资产看板、终态回复与 legacy 同页更新收敛
+
+- 加固多资产 standalone 编排：`resolve_asset_data` 支持一次传 `assets` 并逐资产聚合收据，省略的 role/optional 字段安全默认为空；Skill 明确禁止把资产名拼接成单资产、禁止复用跨会话 `output/` scratch，并给出合法 JSON 的最短路径。
+- 修复 `build_dashboard` 构建期体检只识别单个 `output`、把合法多序列 `outputs` 面板误报为 `output:null / 取数结果缺该产出`；公式来源识别、逐产出体检和 manifest 现统一覆盖复数产出。
+- 标准 `line/bar` 面板新增 `cumulative_return_pct` / `drawdown_pct` 展示层变换，多资产收益与回撤可复用同一组实时价格序列直接生成，无需读取运行时源码或手写 bespoke 页面。
+- 修复 `live_card.dashboard_config()` 只读前三个 panel 且只识别单数 `output`，导致多序列标准看板生成空 `required_outputs`；Card Runtime 现跳过无输出和 Data Grant 面板，展开并去重前三个 Formula Package 产出。
+- `build_dashboard` 的 upload/update 成功后，在 spec 携带当前 `task_id` 且发布结果为 terminal contract 时，现与 direct 路径一致返回 hash-bound contract、回复草稿和 validator 命令；工作流明确要求公网验收后执行 validator，`valid:true` 才能交付。
+- 明确本人 legacy 页面原位修改的授权与闭环：用户已要求修改并保持原链接时，`LEGACY_PAGE / NO_RENDER_JS_MARKER` 只触发下载、最小重建、浏览器预检、同 `page_id` 更新和公网验收，不得再询问是否允许技术性结构升级，也不得停在本地补丁。
+- 新增受控 `stock_window.py` 转换器，覆盖 legacy `stock_analysis_instance_v1` 的滚动时间窗口，避免回归 Agent 因宿主禁止执行 `output/*.py` 临时脚本而再次停住。
+
+---
+
 ## [0.6.69] — 2026-09-05
 
 ### 来源凭证引用与运行凭证分层校验

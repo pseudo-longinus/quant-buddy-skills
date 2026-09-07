@@ -960,18 +960,25 @@ def _formula_output_names(formulas):
     return names
 
 
-def _resolve_asset_data(call_script, params, env):
+def _resolve_single_asset_data(call_script, params, env):
     task_id = str(params.get("task_id") or "").strip()
     user_query = str(params.get("user_query") or "").strip()
     asset = str(params.get("asset") or "").strip()
-    required = params.get("required_roles") if isinstance(params.get("required_roles"), dict) else {}
+    required = params.get("required_roles")
+    if not isinstance(required, dict):
+        return {"code": 1, "error": "INVALID_REQUIRED_ROLES", "message": "required_roles 必须是对象"}
     required_by_role = {}
     for role in ("profile", "snapshot", "report", "formula"):
-        values = required.get(role)
+        values = required.get(role, [])
+        # Accept the common {"fields": [...]} spelling while keeping the
+        # canonical internal representation as a string array. Extra routing
+        # hints such as window_days are intentionally ignored here.
+        if isinstance(values, dict):
+            values = values.get("fields", [])
         if not isinstance(values, list) or not all(isinstance(value, str) and value.strip() for value in values):
-            return {"code": 1, "error": "INVALID_REQUIRED_ROLES", "message": f"required_roles.{role} 必须是字符串数组"}
+            return {"code": 1, "error": "INVALID_REQUIRED_ROLES", "message": f"required_roles.{role} 必须是字符串数组，或包含 fields 字符串数组的对象"}
         required_by_role[role] = [value.strip() for value in values]
-    optional_fields = params.get("optional_fields")
+    optional_fields = params.get("optional_fields", [])
     if not isinstance(optional_fields, list) or not all(isinstance(value, str) and value.strip() for value in optional_fields):
         return {"code": 1, "error": "INVALID_OPTIONAL_FIELDS", "message": "optional_fields 必须是字符串数组"}
     optional_fields = [value.strip() for value in optional_fields]
@@ -1115,6 +1122,111 @@ def _resolve_asset_data(call_script, params, env):
         "status": status,
         "task_id": task_id,
         "asset": asset,
+        "attempts": attempts,
+        "grants": grants,
+        "formula_packages": formula_packages,
+        "warnings": warnings,
+        "route_receipt_file": receipt_file,
+        "required_roles_complete": complete,
+        "static_fallback_allowed": status == "static_fallback_allowed",
+    }
+
+
+def _resolve_asset_data(call_script, params, env):
+    """Resolve one asset or fan out an explicit multi-asset request.
+
+    `asset` remains the backwards-compatible single-asset contract. `assets`
+    prevents agents from concatenating several names into one fake asset and
+    lets a multi-asset dashboard complete the evidence gate in one CLI turn.
+    Formula validation stays a separate package-level operation because the
+    same formula batch must not be registered once per asset.
+    """
+    raw_assets = params.get("assets")
+    if raw_assets is None:
+        return _resolve_single_asset_data(call_script, params, env)
+    if str(params.get("asset") or "").strip():
+        return {
+            "code": 1,
+            "error": "RESOLVE_ASSET_AMBIGUOUS",
+            "message": "asset 与 assets 不能同时传；单资产用 asset，多资产用 assets",
+        }
+    if (
+        not isinstance(raw_assets, list)
+        or not raw_assets
+        or not all(isinstance(item, str) and item.strip() for item in raw_assets)
+    ):
+        return {"code": 1, "error": "INVALID_ASSETS", "message": "assets 必须是非空字符串数组"}
+    assets = list(dict.fromkeys(item.strip() for item in raw_assets))
+    required = params.get("required_roles")
+    formulas = required.get("formula", []) if isinstance(required, dict) else []
+    if isinstance(formulas, dict):
+        formulas = formulas.get("fields", [])
+    if formulas:
+        return {
+            "code": 1,
+            "error": "MULTI_ASSET_FORMULA_NOT_SUPPORTED",
+            "message": "多资产探测只验证 profile/snapshot/report；公共公式批次请随后调用 validate_package_set 一次",
+        }
+
+    asset_results = []
+    attempts = []
+    grants = []
+    formula_packages = []
+    warnings = []
+    for index, asset in enumerate(assets, start=1):
+        child_params = dict(params)
+        child_params.pop("assets", None)
+        child_params["asset"] = asset
+        child = _resolve_single_asset_data(call_script, child_params, env)
+        asset_results.append(child)
+        for item in child.get("attempts") or []:
+            attempts.append({"asset": asset, **item})
+        for item in child.get("warnings") or []:
+            warnings.append({"asset": asset, **item})
+        for item in child.get("grants") or []:
+            base_name = str(item.get("name") or item.get("role") or "grant")
+            grants.append({**item, "name": f"{base_name}_{index}", "asset": asset})
+        for item in child.get("formula_packages") or []:
+            formula_packages.append({**item, "asset": asset})
+
+    statuses = [str(item.get("status") or "") for item in asset_results]
+    if statuses and all(status == "live" for status in statuses):
+        status = "live"
+    elif statuses and all(status == "static_fallback_allowed" for status in statuses):
+        status = "static_fallback_allowed"
+    elif any(status == "blocked" for status in statuses):
+        status = "blocked"
+    else:
+        status = "incomplete"
+    complete = bool(asset_results) and all(item.get("required_roles_complete") is True for item in asset_results)
+    receipt_payload = {
+        "schema": "live_data_route_receipt_v1",
+        "version": "live_data_route_receipt_v1",
+        "task_id": str(params.get("task_id") or "").strip(),
+        "assets": assets,
+        "status": status,
+        "asset_results": [
+            {
+                "asset": asset,
+                "status": item.get("status"),
+                "required_roles_complete": bool(item.get("required_roles_complete")),
+                "route_receipt_file": item.get("route_receipt_file"),
+            }
+            for asset, item in zip(assets, asset_results)
+        ],
+        "required_roles_complete": complete,
+        "static_fallback_allowed": status == "static_fallback_allowed",
+        "warnings": warnings,
+        "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+    }
+    receipt_file = _write_live_data_route_receipt(receipt_payload)
+    return {
+        "code": 0 if status in ("live", "static_fallback_allowed") else 1,
+        "success": status == "live",
+        "status": status,
+        "task_id": receipt_payload["task_id"],
+        "assets": assets,
+        "asset_results": asset_results,
         "attempts": attempts,
         "grants": grants,
         "formula_packages": formula_packages,

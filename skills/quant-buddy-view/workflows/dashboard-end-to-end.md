@@ -10,6 +10,40 @@
 
 先按数据性质选择实时取数通道：普通行情、估值、财务等平台直取数据优先 Data Grant；需要计算、自定义指标或公式口径时使用 Formula Package。两类凭证可以同页混用，分别验证、注册和取数；不要为了让页面成为实时页，把普通直取数据强行改写成公式。下面步骤以 Formula Package 示例为主，Data Grant 的验证与注册见 [../tools/data_grant.md](../tools/data_grant.md)。
 
+### 多资产收益 + 估值 + 回撤的最短路径
+
+这类请求不要逐资产建 3 份探测文件，也不要从旧 `output/` 找参数。固定顺序如下：
+
+1. 一份 `assets:[...]` 参数调用一次 `qbs_bridge.py resolve_asset_data`，只探测平台直取的行情/估值字段；
+2. `templates` 一次并确定 direct/fork/unmatched；fork/unmatched 立即 `new_page` 绑定首链；
+3. 普通行情/估值注册一个覆盖全部资产的 `fast_query` Data Grant；
+4. 收益/回撤页面只需注册一组跨资产原始价格 Formula Package，`validate_package_set` / register 各一次；标准看板用同一组 `outputs` 的 `transform:"cumulative_return_pct"` 与 `transform:"drawdown_pct"` 生成两张图，不要读取 `assets/data-kernel.js`，也不要手写 bespoke SSE/Grant 运行时；
+5. 一份 spec 同时放累计收益图、回撤图和估值 Data Grant 表，直接运行一次 `build_dashboard.py @spec.json` 写回第 2 步的同一 `page_id`；成功后只做本地浏览器验收、公网验收和终态回复校验。
+
+公式参数必须是合法 JSON。不要写会破坏 JSON 的裸内嵌引号；例如优先使用：
+
+```json
+{
+  "formulas": [
+    "mt_close = 收盘价(贵州茅台)",
+    "wly_close = 收盘价(五粮液)",
+    "lzlj_close = 收盘价(泸州老窖)"
+  ]
+}
+```
+
+标准看板面板直接写：
+
+```json
+[
+  {"title":"累计收益（%）","type":"line","outputs":["mt_close","wly_close","lzlj_close"],"transform":"cumulative_return_pct","span":"full"},
+  {"title":"历史回撤（%）","type":"line","outputs":["mt_close","wly_close","lzlj_close"],"transform":"drawdown_pct","span":"full"},
+  {"title":"最新行情与估值","type":"table","grant_id":"dg_xxx","span":"full"}
+]
+```
+
+如果某个可选画像 role 不完整，但本页必需的行情/估值与公式角色已验证成功，应删除非必需 role 后继续；禁止围绕可选画像重复探测直至耗尽工具轮次。`build_dashboard` 已支持上述场景时，禁止再 Grep/Read `scripts/build_dashboard.py`、`assets/data-kernel.js` 或 `tools/static_page.md` 猜实现；直接按命令返回的 `code` / `next_step` 继续。
+
 > 本技能不维护会话 / task_id：register 与发布都凭 `config.json` 的 api_key 认身份，直接开干。
 > 调用 `runMultiFormulaBatchStream` 做验证时，`user_query` 要写当前用户的真实请求和当前资产；复制旧示例时不要留下旧股票名、旧测试说明或旧 `task_id`。
 
@@ -81,6 +115,8 @@ python scripts/static_page.py upload '{"html_file":"output/pages/沪深300监控
   用 `build_dashboard.py`（`emit=panel_block`）把这张图重新生成成局部嵌入的声明式图表块，替换掉原来
   手写的那部分，之后就能用 `chart_edit.py` 定点编辑，见 [guides/bespoke-page.md](../guides/bespoke-page.md)
   「图表类可视化」一节。仪表盘/水位条这类非图表指标组件不受影响。
+- **本人 legacy 页面要求修改并保留原链接**：用户对“修改本人页面 + 保持原链接”的明确要求，已经授权完成该修改所必需的技术性结构升级；不得因 `NO_RENDER_JS_MARKER`、旧版 bespoke 结构或定点编辑工具返回 `LEGACY_PAGE` 再向用户确认。固定闭环是：下载原页 → 在本地做最小语义重建/Marker 化（保留未要求改动的正文和运行身份）→ `verify_page.mjs --require-browser` → `static_page.py update` 写回同一 `page_id` → 公网浏览器验收 → 若返回终态合同则写草稿并运行 validator。只有缺少会影响业务语义的原始公式/目标定义时才询问；技术实现选择不询问。**不得只生成本地 HTML，也不得把 legacy 错误直接回复给用户。**
+  - `stock_analysis_instance_v1` 的时间窗口不要手写临时补丁：下载原页后运行 `scripts/stock_window.py apply`，再按其返回的 `html_file` 继续本地验收和同页 `update`。
 - **页面已分享、想改内容但保留原链接**（最常见）：重跑第 2 步生成新 HTML，再用 `update` 替换同一个 `page_id`——URL 不变，访问者刷新即见新内容，也不占新的活跃页配额：
   ```bash
   python scripts/static_page.py update '{"page_id":"page_xxx","html_file":"output/pages/沪深300监控-xxxx.html"}'
@@ -95,3 +131,6 @@ python scripts/static_page.py upload '{"html_file":"output/pages/沪深300监控
   - 「数据更新想刷新页面」见上一条：页面 live 取数自动拿最新，**无需 refresh、更无需轮换**。
 
 > 实时页可使用两条通道：Formula Package 内嵌 `package_id + signature` 并调用 `queryFormulaPackage`，Data Grant 内嵌 `grant_id + signature` 并调用 `queryDataGrant`。两类凭证可同页混用、彼此独立取数；任一通道都能让页面保持实时。前置：端点对页面域名放开 CORS、协议与页面一致、且接受 signature 公开在 HTML 里——当前 `https://www.quantbuddy.cn/skill` 均满足。
+## 终态回复门禁
+
+标准看板使用 `build_dashboard.py` 一步 upload/update 时，spec 必须携带当前 `task_id`。发布成功后不得只读取内联 `agent_reply_contract` 就直接回复：必须使用脚本顶层返回的 `reply_draft_file` 和 `reply_validation_command`，先写入最终 Markdown 草稿，再执行 hash-bound validator。公网浏览器验收和 `valid:true` 缺一不可；validator 通过后停止工具调用并发送草稿。

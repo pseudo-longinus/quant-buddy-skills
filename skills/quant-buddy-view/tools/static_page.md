@@ -183,6 +183,25 @@ python scripts/static_page.py verify_card_runtime '{"page_ids":["page_xxx","page
 | `steps` | `new_page` / `update_progress` | ❌ | 步骤数组；每项含 `id`、`title`、`status`、可选 `message`。默认不必传，脚本会按 `current_step` 自动推导状态 |
 | `change_note` | `update_progress` | ❌ | 页面历史版本的一句话修改描述；不传时自动生成，显式传入时原样优先，最长 200 字 |
 
+### Compose fork 参数速查（`intent_profile → research_templates → fork_compose`）
+
+当 fork 来源页的运行合同无法直接继承、但仍可借布局/样式/渲染模式时，必须按以下三步执行。**不要**把 `borrowed_refs` 直接放在 `fork_compose` 顶层；脚本只接受 `borrow_plan.modules`。
+
+1. `intent_profile`：`asset_scope.kind` 必须是 `single_asset|sector|index|market`；`sector/index` 还必须有 `name`。`dimensions` 非空，且每项必须同时包含 `user_term`、非空 `platform_dimensions[]`、非空 `method_terms[]`。
+
+```json
+{"task_id":"task_xxx","page_type":"多资产对比","asset_scope":{"kind":"sector","name":"A股白酒龙头","market":"A股"},"dimensions":[{"user_term":"实时行情","platform_dimensions":["price","change_pct"],"method_terms":["横向对比"]},{"user_term":"估值","platform_dimensions":["pe_ttm","pb"],"method_terms":["估值比较"]},{"user_term":"市值","platform_dimensions":["market_cap"],"method_terms":["规模比较"]}]}
+```
+
+2. `research_templates`：传 `template_ids:[source_template_id]`。成功响应的每个 `templates_summary[]` 都会返回可直接改写的 `fork_compose_example`；保留响应中的 `research_digest_sha256`。
+
+3. `fork_compose`：从 `fork_compose_example` 开始修改。每个 `intent_profile.dimensions[].user_term` 都必须被一个 module 的 `dimension` 精确认领；至少一个 module 必须真实借鉴来源。借鉴模块使用 `borrowed_from:{page_id,ref}`，其中 `ref` 必须来自 `borrowable_refs`；原创模块必须用 `borrow_level:"original"` 并填写 `analysis_role` 与 `rationale`。
+
+```json
+{"task_id":"task_xxx","source_template_id":"page_source","research_digest_sha256":"<research_templates 返回值>","borrow_plan":{"modules":[{"module":"实时行情","dimension":"实时行情","borrow_level":"layout+style","borrowed_from":{"page_id":"page_source","ref":"section:essenceSection"},"adaptation":"沿用卡片结构，替换为目标股票实时行情"},{"module":"估值","dimension":"估值","borrow_level":"original","analysis_role":"估值对比","rationale":"来源未覆盖目标股票估值合同，原创实现"},{"module":"市值","dimension":"市值","borrow_level":"original","analysis_role":"规模对比","rationale":"来源未覆盖目标股票市值合同，原创实现"}]}}
+```
+
+收到 `COMPOSE_BORROW_PLAN_REQUIRED` 时，应直接使用响应里的 `example_borrow_plan` 修正后重试，不得停下询问用户，也不得把 running 进度页当成最终交付。
 `publish_final` 接收普通 `update` 的参数，并额外支持：
 
 | 字段 | 必填 | 说明 |

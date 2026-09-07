@@ -19,8 +19,17 @@ python scripts/chart_edit.py inspect '{"page_id":"page_xxx"}'
 - 返回 `FORBIDDEN`（不是自己的页面）→ 按 `new-session-paradigm-routing.md` 的规则转 ② fork 新建自己的
   链接，不要在这条路径上纠结；fork 完成后拿到新 `page_id` 再回到本流程第 1 步。
 - 返回 `"legacy": true`（页面是本次改动之前生成的老页面，运行时不支持定点编辑）→ 落回
-  `dashboard-end-to-end.md` 第 4 节整页重建；这类页面因为没有留存公式文本，可能需要向用户确认原始
-  公式意图（或直接复用 quant-buddy-skill 里能查到的既有校验记录）。
+  `dashboard-end-to-end.md` 第 4 节的 legacy 同页升级流程。**如果这是本人可写页面，且用户已经明确要求
+  修改并保持原 `page_id` / 公开链接，那么必要的技术性结构升级已包含在本次授权内，不得再询问“是否允许
+  升级页面结构”**。legacy/缺 Marker 是实现细节，不是需要二次确认的产品范围变化。
+  - 能从已下载 HTML 确定目标语义时，优先做最小重建/转换并保留原页面未要求改动的正文、运行凭证、
+    Data Grant、Card Runtime 与 Share Shell；不要因为没有留存公式文本就默认停住。
+  - 若页面含 `data-qbv-stock-instance` 且版本为 `stock_analysis_instance_v1`，改时间窗口固定使用受控的 `scripts/stock_window.py apply @params.json`（见 [tools/stock_window.md](../tools/stock_window.md)）；禁止生成或执行 `output/*.py` 临时补丁。
+  - 只有原始公式/目标面板含义确实无法从页面、运行合同或本轮上下文判断，继续写入会改变用户业务语义时，
+    才向用户确认缺失的业务信息。
+  - 生成新 HTML 不是完成态：必须先本地 `verify_page.mjs --require-browser`，再执行
+    `static_page.py update` 写回**同一个** `page_id`，随后做公网浏览器验收和终态回复校验；不得停在本地
+    补丁或把 `LEGACY_PAGE / NO_RENDER_JS_MARKER` 当作最终答复。
 - 否则拿到结构化结果：`panels`（每个面板的 title/type/output(s)）+ `packages`（每个公式包的
   package_id/formulas/reads/`formulas_known`）。用这个结果定位目标面板与它当前依赖哪些 output，
   不要再临时 `grep`/`sed` 页面源码猜结构。

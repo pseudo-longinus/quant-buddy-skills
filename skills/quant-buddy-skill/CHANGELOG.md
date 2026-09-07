@@ -9,6 +9,16 @@
 
 ---
 
+## [4.25.34] — 2026-09-07
+
+### K 线活页交接、公式链约束与运行时稳定性
+
+- K 线 PNG 完成后统一通过 `prepare-validated-page` 原子生成计算胶囊、QBV handoff 与 Job，避免重复 handoff/prepare；宿主无法委派时将 Job 收敛为 `DELEGATION_UNAVAILABLE`，不再遗留 queued 状态。
+- 已构建的完整 handoff 可由 `handoff` / `prepare` 命令直接重新校验，避免把 handoff JSON 误当构造参数后暴露 Python 参数错误。
+- 均线回测示例明确只允许平台公式链计算，并要求多公式调用显式声明 `force_reusable_array`，禁止退化为 CSV 加临时 Python/Bash。
+- Windows UTF-8 输出改为原地 `reconfigure()`，不再替换或关闭 pytest/宿主共享的 stdout、stderr；同时隔离 QBS/QBV 同名测试模块并限制测试发现目录。
+- 更新回归运行器的受控 QBV 脚本、终态回复草稿/校验器和临时文件白名单，补充路由、委派降级、stdio 与 trace audit 回归。
+
 ## [4.25.33] — 2026-09-04
 
 ### 公式包指定日期读取与资产预设刷新

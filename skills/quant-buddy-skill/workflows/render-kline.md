@@ -3,7 +3,7 @@
 > **适用范围**：用户明确要求 K 线、蜡烛图、OHLC、开高低收或带成交量的 K 线 artifact。普通“股价、成交量、PE 放在一张图”不是 K 线，必须改走 `visual-page-fast-path.md`。
 > **本流程不提供精确数值**——K 线图是 artifact 交付，不是查数工具；用户只说“看走势/最近走势”且未明确要图片时，应改走 `fast-window.md` 数值走势。
 >
-> **并行活页硬闸门**：明确 K 线/带成交量图属于 `create` 强触发。PNG 验证完成后、展示第一条回答前，必须实际执行 `live_page_routing.py route`；不得只读规则、不得自行口头判定、不得因 PNG 已生成而跳过。`create` 时继续 handoff → prepare → 调用宿主内部子 Agent 委派工具（优先 `spawn_agent`），只等待即时成功回执，不在首答前等待页面完成；不得用 `create_thread/fork_thread` 代替。用户明确说“只要 PNG / 不要网页 / 不要活页”时仍要执行 route 并得到 `none`；弱“看看走势”走数值窗口，不进入本流程。
+> **并行活页硬闸门**：明确 K 线/带成交量图属于 `create` 强触发。PNG 验证完成后、展示第一条回答前，必须实际执行 `live_page_routing.py route`；不得只读规则、不得自行口头判定、不得因 PNG 已生成而跳过。`create` 时必须把已经生成的 PNG 作为结构化 artifact，按下方固定 JSON 执行一次 `prepare-validated-page`；该命令会原子生成 Capsule、Handoff 和 QBV Job，成功后禁止再手工执行 `qbv_computation_capsule.py build`、`handoff` 或 `prepare`。随后调用宿主内部子 Agent 委派工具（优先 `spawn_agent`），只等待即时成功回执，不在首答前等待页面完成；不得用 `create_thread/fork_thread` 代替。若宿主没有内部委派工具，必须对返回的 `qbv_job_id` 执行 `mark-delegation-unavailable`，不得遗留 queued Job。用户明确说“只要 PNG / 不要网页 / 不要活页”时仍要执行 route 并得到 `none`；弱“看看走势”走数值窗口，不进入本流程。
 
 ---
 
@@ -30,8 +30,64 @@
 2. 解析用户时间描述 → 计算 `begin_date`
 3. `renderKLine(ticker, begin_date, ...)` → 获得图片并验证；用户明确要求 PNG 时必须传 `output_format="png"`，直接使用返回的 `artifact_file`，禁止再调用 Bash/Python 转换格式
 4. 读取 `live-page-routing.md`，实际执行 `python scripts/live_page_routing.py route --user-query "用户本轮原话"`
-5. `create|existing_page`：继续 handoff → prepare → 调用宿主内部子 Agent 委派工具（优先 `spawn_agent`），只等待即时成功回执；`none|suggest`：直接继续；委派不可用或失败：把 Job 更新为 `DELEGATION_UNAVAILABLE` 后软降级
+5. `create|existing_page`：把 `renderKLine` 已生成的 PNG 写入下方 `prepare-page.json`，执行一次 `prepare-validated-page`，然后调用宿主内部子 Agent 委派工具（优先 `spawn_agent`），只等待即时成功回执；`none|suggest`：直接继续；委派不可用或失败：把 Job 更新为 `DELEGATION_UNAVAILABLE` 后软降级
 6. 展示图片 + 一句话说明；不等待 QBV 完成
+
+### K 线活页固定准备合同
+
+`renderKLine` 成功且 route 返回 `create|existing_page` 后，用 `write_skill_file` 写入合法 JSON。`task_id`、`turn_id`、`user_query` 和 `source_skill_version` 可由当前 QBS Session 自动补齐，不要手工构造 `qbs_computation_capsule_v1` 或 `qbs_qbv_handoff_v1`：
+
+```json
+{
+  "page_intent": {
+    "question_to_answer": "打开查看贵州茅台最近半年的K线图和成交量",
+    "recommended_page_type": "kline_chart",
+    "primary_visualization": "candlestick_with_volume",
+    "required_roles": ["kline_chart"]
+  },
+  "asset_resolution": {
+    "query": "贵州茅台",
+    "canonical_name": "贵州茅台",
+    "canonical_id": "SH600519",
+    "market": "CN-A"
+  },
+  "validated_roles": [
+    {
+      "role": "kline_chart",
+      "kind": "renderKLine",
+      "contract": {
+        "kind": "renderKLine",
+        "payload": {
+          "ticker": "SH600519",
+          "begin_date": 20260305,
+          "show_volume": true,
+          "output_format": "png"
+        }
+      },
+      "artifact_file": "D:/absolute/path/to/kline.png",
+      "row_count": 185,
+      "field_mapping": {
+        "asset": "贵州茅台",
+        "ticker": "SH600519",
+        "chart": "candlestick",
+        "volume": "shown"
+      }
+    }
+  ]
+}
+```
+
+其中 `artifact_file`、`row_count`、ticker、日期和 `show_volume` 必须复制 `renderKLine` 的真实返回/调用参数，不得照抄示例值。然后只执行：
+
+```powershell
+python scripts/live_page_routing.py prepare-validated-page @output/_working/<task_id>/prepare-page.json
+```
+
+成功返回 `qbv_job_id + handoff_file + job_file + should_spawn` 后，不得再次执行页面准备命令。没有内部委派工具时立即执行：
+
+```powershell
+python scripts/live_page_routing.py mark-delegation-unavailable --qbv-job-id "<qbv_job_id>"
+```
 
 ### Backward Recovery
 

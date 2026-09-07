@@ -24,9 +24,11 @@ r"""
       "panels": [
         {
           "title":  "面板标题",
-          "output": "对应公式包 reads 的产出名（= query 返回 outputs 的 key）；数据授权面板改填 grant_id",
-          "grant_id": "数据授权面板：dg_... （与 output 互斥，构建期自动补 signature、运行时走 queryDataGrant），可与公式包面板同页混用",
+          "output": "单个公式包产出名；多序列图改用 outputs",
+          "outputs": ["多个公式包产出名；line/bar 叠加对比时使用"],
+          "grant_id": "数据授权面板：dg_... （与 output/outputs 互斥，构建期自动补 signature、运行时走 queryDataGrant），可与公式包面板同页混用",
           "type":   "line | bar | table | number | text | raw（默认 table）",
+          "transform": "line/bar 可选 cumulative_return_pct | drawdown_pct",
           "x":      "line/bar 横轴字段名（数据为对象数组时）",
           "y":      ["line/bar 纵轴字段名，可多条"],
           "value_field": "number 取值字段（缺省取首个数值）",
@@ -654,12 +656,35 @@ function applyXRange(tab, panel) {
   return {columns: tab.columns, rows: tab.rows.filter(r => r[0] == null || String(r[0]) >= startDate)};
 }
 
+// 标准多资产派生展示：只在浏览器展示层基于实时价格序列计算，不改写或缓存源数据。
+// cumulative_return_pct 以每列首个非零有效值为 0%；drawdown_pct 以每列历史峰值计算回撤%。
+function transformPanelTable(tab, panel) {
+  const transform = panel && panel.transform;
+  if (!transform || !tab || !Array.isArray(tab.rows) || tab.columns.length < 2) return tab;
+  if (transform !== 'cumulative_return_pct' && transform !== 'drawdown_pct') return tab;
+  const states = tab.columns.slice(1).map(() => ({base: null, peak: null}));
+  const rows = tab.rows.map(row => {
+    const next = [row[0]];
+    states.forEach((state, offset) => {
+      const raw = Number(row[offset + 1]);
+      if (!Number.isFinite(raw) || raw === 0) { next.push(null); return; }
+      if (state.base === null) state.base = raw;
+      if (state.peak === null || raw > state.peak) state.peak = raw;
+      if (transform === 'cumulative_return_pct') next.push((raw / state.base - 1) * 100);
+      else next.push((raw / state.peak - 1) * 100);
+    });
+    return next;
+  });
+  return {columns: tab.columns.slice(), rows: rows};
+}
+
 function renderPanelBody(body, panel, span, merged) {
   const type = panel.type || 'table';
   const out = merged.out;
   if (!merged.tab) { body.innerHTML = '<p class="empty">无产出：' + (panel.output || (panel.outputs || []).join('、') || '') + '</p>'; return; }
   if (out && out.error) { body.innerHTML = '<p class="empty err">取数失败：' + out.error + '</p>'; return; }
-  const tab = (type === 'line' || type === 'bar') ? applyXRange(merged.tab, panel) : merged.tab;
+  const transformed = transformPanelTable(merged.tab, panel);
+  const tab = (type === 'line' || type === 'bar') ? applyXRange(transformed, panel) : transformed;
   try {
     if (type === 'raw') body.innerHTML = '<pre>' + JSON.stringify((merged.rawData !== undefined ? merged.rawData : tab), null, 2) + '</pre>';
     else if (type === 'number') renderNumber(body, tab, panel);
@@ -1333,6 +1358,9 @@ def cmd_panel_block(params):
     missing_target = [i for i, p in enumerate(panels) if isinstance(p, dict) and not p.get("target_selector")]
     if missing_target:
         return {"code": 1, "message": f"panels{missing_target} 缺少 target_selector（局部产出模式下每个面板都必须指定要渲染进哪个已存在的容器）"}
+    transform_error = _validate_panel_transforms(panels)
+    if transform_error:
+        return transform_error
     image_panel_error = _validate_image_panels(panels)
     if image_panel_error:
         return image_panel_error
@@ -1361,10 +1389,7 @@ def cmd_panel_block(params):
     if grant_err:
         return grant_err
 
-    needs_formula = any(
-        isinstance(p, dict) and p.get("output") and p.get("_source") != "grant"
-        for p in panels
-    )
+    needs_formula = any(_panel_uses_formula(p) for p in panels)
     pkg = sig = None
     if needs_formula or params.get("package_id"):
         pkg, sig, err = _resolve_credential(params)
@@ -1560,23 +1585,48 @@ def _inspect_output_data(data):
     return None
 
 
+def _panel_output_names(panel):
+    """Return the runtime outputs consumed by one panel.
+
+    Formula panels may declare ``outputs`` for a multi-series chart. Grant panels
+    are normalized by ``_resolve_grant_panels`` to a single synthetic ``output``
+    equal to the grant id, so they deliberately keep the singular path.
+    """
+    if not isinstance(panel, dict):
+        return []
+    if panel.get("_source") != "grant":
+        names = panel.get("outputs")
+        if isinstance(names, list) and names:
+            return [str(name).strip() for name in names if str(name).strip()]
+    name = panel.get("output")
+    return [str(name).strip()] if name is not None and str(name).strip() else []
+
+
+def _panel_uses_formula(panel):
+    return isinstance(panel, dict) and panel.get("_source") != "grant" and bool(_panel_output_names(panel))
+
+
 def _inspect_outputs(panels, outputs):
-    """逐 panel 体检其引用的产出，返回问题列表（空=全部健康）。"""
+    """逐 panel 体检其引用的全部产出，返回问题列表（空=全部健康）。"""
     problems = []
     for p in panels:
         if (p.get("type") or "").lower() in ("text", "image"):
             continue
-        name = p.get("output")
-        out = outputs.get(name)
-        if out is None:
-            problems.append({"output": name, "reason": "取数结果缺该产出"})
+        names = _panel_output_names(p)
+        if not names:
+            problems.append({"output": None, "reason": "取数结果缺该产出"})
             continue
-        if out.get("error"):
-            problems.append({"output": name, "reason": str(out.get("error"))})
-            continue
-        why = _inspect_output_data(out.get("data"))
-        if why:
-            problems.append({"output": name, "reason": why})
+        for name in names:
+            out = outputs.get(name)
+            if out is None:
+                problems.append({"output": name, "reason": "取数结果缺该产出"})
+                continue
+            if out.get("error"):
+                problems.append({"output": name, "reason": str(out.get("error"))})
+                continue
+            why = _inspect_output_data(out.get("data"))
+            if why:
+                problems.append({"output": name, "reason": why})
     return problems
 
 
@@ -1761,20 +1811,20 @@ def _validate_template_contract(params, panels):
         return None
 
     outputs = {
-        str(p.get("output"))
+        output
         for p in panels
-        if isinstance(p, dict) and p.get("output")
+        for output in _panel_output_names(p)
     }
     required = {"px", "chg", "ret20", "ret60", "pe", "pb", "amt_yi"}
     missing = sorted(required - outputs)
     has_text = any((p.get("type") or "").lower() == "text" for p in panels if isinstance(p, dict))
     has_px_number = any(
-        p.get("output") == "px" and (p.get("type") or "").lower() == "number"
+        "px" in _panel_output_names(p) and (p.get("type") or "").lower() == "number"
         for p in panels
         if isinstance(p, dict)
     )
     has_px_line = any(
-        p.get("output") == "px" and (p.get("type") or "").lower() == "line"
+        "px" in _panel_output_names(p) and (p.get("type") or "").lower() == "line"
         for p in panels
         if isinstance(p, dict)
     )
@@ -1798,6 +1848,27 @@ def _validate_template_contract(params, panels):
         "issues": issues,
         "hint": "请先通过 static_page.py templates/template 复用在线个股画像模板；若自行构建 spec，保留 template=single-stock，并补齐阅读摘要、px/chg/ret20/ret60/pe/pb/amt_yi、subtitle 与日期口径。",
     }
+
+
+_PANEL_TRANSFORMS = {"cumulative_return_pct", "drawdown_pct"}
+
+
+def _validate_panel_transforms(panels):
+    for index, panel in enumerate(panels or []):
+        if not isinstance(panel, dict) or panel.get("transform") in (None, ""):
+            continue
+        transform = str(panel.get("transform") or "").strip()
+        panel_type = str(panel.get("type") or "table").strip().lower()
+        if transform not in _PANEL_TRANSFORMS or panel_type not in ("line", "bar"):
+            return {
+                "code": 1,
+                "error": "PANEL_TRANSFORM_INVALID",
+                "message": (
+                    f"panels[{index}].transform={transform!r} 不受支持；"
+                    "仅 line/bar 支持 cumulative_return_pct 或 drawdown_pct"
+                ),
+            }
+    return None
 
 
 def _validate_image_panels(panels):
@@ -1835,6 +1906,20 @@ def _resolve_local_path(path):
         return None
     return path if os.path.isabs(path) else os.path.join(C.SKILL_ROOT, path)
 
+
+
+def _attach_publish_reply_artifacts(params, result, published, static_page_module):
+    """Expose hash-bound terminal reply artifacts for successful dashboard publishes."""
+    if not isinstance(params, dict) or not isinstance(result, dict) or not isinstance(published, dict):
+        return result
+    if published.get("code") != 0:
+        return result
+    task_id = str(params.get("task_id") or "").strip()
+    contract = published.get("agent_reply_contract")
+    if not task_id or not isinstance(contract, dict) or contract.get("terminal") is not True:
+        return result
+    result.update(static_page_module._write_agent_reply_artifacts(task_id, published))
+    return result
 
 
 def cmd_build(params):
@@ -1893,6 +1978,9 @@ def cmd_build(params):
     panels = params.get("panels")
     if not isinstance(panels, list) or not panels:
         return {"code": 1, "message": "spec.panels 必须是非空数组"}
+    transform_error = _validate_panel_transforms(panels)
+    if transform_error:
+        return transform_error
     image_panel_error = _validate_image_panels(panels)
     if image_panel_error:
         return image_panel_error
@@ -1907,10 +1995,7 @@ def cmd_build(params):
     if grant_err:
         return grant_err
 
-    needs_formula = any(
-        isinstance(p, dict) and p.get("output") and p.get("_source") != "grant"
-        for p in panels
-    )
+    needs_formula = any(_panel_uses_formula(p) for p in panels)
 
     pkg = sig = None
     if needs_formula or params.get("package_id"):
@@ -1989,10 +2074,12 @@ def cmd_build(params):
         "formula_packages": ({
             "DEFAULT": {
                 "package_id": pkg,
-                "outputs": [
-                    p.get("output") for p in panels
-                    if isinstance(p, dict) and p.get("output") and p.get("_source") != "grant"
-                ],
+                "outputs": list(dict.fromkeys(
+                    output
+                    for p in panels
+                    if _panel_uses_formula(p)
+                    for output in _panel_output_names(p)
+                )),
             }
         } if pkg else {}),
         "data_grants": [
@@ -2100,6 +2187,7 @@ def cmd_build(params):
             )
             manifest_path = _write_manifest(out_file, manifest)
             result["manifest"] = manifest_path
+            _attach_publish_reply_artifacts(params, result, up, SP)
         elif up.get("code") != 0:
             result["message"] += f"（HTML 已生成，但{verb}失败，见 {'update' if update_page_id else 'upload'} 字段）"
             manifest["verification"]["publish_runtime_check"] = "upload_failed"

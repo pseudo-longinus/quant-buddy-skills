@@ -333,6 +333,52 @@ def card_runtime_bundle(config=None, *, endpoint="", package_id="", signature=""
     }
 
 
+def _dashboard_panel_metrics(panels):
+    """Derive up to three formula-backed card metrics from dashboard panels.
+
+    Text/image panels have no runtime output, while Data Grant outputs are not
+    fetched by the embedded Formula Package card runtime. Multi-series panels
+    therefore need to be expanded before applying the three-metric card limit.
+    """
+    ordered = [
+        panel for panel in (panels or [])
+        if isinstance(panel, dict) and (panel.get("type") or "").lower() == "number"
+    ]
+    ordered += [
+        panel for panel in (panels or [])
+        if isinstance(panel, dict) and panel not in ordered
+    ]
+    metrics = []
+    seen = set()
+    for panel in ordered:
+        if panel.get("grant_id"):
+            continue
+        output_names = []
+        single = _clean_text(panel.get("output"))
+        if single:
+            output_names.append(single)
+        multiple = panel.get("outputs")
+        if isinstance(multiple, list):
+            output_names.extend(_clean_text(value) for value in multiple if _clean_text(value))
+        output_names = list(dict.fromkeys(output_names))
+        for output in output_names:
+            if output in seen:
+                continue
+            seen.add(output)
+            title = _clean_text(panel.get("title"), output)
+            label = title if len(output_names) == 1 else f"{title} · {output}"
+            metrics.append({
+                "label": label,
+                "output": output,
+                "field": panel.get("value_field") or "",
+                "unit": panel.get("unit") or "",
+                "value": "待更新",
+            })
+            if len(metrics) == 3:
+                return metrics
+    return metrics
+
+
 def dashboard_config(spec, panels):
     raw = spec.get("live_card")
     if not raw:
@@ -341,18 +387,9 @@ def dashboard_config(spec, panels):
         raw = {}
     if not isinstance(raw, dict):
         raw = {}
-    metrics = raw.get("metrics") if isinstance(raw.get("metrics"), list) else []
+    metrics = list(raw.get("metrics")) if isinstance(raw.get("metrics"), list) else []
     if not metrics:
-        ordered = [p for p in panels if isinstance(p, dict) and (p.get("type") or "").lower() == "number"]
-        ordered += [p for p in panels if isinstance(p, dict) and p not in ordered]
-        for panel in ordered[:3]:
-            metrics.append({
-                "label": panel.get("title") or panel.get("output") or "指标",
-                "output": panel.get("output") or "",
-                "field": panel.get("value_field") or "",
-                "unit": panel.get("unit") or "",
-                "value": "待更新",
-            })
+        metrics = _dashboard_panel_metrics(panels)
     cfg = dict(raw)
     cfg.setdefault("title", spec.get("live_card_title") or spec.get("title"))
     cfg.setdefault("description", spec.get("live_card_description") or spec.get("subtitle") or spec.get("description"))

@@ -27,6 +27,7 @@ import common as C
 import formula_package as FP
 
 MARKER = "QBV_STOCK_COMPARISON_RUNTIME:v1"
+WINDOW_MARKER = "QBV_STOCK_WINDOW_RUNTIME:v1"
 
 
 def _resolve_local_path(value):
@@ -110,18 +111,26 @@ def _patch_runtime(html):
     if MARKER in html:
         return html, False
 
+    has_window_runtime = WINDOW_MARKER in html
+
     html = _replace_once(
         html,
         "    const state = { config: null, data: null, loading: false, lastLoadedAt: null };",
         "    // " + MARKER + "\n    const state = { config: null, data: null, loading: false, lastLoadedAt: null };",
         "runtime marker",
     )
+    price_window_label = "stockWindowLabel(config)" if has_window_runtime else "'近 250 个交易日'"
+    price_label_source = (
+        "      $('priceUnitText').textContent = stockWindowLabel(config) + ' · ' + meta.priceUnit;"
+        if has_window_runtime
+        else "      $('priceUnitText').textContent = '近 250 个交易日 · ' + meta.priceUnit;"
+    )
     html = _replace_once(
         html,
-        "      $('priceUnitText').textContent = '近 250 个交易日 · ' + meta.priceUnit;",
+        price_label_source,
         "      $('priceUnitText').textContent = config.comparison && config.comparison.mode === 'benchmark'\n"
-        "        ? '近 250 个交易日 · 左轴 ' + meta.priceUnit + ' · 右轴 ' + (config.comparison.unit || '点')\n"
-        "        : '近 250 个交易日 · ' + meta.priceUnit;\n"
+        f"        ? {price_window_label} + ' · 左轴 ' + meta.priceUnit + ' · 右轴 ' + (config.comparison.unit || '点')\n"
+        f"        : {price_window_label} + ' · ' + meta.priceUnit;\n"
         "      const priceTitle = document.querySelector('#priceCard .chart-title');\n"
         "      if (priceTitle && config.comparison && config.comparison.mode === 'benchmark') priceTitle.textContent = '收盘价与' + config.comparison.name + '对比';",
         "price title",
@@ -136,10 +145,15 @@ def _patch_runtime(html):
         "        allDates.slice().reverse().map(date => '<tr><td>'+escapeHtml(dateText(date))+'</td>' + maps.map((m,index) => '<td>' + (m.has(date) ? escapeHtml(valueFormatter(m.get(date),seriesList[index])) : '--') + '</td>').join('') + '</tr>').join('') + '</tbody></table>';",
         "series table formatter",
     )
+    line_points_source = (
+        "stockWindowPoints((s.points||[]).filter(p => num(p.value) != null))"
+        if has_window_runtime
+        else "(s.points||[]).filter(p => num(p.value) != null)"
+    )
     html = _replace_once(
         html,
-        "        .map((s,i) => ({ name:s.name, color:s.color || COLORS[i], points:(s.points||[]).filter(p => num(p.value) != null) }))",
-        "        .map((s,i) => ({ name:s.name, color:s.color || COLORS[i], yAxisIndex:Number(s.yAxisIndex)||0, points:(s.points||[]).filter(p => num(p.value) != null) }))",
+        f"        .map((s,i) => ({{ name:s.name, color:s.color || COLORS[i], points:{line_points_source} }}))",
+        f"        .map((s,i) => ({{ name:s.name, color:s.color || COLORS[i], yAxisIndex:Number(s.yAxisIndex)||0, points:{line_points_source} }}))",
         "line prepared series",
     )
     html = _replace_once(
