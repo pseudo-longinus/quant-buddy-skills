@@ -12,11 +12,13 @@ source_playbooks: []
 
 ## 输出规则
 
+- `transformation_status=pending`：这是已有文件转换后静态页的阶段交付，不走下面终态骨架。先公网验收，再明确“已生成静态来源预览，尚未接入实时数据”，包含 page_id 和 contract 公开链接，然后继续同页增强；不得称为转换失败或整项任务完成。
+
 - 必须先读取 `transformation_status` 和 `source_html_fallback_published`，不得统一声称“已完成 QBS 活页化”。
 - `transformation_status=complete`：可以说明当前链接已使用 QBS 实时取数，并按 `transformation_validation` 描述刷新状态；只有 `visible_live_indicator.enabled=true` 时才说明页面实时区域会显示标准 LIVE 徽标。
 - `transformation_status=partial` 且 `source_html_fallback_published=true`：说明同一链接已保留首次快照，成功区域已接入 QBS 并显示 LIVE，其余区域继续使用快照；不得把未标记区域描述为实时数据。
 - `transformation_status=failed` 且 `source_html_fallback_published=true`：说明 QBS 增强未完成，但当前链接已经保留来源页渲染快照；不得声称整页实时。
-- `source_html_fallback_published=false`：不得声称页面已更新，需简要说明托管写入也未成功。
+- `snapshot_published_first=false` 且托管响应失败：不得声称页面已更新，需简要说明托管写入未成功。`complete` 时 `source_html_fallback_published=false` 只表示无需快照兜底，不代表发布失败。
 - 只陈述已经由终态响应和 contract 验证的迁移结果，不扩写页面业务数据、趋势、分位或投资判断。
 - 不改写或概括用户页面正文，不把原页面重新描述成通用 dashboard。
 - 必须包含终态 `page_id`；公开活页链接必须作为整条回复的最终两行输出：`可分享实时活页：[{public_url}]({public_url})`，下一行固定为“若效果不满意，页面可进一步升级”。

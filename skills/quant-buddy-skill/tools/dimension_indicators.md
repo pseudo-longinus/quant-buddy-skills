@@ -138,7 +138,7 @@ python scripts/call.py listDimensionIndicators '{"keyword": "突破"}'
 维度层返回名字 / 说明 / 指标数；默认指标条目可用于候选发现。要取得完整口径和公式，使用 `getIndicatorFormulas`。
 
 > ⚠️ **选择器准入不由 `indicator_type:"综合"` 决定。**
-> 对选股，先按用户需要的请求角色使用 `output_type:"score"` 或 `output_type:"screen"` 缩小查询；只有用户明确要求细分或综合类别时才额外传 `indicator_type`。在线目录中的 `selection_ready`、`selection_mode`、`as_of` 用于预检，`selectByComposition` 才是启用、删除、物化和日期一致性的最终校验。
+> 对选股，先按用户需要的请求角色使用 `output_type:"score"` 或 `output_type:"screen"` 缩小查询；只有用户明确要求细分或综合类别时才额外传 `indicator_type`。在线目录中的 `selection_ready`、`selection_mode`、`as_of` 用于预检，`selectByComposition` 才是启用、删除、物化和快照日期有效性的最终校验。
 > ```bash
 > # 查询可作为 A 股 screen 条件的细分候选
 > python scripts/call.py listDimensionIndicators '{"asset_scope": "A股", "indicator_type": "细分", "output_type": "screen"}'
@@ -154,7 +154,7 @@ python scripts/call.py listDimensionIndicators '{"keyword": "突破"}'
 |---|---|---|
 | `selection_ready` | 当前目录观察到的选择向量是否可用 | 仅 `true` 的候选可进入选择器预检；最终仍以选择器响应为准 |
 | `selection_mode` | 服务端选择向量角色，`score` 或 `screen` | 与 `output_type` 对齐后，放入正确请求位置 |
-| `as_of` | 当前选择向量快照日期 | 同一次选股的所有指标必须对齐；由选择器最终验证 |
+| `as_of` | 当前选择向量快照日期 | 必须存在；可与其他参与指标不同，最终按选择器返回的 `date_alignment` 披露 |
 | `status`（值非 `"success"`） | 指标状态异常 | 不作为选择器候选；公式定义仍可能有效 |
 | `has_formula: false` | 该指标取不到公式（全库只有 2 个） | 别对它调 `getIndicatorFormulas`，会返回 `FORMULA_NOT_AVAILABLE` |
 

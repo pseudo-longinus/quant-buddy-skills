@@ -2,7 +2,7 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.25.34
+version: 4.25.35
 description: |
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据；支持查询 A 股股票所属行业。
   查询最近N个交易日的价格序列、日涨跌幅序列、窗口最高价、最低价、振幅等短期统计。
@@ -16,7 +16,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.25.34
+  version: 4.25.35
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -89,6 +89,10 @@ runtimeRequirements:
 **口径转换（confirmDataMulti 查询词）**：用户写 `PE(TTM)` / `归母净利润` 等英文或缩写时，查询词应使用**中文规范名**（如 `市盈率 TTM` / `归母净利润`），而不是把用户原文照抄进 `data_desc`。详细规则见 `workflows/global-rules.md#指标口径精确匹配`。
 
 ---
+
+## 已有文件转活页：先交 QBV 静态托管
+
+用户提供 JPG/PNG、HTML、PDF 等已有文件并要求网页活化、转活页或用 QBV 做成可分享页面时，优先进入 QBV 的 `workflows/existing-file-static-first.md`。包括“先检查报告、补充指标、重做 HTML，再活页化”的复合需求；不依赖固定关键词。此路径高于本 Skill 的资产映射、查数、公式验证、图表分类器及“先完成计算再 Handoff”的一般顺序：先转换来源、发布静态页面、验收并交付链接，再进行 QBS 查询和同页实时增强，不要求先准备计算胶囊。复用真实 task_id/turn_id，不另建用户可见任务，不声称未实际执行的托管已经开始。纯文件分析或用户明确不要发布时不触发；不可读文件、敏感内容授权不明、转换或首次托管失败须如实说明。QBS 无数据不是拒绝托管的理由；不得将来源快照标为实时或已核验。
 
 ## 硬规则（违反必失败）
 
@@ -329,6 +333,8 @@ SKILL_ROOT/
 
 ## ⛔ 执行顺序（路由前必读，所有场景必须遵守）
 
+已有文件转活页先执行上方静态托管优先例外，不进入下表 QBS leaf；首次静态交付后的数据增强才按本节加载查询规则。
+
 **无论匹配到哪个 leaf workflow，执行顺序固定为：**
 
 ```
@@ -513,7 +519,7 @@ SKILL_ROOT/
 
 - **维度**只是分组容器，不带权重、本身不可计算。
 - **指标**分两类：`细分` = 单一口径基础指标（如「20日高点接近突破」）；`综合` = 该维度的**维度分**，由维度内细分指标聚合而成（如「A股动量与反转」）。另有正交的 `output_type`：`score` 连续分 / `screen` 0-1 布尔。
-- `selectByComposition` 不以 `细分` / `综合` 作为准入条件：两个分类均可用，但必须已物化、当前可选且市场和日期对齐。请求位置由 `output_type` 决定：score 用于排名/阈值，screen 用于交集筛选。
+- `selectByComposition` 不以 `细分` / `综合` 作为准入条件：两个分类均可用，但必须已物化、当前可选、支持目标市场且具有已知快照日期。不同有效快照允许组合，结果必须按 `date_alignment` 披露；请求位置由 `output_type` 决定：score 用于排名/阈值，screen 用于交集筛选。
 - 指标有两个名字：`name`（`20日高点接近突破`，目录里的短名）和 `index_title`（`通用_20日高点接近突破得分`，公式里的变量名），**两者从不相同**；再加稳定键 `indicator_id`，取公式时三种都能用。
 
 走哪条路：

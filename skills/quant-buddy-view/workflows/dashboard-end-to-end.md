@@ -1,5 +1,7 @@
 # Workflow · 需求 → 看板分享链接（端到端）
 
+> 优先例外：已有文件（JPG/HTML/PDF 等）转活页，包括先研究改造的复合请求，先走 [existing-file-static-first.md](existing-file-static-first.md)。本篇查数、资产验证与范式路由不得前置阻断首次静态交付。
+
 > 前置分诊：新会话先走 [new-session-paradigm-routing.md](new-session-paradigm-routing.md) 查范式卡判命中。**① 直接命中**不走本流程：普通渠道先返回现成链接，`feishu-group` 等 `direct_deliver` 终态后才返回 playground 链接；本流程覆盖 **② fork**（换标的注册自己的 Formula Package / Data Grant 凭证）和 **③ 未命中自建**。
 
 把 quant-buddy-skill 里探索好的指标，做成一个公开可分享、数据自动更新的网页看板。

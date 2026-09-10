@@ -813,7 +813,7 @@ def _agent_reply_template_contract(record, *, operation=None):
     public_url = record.get("url") or record.get("public_url") or record.get("download_url") or ""
     page_context, _ = _normalize_page_context(record.get("page_context"))
     contract = {
-        "terminal": True,
+        "terminal": not (record.get("transformation_status") == "pending" and record.get("snapshot_published_first") is True),
         "operation": operation or record.get("operation") or "",
         "page_id": record.get("page_id") or "",
         "required": bool(template_ref),
@@ -822,6 +822,17 @@ def _agent_reply_template_contract(record, *, operation=None):
         "require_page_id_in_reply": template_ref == "preserve_html_qbs_live_delivery_v1",
     }
     _apply_delivery_policy(contract)
+    if not contract["terminal"]:
+        contract.update({
+            "required": False,
+            "delivery_stage": "static_snapshot",
+            "next_action": "verify_and_deliver_static_before_qbs",
+            "reply_instruction": "先公网验收并交付静态来源预览链接；说明尚未实时化，再继续同页增强。",
+        })
+        # A readable static artifact is a delivery, not an empty progress shell.
+        if isinstance(contract.get("delivery_policy"), dict):
+            contract["delivery_policy"]["emit_intermediate_url"] = True
+        return contract
     if template_ref:
         reply_render_policy = RTR.get_reply_render_policy(template_ref)
         contract.update({
@@ -2331,6 +2342,10 @@ def _finalize_preserve_response(
 
 
 def _prepare_preserve_snapshot_stage(params):
+    if "snapshot_only" in params and not isinstance(params["snapshot_only"], bool):
+        return None, None, _evidence_error(
+            "PRESERVE_HTML_SNAPSHOT_ONLY_INVALID", "snapshot_only 必须是 JSON boolean"
+        )
     fallback, fallback_error = _prepare_preserve_html_fallback(params, None)
     if fallback_error:
         return None, None, fallback_error
@@ -2408,6 +2423,18 @@ def _preserve_target_read_error(error):
     )
 
 
+def _finalize_snapshot_only(out, *, params, snapshot, reply_resolution, sequence):
+    result = _finalize_preserve_response(
+        out, params=params, validation=snapshot["validation"], error=None,
+        status="pending", snapshot_published_first=True,
+        source_html_fallback_published=True, publish_sequence=sequence,
+        shell_check=snapshot["shell_check"], reply_resolution=reply_resolution,
+    )
+    result["delivery_stage"] = "static_snapshot"
+    result["next_action"] = "verify_and_deliver_static_before_qbs"
+    return result
+
+
 def _cmd_upload_preserve(params, *, endpoint, api_key):
     snapshot, reply_resolution, error = _prepare_preserve_snapshot_stage(params)
     if error:
@@ -2426,6 +2453,11 @@ def _cmd_upload_preserve(params, *, endpoint, api_key):
             status="failed", snapshot_published_first=False,
             source_html_fallback_published=False, publish_sequence=sequence,
             shell_check=snapshot["shell_check"], reply_resolution=reply_resolution,
+        )
+    if resolved_params.get("snapshot_only") is True:
+        return _finalize_snapshot_only(
+            snapshot_out, params=resolved_params, snapshot=snapshot,
+            reply_resolution=reply_resolution, sequence=sequence,
         )
     page_id = str(snapshot_out.get("page_id") or "").strip()
     target_html, target_error = _read_html(resolved_params)
@@ -2500,6 +2532,12 @@ def _cmd_update_preserve(params, *, endpoint, api_key):
             status="failed", snapshot_published_first=False,
             source_html_fallback_published=False, publish_sequence=sequence,
             shell_check=snapshot["shell_check"], reply_resolution=reply_resolution,
+        )
+    if resolved_params.get("snapshot_only") is True:
+        return _finalize_snapshot_only(
+            _merge_preserve_response(snapshot_out, None, page_id=page_id),
+            params=resolved_params, snapshot=snapshot,
+            reply_resolution=reply_resolution, sequence=sequence,
         )
     target_html, target_error = _read_html(resolved_params)
     if target_error:
@@ -3709,7 +3747,7 @@ def _prepare_preserve_html_fallback(params, transformation_error):
     fallback_html = snapshot["snapshot_html"]
     return {
         "html": fallback_html,
-        "status": _preserve_fallback_status(params),
+        "status": "pending" if params.get("snapshot_only") is True else _preserve_fallback_status(params),
         "validation": {
             "mode": _PRESERVE_HTML_QBS_LIVE_MODE,
             "source_html_file": source["source_file"],

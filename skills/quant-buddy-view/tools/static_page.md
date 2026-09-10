@@ -544,6 +544,10 @@ python scripts/publish_workflow.py '@output/forks/page_xxx/page_xxx.publish-plan
 
 ### 用户本地 HTML → QBS 活页化参数（upload / update 共用）
 
+已有 JPG/PNG、PDF 等文件先按 [静态优先工作流](../workflows/existing-file-static-first.md) 转为 HTML；用户要求活页化时，不论有无旧接口，都先用本模式的 `snapshot_only:true` 托管。二进制文件不可直接作为 source_html_file。
+
+**分阶段入口**：`snapshot_only` 是可选 JSON boolean，默认 false（保持既有一次调用快照+增强行为）。true 时仅校验来源/快照、写入静态页并返回，不读取目标 HTML、不验证 QBS、不要求路由收据。成功返回 `transformation_status:pending`、`delivery_stage:static_snapshot`、`next_action:verify_and_deliver_static_before_qbs` 和非终态回复合同；这不是 failed，也不证明已通过公网验收。先验收并交付链接，再查数。增强调用用同一个 page_id 的 update 并省略/关闭 snapshot_only。下表的实时目标/路由字段只在增强阶段必需。
+
 只有调用方显式传 `transformation_mode:"preserve_html_qbs_live"` 时启用；普通静态上传和一般页面更新不受影响。该模式针对“保留用户本地 HTML 的原结构、当前数据和布局，只把可成功迁移的数据链接入 QBS”，不是在线模板 fork，也不要求 Handoff。
 
 | 字段 | 类型 | 必填 | 说明 |
@@ -581,6 +585,8 @@ node scripts/capture_rendered_html.mjs C:\path\source.html --output C:\path\sour
 live tag 规则：未声明 `data-qb-live-mode` 的 div 默认就是未转换的快照静态区域，允许且不改写；只有成功 QBS 区域声明 `data-qb-live-mode="live"`，并按通道声明 `data-qb-live-tag="qbs-formula-package"` 或 `qbs-data-grant`。显式 mode 非法、重复属性或未知 live tag 仍拒绝。只有 live 区域会自动获得唯一的 `<style data-qb-live-indicator-runtime="v2">` 和右上角低干扰 `● LIVE`。
 
 结果语义：
+
+- `pending`：显式 `snapshot_only:true` 已发布静态快照，尚未尝试 QBS 增强；`agent_reply_contract.terminal:false`，应先验收并交付静态链接，再继续任务。
 
 - `complete`：首次快照已发布，随后同页写回完整 QBS 实时 HTML；`source_html_fallback_published:false`。
 - `partial`：首次快照已发布，随后同页写回混合 HTML；成功区域 live，失败区域保持快照；`source_html_fallback_published:true`。

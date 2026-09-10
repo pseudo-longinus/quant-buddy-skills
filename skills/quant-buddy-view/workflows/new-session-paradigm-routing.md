@@ -1,5 +1,7 @@
 # Workflow · 新会话：单股快速返回 / 查范式卡后三分支
 
+> 优先例外：已有文件（JPG/HTML/PDF 等）转活页，包括先研究改造的复合请求，先走 [existing-file-static-first.md](existing-file-static-first.md)。本篇查数、资产验证与范式路由不得前置阻断首次静态交付。
+
 新会话被判定为可分享活页任务后先判断是否命中“简单单一 A 股分析”快速通道；未命中才查范式卡（`templates` 活页列表），再决定 direct / fork / 自建。范式卡 = 后台 `recommend:官方精选` 或 `recommend:社区` 标签的现成活页列表。若 `config.json._channel=feishu-group`，所有非终态 hint 都按 `delivery_policy.emit_intermediate_url=false` 处理：内部流程照常创建/维护页面，但用户只在终态收到 playground 链接。
 
 > 场景：用户说「宁德时代现在估值贵不贵，帮我做个能发出去的页」/「沪深300今天哪些成分股异动」。

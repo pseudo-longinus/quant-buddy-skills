@@ -21,9 +21,11 @@
 日期范围规则：
 - 三种 `query_type` 均可传 `start_date` + `end_date`；`window` 模式中与 `window_days` 二选一，同时传时优先使用日期范围。
 - `snapshot`/`report` 仅传 `end_date` 时自动补齐 `start_date = end_date`；`result_mode=series` 且未传 `start_date` 时报 `MISSING_START_DATE`。
+- 显式 `start_date`/`end_date` 没有独立的 2,500 交易日跨度拦截；仍校验日期合法性、顺序及最早数据日期。
 - `start_date > end_date` 会返回 `INVALID_DATE_RANGE`。
 - 日期早于系统最早数据日期 `20050104` 会返回 `DATE_BEFORE_SYSTEM_LIMIT`。
 - `result_mode="value"` 返回区间最后有效值；`result_mode="series"` 返回区间完整序列。
+- 不支持月采样或其他采样频率参数；需要月度序列应走完整公式链路。
 
 ## 日内刷新行为
 
@@ -77,12 +79,12 @@
 | 维度 | 上限 | 错误码 |
 |------|------|--------|
 | 最大资产数 | 1,000 | `ASSETS_EXCEED_LIMIT` |
-| 最大交易日数 | 2,500 | `WINDOW_DAYS_EXCEED_LIMIT` / `DATE_RANGE_EXCEED_LIMIT` |
+| `window_days` 最大交易日数 | 2,500 | `WINDOW_DAYS_EXCEED_LIMIT` |
 | 单次最大数据点 | 200,000 | `DATA_POINTS_EXCEED_LIMIT` |
 | 每日数据点（用户级） | 1,000,000 | `DAILY_DATA_POINTS_EXCEEDED` |
 | 每日 CSV 下载 | 50 次 | `DAILY_CSV_DOWNLOADS_EXCEEDED` |
 
-数据点 = 资产数 × (日频字段数 × 日频日期数 + 季频字段数 × 季频日期数)。超过 500 数据点自动切换 CSV 格式返回。
+数据点 = 资产数 × (日频字段数 × 日频日期数 + 季频字段数 × 季频日期数)。显式日期范围的日频日期数按 UTC 自然日差 × 0.7 估算；超过 500 数据点自动切换 CSV 格式返回，但港股财报因服务端多来源合并仍返回 JSON。
 
 ## 返回结构（compact 格式，默认）
 
@@ -121,7 +123,7 @@ results: {
 
 ## 返回结构 — CSV 模式（数据点 > 500 时自动触发）
 
-当数据点超过 500，服务端自动切换 CSV 格式。返回结构变为：
+当数据点超过 500，服务端自动切换 CSV 格式；但港股财报因服务端多来源合并仍返回 JSON。返回结构变为：
 
 ```
 success: true
@@ -154,7 +156,6 @@ asset_errors / field_errors / warnings
 | 1 | 参数不合法（整体拒绝） | 退出 fast path，走完整链路 |
 | 1 ASSETS_EXCEED_LIMIT | 资产数超过 1000 | 告知用户分批查询 |
 | 1 WINDOW_DAYS_EXCEED_LIMIT | `window_days` 超过 2500 | 告知用户缩小范围 |
-| 1 DATE_RANGE_EXCEED_LIMIT | 日期范围估算超过 2500 交易日 | 告知用户缩小范围 |
 | 1 DATA_POINTS_EXCEED_LIMIT | 预估数据点超过 200,000 | 告知用户减少资产/字段/日期 |
 | 1 DAILY_DATA_POINTS_EXCEEDED | 今日累计数据点超过 1,000,000 | 告知用户明天再试 |
 | 1 DAILY_CSV_DOWNLOADS_EXCEEDED | 今日 CSV 下载次数超过 50 | 告知用户明天再试或缩小查询 |

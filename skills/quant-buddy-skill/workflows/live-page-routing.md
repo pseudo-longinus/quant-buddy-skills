@@ -2,6 +2,10 @@
 
 > 本文只定义 **QBS 何时交接**、Handoff 合同和后台 Job 边界。页面范式、direct/fork/unmatched、页面归属、复制、发布、Card Runtime 与公网验收全部由 `quant-buddy-view` 的现有 SOP 决定。
 
+## 0. 已有文件转活页优先例外
+
+已有 JPG/PNG、HTML、PDF 等文件 + 活页化意图（含研究改造复合需求），先进入 QBV `workflows/existing-file-static-first.md`，先静态托管、验收并交付链接，再查数增强。此路径不等待本轮计算、图表分类器、Handoff 或 computation capsule；保留同一 task_id/turn_id 和后续 page_id/URL。下述“先完成查询/计算”的通用顺序不适用于首次静态交付。文件分析但不要求发布、明确暂不发布不触发。
+
 ## 1. 不阻塞原则
 
 - QBS 必须先完成本轮查询、计算、校验并准备好正常答案；QBV 失败不得撤销、覆盖或延迟这些业务结果。

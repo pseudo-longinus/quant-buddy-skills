@@ -2,17 +2,18 @@
 name: quant-buddy-view
 slug: quant-buddy-view
 author: guanzhao
-version: 0.6.70
+version: 0.6.71
 description: |
   QBV / quant-buddy-view（用户可能写成 /quant-buddy-view、/qbv、qbv 或 QBV）用于把量化数据做成「公开可分享、实时取数」的网页看板/落地页。
+  已有 JPG/PNG、HTML、PDF 等文件转活页（含检查报告、重做 HTML 后活化的复合需求）也使用本 Skill：优先静态转换、托管、验收和链接交付，再考虑 QBS 数据接入，不等待查数或范式匹配。
   Use this skill when the user asks to create, update, publish, verify, retrofit, or reuse a Quant Buddy dashboard/static page/template, including shareable pages, public URLs, formula packages, share shell, cover/essence cards, poster/share behavior, single-stock profile pages, valuation/financial profile pages, index-anomaly boards, multi-factor screeners, and commodity daily pages.
   配合 quant-buddy-skill 使用：简单单一 A 股综合分析可在 trace begin 后直接用 static_page.py new_asset_page 返回实时页面；用户给出既有 QuantBuddy 活页 URL 并要求解读时，直接用 static_page.py interpret 读取该页实时数据，不下载 HTML、不暴露签名，也不进入模板或建页流程；其他固定页面请求先用 templates/template 选择带 recommend 标签的在线范式页。自建实时页先按数据性质选择通道：普通行情、估值和财务优先 Data Grant，自定义计算才验证并注册 Formula Package；两类凭证可在同页混用，随后替换凭证/文案、浏览器验收并发布。默认不从本地历史样板目录或低质 HTML 骨架起步。
-  用户显式唤起 /quant-buddy-view、/qbv、qbv 或 QBV，且请求不是纯咨询/代码维护/文档解释时，默认视为可分享活页任务：简单单一 A 股分析走 new_asset_page 快速终态；其余请求查官方精选+社区范式卡判定 direct/fork/unmatched。默认 direct 先交付现成链接、fork/unmatched 用 new_page 返回首链；当 config.json._channel=feishu-group 时，所有分支都禁止提前发送链接，只在终态交付 playground 链接。
+  用户显式唤起 /quant-buddy-view、/qbv、qbv 或 QBV，且请求不是纯咨询/代码维护/文档解释时，默认视为可分享活页任务：简单单一 A 股分析走 new_asset_page 快速终态；其余请求查官方精选+社区范式卡判定 direct/fork/unmatched。默认 direct 先交付现成链接、fork/unmatched 用 new_page 返回首链；当 config.json._channel=feishu-group 时，普通范式分支禁止提前发送链接，只在终态交付 playground 链接；已有文件的可读静态页验收完成后可先交付 playground 链接（不是空白进度页）。
   Do not use this skill for one-off 行情查询、普通股票涨跌幅/估值问答、选股/回测探索；those belong to quant-buddy-skill unless the user explicitly wants a reusable/shareable page.
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 0.6.70
+  version: 0.6.71
   author: guanzhao
   category: quant-finance
   tags: [quant, dashboard, formula-package, static-page, publish, visualization]
@@ -92,7 +93,13 @@ python scripts/static_page.py interpret '{"url":"用户提供的页面 URL"}'
 ## 何时用本技能 vs quant-buddy-skill
 
 - **探索/一次性查询**（"茅台今天涨跌幅"、"跑个均线金叉回测看看"）→ 用 **quant-buddy-skill**。
-- **要一个能反复看、能发给别人、数据会自动更新的页面** → 探索清楚后切到 **quant-buddy-view**。
+- **要一个能反复看、能发给别人、数据会自动更新的页面** → 切到 **quant-buddy-view**；已有文件转活页先静态托管，其他从零研究建页再按探索流程。
+
+## 已有文件转活页：静态托管优先（高于查数与范式路由）
+
+用户提供已有 JPG/PNG、HTML、PDF 或其他可读取文件，并要求转活页、网页活化、用 QBV 做成可分享页面时，按语义触发，不依赖“转活页”固定词。即使同时要求检查错误、补充指标、研究或重做 HTML，也必须先把来源转换为可阅读的静态 HTML、发布并验收、先交付链接，再考虑 QBS 数据接入。不得先查数据、匹配资产、查询范式或等待 Handoff/计算胶囊；这些工作均移到静态交付之后。仅阅读/分析/导出文件、未要求发布，或明确“先不要发布”时不触发。
+
+执行 [已有文件静态优先工作流](workflows/existing-file-static-first.md)。首次托管使用 `upload`（已明确可写目标则 `update`）和 `transformation_mode:"preserve_html_qbs_live", snapshot_only:true`；来源是转换后的静态 HTML，不是 JPG/PDF 二进制。先确认公开页面可访问并回传稳定 `page_id` / URL，说明“静态来源预览，尚未实时化/核验”；再同页增强。快照阶段返回 `transformation_status:pending`，不是转换失败，也不是任务已完成。数据未命中不得阻止静态交付；只有文件不可读、转换/快照/首次托管失败或公开授权边界不明等真实阻碍才能停在首次交付前。
 
 ## 新会话路由：单股快速返回 / 其余查范式卡
 
@@ -111,7 +118,7 @@ QBV_API_KEY=<本次任务的 key> python scripts/trace_context.py begin '{"user_
 
 > `build_dashboard.py` 也属于上述“后续每个命令”：只要 spec 含 `upload:true` 或 `update_page_id`，必须写入同一 `task_id`。成功结果会返回 hash-bound `reply_draft_file + reply_validation_command`；公网验收后必须写草稿并运行该命令，只有 `valid:true` 才能最终回复，之后停止工具调用。
 
-**具体资产证据闸门**：除 `new_asset_page` 固定场景外，只要用户点名具体资产，就在 Trace 后、解释资产身份或提交 `routing_decision` 前，按「Trace → 资产映射 → 最小接口验证 → 页面路由」的顺序完成验证：调用 `scripts/qbs_bridge.py resolve_asset_data` 得到平台 ticker 映射，并按页面实际需要探测所需数据角色是否可取数，只记录接口成功/失败、可用字段和结构化错误。页面结构与 direct/fork/unmatched 判断只依据"用户所需能力 × 已验证的平台能力"，不得依据 Agent 对公司上市状态、所有权、资产名称或市场惯例的记忆。验证前不得引入"上市/未上市、公开/私营、代理资产、无行情、只能静态"等限制性前提；若用户没有询问这些身份属性，也不要把它们扩展成分析主线。
+**具体资产证据闸门**：已有文件转活页先执行静态交付，本闸门仅在其后实时增强阶段生效。除 `new_asset_page` 固定场景外，只要用户点名具体资产，就在 Trace 后、解释资产身份或提交 `routing_decision` 前，按「Trace → 资产映射 → 最小接口验证 → 页面路由」的顺序完成验证：调用 `scripts/qbs_bridge.py resolve_asset_data` 得到平台 ticker 映射，并按页面实际需要探测所需数据角色是否可取数，只记录接口成功/失败、可用字段和结构化错误。页面结构与 direct/fork/unmatched 判断只依据"用户所需能力 × 已验证的平台能力"，不得依据 Agent 对公司上市状态、所有权、资产名称或市场惯例的记忆。验证前不得引入"上市/未上市、公开/私营、代理资产、无行情、只能静态"等限制性前提；若用户没有询问这些身份属性，也不要把它们扩展成分析主线。
 
 `resolve_asset_data` 的输入合同必须直接按下面形状写入新的 `output/*.json`，不要先猜 schema、不要把多只资产拼成一个 `asset` 字符串，也不要为每只资产各写一份参数文件：
 
@@ -341,7 +348,7 @@ npx skills update pseudo-longinus/quant-buddy-skills -y
 11. **普通建页前必须先查范式卡并显式确认路由**：`new_page` 会校验完整候选并绑定路由。fork 必须声明借鉴度，且一经判定不得改判 unmatched；继承不成立时只能在 fork 内降为 Compose。`build_dashboard` 对 fork/inherit* 禁止整页构建；fork/compose 仅在 `fork_compose` 绑定后允许 `emit:"panel_block"`。
 12. **本地验收与公网验收分责**：`fork-local` 在本地 `file://`（origin=null）下用放开同源策略的测试浏览器跑真实取数渲染（`security_mode:"disabled-web-security"`），布局/占位符/运行时错误/图片/Card Runtime 门禁照常执行；`public-smoke` 保持浏览器默认安全策略，数据接口 CORS/`Failed to fetch`/运行时失败仍严格拦截。平台注入的 `/webapi/skill/track` 分析埋点是 fire-and-forget，其 CORS/网络失败降为 `non_core_console_warnings`，不再让成功页面发布失败；数据接口（`queryDataGrant`/`queryFormulaPackage`）的失败仍是阻塞性核心错误。
 13. **Fork 数据通道必须继承来源合同**：fork 的目标是替换标的并保持来源范式运行合同，不是重新设计数据层。来源模板某一角色使用公式包，目标页同一角色继续使用公式包；来源使用 `fast_query` / `stock_profile` / `composition_select` 数据授权，目标页继续使用同 kind、同 query_type、同响应形状的数据授权。禁止仅因“财务数据通常可走 fast_query(report)”就在 fork 中把来源财务公式包改成 grant，也禁止反向把来源 grant 改成公式包。只有 `unmatched` / 明确从零重建时才重新做通道选择；此时平台白名单报告期财务优先 `fast_query(query_type="report")`。
-14. **用户本地 HTML 活页化优先保真接入 QBS**：当用户说“把这个本地 HTML/页面活页化、标准化处理”，且来源页调用用户自己的非 QBS 服务接口时，不走在线模板 fork，也不要求 `qbs_qbv_handoff_v1`。执行顺序固定为“先快照保底、再同页渐进增强”：先创建或复用稳定 `page_id`，把来源页当前可见状态原样写入该链接；若来源含 `fetch/axios/XMLHttpRequest/EventSource/WebSocket` 等异步逻辑，必须先运行 `scripts/capture_rendered_html.mjs`（或等价浏览器捕获）得到渲染完成且已冻结旧脚本的快照，并传 `source_snapshot_html_file + source_snapshot_html_sha256`。随后再验证/注册 QBS：直取数据使用 Data Grant，需要计算的口径使用公式包；成功区域才声明 `data-qb-live-mode="live"`，并按通道增加 `data-qb-live-tag="qbs-formula-package|qbs-data-grant"`。未转换区域保持快照原 DOM，不要求、也不得为了声明静态而注入 `data-qb-live-mode="static"`。完整或部分成功后都在同一个 `page_id` 写回：成功区域显示右上角低干扰 `● LIVE`，失败区域继续显示首次快照；全部失败或第二次写回失败时，活页仍保留完整快照，不生成通用错误页、不创建替代链接。来源/快照缺失、不可读或 SHA256 不一致时，在首次托管写入前 fail closed。终态自动使用 `preserve_html_qbs_live_delivery_v1`，按 `transformation_status` 如实说明 complete/partial/failed，并单独回传 `page_id` 和公开链接。本阶段只增加成功区域的 div live 声明与标准可见徽标，不引入 `data-qb-block-id`、Block Runtime 或 Block 持久化。
+14. **已有文件先静态托管，再保真接入 QBS**：所有已有文件转活页先执行 [静态优先工作流](workflows/existing-file-static-first.md)，不以文件格式、是否含非 QBS 接口或查数成功为前提。以下约束仅描述 HTML 保真增强阶段，不缩窄入口范围。当用户说“把这个本地 HTML/页面活页化、标准化处理”，且来源页调用用户自己的非 QBS 服务接口时，不走在线模板 fork，也不要求 `qbs_qbv_handoff_v1`。执行顺序固定为“先快照保底、再同页渐进增强”：先创建或复用稳定 `page_id`，把来源页当前可见状态原样写入该链接；若来源含 `fetch/axios/XMLHttpRequest/EventSource/WebSocket` 等异步逻辑，必须先运行 `scripts/capture_rendered_html.mjs`（或等价浏览器捕获）得到渲染完成且已冻结旧脚本的快照，并传 `source_snapshot_html_file + source_snapshot_html_sha256`。随后再验证/注册 QBS：直取数据使用 Data Grant，需要计算的口径使用公式包；成功区域才声明 `data-qb-live-mode="live"`，并按通道增加 `data-qb-live-tag="qbs-formula-package|qbs-data-grant"`。未转换区域保持快照原 DOM，不要求、也不得为了声明静态而注入 `data-qb-live-mode="static"`。完整或部分成功后都在同一个 `page_id` 写回：成功区域显示右上角低干扰 `● LIVE`，失败区域继续显示首次快照；全部失败或第二次写回失败时，活页仍保留完整快照，不生成通用错误页、不创建替代链接。来源/快照缺失、不可读或 SHA256 不一致时，在首次托管写入前 fail closed。终态自动使用 `preserve_html_qbs_live_delivery_v1`，按 `transformation_status` 如实说明 complete/partial/failed，并单独回传 `page_id` 和公开链接。本阶段只增加成功区域的 div live 声明与标准可见徽标，不引入 `data-qb-block-id`、Block Runtime 或 Block 持久化。
 15. **CHANGELOG 仅作为版本审计**：维护、升级或排查历史行为变化时，先阅读 `CHANGELOG.md` 中最新版本及与问题相关的历史条目；执行页面任务时，当前规则仍以 `SKILL.md` + `workflows/**` + `tools/**` + `guides/**` 为准。CHANGELOG 可能包含已被后续版本反转或废弃的旧口径，禁止用历史条目覆盖当前规则。
 
 
