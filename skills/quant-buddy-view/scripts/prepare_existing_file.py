@@ -1,5 +1,7 @@
 """Faithful file preparation; capture reads and authorized existing-page asset uploads only."""
 import base64
+import contextlib
+import sys
 import hashlib
 import html
 import json
@@ -151,7 +153,12 @@ def prepare(params, *, skill_root, asset_upload=None):
         else:
             if kind == '.pdf':
                 try:
-                    import fitz
+                    # Keep the machine-readable CLI channel clean on both new and old PyMuPDF.
+                    with contextlib.redirect_stdout(sys.stderr):
+                        try:
+                            import pymupdf as fitz
+                        except ImportError:
+                            import fitz
                 except ImportError:
                     return {'code': 1, 'error': 'FILE_PREPARE_PDF_RENDERER_REQUIRED', 'message': '安装 PyMuPDF 后重试；不进入研究或查数。'}
                 with fitz.open(stream=raw, filetype='pdf') as doc:
