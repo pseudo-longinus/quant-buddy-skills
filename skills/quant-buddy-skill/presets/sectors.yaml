@@ -1,7 +1,6 @@
 # ============================================================
 # 板块与行业预设
 # 来源：板块_all_742.xlsx（2026-08-07 人工导出）
-# 导出页面：http://dunhe.guanzhao12.com:8088/#/tagBoard/dashboard
 # 数据：742 条记录，738 个唯一名称，10 个分类
 # 关键：公式中必须使用 name 字段，如 板块(万得全A)、板块(银行（申万）)
 #
@@ -16,7 +15,7 @@
 # - gics_sectors: GICS 板块（美股），11 条（源类型：GICS板块(gics_sector)）
 # - hang_seng_primary_industries: 恒生一级行业（港股），12 条（源类型：恒生一级行业(hsi_l1)）
 # - hang_seng_secondary_industries: 恒生二级行业（港股），31 条（源类型：恒生二级行业(hsi_l2)）
-# - concepts: 聚宽概念（A股），399 条（源类型：聚宽概念(jqc)）
+# - concepts: A股概念分类（A股），399 条（源类型：A股概念分类(jqc)）
 # - kaipanla_themes: 开盘啦题材（A股），10 条（源类型：开盘啦题材(kplc)）
 # - market_connect: 沪港通 / 深港通，5 条（源类型：沪港通(market_tong)）
 # - primary_industries: 申万 / 万得一级行业（A股），42 条（源类型：申万一级行业(shenwan1)）
@@ -350,7 +349,7 @@ hang_seng_secondary_industries:
     type: hang_seng_secondary_industry
 
 
-# ── 聚宽概念（A股）（399 条）────────────────────
+# ── A股概念分类（A股）（399 条）────────────────────
 concepts:
   - name: "石墨烯"
     type: concept

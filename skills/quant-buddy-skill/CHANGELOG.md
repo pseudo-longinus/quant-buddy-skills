@@ -9,6 +9,17 @@
 
 ---
 
+## [4.25.36] — 2026-09-11
+
+### 用户侧数据目录与内部来源分离
+
+- 数据目录按业务分类命名；内部来源标识、源文件名和校验信息不再随 Skill 发布。
+- 保留数据记录的 ID、精确数据名和已有查询字段契约，不改变数据口径。
+- 导入时先校验来源与完整性，再生成公开目录；本地打包和正式标签包发布均检查内部来源标识。
+- 本次为公开目录与发布边界清理补丁，不包含回测功能修复或测试框架改动。
+
+---
+
 ## [4.25.35] — 2026-09-10
 
 ### 已有文件转活页先静态交付
@@ -339,7 +350,7 @@
 
 ### 清理未支持的数据源
 
-- 移除不再支持的 `fa_jqdata` 数据源，避免继续推荐无法使用的旧 jqdata 财务字段。
+- 移除不再支持的 `旧版财务数据类` 数据源，避免继续推荐无法使用的旧 旧版 财务字段。
 - 同步系统数据名目录、导入总数和 Provider 使用规则。
 
 ## [4.25.0] — 2026-08-07
@@ -437,8 +448,8 @@
 
 - **函数库刷新**：`presets/functions.yaml` 从 `config_support_function.json` 更新为 170 条常用函数。
 - **资产库刷新**：`presets/assets_db/` 从 `tkrsInfo` 更新，当前数量为 A 股 5557 条、港股 3067 条、美股及境外 ETF 1068 条、指数 604 条、期货 257 条。
-- **系统数据名目录刷新**：`presets/index_info_catalog/` 用 7 个手工导出的 `indexInfo_*.xlsx` 重新生成，Provider 范围固定为 `fa_jqdata`、`fmp`、`fmp_fa`、`guanzhao`、`guanzhao_lhb`、`join_quant_fa`、`rice_quant_fa`，合计 2355 条，`warnings: []`。
-- **新增数据名**：`guanzhao` 新增 `中证红利指数成分股`、`创业板50指数成分股`；`join_quant_fa` 新增 `A股融券余额〔融资融券信息〕`、`A股融资融券融券资格〔融资融券信息〕`。
+- **系统数据名目录刷新**：`presets/index_info_catalog/` 用 7 个手工导出的 `indexInfo_*.xlsx` 重新生成，范围固定为旧版财务、行业分类、境外财务、宏观策略、龙虎榜、A 股财务和期权波动率七类数据，合计 2355 条，`warnings: []`。
+- **新增数据名**：`guanzhao` 新增 `中证红利指数成分股`、`创业板50指数成分股`；`A 股财务数据类` 新增 `A股融券余额〔融资融券信息〕`、`A股融资融券融券资格〔融资融券信息〕`。
 - **维护口径同步**：`README.md` 记录后台手工筛选下载地址与 Provider 选择规则；`dev-tools/import_index_info_catalog.py` 的期望总数同步为 2355，避免下次维护误报旧总数。
 - `SKILL.md`：版本号升至 `4.23.1`，目录树中的函数库、资产库、系统数据名目录数量同步更新。
 
@@ -450,7 +461,7 @@
 
 本次把系统支持数据名目录沉淀为随 skill 发布的 YAML 预设，并同步收紧公式数据名与回测示例文档。`quant-buddy-skill` 不新增公式诊断中枢；公式真实出数验证仍以现有 `runMultiFormulaBatchStream` 流程为准。
 
-- **新增系统支持数据名全量索引**：新增 `presets/index_info_catalog/`，按 provider 拆分为 7 个 YAML 文件，覆盖 `rice_quant_fa`、`join_quant_fa`、`guanzhao_lhb`、`fmp_fa`、`guanzhao`、`fmp`、`fa_jqdata`，合计 2351 条系统支持 `index_title`。
+- **新增系统支持数据名全量索引**：新增 `presets/index_info_catalog/`，按当时的数据分类拆分为 7 个 YAML 文件，覆盖期权波动率、A 股财务、龙虎榜、境外财务、宏观策略、行业分类和旧版财务数据，合计 2351 条系统支持 `index_title`。
 - **新增导入审计清单**：`manifest.yaml` 记录来源 Excel、记录数、sha256、列名校验与总条数；`README.md` 说明全量目录的检索方式。原始 `.xlsx` 不进入 skill 发布包。
 - **开发导入工具外置**：新增 `dev-tools/import_index_info_catalog.py`，只作为开发维护工具，不放进 `quant-buddy-skill/scripts/`，避免被误认为 skill 运行时能力。
 - **明确数据目录分工**：`data_catalog.yaml` 定位为高频精选字段，新增港/美股 EBITDA、营业收入、龙虎榜净买额、GICS 所属指数等常用条目；全量系统数据名用 `rg "关键词" presets/index_info_catalog` 检索后，在公式中使用精确 `index_title`。

@@ -237,7 +237,7 @@ sentiment:
     dimension: two
     is_bool: false
     unit: "%"
-    description: "个股日度换手率（%），来源聚宽"
+    description: "个股日度换手率（%）"
     usage: >
       行业换手率 = 成分平均汇总("A股换手率〔估值数据〕","申万资产所属指数")
 

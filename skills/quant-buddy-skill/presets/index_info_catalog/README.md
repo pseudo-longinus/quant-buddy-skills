@@ -1,58 +1,22 @@
 # 系统数据名全量索引
 
-本目录保存平台已支持的 `indexInfo` 数据名清单，由后台页面人工筛选下载的 Excel 导出文件生成。它是 `presets/data_catalog.yaml` 的补充，而不是替代。
+本目录保存平台已支持的数据名，是 `presets/data_catalog.yaml` 的补充。
 
 ## 何时使用
 
-- 常见行情、估值、财务字段：先查 `presets/data_catalog.yaml`。
-- `data_catalog.yaml` 没有命中时，再用 `rg "关键词" presets/index_info_catalog` 搜索本目录。
-- 命中候选后，公式中使用精确的 `index_title`，不要把用户口语词直接写进公式。
-- 高频、已验证、对 Agent 常用的数据名，可以人工补进 `data_catalog.yaml`。
+- 常见行情、估值、财务字段先查 `presets/data_catalog.yaml`。
+- 未命中时，用 `rg "关键词" presets/index_info_catalog` 搜索本目录。
+- 公式中使用精确的 `index_title`，不要把用户口语词或分类名写进公式。
+- 高频、已验证的数据名可由维护人员补进 `data_catalog.yaml`。
 
-## 文件说明
+## 业务分类
 
-- `join_quant_fa.yaml`：A 股财务/报告期字段。
-- `fmp_fa.yaml`：港股/美股财务字段。
-- `guanzhao_lhb.yaml`：A 股龙虎榜标签数据。
-- `guanzhao.yaml`：示例/宏观/策略类数据。
-- `rice_quant_fa.yaml`：A 股期权隐含波动率。
-- `fmp.yaml`：GICS 行业/板块所属指数。
-- `manifest.yaml`：导入来源、记录数、sha256 和列名校验结果。
+- `a_share_financials.yaml`：A 股财务及报告期字段。
+- `global_financials.yaml`：港股、美股财务字段。
+- `a_share_trading_labels.yaml`：A 股龙虎榜标签数据。
+- `macro_strategy.yaml`：示例、宏观及策略类数据。
+- `a_share_option_iv.yaml`：A 股期权隐含波动率。
+- `global_classification.yaml`：GICS 行业、板块所属指数。
+- `manifest.yaml`：业务分类文件清单和记录数。
 
-## 查询示例
-
-```bash
-rg "归母净利润" presets/index_info_catalog
-rg "EBITDA" presets/index_info_catalog
-rg "龙虎榜" presets/index_info_catalog
-rg "GICS" presets/index_info_catalog
-```
-
-## 维护方式
-
-不要手工编辑记录行。需要更新时，先到后台页面人工筛选并下载 Excel：
-
-```text
-http://dunhe.guanzhao12.com:8088/#/indexInfo/dashboard
-```
-
-Provider 只选择以下 6 类：
-
-```text
-fmp
-fmp_fa
-guanzhao
-guanzhao_lhb
-join_quant_fa
-rice_quant_fa
-```
-
-不要选择 `全部`，也不要导入 `dunhe`、`dunhe_custom_fa`、`dunhe_quant`、`fa_dunhe`、`mydata`、`wind_edb`、`wind_search`、`fa_jqdata` 等其它 Provider。筛选条件使用 `deleted = false`；其中 `guanzhao` 额外使用 `is_public = true`。
-
-下载完成后，在仓库根目录运行开发维护脚本：
-
-```bash
-python dev-tools/import_index_info_catalog.py <indexInfo_*.xlsx>...
-```
-
-导入脚本位于 skill 运行时目录外，不会作为用户侧 skill 命令发布。
+分类仅用于检索组织，不代表数据的原创归属。不要手工修改记录；维护流程及真实来源记录保存在用户侧 Skill 目录之外。

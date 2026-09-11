@@ -1,0 +1,7 @@
+# Auto-generated business catalog; do not edit records by hand.
+schema_version: 2
+category: global_classification
+record_count: 2
+records:
+  - {id: "6a2138a9031ae7c8e91bb77f", index_title: "GICS一级行业所属指数"}
+  - {id: "6a2138a4031ae7c8e91bb592", index_title: "GICS板块所属指数"}

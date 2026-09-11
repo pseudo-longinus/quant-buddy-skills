@@ -1,0 +1,8 @@
+# Auto-generated business catalog; do not edit records by hand.
+schema_version: 2
+category: a_share_option_iv
+record_count: 3
+records:
+  - {id: "698c48b53ab9fa86573e7c21", index_title: "A股期权隐含波动率"}
+  - {id: "698c49cf3ab9fa86573ea572", index_title: "A股认沽期权隐含波动率"}
+  - {id: "698c49b43ab9fa86573ea16e", index_title: "A股认购期权隐含波动率"}
