@@ -2,7 +2,7 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.25.36
+version: 4.25.37
 description: |
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据；支持查询 A 股股票所属行业。
   查询最近N个交易日的价格序列、日涨跌幅序列、窗口最高价、最低价、振幅等短期统计。
@@ -16,7 +16,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.25.36
+  version: 4.25.37
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -92,7 +92,7 @@ runtimeRequirements:
 
 ## 已有文件转活页：先交 QBV 静态托管
 
-用户提供 JPG/PNG、HTML、PDF 等已有文件并要求网页活化、转活页或用 QBV 做成可分享页面时，优先进入 QBV 的 `workflows/existing-file-static-first.md`。包括“先检查报告、补充指标、重做 HTML，再活页化”的复合需求；不依赖固定关键词。此路径高于本 Skill 的资产映射、查数、公式验证、图表分类器及“先完成计算再 Handoff”的一般顺序：先转换来源、发布静态页面、验收并交付链接，再进行 QBS 查询和同页实时增强，不要求先准备计算胶囊。复用真实 task_id/turn_id，不另建用户可见任务，不声称未实际执行的托管已经开始。纯文件分析或用户明确不要发布时不触发；不可读文件、敏感内容授权不明、转换或首次托管失败须如实说明。QBS 无数据不是拒绝托管的理由；不得将来源快照标为实时或已核验。
+用户提供 JPG/PNG、HTML、PDF 等已有文件并要求转活页或公开分享时，优先进入 QBV `workflows/existing-file-static-first.md`：先 file_prepare 保存原件、生成原始承载页和持久发布参数，保留 file_publish_dir 执行静态发布，验收后在下一次工具调用前先向用户发送链接，file_confirm_delivery确认实际发出的消息，再自动继续已授权的研究、纠错、补指标和QBS接入。复合需求也不能先研究再发布。此顺序高于资产映射、查数、公式验证、图表分类器及“先计算再Handoff”；首版不要求计算胶囊，不先改写原报告。复用真实 task_id/turn_id 和同一个 page_id，不能另建用户可见任务。QBS查询/接入失败只影响增强，保留线上成功版本；未查到不等于平台不支持。纯文件分析、明确不发布不触发；真实公开授权、不可读文件、转换/首次托管问题须如实说明。不得将快照标为实时或已核验。
 
 ## 硬规则（违反必失败）
 

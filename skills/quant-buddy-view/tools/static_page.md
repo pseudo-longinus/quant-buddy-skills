@@ -546,7 +546,7 @@ python scripts/publish_workflow.py '@output/forks/page_xxx/page_xxx.publish-plan
 
 已有 JPG/PNG、PDF 等文件先按 [静态优先工作流](../workflows/existing-file-static-first.md) 转为 HTML；用户要求活页化时，不论有无旧接口，都先用本模式的 `snapshot_only:true` 托管。二进制文件不可直接作为 source_html_file。
 
-**分阶段入口**：`snapshot_only` 是可选 JSON boolean，默认 false（保持既有一次调用快照+增强行为）。true 时仅校验来源/快照、写入静态页并返回，不读取目标 HTML、不验证 QBS、不要求路由收据。成功返回 `transformation_status:pending`、`delivery_stage:static_snapshot`、`next_action:verify_and_deliver_static_before_qbs` 和非终态回复合同；这不是 failed，也不证明已通过公网验收。先验收并交付链接，再查数。增强调用用同一个 page_id 的 update 并省略/关闭 snapshot_only。下表的实时目标/路由字段只在增强阶段必需。
+**分阶段入口**：已有文件任务先运行 file_prepare 并携带返回的 `file_publish_dir`。有持久记录时，首次调用始终只发布/验收静态版，即使snapshot_only:false也不研究；后续同页update才验证候选并增强。`snapshot_only:true`重复调用不得把已增强页面覆盖回快照。无file_publish_dir的旧upload仍兼容一次调用快照+增强；旧update仅在snapshot_only:true时写快照，否则先验证候选再单次写入，不提供持久恢复保证。新的文件任务不得省略file_publish_dir。
 
 只有调用方显式传 `transformation_mode:"preserve_html_qbs_live"` 时启用；普通静态上传和一般页面更新不受影响。该模式针对“保留用户本地 HTML 的原结构、当前数据和布局，只把可成功迁移的数据链接入 QBS”，不是在线模板 fork，也不要求 Handoff。
 
@@ -566,7 +566,7 @@ python scripts/publish_workflow.py '@output/forks/page_xxx/page_xxx.publish-plan
 | `validation_receipt_files` | string[] | 按所选路线 | 仅提交 `selected_routes` 中公式包路线的成功验证收据 |
 | `grant_validation_receipt_files` | string[] | 按所选路线 | 仅提交 `selected_routes` 中 Data Grant 路线的成功验证收据 |
 
-异步来源必须先捕获当前页面快照：
+异步来源优先使用 file_prepare 的只读响应回放；确实只能视觉冻结时，旧捕获器仍可用于显式适配：
 
 ```powershell
 node scripts/capture_rendered_html.mjs C:\path\source.html --output C:\path\source.snapshot.html --wait-ms 1500
@@ -576,21 +576,19 @@ node scripts/capture_rendered_html.mjs C:\path\source.html --output C:\path\sour
 
 **固定写入顺序**：
 
-1. 在首次托管写入前验证来源文件与快照文件的 SHA256。含 `fetch/axios/XMLHttpRequest/EventSource/WebSocket` 的来源缺少显式渲染快照时直接拒绝。
-2. `upload` 用快照调用 `uploadStaticPage` 创建稳定 `page_id`；`update` 先用快照更新传入的原 `page_id`。
-   preserve 入口不会在这一步之前预读 QBS 目标 HTML；目标缺失或不可读时仍保留已写入的快照，并返回 `PRESERVE_HTML_TARGET_READ_FAILED`。
-3. 快照已成功写入后，才验证 QBS 目标：目标必须移除旧接口，并与**渲染快照**保持非运行时 DOM/稳定属性、可见正文、内联 CSS 和标题一致；只允许成功区域增加 live 属性、替换运行时脚本和数据绑定。
-4. QBS complete/partial 时调用 `updateStaticPage` 写回同一个 `page_id`；全部失败时不做第二次写入。第二次写入失败也返回首次快照的可交付页面，不生成通用错误页或替代链接。
+1. 首次写入前验证来源和承载快照SHA256；动态来源必须提供快照或由file_prepare生成。
+2. 携带file_publish_dir的首次upload/update保存写入意图，发布原始版，立即保存身份，再浏览器验收。验收通过立即交付静态链接，返回非终态，不执行QBS。
+3. 后续update先校验本地候选和线上版本；保真接入继续要求对应数据路由及刷新证据。失败不得重写原始快照。
+4. 候选通过后同page_id写入、公网验收；失败核对版本后尝试恢复，未知写入/恢复失败明确记录。详见[静态优先工作流](../workflows/existing-file-static-first.md)。
 
 live tag 规则：未声明 `data-qb-live-mode` 的 div 默认就是未转换的快照静态区域，允许且不改写；只有成功 QBS 区域声明 `data-qb-live-mode="live"`，并按通道声明 `data-qb-live-tag="qbs-formula-package"` 或 `qbs-data-grant`。显式 mode 非法、重复属性或未知 live tag 仍拒绝。只有 live 区域会自动获得唯一的 `<style data-qb-live-indicator-runtime="v2">` 和右上角低干扰 `● LIVE`。
 
 结果语义：
 
-- `pending`：显式 `snapshot_only:true` 已发布静态快照，尚未尝试 QBS 增强；`agent_reply_contract.terminal:false`，应先验收并交付静态链接，再继续任务。
-
-- `complete`：首次快照已发布，随后同页写回完整 QBS 实时 HTML；`source_html_fallback_published:false`。
-- `partial`：首次快照已发布，随后同页写回混合 HTML；成功区域 live，失败区域保持快照；`source_html_fallback_published:true`。
-- `failed`：QBS 门禁失败或第二次写回失败，当前同一链接继续显示完整首次快照；`source_html_fallback_published:true`。
+- 持久流程以 `delivery_stage`、`page_delivered`、`current_page_verified` 和 `stage_error` 区分首次交付、增强和当前待确认问题；`transformation_status`仅描述最后成功版本的增强状态。
+- `pending`：已发布静态版，后续数据增强未完成；阶段交付不应终止已授权工作。
+- `complete/partial`：本地和公网验收通过的增强版本；数据范围仍按实际证据说明。
+- 无记录旧调用的 `failed` 是该调用失败，不意味着已经替用户保存了快照；必须检查实际写入字段，不可假称保底完成。
 
 响应附加 `snapshot_published_first`、`source_snapshot_published`、`publish_sequence`、`transformation_status`、`source_html_fallback_published` 和 `transformation_validation`；partial/failed 还附加 `transformation_error`。`transformation_validation` 记录来源/快照哈希和 live 区域数量但不回显 signature。当前不实现 `data-qb-block-id`、Block Runtime 或 Block 持久化。
 
@@ -769,3 +767,40 @@ python scripts/static_page.py unpublish_community '{"page_id":"page_xxx"}'
 
 `new_asset_page` 固定 10 RU（三份固定 Data Grant + 一次页面上传）；上传 / 替换各固定 1 RU；下载 / 列表 / 撤销 / 查标签（tags）/ 发布到社区 / 取消社区发布 / 浏览模板（templates、template）不计费
 （下载字节直连 OSS，不经服务端）。替换不占新的活跃页配额。
+
+
+## 可恢复的文件准备与发布
+
+### `file_prepare`
+
+输入 `source_file`、`work_dir`（均绝对路径）、`task_id`、`publish_authorized:true`，可选明确目标 `page_id` 和原始 `user_query`。输出 `params_file`、`publish_command`、`publish_params`、原件SHA256、资源清单和交互损失说明。支持HTML/HTM、JPG/JPEG、PNG、PDF；PDF需PyMuPDF，动态HTML需Node/Playwright。work_dir使用任务可恢复工作区，不使用Skill目录或worker私有tmp。
+
+直接将返回params_file传给upload/update；保留file_publish_dir、来源及快照哈希。首次命令只交付原始静态版；下一次update增加page_id、html_file和snapshot_only:false。默认file_enhancement_mode=preserve；用户授权重做内容时可改content，不伪报保真字段。
+
+超限图像有page_id时复用image_upload；无page_id且超过2MB返回真实平台依赖，不创建空白替代页。file_prepare会在获授权的动态来源上发出GET读取以捕获快照，已有目标页的超限资源准备会上传图片；它不是纯离线命令。
+
+### `file_status`
+
+输入task_id、file_publish_dir，可选page_id用于核对丢失创建回执的候选页。默认reconcile:true：核对未完成写入，可能执行浏览器验收及受保护恢复；reconcile:false仅查看本地状态。不能仅因不知道page_id就重建页面，也不能删除发布记录绕过未知写入。
+
+响应的page_delivered表示存在历史验收成功版本，不保证发生未确认写入后的当前线上状态；current_page_verified及stage_error共同表示本轮证据。首次快照只叫“原始静态版本”，渠道链接规则不变。
+
+### 已知边界
+
+- OS文件锁及原子状态写入保护同任务本地协作；跨worker必须共享file_publish_dir。
+- 创建回执完全丢失需通过本人页面列表/服务端证据找到候选page_id，哈希确认前不自动重试创建。
+- 服务端无条件更新接口不提供CAS；立即读版本再写可阻止已发现冲突，不能消除读写间竞态。
+- HTML/元数据恢复工件可能携带原页面运行凭证，仅存私有任务目录；publication.json不收集API key或原始错误正文。
+
+首次已写入但浏览器验收失败、且无旧成功版本可恢复时，可用同一发布记录和page_id，传 `file_repair:true` 与修复后的 `html_file`。工具先核对当前首版哈希，再做本地浏览器验收，通过后同页修复；不查QBS，不允许借此绕过未知写入或覆盖已有成功增强版本。
+
+
+### `file_confirm_delivery`：增强前的首链确认
+
+传task_id、file_publish_dir、page_id、public_url、delivery_message。仅在required_user_message已经实际作为用户可见消息发出后调用；匹配已验收页面和地址后记入static_delivery，返回static_delivery_confirmed:true。证据级别是agent_attestation，真实发消息事实由宿主/Trace验收，工具不会伪造消息回执。
+
+后续增强必须有此确认，否则返回非破坏性的FILE_STATIC_LINK_DELIVERY_REQUIRED；用户已获得的静态页仍可读。纯静态交付不强制执行额外增强。
+
+可恢复绑定索引存储在用户私有持久目录，QBV_FILE_BINDING_DIR可配置共享位置。普通update/upload不得通过省略记录绕过；失败返回原file_publish_dir及bound_task_id用于继续原流程，不改写现有内容。跨任务续跑复用该任务的beginTurn与绑定，不能假冒新任务接管旧记录。
+
+文件增强的唯一发布入口为携带file_publish_dir的update；content模式自动编译分享壳并完成文件验收后才写入。不要把未编译主体缺分享控件的ui-refinement结果当作此流程失败；用户未要求的额外字号/海报优化不应阻塞可读内容增强。需要调试用candidate_verification_command。

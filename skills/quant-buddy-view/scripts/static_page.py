@@ -6,6 +6,8 @@ r"""
 工具说明文档：tools/static_page.md
 
 静态页子命令（除直连 URL 验收外需 API Key）：
+    file_prepare  原文件最小承载与持久发布参数准备（不研究数据）
+    file_status   查看并核对文件发布状态，恢复同页操作
     new_asset_page  简单单一 A 股分析快速通道：直接生成并返回终态个股分析页
     new_page   首次会话先上传 iframe 友好的活页进度页，返回 page_id + 公开 url
     update_progress  更新同一个 page_id 的进度页 HTML；刷新由承接页面负责
@@ -2436,6 +2438,9 @@ def _finalize_snapshot_only(out, *, params, snapshot, reply_resolution, sequence
 
 
 def _cmd_upload_preserve(params, *, endpoint, api_key):
+    if params.get("file_publish_dir"):
+        import file_publication
+        return file_publication.run(sys.modules[__name__], params, endpoint, api_key)
     snapshot, reply_resolution, error = _prepare_preserve_snapshot_stage(params)
     if error:
         return error
@@ -2511,41 +2516,32 @@ def _cmd_upload_preserve(params, *, endpoint, api_key):
 
 
 def _cmd_update_preserve(params, *, endpoint, api_key):
+    if params.get("file_publish_dir"):
+        import file_publication
+        return file_publication.run(sys.modules[__name__], params, endpoint, api_key)
     snapshot, reply_resolution, error = _prepare_preserve_snapshot_stage(params)
     if error:
         return error
     resolved_params = snapshot["params"]
     page_id = str(params.get("page_id") or "").strip()
-    snapshot_body = _publish_body(resolved_params, snapshot["html"], page_id=page_id, snapshot_stage=True)
-    snapshot_out = C.http_json(
-        "POST", C.api_url(endpoint, _PATH["update"]), C.headers(api_key), snapshot_body,
-        timeout=_UPLOAD_TIMEOUT,
-    )
-    route_transition = _transition_existing_page_to_fork(params, snapshot_out)
-    if route_transition:
-        return route_transition
-    snapshot_ok = isinstance(snapshot_out, dict) and snapshot_out.get("code") == 0
-    sequence = ["snapshot_update"] if snapshot_ok else []
-    if not snapshot_ok:
-        return _finalize_preserve_response(
-            snapshot_out, params=resolved_params, validation=snapshot["validation"], error=None,
-            status="failed", snapshot_published_first=False,
-            source_html_fallback_published=False, publish_sequence=sequence,
-            shell_check=snapshot["shell_check"], reply_resolution=reply_resolution,
-        )
+    sequence = []
+    snapshot_out = {"code": 0, "page_id": page_id}
     if resolved_params.get("snapshot_only") is True:
-        return _finalize_snapshot_only(
-            _merge_preserve_response(snapshot_out, None, page_id=page_id),
-            params=resolved_params, snapshot=snapshot,
-            reply_resolution=reply_resolution, sequence=sequence,
-        )
+        snapshot_body = _publish_body(resolved_params, snapshot["html"], page_id=page_id, snapshot_stage=True)
+        snapshot_out = C.http_json("POST", C.api_url(endpoint, _PATH["update"]), C.headers(api_key),
+                                   snapshot_body, timeout=_UPLOAD_TIMEOUT)
+        if not isinstance(snapshot_out, dict) or snapshot_out.get("code") != 0:
+            return snapshot_out
+        return _finalize_snapshot_only(snapshot_out, params=resolved_params, snapshot=snapshot,
+                                       reply_resolution=reply_resolution, sequence=["snapshot_update"])
     target_html, target_error = _read_html(resolved_params)
     if target_error:
+        snapshot_out["code"] = 1
         return _finalize_preserve_response(
             _merge_preserve_response(snapshot_out, None, page_id=page_id),
             params=resolved_params, validation=snapshot["validation"],
             error=_preserve_target_read_error(target_error), status="failed",
-            snapshot_published_first=True, source_html_fallback_published=True,
+            snapshot_published_first=False, source_html_fallback_published=False,
             publish_sequence=sequence, shell_check=snapshot["shell_check"],
             reply_resolution=reply_resolution,
         )
@@ -2553,12 +2549,13 @@ def _cmd_update_preserve(params, *, endpoint, api_key):
         resolved_params, target_html, endpoint=endpoint
     )
     if validation_error:
+        snapshot_out["code"] = 1
         status = _preserve_fallback_status(resolved_params)
         return _finalize_preserve_response(
             _merge_preserve_response(snapshot_out, None, page_id=page_id),
             params=resolved_params, validation=snapshot["validation"], error=validation_error,
-            status=status, snapshot_published_first=True,
-            source_html_fallback_published=True, publish_sequence=sequence,
+            status=status, snapshot_published_first=False,
+            source_html_fallback_published=False, publish_sequence=sequence,
             shell_check=snapshot["shell_check"], reply_resolution=reply_resolution,
         )
     live_body = _publish_body(resolved_params, live_stage["html"], page_id=page_id)
@@ -2570,11 +2567,12 @@ def _cmd_update_preserve(params, *, endpoint, api_key):
     if route_transition:
         return route_transition
     if not isinstance(live_out, dict) or live_out.get("code") != 0:
+        snapshot_out["code"] = 1
         return _finalize_preserve_response(
             _merge_preserve_response(snapshot_out, None, page_id=page_id),
             params=resolved_params, validation=snapshot["validation"],
             error=_preserve_live_update_error(live_out), status="failed",
-            snapshot_published_first=True, source_html_fallback_published=True,
+            snapshot_published_first=False, source_html_fallback_published=False,
             publish_sequence=sequence + ["qbs_live_update_failed"],
             shell_check=snapshot["shell_check"], reply_resolution=reply_resolution,
         )
@@ -2582,7 +2580,7 @@ def _cmd_update_preserve(params, *, endpoint, api_key):
     final_out = _merge_preserve_response(snapshot_out, live_out, page_id=page_id)
     return _finalize_preserve_response(
         final_out, params=resolved_params, validation=validation, error=None, status=status,
-        snapshot_published_first=True, source_html_fallback_published=(status == "partial"),
+        snapshot_published_first=False, source_html_fallback_published=False,
         publish_sequence=sequence + ["qbs_live_update"], shell_check=live_stage["shell_check"],
         reply_resolution=reply_resolution,
         card_runtime_verification=live_stage.get("card_runtime_verification"),
@@ -2595,6 +2593,11 @@ def cmd_upload(params):
         return route_error
     cfg = C.load_config_require_key()
     endpoint, api_key = C.endpoint_of(cfg), cfg.get("api_key", "")
+
+    import file_publication
+    binding_error = file_publication.mutation_guard(sys.modules[__name__], params, endpoint, action="upload")
+    if binding_error:
+        return binding_error
 
     if _is_preserve_html_qbs_live(params):
         return _cmd_upload_preserve(params, endpoint=endpoint, api_key=api_key)
@@ -2695,6 +2698,11 @@ def cmd_update(params):
         return route_error
     cfg = C.load_config_require_key()
     endpoint, api_key = C.endpoint_of(cfg), cfg.get("api_key", "")
+
+    import file_publication
+    binding_error = file_publication.mutation_guard(sys.modules[__name__], params, endpoint, action="update")
+    if binding_error:
+        return binding_error
 
     if _is_preserve_html_qbs_live(params):
         return _cmd_update_preserve(params, endpoint=endpoint, api_key=api_key)
@@ -8451,7 +8459,7 @@ def _run_card_runtime_verify(
 def _run_page_verifier(target, profile, *, card_runtime=False, timeout_sec=180):
     cmd = [
         "node",
-        os.path.join(C.SKILL_ROOT, "scripts", "verify_page.mjs"),
+        os.path.join(C.SKILL_ROOT, "scripts", "verify_file_snapshot.mjs" if profile == "file-snapshot" else "verify_page.mjs"),
         str(target),
         "--profile",
         str(profile),
@@ -8803,7 +8811,34 @@ def _cmd_retrofit_card_runtime_impl(params, retrofit_module):
     }
 
 
+def cmd_file_prepare(params):
+    from prepare_existing_file import prepare
+    try:
+        return prepare(params, skill_root=C.SKILL_ROOT, asset_upload=cmd_image_upload)
+    except ValueError as exc:
+        code = str(exc) if re.fullmatch(r"FILE_PREPARE_[A-Z_]+", str(exc)) else "FILE_PREPARE_SOURCE_ENCODING_OR_FORMAT_INVALID"
+        return {"code": 1, "error": code, "message": "保留原件；修复这一文件准备阻碍后继续，不进入研究或QBS。"}
+    except (OSError, subprocess.TimeoutExpired):
+        return {"code": 1, "error": "FILE_PREPARE_FAILED",
+                "message": "文件准备未完成；原件不动，检查资源或渲染依赖后重试。"}
+
+
+def cmd_file_status(params):
+    import file_publication
+    cfg = C.load_config() if params.get("reconcile") is False else C.load_config_require_key()
+    return file_publication.run(sys.modules[__name__], params, C.endpoint_of(cfg), cfg.get("api_key", ""), status_only=True)
+
+
+def cmd_file_confirm_delivery(params):
+    import file_publication
+    cfg = C.load_config()
+    return file_publication.run(sys.modules[__name__], params, C.endpoint_of(cfg), cfg.get("api_key", ""), confirm_delivery=True)
+
+
 _COMMANDS = {
+    "file_prepare": cmd_file_prepare,
+    "file_status": cmd_file_status,
+    "file_confirm_delivery": cmd_file_confirm_delivery,
     "new_asset_page": cmd_new_asset_page,
     "new_page": cmd_new_page,
     "update_progress": cmd_update_progress,
@@ -8838,6 +8873,7 @@ _COMMANDS = {
 }
 
 _TRACE_REQUIRED_COMMANDS = {
+    "file_prepare", "file_status", "file_confirm_delivery",
     "new_asset_page", "new_page", "update_progress", "publish_final", "publish_verified", "upload", "update", "direct_deliver", "direct_finalize", "fork_validate", "image_upload",
     "templates", "intent_profile", "research_templates", "fork_prepare", "fork_compose", "fork_review_update",
 }

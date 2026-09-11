@@ -313,11 +313,12 @@ def _delivery_constraint_errors(contract, draft):
     }], table_count
 
 
-def _live_page_delivery_errors(public_url, draft):
+def _live_page_delivery_errors(public_url, draft, *, file_publication=False):
     """Require the share link to be the natural final Markdown block."""
     if not public_url or public_url not in draft:
         return []
-    expected = f"可分享实时活页：[{public_url}]({public_url})\n{_LIVE_PAGE_UPGRADE_HINT}"
+    label = "可分享活页" if file_publication else "可分享实时活页"
+    expected = f"{label}：[{public_url}]({public_url})\n{_LIVE_PAGE_UPGRADE_HINT}"
     if str(draft).rstrip().endswith(expected):
         return []
     return [{
@@ -339,7 +340,7 @@ def validate_reply(contract_payload, draft):
     elif public_url not in draft:
         errors.append({"code": "PUBLIC_URL_MISSING", "message": "最终回复未包含终态 public_url"})
     else:
-        errors.extend(_live_page_delivery_errors(public_url, draft))
+        errors.extend(_live_page_delivery_errors(public_url, draft, file_publication=contract.get("file_publication_schema") == "qbv_file_publication_v1"))
 
     if contract.get("require_page_id_in_reply") is True:
         page_id = str(contract.get("page_id") or "").strip()
