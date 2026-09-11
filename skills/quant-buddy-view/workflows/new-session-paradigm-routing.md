@@ -78,7 +78,9 @@ fork/unmatched 都必须由 Agent 在 `new_page.routing_decision` 中显式记�
 5. `direct_deliver` 返回 `agent_reply_contract_file`、`reply_draft_file`、`reply_validation_params_file` 和 `reply_validation_command`。按 contract 的 `reply_render_policy` 与 `reply_data_availability` 删除结构性不存在的字段、整列、整行和空可选章节，再把 Markdown 草稿写入返回的 draft 路径，只执行返回的校验命令一次；成功会清理本任务 contract、draft、params 和 grant 临时结果。
 6. 用户之后说「要改这个页面内容」→ 转 ② fork。
 
-## ② fork：范式命中但要改 → 换标的注册自己的公式包
+## ② fork：按继承或Compose执行目标合同
+
+多资产/多主题且只借结构时优先 `intent_profile → research_templates → fork_compose → compose_page → publish_verified`，详见[计划与恢复](planned-delivery-recovery.md)。以下资产替换步骤只适用于inherit/inherit_augment，不适用于已经绑定Compose的任务。
 
 1. 运行 `new_page` 创建进度页并取得 `page_id + url`，同时引用本次候选并记录 fork 决定：
    ```bash
@@ -89,7 +91,7 @@ fork/unmatched 都必须由 Agent 在 `new_page.routing_decision` 中显式记�
 
    **职责分工**：Agent 负责说清楚"换成哪只标的"，脚本负责"这只标的在页面里写成什么样"。来源模板的主资产由脚本从模板公式（`取出(...)`/`收盘价(...)` 等）词频 + 标题自动推导，代码的实际书写形态（`SH600900` / `600900.SH` / 裸 `600900`）由脚本扫描来源 HTML 得出，**只替换页面里真实存在的写法**。不要去猜来源 HTML 里代码写成什么样——你看不到那个文件，猜错会直接让 fork 失败。
 
-   - **多资产/指数类范式**（没有唯一主资产）推导会失败并返回 `FORK_SOURCE_ASSET_AMBIGUOUS`，报错里带 `detected_source_asset.candidates`（候选资产名）和 `example_params`（可照抄的调用）。此时用 `source_asset` 显式指明来源模板主资产再重试。为避免这一轮往返，这类范式建议一开始就传 `source_asset`。
+   - **多资产/指数类范式**（没有唯一主资产）推导会失败并返回 `FORK_SOURCE_ASSET_AMBIGUOUS`，报错里带 `detected_source_asset.candidates`（候选资产名）和 `example_params`（可照抄的调用）。确实存在唯一金融实体时才传经核验的 `source_asset`；多主题或仅借布局则转Compose。禁止用页面标题、篮子ID或猜测代码满足该参数。
    - `asset_replacements` 现在是**可选覆盖**：只在需要额外文案替换、或要覆盖脚本推导结果时才传，同名 key 以你传的为准。
    - 替换完成后、写出工作 HTML **之前**，脚本会做残留检查：主资产名或其代码写法若仍留在页面里，直接返回 `FORK_SOURCE_ASSET_RESIDUAL`，不会等到发布成功后才发现文案还是源模板原样。
 
@@ -111,9 +113,9 @@ fork/unmatched 都必须由 Agent 在 `new_page.routing_decision` 中显式记�
 python scripts/static_page.py new_page '{"task_id":"task_xxx","user_query":"制作事件时间线页面","title":"事件分析活页","routing_decision":{"mode":"unmatched","closest_template_id":"page_template_xxx","reason_code":"required_capability_missing","reason":"候选模板缺少用户要求的事件时间线与情景推演能力"}}'
 ```
 
-记录成功后继续 `build_dashboard` / bespoke 自建 → 验证 → 注册 → 生成 → verify → `publish_final`。普通渠道发送首链，`feishu-group` 不发送；其余收口同 ②。`build_dashboard` 会读取 task 路由凭据：`unmatched` 可正常整页自建，fork/inherit* 禁止整页重建，fork/compose 仅允许在完成 Compose 绑定后生成 `panel_block`；`publish_final` 仍会复核最终发布路径与已记录决定一致。
+记录成功后继续 `build_dashboard` / bespoke 自建 → 验证 → 注册 → 生成 → verify → `publish_final`。普通渠道发送首链，`feishu-group` 不发送；其余收口同 ②。`build_dashboard` 会读取 task 路由凭据：`unmatched` 可正常整页自建，fork/inherit* 禁止整页重建，fork/compose 通过受控 `compose_page` 生成完整候选；`panel_block`仍只表示局部产物；`publish_final` 仍会复核最终发布路径与已记录决定一致。
 
-若 `new_page` 已记录 fork，但继承合同后来确认不成立，仍不能改判 unmatched。继续按借鉴度处理：结构与合同可继承走 `inherit`；缺维度走 `inherit_augment + augmentation_spec`；合同不可继承但仍能借布局、样式、渲染函数、公式思路或 Grant 形状时，运行 `research_templates → fork_compose`。`publish_final` 只接受继承绑定或 SHA256 校验通过的 Compose 绑定。
+若 `new_page` 已记录 fork，但继承合同后来确认不成立，仍不能改判 unmatched。继续按借鉴度处理：结构与合同可继承走 `inherit`；缺维度走 `inherit_augment + augmentation_spec`；合同不可继承但仍能借布局、样式、渲染函数、公式思路或 Grant 形状时，运行 `research_templates → fork_compose → compose_page`，随后 `publish_verified`。`publish_final` 只接受继承绑定或 SHA256 校验通过的 Compose 绑定。
 
 ## 后续追问
 

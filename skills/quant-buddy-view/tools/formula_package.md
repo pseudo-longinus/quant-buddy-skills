@@ -134,3 +134,10 @@ direct 流程必须显式使用 `summary`，避免在日志和回复上下文中
 注册按公式条数计费；取数计基础读取费，触发重算时按实际重算条数追加。**取数费用计入任务包所有者配额**，取数方不消耗自己配额、也无需 API Key。
 
 > 端到端示例：[workflows/dashboard-end-to-end.md](../workflows/dashboard-end-to-end.md)。
+
+
+## 计划任务的登记与快照
+
+有task_id的注册采用任务级credentials/package及合同登记收据；计划任务须传对应`validation_receipt_file`。有效登记可复用，结果不确定时不重发注册；refresh/revoke同步任务记录。无任务旧调用和显式legacy导入保持兼容，但导入旧签名不等于建立了本任务注册证据。
+
+历史研究可用`static_page.py materialize_snapshot`冻结本任务已验证/登记的产出，随后绑定snapshot_roles。不要复制来源模板签名，也不要只改kind或伪造验证收据。详情见[计划与恢复](../workflows/planned-delivery-recovery.md)。

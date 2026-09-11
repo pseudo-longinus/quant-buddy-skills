@@ -3,6 +3,12 @@
 
 > QBS→QBV 旁路：`publish_verified` 可显式传 `qbv_job_id`、`qbv_job_file`、`turn_id`（或 `qbv_job_dir`）；`direct_deliver` 则可从 `beginHandoff` 持久化的 task-scoped Trace Context 恢复 Turn lineage。公网验收成功，或 direct 取得字段一致的强终态 `direct_finalize` contract 后，脚本自动把对应 `qbs_qbv_job_v2` 写为 `completed`；QBV standalone 没有 Handoff/Job 时行为完全不变。
 
+## 计划、Compose与恢复
+
+`execution_plan`读取/显式修订目标计划；`compose_page`按绑定范围构建完整候选；`materialize_snapshot`从已验证结果或本任务已登记运行时生成不可变数据快照；`delivery_status`只读查看执行/交付状态，可用refresh_remote查询原页版本。完整参数与错误恢复见[计划驱动交付](../workflows/planned-delivery-recovery.md)。
+
+`update_progress`拒绝status/step误参，更新必须指定current_step；已存在内容的计划任务可能只记录状态并返回public_page_updated:false，此时不能声称已写回公开页面。计划任务的最终发布经publish_verified执行。
+
 ## 正文图片命令（0.6.15）
 
 先有目标 `page_id`，再上传图片：

@@ -62,7 +62,11 @@ _PATH = {
 }
 
 _DEFAULT_TIMEOUT = 600
-_ALLOWED_KINDS = {"fast_query", "fast_query_minute", "stock_profile", "composition_select"}
+import grant_capabilities as GC
+import runtime_credentials as RC
+import execution_plan as EP
+
+_ALLOWED_KINDS = frozenset(GC.TOOL_BY_KIND)
 _CRED_DIR = os.path.join(SKILL_ROOT, "output", "data_grants")
 
 
@@ -73,48 +77,18 @@ def _config(require_key):
 
 
 def _save_credential(reg):
-    """注册/轮换成功后把 grant_id + signature 落盘，供后续取数 / 看板引用。"""
-    gid = reg.get("grant_id")
-    sig = reg.get("signature")
-    if not gid or not sig:
+    if not reg.get("grant_id") or not reg.get("signature"):
         return None
-    os.makedirs(_CRED_DIR, exist_ok=True)
-    path = os.path.join(_CRED_DIR, f"{gid}.json")
-    record = {
-        "grant_id": gid,
-        "signature": sig,
-        "kind": reg.get("kind"),
-        "whitelist_fields": reg.get("whitelist_fields"),
-        "whitelist_indicators": reg.get("whitelist_indicators"),
-        "expires_at": reg.get("expires_at"),
-    }
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(record, f, ensure_ascii=False, indent=2)
-    return path
+    return RC.save_legacy("grant", reg, _CRED_DIR)
 
 
-def load_credential(grant_id):
-    """从本地凭证目录读取 {grant_id, signature, kind, ...}，不存在返回 None。"""
-    cred = os.path.join(_CRED_DIR, f"{grant_id}.json")
-    if os.path.exists(cred):
-        try:
-            with open(cred, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return None
-    return None
+def load_credential(grant_id, task_id=None):
+    return RC.load("grant", grant_id, _CRED_DIR, task=task_id)
 
 
 def _preflight_register_params(params):
-    """Local register preflight for cheap shape errors before auth/network."""
-    errors = []
-    kind = params.get("kind")
-    payload = params.get("payload")
-    if kind not in _ALLOWED_KINDS:
-        errors.append(f"kind 必须是 {'/'.join(sorted(_ALLOWED_KINDS))}，当前是 {kind!r}")
-    if not isinstance(payload, dict) or not payload:
-        errors.append("payload 必须是非空对象，形状随 kind（见 tools/data_grant.md）")
-    return {"ok": not errors, "errors": errors}
+    details = GC.contract_errors(params)
+    return {"ok": not details, "errors": [item["message"] for item in details], "details": details}
 
 
 # ────────────────────────────────────────────────
@@ -135,15 +109,15 @@ def cmd_register(params):
     for k in ("ttl_days", "task_id", "user_query"):
         if params.get(k) is not None:
             body[k] = params[k]
-    reg = C.http_json("POST", C.api_url(endpoint, _PATH["register"]),
-                      C.headers(api_key), body, timeout=_DEFAULT_TIMEOUT)
-    if isinstance(reg, dict):
+    try:
+        reg = RC.register("grant", params, {"kind": body["kind"], "payload": body["payload"]}, endpoint, api_key,
+                          lambda: C.http_json("POST", C.api_url(endpoint, _PATH["register"]), C.headers(api_key), body, timeout=_DEFAULT_TIMEOUT), _CRED_DIR)
         reg["_preflight"] = preflight
-    if reg.get("code") == 0 and reg.get("grant_id"):
-        saved = _save_credential(reg)
-        if saved:
-            reg["_saved_credential"] = saved
-    return reg
+        return reg
+    except EP.PlanError as exc:
+        return exc.as_dict()
+    except OSError:
+        return {"code": 1, "error": "REGISTRATION_PERSIST_FAILED", "retryable": False, "next_action": "registration_status"}
 
 
 def query_grant(endpoint, grant_id, signature, api_key=""):
@@ -163,7 +137,7 @@ def cmd_query(params):
     gid = params.get("grant_id")
     sig = params.get("signature")
     if gid and not sig:
-        cred = load_credential(gid)
+        cred = load_credential(gid, task_id=params["task_id"]) if params.get("task_id") else load_credential(gid)
         if cred:
             sig = cred.get("signature")
     if not gid or not sig:
@@ -181,34 +155,29 @@ def cmd_list(params):
     return C.http_json("GET", url, C.headers(api_key))
 
 
-def cmd_revoke(params):
+def _manage(params, operation):
     endpoint, api_key = _config(require_key=True)
     if not params.get("grant_id"):
-        return {"code": 1, "message": "revoke 需要 grant_id"}
+        return {"code": 1, "message": operation + "需要grant_id"}
     body = {"grant_id": params["grant_id"]}
-    return C.http_json("POST", C.api_url(endpoint, _PATH["revoke"]), C.headers(api_key), body)
+    if operation == "refresh": body["rotate_signature"] = bool(params.get("rotate_signature", False))
+    try:
+        result = RC.mutate("grant", params, endpoint, api_key,
+                           lambda: C.http_json("POST", C.api_url(endpoint, _PATH[operation]), C.headers(api_key), body), _CRED_DIR, operation)
+        if operation == "refresh" and params.get("rotate_signature") and result.get("code") == 0:
+            result["warning"] = "签名已轮换，需重新构建并验收所有引用该Grant的页面；未自动修改公开页面。"
+        return result
+    except EP.PlanError as exc:
+        return exc.as_dict()
 
 
-def cmd_refresh(params):
-    endpoint, api_key = _config(require_key=True)
-    if not params.get("grant_id"):
-        return {"code": 1, "message": "refresh 需要 grant_id"}
-    body = {"grant_id": params["grant_id"],
-            "rotate_signature": bool(params.get("rotate_signature", False))}
-    res = C.http_json("POST", C.api_url(endpoint, _PATH["refresh"]), C.headers(api_key), body)
-    if res.get("code") == 0 and res.get("signature"):
-        cred = os.path.join(_CRED_DIR, f"{params['grant_id']}.json")
-        if os.path.exists(cred):
-            try:
-                with open(cred, "r", encoding="utf-8") as f:
-                    rec = json.load(f)
-                rec["signature"] = res["signature"]
-                with open(cred, "w", encoding="utf-8") as f:
-                    json.dump(rec, f, ensure_ascii=False, indent=2)
-                res["_credential_updated"] = cred
-            except Exception:
-                pass
-    return res
+def cmd_revoke(params): return _manage(params, "revoke")
+def cmd_refresh(params): return _manage(params, "refresh")
+
+
+def cmd_registration_status(params):
+    try: return RC.status("grant", params)
+    except EP.PlanError as exc: return exc.as_dict()
 
 
 _COMMANDS = {
@@ -217,6 +186,7 @@ _COMMANDS = {
     "list": cmd_list,
     "revoke": cmd_revoke,
     "refresh": cmd_refresh,
+    "registration_status": cmd_registration_status,
 }
 
 def main():

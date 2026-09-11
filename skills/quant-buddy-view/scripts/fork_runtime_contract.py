@@ -12,6 +12,7 @@ import copy
 import hashlib
 import json
 import re
+import grant_capabilities as GC
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 
@@ -645,6 +646,17 @@ def _role_fingerprint_source(role):
         if key not in ("proposed_formulas", "target_payload", "asset_scope")
     }
 
+def replace_asset_tokens(value, replacements):
+    """Only complete asset fields, never substring replacement in executable contracts."""
+    if isinstance(value, str):
+        return replacements.get(value, value)
+    if isinstance(value, list):
+        return [replace_asset_tokens(item, replacements) for item in value]
+    if isinstance(value, dict):
+        return {key: replace_asset_tokens(item, replacements) for key, item in value.items()}
+    return value
+
+
 def _grant_contract(item, replacements):
     payload = copy.deepcopy(item.get("payload") if isinstance(item.get("payload"), dict) else {})
     target_payload = copy.deepcopy(payload)
@@ -658,7 +670,7 @@ def _grant_contract(item, replacements):
         if field not in payload:
             continue
         source_value = copy.deepcopy(payload[field])
-        target_value = apply_replacements_value(source_value, replacements)
+        target_value = replace_asset_tokens(source_value, replacements)
         target_payload[field] = target_value
         asset_scope.append({"field": field, "source": source_value, "target": copy.deepcopy(target_value)})
     return {
@@ -817,7 +829,7 @@ def _build_augmented_roles(augmentation_spec):
             }
         else:
             grant_kind = str(item.get("grant_kind") or "").strip()
-            if grant_kind not in ("fast_query", "stock_profile", "composition_select"):
+            if grant_kind not in GC.TOOL_BY_KIND:
                 raise ForkRuntimeError(
                     "AUGMENTATION_SPEC_INVALID",
                     f"augmentation_spec[{index}] grant_kind 必须是 fast_query/stock_profile/composition_select",
@@ -1462,6 +1474,9 @@ def validate_resolved_contracts(manifest, resolved):
     grants = resolved.get("grants") if isinstance(resolved, dict) else None
     if not isinstance(packages, list) or not isinstance(grants, list):
         raise ForkRuntimeError("PUBLISH_CONTRACT_INVALID", "resolved packages/grants 必须是数组")
+    errors = GC.grant_set_errors(grants)
+    if errors:
+        raise ForkRuntimeError(errors[0]["error_code"], "Grant预检未通过", errors=errors)
     role_index = {str(role.get("role_id") or ""): role for role in (manifest.get("runtime_roles") or []) + (manifest.get("augmented_roles") or [])}
     names = set()
     all_formula_outputs = set()
@@ -1529,7 +1544,7 @@ def validate_resolved_contracts(manifest, resolved):
         contract = grant.get("contract") or {}
         kind = contract.get("kind")
         payload = contract.get("payload")
-        if kind not in ("fast_query", "stock_profile", "composition_select") or not isinstance(payload, dict) or not payload:
+        if kind not in GC.TOOL_BY_KIND or not isinstance(payload, dict) or not payload:
             raise ForkRuntimeError("GRANT_CONTRACT_INVALID", f"{role_id} Grant kind/payload 无效")
         role = role_index.get(role_id) or {}
         if role.get("origin") == "augmented":

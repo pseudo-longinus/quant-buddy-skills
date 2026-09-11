@@ -164,6 +164,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import compile_bespoke_page as CB
+import execution_plan as EP
+import delivery_state as DS
+import publication_transport as PT
 import common as C
 import data_kernel_retrofit as DKR
 import fork_runtime_contract as FRC
@@ -226,7 +229,7 @@ _VALIDATION_RECEIPT_VERSION = "qb_validation_receipt_v1"
 _GRANT_VALIDATION_RECEIPT_VERSION = "grant_validation_receipt_v1"
 _QBS_HANDOFF_VALIDATION_RECEIPT_VERSION = "qbs_handoff_validation_receipt_v1"
 _LIVE_DATA_ROUTE_RECEIPT_VERSION = "live_data_route_receipt_v1"
-_LIVE_DATA_MODES = {"live", "static_content_only", "static_after_live_probe"}
+_LIVE_DATA_MODES = {"live", "static_content_only", "static_after_live_probe", "verified_snapshot", "mixed"}
 _PRESERVE_HTML_QBS_LIVE_MODE = "preserve_html_qbs_live"
 _LIVE_INDICATOR_VERSION = "v2"
 _LIVE_INDICATOR_STYLE_V1 = """[data-qb-live-mode="live"][data-qb-live-tag~="qbs-formula-package"],
@@ -931,6 +934,10 @@ def _attach_reply_data_contract(record, params):
     contract = record.get("agent_reply_contract")
     if not isinstance(contract, dict):
         return record
+    mode = params.get("live_data_mode")
+    if mode in ("verified_snapshot", "mixed"):
+        contract["delivery_data_mode"] = mode
+        contract["delivery_link_label"] = "可分享静态研究页" if mode == "verified_snapshot" else "可分享活页（部分实时、部分静态）"
     for key in ("reply_data_evidence_file", "reply_data_evidence_sha256", "reply_data_availability"):
         if params.get(key) not in (None, ""):
             contract[key] = params[key]
@@ -1865,6 +1872,15 @@ def _bind_fork_task(params, manifest, manifest_file):
 def _apply_fork_task_binding(params):
     resolved = dict(params or {})
     task_id = _fork_task_id(resolved)
+    try:
+        plan = EP.load(task_id)
+        if plan and plan["build_mode"] == "compose_page":
+            EP.require(task_id, page_id=str(resolved.get("page_id") or plan["target_page_id"]))
+            if resolved.get("fork_manifest_file") or resolved.get("fork_manifest"):
+                raise EP.PlanError("COMPOSE_INHERITANCE_CONFLICT", "Compose不能使用旧继承manifest")
+            return resolved, {"mode": "compose", "task_id": task_id}, None
+    except EP.PlanError as exc:
+        return resolved, None, exc.as_dict()
     binding, binding_file, read_error = _read_fork_task_binding(task_id)
     if read_error:
         return resolved, None, read_error
@@ -2587,7 +2603,14 @@ def _cmd_update_preserve(params, *, endpoint, api_key):
         endpoint=endpoint, final_html=live_stage["html"],
     )
 
+_PLANNED_UPDATE_SENTINEL = object()
+
 def cmd_upload(params):
+    try:
+        if EP.load(_fork_task_id(params)):
+            return {"code": 1, "error": "PLANNED_PAGE_ALREADY_CREATED", "message": "计划任务已有目标页；使用原page_id发布，不重复upload"}
+    except EP.PlanError as exc:
+        return exc.as_dict()
     route_error = _existing_page_mutation_error(params, action="upload")
     if route_error:
         return route_error
@@ -2696,6 +2719,12 @@ def cmd_update(params):
     route_error = _existing_page_update_error(params)
     if route_error:
         return route_error
+    try:
+        publication_plan = EP.load(_fork_task_id(params))
+        if publication_plan and params.get("_planned_update_sentinel") is not _PLANNED_UPDATE_SENTINEL:
+            return {"code": 1, "error": "PLANNED_PUBLISH_REQUIRED", "message": "计划任务不能直接update绕过候选和浏览器验收；使用publish_verified"}
+    except EP.PlanError as exc:
+        return exc.as_dict()
     cfg = C.load_config_require_key()
     endpoint, api_key = C.endpoint_of(cfg), cfg.get("api_key", "")
 
@@ -2704,6 +2733,9 @@ def cmd_update(params):
     if binding_error:
         return binding_error
 
+
+    if publication_plan and _is_preserve_html_qbs_live(params):
+        return {"code": 1, "error": "PLANNED_TRANSFORMATION_ROUTE_REQUIRED", "message": "文件转换需独立对齐计划，不能绕过条件发布入口"}
     if _is_preserve_html_qbs_live(params):
         return _cmd_update_preserve(params, endpoint=endpoint, api_key=api_key)
     html, err = _read_html(params)
@@ -2764,8 +2796,14 @@ def cmd_update(params):
         body["reply_contract_binding"] = None
     if "agent_reply_template" in params and params.get("agent_reply_template") is None:
         body["agent_reply_template"] = None
-    out = C.http_json("POST", C.api_url(endpoint, _PATH["update"]),
-                      C.headers(api_key), body, timeout=_UPLOAD_TIMEOUT)
+    if publication_plan:
+        def observe_publication():
+            result = cmd_template({"page_id": params["page_id"]})
+            return _template_record(result) if isinstance(result, dict) and result.get("code") == 0 else result
+        out = PT.write(publication_plan, body, endpoint, api_key, observe_publication,
+                       content_kind=params.get("_planned_content_kind", "candidate"))
+    else:
+        out = C.http_json("POST", C.api_url(endpoint, _PATH["update"]), C.headers(api_key), body, timeout=_UPLOAD_TIMEOUT)
     route_transition = _transition_existing_page_to_fork(params, out)
     if route_transition:
         return route_transition
@@ -2836,23 +2874,8 @@ def _progress_change_note(state):
     return note[:200]
 
 
-def _validate_progress_params(params):
-    if str((params or {}).get("page_status") or "running").strip().lower() != "waiting_input":
-        return None
-    required_input = params.get("required_input")
-    required_fields = ("id", "prompt", "resume_step")
-    missing = [
-        field for field in required_fields
-        if not isinstance(required_input, dict) or not str(required_input.get(field) or "").strip()
-    ]
-    if missing:
-        return {
-            "code": 1,
-            "error": "PROGRESS_INPUT_REQUIRED",
-            "message": "waiting_input 需要 required_input.id、prompt 和 resume_step",
-            "missing": missing,
-        }
-    return None
+def _validate_progress_params(params, require_step=False):
+    return PP.validate_params(params or {}, require_step=require_step)
 
 
 def _evidence_error(error, message, **extra):
@@ -3170,7 +3193,32 @@ def _validate_publish_data_evidence(params, *, source_credential_count=0, allow_
         return _evidence_error("LEGACY_VALIDATION_WAIVER_FORBIDDEN", "自由文本 validation_not_required_reason 已停用；必须使用结构化 live_data_mode 和收据")
     mode = str(params.get("live_data_mode") or "").strip()
     if mode not in _LIVE_DATA_MODES:
-        return _evidence_error("LIVE_DATA_MODE_REQUIRED", "发布必须显式指定 live、static_content_only 或 static_after_live_probe")
+        return _evidence_error("LIVE_DATA_MODE_REQUIRED", "发布必须显式指定 live、verified_snapshot、mixed、static_content_only 或 static_after_live_probe")
+    try:
+        plan = EP.load(_fork_task_id(params))
+        if plan and plan.get("require_live_data") and mode not in ("live", "mixed"):
+            return _evidence_error("PLAN_LIVE_DATA_REQUIRED", "用户要求实时，验证快照也只能作为部分成果，不能声明完整交付")
+        if plan and plan.get("target_scope", {}).get("kind") in ("single_asset", "basket", "sector", "index", "market") and mode == "static_content_only":
+            return _evidence_error("PLAN_DATA_EVIDENCE_REQUIRED", "金融研究范围不能声明无行情数据；使用验证收据或明确的部分交付路径")
+    except EP.PlanError as exc:
+        return exc.as_dict()
+    if mode in ("verified_snapshot", "mixed"):
+        if not plan or not plan.get("snapshot_roles"):
+            return _evidence_error("SNAPSHOT_PLAN_REQUIRED", "静态金融数据必须有计划绑定的已验证快照，不能手填数据冒充")
+        if source_credential_count and mode == "verified_snapshot":
+            return _evidence_error("SNAPSHOT_SOURCE_RUNTIME_CONFLICT", "仍在继承来源运行时，不能仅改标静态；先按目标计划重组")
+        try:
+            import verified_snapshot as VS
+            for role in plan["snapshot_roles"]:
+                VS.load(plan["task_id"], role["snapshot_receipt_file"], role["snapshot_receipt_sha256"])
+        except EP.PlanError as exc:
+            return exc.as_dict()
+        if mode == "verified_snapshot":
+            if plan.get("runtime_roles"):
+                return _evidence_error("PLAN_DATA_MODE_CONFLICT", "存在运行数据角色，使用mixed并提交对应验证收据")
+            return None
+    elif plan and plan.get("snapshot_roles"):
+        return _evidence_error("PLAN_DATA_MODE_CONFLICT", "页面含已冻结数据，应明确声明verified_snapshot或mixed")
     if mode == "static_content_only":
         if source_credential_count:
             return _evidence_error(
@@ -4884,6 +4932,11 @@ def _record_routing_decision(params, decision, page_id):
     binding_file, write_error = _write_routing_credential_record(cred)
     if write_error:
         return None, write_error
+    try:
+        EP.bind(cred, require_live_data=params.get("require_live_data"))
+        DS.initialize(task_id, str(page_id))
+    except EP.PlanError as exc:
+        return None, exc.as_dict()
     return {
         "mode": decision.get("mode"),
         "source_template_id": decision.get("source_template_id") or "",
@@ -5147,15 +5200,32 @@ def cmd_new_page(params):
 
 def cmd_update_progress(params):
     if not params.get("page_id"):
-        return {"code": 1, "message": "update_progress 需要 page_id（要更新哪个进度页）"}
-    validation_error = _validate_progress_params(params)
+        return {"code": 1, "message": "update_progress需要page_id"}
+    validation_error = _validate_progress_params(params, require_step=True)
     if validation_error:
         return validation_error
-    evidence_error = _validate_progress_evidence(params)
-    if evidence_error:
-        return evidence_error
+    try:
+        plan = EP.load(_fork_task_id(params))
+        if plan:
+            EP.require(plan["task_id"], page_id=str(params["page_id"]))
+            if params.get("page_status") == "done":
+                return {"code": 1, "error": "PROGRESS_TERMINAL_REQUIRED", "message": "计划任务由发布验收生成成功状态"}
+        evidence_error = _validate_progress_evidence(params)
+        if evidence_error:
+            return evidence_error
+        if plan:
+            delivery = DS.record_progress(plan, params)
+            if delivery["delivery_state"] != "placeholder":
+                return {"code": 0, "operation": "progress_recorded", "page_id": params["page_id"],
+                        "public_page_updated": False, "delivery_state": delivery,
+                        "agent_reply_hint": {"terminal": False, "interaction_required": params.get("page_status") == "waiting_input"},
+                        "message": "已记录执行状态，保留现有公开内容；宿主或对话负责展示进度"}
+    except EP.PlanError as exc:
+        return exc.as_dict()
     state, html = _progress_state_and_html(params)
     payload = _progress_publish_payload(params, html, require_page_id=True, state=state)
+    payload["_planned_content_kind"] = "progress"
+    payload["_planned_update_sentinel"] = _PLANNED_UPDATE_SENTINEL
     out = cmd_update(payload)
     return _attach_progress_result(out, state, params)
 
@@ -5167,6 +5237,9 @@ def _publish_final_progress_params(params, *, page_status, message):
         "page_status": page_status,
         "message": message,
     }
+    if page_status == "failed":
+        progress_params["error_code"] = "PUBLISH_FAILED"
+        progress_params["next_action"] = {"command": "delivery_status"}
     for key in (
         "title",
         "theme",
@@ -5291,6 +5364,15 @@ def _compose_binding_publish_state(cred, page_id):
         return None, _routing_publish_error(
             "COMPOSE_BINDING_STALE", "Compose 借鉴收据已变化，请重新运行 fork_compose。", page_id=page_id,
         )
+    try:
+        material = json.loads(Path(path).read_text(encoding="utf-8"))
+        if material.get("task_id") != cred.get("task_id") or material.get("page_id") != page_id:
+            return None, _routing_publish_error("COMPOSE_BINDING_IDENTITY_CONFLICT", "Compose绑定身份不一致", page_id=page_id)
+        plan = EP.load(str(cred.get("task_id") or ""))
+        if plan and plan.get("compose_binding_sha256") != expected:
+            return None, _routing_publish_error("COMPOSE_BINDING_STALE", "Compose绑定与计划不一致", page_id=page_id)
+    except (EP.PlanError, ValueError, OSError) as exc:
+        return None, _routing_publish_error("COMPOSE_BINDING_INVALID", str(exc), page_id=page_id)
     return {**binding, "compose_binding_sha256": expected}, None
 
 
@@ -5326,6 +5408,8 @@ def _check_publish_routing_consistency(params, fork_task_binding, routing_overri
                 page_id=page_id,
                 allowed_actions=["fork_prepare", "fork_compose"],
             )
+        if decision.get("borrow_mode") == "compose" and fork_bound:
+            return None, _routing_publish_error("COMPOSE_INHERITANCE_CONFLICT", "Compose计划不能使用旧继承合同", page_id=page_id)
         if fork_bound:
             expected_source = str(decision.get("source_template_id") or "")
             actual_source = str(fork_task_binding.get("source_template_id") or "")
@@ -5399,6 +5483,10 @@ def cmd_publish_final(params):
     if not params.get("page_id"):
         return {"code": 1, "message": "publish_final 需要 page_id（要发布到哪个活页链接）"}
 
+    try:
+        planned_publish = EP.load(_fork_task_id(params))
+    except EP.PlanError as exc:
+        return exc.as_dict()
     routing_override = params.pop("routing_override", None)
     params, fork_task_binding, binding_error = _apply_fork_task_binding(params)
     if binding_error:
@@ -5418,6 +5506,17 @@ def cmd_publish_final(params):
         routing_error.setdefault("page_id", params.get("page_id"))
         return routing_error
 
+    if planned_publish and params.get("_fork_preflight_sentinel") is not _FORK_PREFLIGHT_SENTINEL:
+        return {"code": 1, "error": "PUBLISH_VERIFIED_REQUIRED", "message": "计划任务必须通过publish_verified的浏览器验收后发布"}
+    try:
+        plan = EP.load(_fork_task_id(params))
+        if plan:
+            EP.require(plan["task_id"], page_id=str(params.get("page_id") or ""), plan_hash=params.get("plan_hash"))
+            if plan["build_mode"] == "compose_page":
+                import compose_page
+                compose_page.validate_candidate({**params, "task_id": plan["task_id"]})
+    except EP.PlanError as exc:
+        return exc.as_dict()
     final_html, final_html_error = _read_html(params)
     if final_html_error:
         return final_html_error
@@ -5462,13 +5561,14 @@ def cmd_publish_final(params):
         or params.get("publish_message")
         or "正在完成活页生成"
     )
-    progress_update = cmd_update_progress(_publish_final_progress_params(
-        params,
-        page_status="running",
-        message=running_message,
-    ))
+    if planned_publish:
+        DS.record_progress(planned_publish, {"current_step": "final_publish", "page_status": "running", "message": running_message})
+        progress_update = {"code": 0, "operation": "progress_recorded", "public_page_updated": False}
+    else:
+        progress_update = cmd_update_progress(_publish_final_progress_params(params, page_status="running", message=running_message))
 
     final_update_params = dict(params)
+    final_update_params["_planned_update_sentinel"] = _PLANNED_UPDATE_SENTINEL
     if final_update_params.get("change_note") is None:
         final_update_params["change_note"] = "完成发布：正式活页内容已发布"
     update_out = cmd_update(final_update_params)
@@ -5524,14 +5624,18 @@ def cmd_publish_final(params):
         or params.get("progress_failure_message")
         or "活页生成遇到问题，请稍后重试。"
     )
-    failed_update = cmd_update_progress(_publish_final_progress_params(
-        params,
-        page_status="failed",
-        message=failure_message,
-    ))
+    if planned_publish:
+        actual_error = update_out.get("error") if isinstance(update_out, dict) else None
+        if isinstance(actual_error, dict): actual_error = actual_error.get("code")
+        DS.record_progress(planned_publish, {"current_step": "final_publish", "page_status": "failed",
+            "error_code": actual_error or "PUBLISH_FAILED", "message": failure_message,
+            "next_action": {"command": "delivery_status"}})
+        failed_update = {"code": 0, "operation": "progress_recorded", "public_page_updated": False}
+    else:
+        failed_update = cmd_update_progress(_publish_final_progress_params(params, page_status="failed", message=failure_message))
     message = validation_error or "正式活页发布失败"
     if isinstance(failed_update, dict) and failed_update.get("code") == 0:
-        message += "，已回写失败进度页"
+        message += "，已记录失败并保留公开内容" if planned_publish else "，已回写失败进度页"
     else:
         message += "，且失败进度页回写未成功"
 
@@ -5638,6 +5742,20 @@ def cmd_publish_verified(params):
         stages["public_smoke"] = _run_page_verifier(public_url, "public-smoke", card_runtime=card_runtime)
         timings["public_smoke_ms"] = round((time.perf_counter() - started) * 1000)
         verified = isinstance(stages["public_smoke"], dict) and stages["public_smoke"].get("code") == 0
+        plan_for_version = EP.load(_fork_task_id(params))
+        if verified and plan_for_version:
+            version_result = cmd_template({"page_id": params["page_id"]})
+            observed = _template_record(version_result) if isinstance(version_result, dict) and version_result.get("code") == 0 else {}
+            stages["public_version"] = PT.verify_current(plan_for_version, stages["publish_final"], observed, browser_evidence=stages["public_smoke"])
+            verified = stages["public_version"].get("code") == 0
+        if not verified:
+            stages["publish_final"].pop("agent_reply_contract", None)
+        try:
+            plan = EP.load(_fork_task_id(params))
+            if plan:
+                DS.mark_verified(plan, stages["publish_final"], complete=verified)
+        except EP.PlanError as exc:
+            return {**exc.as_dict(), "published": True, "verified": False, "stages": stages}
         result = {
             "code": 0 if verified else 1,
             "published": True,
@@ -5768,6 +5886,15 @@ def cmd_fork_validate(params):
     params, fork_task_binding, binding_error = _apply_fork_task_binding(params)
     if binding_error:
         return binding_error
+    try:
+        plan = EP.load(_fork_task_id(params))
+        if plan:
+            EP.require(plan["task_id"], page_id=str(params.get("page_id") or ""), plan_hash=params.get("plan_hash"))
+            if plan["build_mode"] == "compose_page":
+                import compose_page
+                compose_page.validate_candidate({**params, "task_id": plan["task_id"]})
+    except EP.PlanError as exc:
+        return exc.as_dict()
     final_html, final_html_error = _read_html(params)
     if final_html_error:
         return final_html_error
@@ -6622,7 +6749,7 @@ def cmd_templates(params):
 
 _INTENT_PROFILE_VERSION = "intent_profile_v1"
 _INTENT_PROFILE_FILE = "intent-profile.json"
-_INTENT_ASSET_SCOPE_KINDS = ("single_asset", "sector", "index", "market")
+_INTENT_ASSET_SCOPE_KINDS = ("single_asset", "basket", "sector", "index", "market")
 
 
 def _task_receipt_path(task_id, name, *, create=False):
@@ -6984,6 +7111,9 @@ def cmd_fork_compose(params):
     source = str(params.get("source_template_id") or decision.get("source_template_id") or "").strip()
     if source != str(decision.get("source_template_id") or ""):
         return {"code": 1, "error": "ROUTING_FORK_SOURCE_CONFLICT", "message": "Compose 来源与 fork 路由来源不一致。"}
+    requested_page = params.get("target_page_id") or params.get("page_id")
+    if requested_page and requested_page != cred.get("page_id"):
+        return {"code": 1, "error": "PLAN_PAGE_CONFLICT", "message": "Compose目标必须复用首链page_id"}
     digest_path = _task_receipt_path(task_id, _RESEARCH_DIGEST_FILE)
     try:
         digest = json.loads(digest_path.read_text(encoding="utf-8"))
@@ -6992,6 +7122,9 @@ def cmd_fork_compose(params):
     declared_sha, actual_sha = str(params.get("research_digest_sha256") or ""), str(digest.get("digest_sha256") or "")
     if not declared_sha or declared_sha != actual_sha:
         return {"code": 1, "error": "COMPOSE_DIGEST_STALE", "actual_digest_sha256": actual_sha}
+    computed_digest = EP.digest({key: value for key, value in digest.items() if key != "digest_sha256"})
+    if computed_digest != actual_sha:
+        return {"code": 1, "error": "COMPOSE_DIGEST_STALE", "message": "研究摘要内容与hash不一致"}
     entries = {str(x.get("page_id") or ""): x for x in digest.get("templates") or [] if isinstance(x, dict)}
     entry = entries.get(source)
     if not entry:
@@ -7064,9 +7197,25 @@ def cmd_fork_compose(params):
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
     path = _task_receipt_path(task_id, _COMPOSE_BINDING_FILE, create=True)
+    try:
+        prior_binding = json.loads(path.read_text(encoding="utf-8"))
+        if {k: v for k, v in binding.items() if k != "generated_at"} == {k: v for k, v in prior_binding.items() if k != "generated_at"}:
+            binding["generated_at"] = prior_binding["generated_at"]
+    except (OSError, ValueError, KeyError):
+        pass
     payload = (json.dumps(binding, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
-    _atomic_write_bytes(str(path), payload)
     binding_sha = hashlib.sha256(payload).hexdigest()
+    planned_cred = copy.deepcopy(cred)
+    planned_cred["routing_decision"]["borrow_mode"] = "compose"
+    profile = _read_intent_profile(task_id) or {}
+    try:
+        plan = EP.bind(planned_cred, target_scope=params.get("target_scope") or profile.get("asset_scope"),
+                       runtime_roles=params.get("runtime_roles"), snapshot_roles=params.get("snapshot_roles"), require_live_data=params.get("require_live_data"), borrow_modules=provenance,
+                       compose_binding_sha256=binding_sha, expected_revision=params.get("expected_revision"),
+                       revision_reason=params.get("revision_reason") or downgrade_reason)
+    except EP.PlanError as exc:
+        return exc.as_dict()
+    _atomic_write_bytes(str(path), payload)
     cred["fork_binding"] = {
         "kind": "compose", "source_template_id": source,
         "compose_binding_file": str(path), "compose_binding_sha256": binding_sha,
@@ -7085,8 +7234,18 @@ def cmd_fork_compose(params):
     _, write_error = _write_routing_credential_record(cred)
     if write_error:
         return write_error
+    build_params_file = C.task_temp_path(task_id, "compose-build-params.json", create_parent=True)
+    if not build_params_file.exists():
+        EP.atomic_json(build_params_file, {
+            "task_id": task_id, "page_id": plan["target_page_id"], "plan_hash": plan["plan_hash"],
+            "title": "", "panels": [{"type": "text", "title": item["module"],
+                "compose_module": item["module"], "text": ""} for item in provenance],
+        })
     return {
         "code": 0, "operation": "fork_compose", "task_id": task_id,
+        "execution_plan": {"revision": plan["revision"], "plan_hash": plan["plan_hash"], "build_mode": plan["build_mode"]},
+        "next_action": {"command": "compose_page", "params_file": str(build_params_file),
+                        "instruction": "按目标需求填写title和各模块panels，使用当前plan_hash；不要再次fork_prepare"},
         "borrow_mode": "compose", "source_template_id": source,
         "compose_binding_file": str(path), "compose_binding_sha256": binding_sha,
         "borrowed_module_count": borrowed_count,
@@ -7281,6 +7440,9 @@ def _write_agent_reply_artifacts(task_id, finalized):
     contract_sha256 = hashlib.sha256(contract_bytes).hexdigest()
     with open(contract_file, "wb") as handle:
         handle.write(contract_bytes)
+    plan = EP.load(str(task_id or ""))
+    if plan:
+        DS.bind_reply_contract(plan, contract_sha256)
     validator_params = {
         "contract_file": contract_file,
         "contract_sha256": contract_sha256,
@@ -7707,18 +7869,21 @@ def _derive_source_asset_identity(record, source_html, hint=None):
     hint_parsed = _parse_target_asset(hint) if hint else None
     if hint_parsed and (hint_parsed.get("name") or hint_parsed.get("code")):
         name = hint_parsed.get("name") or ""
-        code = hint_parsed.get("code") or (codes[0] if codes else "")
+        code = hint_parsed.get("code") or ""
         exchange = hint_parsed.get("exchange") or ""
         if not name and code:
             name = _lookup_asset_name_by_ticker(code)
         peers = [token for token in counter if token != name]
+        resolved_name = _lookup_asset_name_by_ticker((exchange + code) if exchange and code.isdigit() else code) if code else ""
+        identity_mismatch = bool(code and resolved_name and resolved_name != name)
+        identity_unverified = bool(code and not resolved_name)
         return {
             "name": name,
             "code": code,
             "exchange": exchange,
             "peers": peers,
-            "confident": bool(name and name in source_html),
-            "reason": "agent_specified" if name and name in source_html else "agent_specified_name_absent_in_html",
+            "confident": bool(name and name in source_html and not identity_mismatch and not identity_unverified),
+            "reason": "asset_name_code_mismatch" if identity_mismatch else ("asset_identity_unverified" if identity_unverified else ("agent_specified" if name and name in source_html else "agent_specified_name_absent_in_html")),
             "candidates": [token for token, _ in counter.most_common()],
             "present_code_variants": _source_code_variants_present(code, source_html, exchange) if code else [],
         }
@@ -7743,7 +7908,7 @@ def _derive_source_asset_identity(record, source_html, hint=None):
     exchange = ""
     for token in codes:
         parsed = _parse_target_asset(token)
-        if _source_code_variants_present(parsed.get("code"), source_html, parsed.get("exchange")):
+        if _lookup_asset_name_by_ticker(token) == name and _source_code_variants_present(parsed.get("code"), source_html, parsed.get("exchange")):
             code, exchange = parsed.get("code"), parsed.get("exchange")
             break
     return {
@@ -7755,6 +7920,7 @@ def _derive_source_asset_identity(record, source_html, hint=None):
         "reason": reason,
         "candidates": [token for token, _ in ranked],
         "present_code_variants": _source_code_variants_present(code, source_html, exchange) if code else [],
+        "observed_code_variants": [token for token in codes if token in source_html],
     }
 
 
@@ -7807,11 +7973,14 @@ def _fork_identity_error(error_code, message, identity, target, source_template_
         "code": 1,
         "error": error_code,
         "message": message,
+        "recoverable": True,
+        "interaction_required": False,
+        "next_actions": ["resolve_verified_asset_identity", "research_templates_then_fork_compose"],
         "detected_source_asset": {
             "name": identity.get("name") or "",
             "candidates": identity.get("candidates") or [],
             "code": identity.get("code") or "",
-            "code_forms_in_source_html": identity.get("present_code_variants") or [],
+            "code_forms_in_source_html": identity.get("present_code_variants") or identity.get("observed_code_variants") or [],
             "reason": identity.get("reason") or "",
         },
         "target_asset_parsed": {"name": target.get("name") or "", "code": target.get("code") or ""},
@@ -7851,6 +8020,21 @@ def cmd_fork_prepare(params):
     source_template_id = params.get("source_template_id") or params.get("template_id") or params.get("page_id")
     if not source_template_id:
         return {"code": 1, "message": "fork_prepare 需要 source_template_id（或 template_id/page_id）"}
+
+    task_id = _fork_task_id(params)
+    if task_id:
+        try:
+            if EP.load(task_id):
+                EP.require(task_id, operation="fork_prepare", source_page_id=str(source_template_id),
+                           page_id=str(params.get("target_page_id") or params.get("page_id") or ""))
+        except EP.PlanError as exc:
+            return exc.as_dict()
+        routing, _, routing_error = _read_routing_credential(task_id)
+        if routing_error:
+            return routing_error
+        if ((routing or {}).get("routing_decision") or {}).get("borrow_mode") == "compose":
+            return {"code": 1, "error": "COMPOSE_PREPARE_FORBIDDEN",
+                    "message": "已选择Compose；不能再全量继承来源运行时。", "next_action": "compose_page"}
 
     # fork_prepare 是一次性、task-scoped 的来源绑定。重复执行会覆盖 manifest/review，
     # 尤其容易在第二次未重传 augmentation_spec 时静默丢掉新增栏目。
@@ -7923,6 +8107,13 @@ def cmd_fork_prepare(params):
         target_identity["name"] = _lookup_asset_name_by_ticker(target_identity["code"])
     source_identity = _derive_source_asset_identity(record, source_html, hint=params.get("source_asset"))
 
+    if source_identity.get("reason") in ("asset_name_code_mismatch", "asset_identity_unverified"):
+        return _fork_identity_error("ASSET_IDENTITY_MISMATCH", "来源名称与代码不是同一资产；多资产请用Compose，不要填写伪主资产", source_identity, target_identity, str(source_template_id))
+    if target_identity.get("code") and target_identity.get("name"):
+        target_code = target_identity["code"]
+        target_name = _lookup_asset_name_by_ticker((target_identity.get("exchange", "") + target_code) if target_code.isdigit() else target_code)
+        if not target_name or (target_identity.get("name") and target_identity["name"] != target_name):
+            return _fork_identity_error("TARGET_ASSET_IDENTITY_INVALID", "target_asset必须是真实名称/代码配对；篮子研究ID不能当证券代码，请声明target_scope并用Compose", source_identity, target_identity, str(source_template_id))
     derived_replacements = {}
     # 同标的改版判定：推导出的主资产同名，或目标资产名本就出现在来源标题/描述里
     # （后者覆盖「模板没有 packages、推导不出主资产」的纯静态改版）。
@@ -7941,7 +8132,7 @@ def cmd_fork_prepare(params):
             return _fork_identity_error(
                 "FORK_SOURCE_ASSET_AMBIGUOUS",
                 "无法唯一确定来源模板的主资产（多资产/指数类范式常见）。"
-                "请显式传 source_asset 指明来源模板的主资产，或直接传 asset_replacements。"
+                "单资产替换需传经核验的source_asset；多主题/布局借鉴请转research_templates → fork_compose，不要用页面标题或研究ID伪造资产。"
                 "detected_source_asset 里已给出探测到的候选资产名与来源 HTML 中真实存在的代码写法。",
                 source_identity, target_identity, str(source_template_id),
             )
@@ -8186,6 +8377,23 @@ def cmd_fork_prepare(params):
     review_bytes = (json.dumps(review, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
     review_base_sha256 = hashlib.sha256(review_bytes).hexdigest()
     manifest["review_base_sha256"] = review_base_sha256
+    execution_plan = None
+    if task_id:
+        routing, _, plan_read_error = _read_routing_credential(task_id)
+        if plan_read_error:
+            return plan_read_error
+        if routing and routing.get("page_id") and routing.get("routing_decision"):
+            roles = [{"role_id": role["role_id"], "kind": role["kind"],
+                      "source_contract_fingerprint": role.get("contract_fingerprint")}
+                     for role in runtime["runtime_roles"] + (runtime.get("augmented_roles") or [])]
+            try:
+                execution_plan = EP.bind(routing,
+                    target_scope=params.get("target_scope") or {"kind": "single_asset", "asset": target_identity},
+                    runtime_roles=roles, expected_revision=params.get("expected_revision"),
+                    revision_reason=params.get("revision_reason") or params.get("rebuild_reason", ""))
+                manifest["execution_plan_hash"] = execution_plan["plan_hash"]
+            except EP.PlanError as exc:
+                return exc.as_dict()
     publish_verified = {
         "page_id": target_page_id,
         "source_template_id": manifest["source_template_id"],
@@ -8207,6 +8415,10 @@ def cmd_fork_prepare(params):
         images=source_managed_images,
         publish_verified=publish_verified,
     )
+    if execution_plan:
+        publish_plan["plan_hash"] = execution_plan["plan_hash"]
+        publish_verified["plan_hash"] = execution_plan["plan_hash"]
+        publish_plan["publish_verified"]["plan_hash"] = execution_plan["plan_hash"]
     for path, payload in ((manifest_file, manifest), (publish_plan_file, publish_plan)):
         with open(path, "w", encoding="utf-8", newline="\n") as handle:
             json.dump(payload, handle, ensure_ascii=False, indent=2)
@@ -8834,6 +9046,49 @@ def cmd_file_confirm_delivery(params):
     cfg = C.load_config()
     return file_publication.run(sys.modules[__name__], params, C.endpoint_of(cfg), cfg.get("api_key", ""), confirm_delivery=True)
 
+def cmd_materialize_snapshot(params):
+    import verified_snapshot
+    return verified_snapshot.materialize_registered(params)
+
+
+def cmd_delivery_status(params):
+    task = _routing_task_id(params)
+    try:
+        plan = EP.require(task, page_id=params.get("page_id"))
+        state = DS.load(task, plan["target_page_id"])
+        out = {"code": 0, "page_id": plan["target_page_id"], "execution_plan": plan, "delivery_state": state}
+        if params.get("refresh_remote"):
+            out["remote"] = cmd_template({"page_id": plan["target_page_id"]})
+            if (state.get("last_write") or {}).get("idempotency_key"):
+                cfg = C.load_config_require_key()
+                out["write_outcome"] = PT.query_status(plan, state["last_write"], C.endpoint_of(cfg), cfg.get("api_key", ""))
+        return out
+    except EP.PlanError as exc:
+        return exc.as_dict()
+
+
+def cmd_execution_plan(params):
+    task_id = _routing_task_id(params)
+    cred, _, error = _read_routing_credential(task_id)
+    if error:
+        return error
+    try:
+        if params.get("view"):
+            plan = EP.require(task_id)
+        else:
+            plan = EP.bind(cred or {}, target_scope=params.get("target_scope"),
+                           runtime_roles=params.get("runtime_roles"), snapshot_roles=params.get("snapshot_roles"), require_live_data=params.get("require_live_data"),
+                           expected_revision=params.get("expected_revision"),
+                           revision_reason=params.get("revision_reason", ""))
+        return {"code": 0, "execution_plan": plan}
+    except EP.PlanError as exc:
+        return exc.as_dict()
+
+
+def cmd_compose_page(params):
+    import compose_page
+    return compose_page.build(params)
+
 
 _COMMANDS = {
     "file_prepare": cmd_file_prepare,
@@ -8866,6 +9121,10 @@ _COMMANDS = {
     "direct_finalize": cmd_direct_finalize,
     "fork_prepare": cmd_fork_prepare,
     "fork_compose": cmd_fork_compose,
+    "execution_plan": cmd_execution_plan,
+    "delivery_status": cmd_delivery_status,
+    "materialize_snapshot": cmd_materialize_snapshot,
+    "compose_page": cmd_compose_page,
     "fork_review_update": cmd_fork_review_update,
     "fork_validate": cmd_fork_validate,
     "retrofit_card_runtime": cmd_retrofit_card_runtime,
@@ -8875,7 +9134,7 @@ _COMMANDS = {
 _TRACE_REQUIRED_COMMANDS = {
     "file_prepare", "file_status", "file_confirm_delivery",
     "new_asset_page", "new_page", "update_progress", "publish_final", "publish_verified", "upload", "update", "direct_deliver", "direct_finalize", "fork_validate", "image_upload",
-    "templates", "intent_profile", "research_templates", "fork_prepare", "fork_compose", "fork_review_update",
+    "templates", "intent_profile", "research_templates", "fork_prepare", "fork_compose", "fork_review_update", "execution_plan", "compose_page", "materialize_snapshot",
 }
 
 

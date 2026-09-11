@@ -183,8 +183,38 @@ def normalize_steps(steps=None, current_step=None, page_status="running"):
     return _apply_linear_progression(normalized, current_id or normalized[0]["id"], page_status)
 
 
+def validate_params(params, require_step=False):
+    aliases = {key: value for key, value in {"status": "page_status", "step": "current_step"}.items() if key in params}
+    if aliases:
+        return {"code": 1, "error": "PROGRESS_PARAM_NAMES_INVALID", "field_suggestions": aliases,
+                "message": "使用page_status/current_step；未写入页面"}
+    status = str(params.get("page_status", "running")).strip().lower()
+    if status not in PAGE_STATUSES:
+        return {"code": 1, "error": "PROGRESS_STATUS_INVALID", "allowed": sorted(PAGE_STATUSES)}
+    steps = {step["id"] for step in DEFAULT_STEPS} | {"publication_validation"}
+    for step in params.get("steps") or []:
+        if isinstance(step, dict) and isinstance(step.get("id"), str):
+            steps.add(step["id"])
+    current = str(params.get("current_step") or "").strip()
+    if require_step and not current:
+        return {"code": 1, "error": "PROGRESS_STEP_REQUIRED", "message": "update_progress必须指定current_step，不能重置已有阶段"}
+    if current and current not in steps:
+        return {"code": 1, "error": "PROGRESS_STEP_INVALID", "allowed": sorted(steps)}
+    if status == "waiting_input":
+        required = params.get("required_input")
+        missing = [key for key in ("id", "prompt", "resume_step") if not isinstance(required, dict) or not str(required.get(key) or "").strip()]
+        if missing:
+            return {"code": 1, "error": "PROGRESS_INPUT_REQUIRED", "message": "waiting_input需要required_input.id/prompt/resume_step", "missing": missing}
+        if required["resume_step"] not in steps:
+            return {"code": 1, "error": "PROGRESS_RESUME_STEP_INVALID", "allowed": sorted(steps)}
+    return None
+
+
 def build_state(params):
     params = params or {}
+    error = validate_params(params)
+    if error:
+        raise ValueError(error["error"])
     page_status = _safe_status(params.get("page_status"), PAGE_STATUSES, "running")
     current_step = _as_text(params.get("current_step") or "plan", "plan").strip()
     updated_at = _format_updated_at(params.get("updated_at"))

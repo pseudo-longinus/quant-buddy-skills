@@ -12,6 +12,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+import execution_plan as EP
 import common as C
 import data_grant as DG
 import formula_package as FP
@@ -729,6 +730,14 @@ def _run_workflow_v2(params):
         return _failure("QBV_TRACE_CONTEXT_REQUIRED", "task_id 和 user_query 必填")
     if not isinstance(publish_params, dict) or not str(publish_params.get("page_id") or "").strip():
         return _failure("PUBLISH_PARAMS_REQUIRED", "publish_verified.page_id 必填；fork_prepare 时应传 target_page_id")
+    try:
+        execution_plan = EP.load(task_id)
+        if execution_plan:
+            EP.require(task_id, page_id=publish_params["page_id"], plan_hash=params.get("plan_hash"), operation="fork_prepare")
+            if not params.get("plan_hash"):
+                raise EP.PlanError("PLAN_HASH_REQUIRED", "发布参数必须来自当前计划")
+    except EP.PlanError as exc:
+        return exc.as_dict()
     reply_template = publish_params.get("agent_reply_template") if isinstance(publish_params.get("agent_reply_template"), dict) else {}
     template_ref = str(reply_template.get("template_ref") or "").strip()
 
@@ -750,6 +759,15 @@ def _run_workflow_v2(params):
         )
         if receipt_error:
             return receipt_error
+        if execution_plan:
+            if manifest.get("execution_plan_hash") != execution_plan["plan_hash"]:
+                return _failure("PLAN_REVISION_CONFLICT", "manifest属于旧计划")
+            roles = [{"role_id": role["role_id"], "kind": role["kind"]}
+                     for role in (manifest.get("runtime_roles") or []) + (manifest.get("augmented_roles") or [])]
+            try:
+                EP.require(task_id, runtime_roles=roles)
+            except EP.PlanError as exc:
+                return exc.as_dict()
         stages["manifest"] = FRC.validate_manifest_html(manifest, html)
         resolved = FRC.resolve_review(manifest, review, html, intent_profile=manifest.get("intent_profile"))
         resolved_contract_sha256 = FRC.contract_fingerprint({
@@ -875,6 +893,8 @@ def _run_workflow_v2(params):
     for index, item in enumerate(packages):
         registration = dict(item["contract"])
         registration.update({"task_id": task_id, "user_query": user_query})
+        checked = next((entry for entry in package_validation.get("packages", []) if entry.get("name") == item.get("name")), {})
+        registration["validation_receipt_file"] = checked.get("validation_receipt_file")
         result = FP.cmd_register(registration)
         if not (isinstance(result, dict) and result.get("code") == 0 and result.get("package_id") and result.get("signature")):
             return _failure("PACKAGE_REGISTER_FAILED", f"公式包注册失败: {item.get('name') or index}", failed_index=index, timing=timings)
@@ -889,7 +909,8 @@ def _run_workflow_v2(params):
     started = time.perf_counter()
     for index, item in enumerate(grants):
         contract = item["contract"]
-        registration = {"kind": contract["kind"], "payload": contract["payload"], "task_id": task_id, "user_query": user_query}
+        registration = {"kind": contract["kind"], "payload": contract["payload"], "task_id": task_id, "user_query": user_query,
+                        "validation_receipt_file": grant_validation_by_name[item["name"]].get("validation_receipt_file")}
         result = DG.cmd_register(registration)
         if not (isinstance(result, dict) and result.get("code") == 0 and result.get("grant_id") and result.get("signature")):
             return _failure("GRANT_REGISTER_FAILED", f"数据授权注册失败: {item.get('name') or index}", failed_index=index, timing=timings)

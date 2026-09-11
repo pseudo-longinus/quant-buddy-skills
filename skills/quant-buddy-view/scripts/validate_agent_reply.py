@@ -7,6 +7,8 @@ import os
 import re
 import sys
 
+import execution_plan as EP
+import delivery_state as DS
 import common as C
 import reply_template_registry as RTR
 
@@ -313,11 +315,11 @@ def _delivery_constraint_errors(contract, draft):
     }], table_count
 
 
-def _live_page_delivery_errors(public_url, draft, *, file_publication=False):
+def _live_page_delivery_errors(public_url, draft, data_mode=None, *, file_publication=False):
     """Require the share link to be the natural final Markdown block."""
     if not public_url or public_url not in draft:
         return []
-    label = "可分享活页" if file_publication else "可分享实时活页"
+    label = "可分享活页" if file_publication else {"verified_snapshot": "可分享静态研究页", "mixed": "可分享活页（部分实时、部分静态）"}.get(data_mode, "可分享实时活页")
     expected = f"{label}：[{public_url}]({public_url})\n{_LIVE_PAGE_UPGRADE_HINT}"
     if str(draft).rstrip().endswith(expected):
         return []
@@ -340,7 +342,7 @@ def validate_reply(contract_payload, draft):
     elif public_url not in draft:
         errors.append({"code": "PUBLIC_URL_MISSING", "message": "最终回复未包含终态 public_url"})
     else:
-        errors.extend(_live_page_delivery_errors(public_url, draft, file_publication=contract.get("file_publication_schema") == "qbv_file_publication_v1"))
+        errors.extend(_live_page_delivery_errors(public_url, draft, contract.get("delivery_data_mode"), file_publication=contract.get("file_publication_schema") == "qbv_file_publication_v1"))
 
     if contract.get("require_page_id_in_reply") is True:
         page_id = str(contract.get("page_id") or "").strip()
@@ -448,6 +450,13 @@ def main():
             result = {"code": 1, "valid": False, "errors": [{"code": "INPUT_REQUIRED", "message": "需要 contract/contract_file 和 draft/draft_file"}]}
         else:
             result = validate_reply(contract, draft)
+            task = str(params.get("task_id") or params.get("cleanup_task_id") or "")
+            plan = EP.load(task) if task else None
+            if result.get("valid") and plan:
+                raw_contract = contract.get("agent_reply_contract") if isinstance(contract.get("agent_reply_contract"), dict) else contract
+                if raw_contract.get("page_id") != plan["target_page_id"]:
+                    raise EP.PlanError("REPLY_PAGE_CONFLICT", "回复合同与任务目标页不同")
+                result["delivery_state"] = DS.finish_reply(plan, params["contract_sha256"], result["validated_markdown_sha256"])
             if result.get("valid") and params.get("cleanup_task_id"):
                 result["cleaned_temp_files"] = C.cleanup_task_temp_files(params.get("cleanup_task_id"))
     except (OSError, ValueError, json.JSONDecodeError) as exc:

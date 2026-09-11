@@ -396,7 +396,17 @@ def task_temp_dir(task_id, create=False):
     safe_task = safe_task_id(task_id)
     if not safe_task:
         raise ValueError("task_id 不能为空")
-    path = Path(tempfile.gettempdir()).resolve() / f"qbv_{safe_task}"
+    shared_root = os.environ.get("QBV_STATE_ROOT", "").strip()
+    if os.environ.get("QBV_SHARED_STATE_REQUIRED", "").lower() in ("1", "true") and not shared_root:
+        raise ValueError("QBV_SHARED_STATE_REQUIRED: 宿主必须配置所有worker可访问的QBV_STATE_ROOT")
+    if shared_root:
+        root = Path(shared_root)
+        if not root.is_absolute():
+            raise ValueError("QBV_STATE_ROOT必须是绝对路径")
+        root = root.resolve()
+    else:
+        root = Path(tempfile.gettempdir()).resolve()
+    path = root / f"qbv_{safe_task}"
     if create:
         path.mkdir(parents=True, exist_ok=True)
     return path
@@ -596,6 +606,11 @@ def persist_task_agent_model(task_id, agent_model):
                 pass
         return False
 
+def _has_durable_task_state(root):
+    return (any(os.path.isfile(os.path.join(root, "receipts", name)) for name in ("execution-plan.json", "delivery-state.json"))
+            or os.path.isdir(os.path.join(root, "receipts", "registrations")))
+
+
 def cleanup_task_temp_files(task_id):
     """删除任务目录，并兼容清理旧版平铺 qbv_<task_id>_*.json/.md 文件。"""
     safe_task = safe_task_id(task_id)
@@ -604,7 +619,8 @@ def cleanup_task_temp_files(task_id):
     temp_root = os.path.realpath(tempfile.gettempdir())
     deleted = []
     task_root = os.path.realpath(os.path.join(temp_root, f"qbv_{safe_task}"))
-    if os.path.dirname(task_root) == temp_root and os.path.isdir(task_root):
+    durable = _has_durable_task_state(task_root)
+    if os.path.dirname(task_root) == temp_root and os.path.isdir(task_root) and not durable:
         try:
             shutil.rmtree(task_root)
             deleted.append(task_root)
@@ -647,6 +663,8 @@ def cleanup_expired_task_temp_files(max_age_seconds=None):
             if os.path.dirname(path) != temp_root:
                 continue
             is_task_dir = os.path.isdir(path)
+            if is_task_dir and _has_durable_task_state(path):
+                continue  # planned-task recovery evidence is durable, never TTL scratch
             is_legacy_file = os.path.isfile(path) and os.path.splitext(name)[1].lower() in {".json", ".md"}
             if not (is_task_dir or is_legacy_file):
                 continue

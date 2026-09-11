@@ -733,7 +733,11 @@ async function playwrightBrowserChecks(pw, url, options = {}) {
           imageNetworkErrors.push({ viewport: viewport.name, type: `http_${response.status()}`, url: sanitizeBrowserText(response.url()) });
         }
       });
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      const navigation = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      let documentSha256 = null;
+      if (/^https?:/i.test(url) && navigation) {
+        try { documentSha256 = crypto.createHash('sha256').update(await navigation.body()).digest('hex'); } catch (_) {}
+      }
       try {
         await page.waitForFunction(
           () => !window.QB_DATA_RUNTIME || Number(window.QB_DATA_RUNTIME.pending || 0) === 0,
@@ -752,7 +756,7 @@ async function playwrightBrowserChecks(pw, url, options = {}) {
       const metrics = await page.evaluate(pageMetricsExpression);
       metrics.images = imageMetrics;
       metrics.shareModal = shareModalMetrics;
-      results.push(viewportResult(viewport, metrics, options));
+      results.push({ ...viewportResult(viewport, metrics, options), document_sha256: documentSha256 });
       await page.close();
     }
   } finally {
@@ -1409,6 +1413,7 @@ async function cdpBrowserChecks(url, options = {}) {
     const nonCoreWarnings = [];
     const imageNetworkErrors = [];
     let currentViewport = 'unknown';
+    const documentRequests = new Map();
     cdp.onEvent(msg => {
       if (msg.method === 'Runtime.exceptionThrown') {
         const text = msg.params?.exceptionDetails?.text || 'Runtime exception';
@@ -1428,6 +1433,9 @@ async function cdpBrowserChecks(url, options = {}) {
       if (msg.method === 'Network.loadingFailed' && msg.params?.type === 'Image') {
         imageNetworkErrors.push({ viewport: currentViewport, type: 'requestfailed', message: sanitizeBrowserText(msg.params?.errorText || '') });
       }
+      if (msg.method === 'Network.responseReceived' && msg.params?.type === 'Document') {
+        documentRequests.set(msg.params.frameId, msg.params.requestId);
+      }
       if (msg.method === 'Network.responseReceived' && msg.params?.type === 'Image' && Number(msg.params?.response?.status || 0) >= 400) {
         imageNetworkErrors.push({ viewport: currentViewport, type: `http_${msg.params.response.status}`, url: sanitizeBrowserText(msg.params.response.url || '') });
       }
@@ -1446,8 +1454,17 @@ async function cdpBrowserChecks(url, options = {}) {
         mobile: viewport.mobile,
       });
       const loaded = cdp.waitForEvent('Page.loadEventFired', 30000).catch(() => null);
-      await cdp.send('Page.navigate', { url });
+      documentRequests.clear();
+      const navigation = await cdp.send('Page.navigate', { url });
       await loaded;
+      let documentSha256 = null;
+      const documentRequest = documentRequests.get(navigation.frameId);
+      if (/^https?:/i.test(url) && documentRequest) {
+        try {
+          const response = await cdp.send('Network.getResponseBody', { requestId: documentRequest });
+          documentSha256 = crypto.createHash('sha256').update(Buffer.from(response.body, response.base64Encoded ? 'base64' : 'utf8')).digest('hex');
+        } catch (_) {}
+      }
       const runtimeDeadline = Date.now() + 30000;
       for (;;) {
         const state = await cdp.send('Runtime.evaluate', {
@@ -1488,7 +1505,7 @@ async function cdpBrowserChecks(url, options = {}) {
       }
       evaluated.result.value.images = preparedImages.result?.value || {};
       evaluated.result.value.shareModal = shareModalMetrics?.result?.value || null;
-      results.push(viewportResult(viewport, evaluated.result.value, options));
+      results.push({ ...viewportResult(viewport, evaluated.result.value, options), document_sha256: documentSha256 });
     }
     ws.close();
     return { checked: true, engine: 'system-browser', browser: browserPath, viewports: results, consoleErrors, nonCoreWarnings, imageNetworkErrors };

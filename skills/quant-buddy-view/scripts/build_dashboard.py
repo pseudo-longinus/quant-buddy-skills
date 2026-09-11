@@ -65,6 +65,7 @@ from html import escape as html_escape
 import json
 import math
 import os
+from pathlib import Path
 import pathlib
 import re
 import sys
@@ -100,11 +101,13 @@ def _resolve_credential(params):
     if pkg and sig:
         return pkg, sig, None
     if pkg and not sig:
-        cred = FP.load_credential(pkg)
+        cred = FP.load_credential(pkg, task_id=params.get("task_id")) if params.get("task_id") else FP.load_credential(pkg)
         if cred:
             return pkg, cred.get("signature"), None
         return pkg, None, None  # signature 缺失，live 模式后续会报错
-    # 未给 package_id：尝试取最近一次落盘的凭证
+    if params.get("task_id") or C.current_trace_context().get("task_id"):
+        return None, None, {"code": 1, "error": "PACKAGE_ID_REQUIRED", "message": "任务构建必须显式指定package_id，不能选择其他会话最近凭据"}
+    # 未给 package_id：兼容无任务的旧调用方
     cred_dir = os.path.join(C.SKILL_ROOT, "output", "formula_packages")
     if os.path.isdir(cred_dir):
         files = [os.path.join(cred_dir, f) for f in os.listdir(cred_dir) if f.endswith(".json")]
@@ -119,7 +122,7 @@ def _resolve_credential(params):
     return None, None, {"code": 1, "message": "未能确定 package_id：请在 spec 里指定，或先 register 落一份本地凭证"}
 
 
-def _resolve_grant_panels(panels):
+def _resolve_grant_panels(panels, task_id=None):
     """扫描 panels 找 grant_id 引用（与公式包 output 面板并存）：signature 缺省用本地凭证补全，
     并把 panel.output 归一成 grant_id、打 _source 标记，使下游校验/渲染管线无需区分来源。
     返回 (grants:[{grant_id,signature}] 去重, err|None)。"""
@@ -138,13 +141,53 @@ def _resolve_grant_panels(panels):
             continue
         sig = p.get("signature")
         if not sig:
-            cred = DG.load_credential(gid)
+            cred = DG.load_credential(gid, task_id=task_id) if task_id else DG.load_credential(gid)
             sig = cred.get("signature") if cred else None
         if not sig:
             return None, {"code": 1, "message": f"grant_id={gid} 缺 signature（可在 panel 里指定，或先 register/query 落一份本地凭证 output/data_grants/{gid}.json）"}
         seen[gid] = sig
         grants.append({"grant_id": gid, "signature": sig})
     return grants, None
+
+
+def _resolve_snapshot_panels(panels, task_id):
+    import verified_snapshot as VS
+    outputs = {}
+    bindings = {}
+    for panel in panels:
+        if not isinstance(panel, dict) or not panel.get("snapshot_receipt_file"):
+            continue
+        if not task_id or panel.get("grant_id") or panel.get("signature"):
+            return None, None, {"code": 1, "error": "SNAPSHOT_PANEL_CONFLICT", "message": "快照面板必须属于任务，不能混入运行凭据"}
+        try:
+            snapshot = VS.load(task_id, panel["snapshot_receipt_file"], panel.get("snapshot_receipt_sha256"))
+        except Exception as exc:
+            if hasattr(exc, "as_dict"):
+                return None, None, exc.as_dict()
+            raise
+        prefix = "snapshot_" + snapshot["receipt_sha256"]
+        result = snapshot["result"]
+        if snapshot["resource"] == "grant":
+            source = {"data": {"data": _normalize_grant_data(snapshot["contract"]["kind"], result.get("data")), "error": None}}
+            requested = ["data"]
+        else:
+            source = result.get("outputs") or {}
+            requested = panel.get("snapshot_outputs") or [panel.get("snapshot_output")]
+            if not all(isinstance(name, str) and name in source for name in requested):
+                return None, None, {"code": 1, "error": "SNAPSHOT_OUTPUT_REQUIRED", "message": "显式指定快照内的snapshot_output/snapshot_outputs"}
+        names = []
+        for name in requested:
+            key = prefix + ":" + name
+            outputs[key] = source[name]
+            names.append(key)
+        panel["_source"] = "snapshot"
+        panel["output"] = names[0]
+        panel["outputs"] = names
+        panel["output_labels"] = {key: name for key, name in zip(names, requested)}
+        panel["snapshot_captured_at"] = snapshot["captured_at"]
+        panel["description"] = str(panel.get("description") or "") + " 数据快照；快照生成时间 " + snapshot["captured_at"] + "，不会自动更新。"
+        bindings[str(Path(panel["snapshot_receipt_file"]).resolve())] = snapshot["receipt_sha256"]
+    return outputs, bindings, None
 
 
 def _as_bool(value, default=True):
@@ -336,6 +379,10 @@ function normalize(data) {
 function normalizeGrantData(kind, data) {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return data;
   var k = (kind || '').toLowerCase();
+  if (k === 'fast_query_minute') {
+    return (data.dates || []).map((date, i) => Object.assign({日期: date},
+      Object.fromEntries(Object.entries(data.fields || {}).map(([key, values]) => [key, values[i]]))));
+  }
   if (k === 'fast_query') {
     var results = data.results || [];
     var hasSeries = results.some(function (r) {
@@ -580,7 +627,7 @@ function panelOutputNames(panel) {
 
 // 把一个面板依赖的若干 output 合并成一张表：单 output 时行为与老版本完全一致（直接 normalize）；
 // 多 output 时各自 normalize 成 [x,y] 两列，再按 x（日期）外连接拼成宽表，喂给 renderChart 出多条线。
-function mergeOutputTables(names, received) {
+function mergeOutputTables(names, received, labels = {}) {
   if (names.length <= 1) {
     const out = names.length ? received[names[0]] : null;
     if (!out || out.error) return {tab: null, out: out || {error: '无产出'}};
@@ -609,7 +656,7 @@ function mergeOutputTables(names, received) {
     const cell = byX.get(x);
     return columns.map(c => c === 'x' ? x : (c in cell ? cell[c] : null));
   });
-  return {tab: {columns: columns, rows: rows}, out: null};
+  return {tab: {columns: columns.map(name => labels[name] || name), rows: rows}, out: null};
 }
 
 function createCard(panel) {
@@ -699,7 +746,10 @@ function renderPanelBody(body, panel, span, merged) {
 function buildSkeletons() {
   // 嵌入模式（面板全部走 target_selector）可能压根没有 #grid；null 时跳过清空，不整页报错。
   const grid = document.getElementById('grid');
-  if (grid) grid.innerHTML = '';
+  // Complete embedded layouts own their target nodes, including nodes inside #grid.
+  const embedded = BOOT.panels.length > 0 && BOOT.panels.every(panel =>
+    panel.target_selector && document.querySelector(panel.target_selector));
+  if (grid && !embedded) grid.innerHTML = '';
   PANEL_REG = [];
   OUTPUT_INDEX = {};
   BOOT.panels.forEach(panel => {
@@ -721,7 +771,7 @@ function applyOutput(name, out) {
   (OUTPUT_INDEX[name] || []).forEach(reg => {
     reg.received[name] = out;
     if (!reg.names.every(n => Object.prototype.hasOwnProperty.call(reg.received, n))) return;
-    const merged = mergeOutputTables(reg.names, reg.received);
+    const merged = mergeOutputTables(reg.names, reg.received, reg.panel.output_labels);
     if (reg.names.length === 1 && (reg.panel.type || 'table') === 'raw') merged.rawData = out.data;
     renderPanelBody(reg.body, reg.panel, reg.span, merged);
     reg.filled = true;
@@ -880,6 +930,7 @@ async function fetchGrantsLive() {
 async function fetchLive() {
   buildSkeletons();          // 先把面板骨架铺出来，产出到一个就渲染一个
   LAST_OUTPUTS = {};
+  Object.entries(BOOT.snapshots || {}).forEach(([name, out]) => { LAST_OUTPUTS[name] = out; applyOutput(name, out); });
   const tasks = [];
   if (resolvePackages().length) tasks.push(fetchPackageLive());
   if (BOOT.grants && BOOT.grants.length) tasks.push(fetchGrantsLive());
@@ -1013,7 +1064,7 @@ def _render_js_for_boot(boot):
     return embedded
 
 
-def _render_html(spec, *, title, subtitle, panels, endpoint, package_id, signature, generated_at, grants=None):
+def _render_html(spec, *, title, subtitle, panels, endpoint, package_id, signature, generated_at, grants=None, snapshots=None):
     """组装 HTML。骨架自包含（样式/内核内联），数据走运行时实时取数：页面内联 endpoint+凭证 + 取数 JS。
     grants：panel 里引用 grant_id 的数据授权列表 [{grant_id,signature}]，与公式包 panel 同页并存。"""
     share = _share_config(spec)
@@ -1034,8 +1085,9 @@ def _render_html(spec, *, title, subtitle, panels, endpoint, package_id, signatu
 
     boot = {
         "mode": page_mode,
-        "panels": panels,
+        "panels": [{key: value for key, value in panel.items() if key not in ("snapshot_receipt_file", "snapshot_receipt_sha256", "validation_receipt_file")} for panel in panels],
         "grants": grants or [],
+        "snapshots": snapshots or {},
         "generatedAt": generated_at,
         "share": {
             "enabled": share["show_qr"],
@@ -1095,6 +1147,9 @@ def _render_html(spec, *, title, subtitle, panels, endpoint, package_id, signatu
 
     mode_note = "数据：打开时实时取最新" if page_mode == "live" else "内容：静态展示"
     mode_label = "Live HTML" if page_mode == "live" else "Static HTML"
+    if snapshots:
+        mode_note = "数据：部分实时、部分静态快照" if page_mode == "live" else "数据：已验证静态快照，不会自动更新"
+        mode_label = "Mixed Live / Snapshot" if page_mode == "live" else "Verified Snapshot"
     mode_label_esc = html_escape(mode_label)
     poster_target_attr = " data-qb-poster-target" if any(
         isinstance(panel, dict) and (panel.get("type") or "").lower() == "image"
@@ -1385,7 +1440,7 @@ def cmd_panel_block(params):
                 "host_html_file": os.path.abspath(_resolve_local_path(host_html_file)),
             }
 
-    grants, grant_err = _resolve_grant_panels(panels)
+    grants, grant_err = _resolve_grant_panels(panels, task_id=params.get("task_id"))
     if grant_err:
         return grant_err
 
@@ -1483,6 +1538,10 @@ def _normalize_grant_data(kind, data):
     if not isinstance(data, dict):
         return data
     k = (kind or "").lower()
+    if k == "fast_query_minute":
+        return [{"日期": date, **{key: values[i] if i < len(values) else None
+                for key, values in (data.get("fields") or {}).items() if isinstance(values, list)}}
+                for i, date in enumerate(data.get("dates") or [])]
     if k == "fast_query":
         results = data.get("results") or []
         has_series = any(
@@ -1603,7 +1662,7 @@ def _panel_output_names(panel):
 
 
 def _panel_uses_formula(panel):
-    return isinstance(panel, dict) and panel.get("_source") != "grant" and bool(_panel_output_names(panel))
+    return isinstance(panel, dict) and panel.get("_source") not in ("grant", "snapshot") and bool(_panel_output_names(panel))
 
 
 def _inspect_outputs(panels, outputs):
@@ -1948,7 +2007,8 @@ def cmd_build(params):
                     ),
                     "task_id": task_id,
                     "borrow_mode": borrow_mode,
-                    "allowed_action": "fork_compose_then_build_dashboard_panel_block",
+                    "allowed_action": "compose_page" if borrow_mode == "compose" else "fork_prepare",
+                    "message_detail": "完整Compose页使用static_page.py compose_page；panel_block仅是局部产物。",
                 }
             compose, compose_error = SP._compose_binding_publish_state(routing, str((routing or {}).get("page_id") or ""))
             if compose_error:
@@ -1972,6 +2032,11 @@ def cmd_build(params):
                 "fork_manifest_file": binding.get("fork_manifest_file") or "",
                 "next_command": "static_page.py fork_validate",
             }
+    return _build_authorized(params)
+
+
+def _build_authorized(params):
+    """Internal renderer; callers must validate route/plan before invoking."""
     title = params.get("title")
     if not title:
         return {"code": 1, "message": "spec 缺少 title"}
@@ -1991,10 +2056,13 @@ def cmd_build(params):
     legacy_mode = (params.get("mode") or "").lower()
 
     # panel 支持两种取数来源、可同页并存：output→公式包（钉死+可重算）；grant_id→数据授权（钉死+不重算）。
-    grants, grant_err = _resolve_grant_panels(panels)
+    grants, grant_err = _resolve_grant_panels(panels, task_id=params.get("task_id"))
     if grant_err:
         return grant_err
 
+    snapshots, snapshot_bindings, snapshot_error = _resolve_snapshot_panels(panels, params.get("task_id"))
+    if snapshot_error:
+        return snapshot_error
     needs_formula = any(_panel_uses_formula(p) for p in panels)
 
     pkg = sig = None
@@ -2009,13 +2077,13 @@ def cmd_build(params):
         isinstance(p, dict) and (p.get("type") or "").lower() in ("text", "image")
         for p in panels
     )
-    if not pkg and not grants and not static_only:
+    if not pkg and not grants and not snapshots and not static_only:
         return {"code": 1, "message": "spec.panels 未引用任何 output（公式包）或 grant_id（数据授权），无法确定取数来源"}
 
     endpoint = C.endpoint_of(C.load_config())  # query 无需 api_key，仅取 endpoint
 
     # 构建期取一次数：只用于质量体检 + 单标的文案一致性校验，不内联进 HTML（页面仍走运行时实时取数）。
-    verify_outputs = {}
+    verify_outputs = dict(snapshots)
     if pkg:
         res = FP.query_package(endpoint, pkg, sig)
         if res.get("code") != 0:
@@ -2051,7 +2119,7 @@ def cmd_build(params):
     live_card_enabled = params.get("live_card") is not None and params.get("live_card") is not False
     html = _render_html(params, title=title, subtitle=params.get("subtitle"),
                         panels=panels, endpoint=endpoint, package_id=pkg, signature=sig,
-                        generated_at=generated_at, grants=grants)
+                        generated_at=generated_at, grants=grants, snapshots=snapshots)
 
     out_file = params.get("out_file")
     if out_file:
@@ -2092,6 +2160,7 @@ def cmd_build(params):
             }
             for g in grants
         ],
+        "snapshot_bindings": snapshot_bindings,
         "built_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "verification": {
             "build_time_query": "ok",
@@ -2109,6 +2178,8 @@ def cmd_build(params):
         "code": 0,
         "out_file": out_file,
         "mode": page_mode,
+        "data_mode": "mixed" if snapshots and (pkg or grants) else ("snapshot" if snapshots else page_mode),
+        "snapshot_bindings": snapshot_bindings,
         "package_id": pkg,
         "grants": [g["grant_id"] for g in grants],
         "panels": len(panels),
@@ -2123,6 +2194,25 @@ def cmd_build(params):
             k: {"value": round(v["value"], 4), "date": v.get("date")}
             for k, v in single_stock_facts.items()
         }
+
+    import execution_plan as EP
+    task_id = str(params.get("task_id") or C.current_trace_context().get("task_id") or "")
+    try:
+        plan = EP.load(task_id)
+        if plan and (params.get("upload") or params.get("update_page_id")):
+            EP.require(task_id, page_id=str(params.get("update_page_id") or plan["target_page_id"]))
+            publish_params = {key: params[key] for key in ("title", "description", "live_data_mode", "market_data_required", "route_receipt_file", "validation_receipt_files", "grant_validation_receipt_files", "page_context", "agent_reply_template") if key in params}
+            publish_params.update(task_id=task_id, page_id=plan["target_page_id"], html_file=out_file, plan_hash=plan["plan_hash"])
+            if result["data_mode"] in ("snapshot", "mixed"):
+                publish_params["live_data_mode"] = "verified_snapshot" if result["data_mode"] == "snapshot" else "mixed"
+            publish_path = C.task_temp_path(task_id, "dashboard-publish-params.json", create_parent=True)
+            EP.atomic_json(publish_path, publish_params)
+            result.update(terminal=False, page_id=plan["target_page_id"],
+                          next_action={"command": "publish_verified", "params_file": str(publish_path)},
+                          message="完整候选已生成；计划任务需publish_verified验收后同页发布")
+            return result
+    except EP.PlanError as exc:
+        return exc.as_dict()
 
     update_page_id = params.get("update_page_id")
     if params.get("upload") or update_page_id:

@@ -15,6 +15,12 @@
 | `stock_profile` | stockProfile | `{ asset, dimensions }` | 个股画像卡 |
 | `composition_select` | selectByComposition | 一次按权重选股/筛选请求（mode/universe/composition/screens/top_n…），indicator_id 须为已上线维度分 | TopN 榜单表 |
 
+## 发布链路能力预检
+
+Grant类型由共同能力表约束注册、Fork合同及qbs_bridge。`validate_grant_set`会在查询前聚合结构/类型/fingerprint错误，返回errors[]；不要只处理首个失败角色。
+
+分钟Grant使用专用验证器检查共享dates/fields对齐、必需字段、交易日期、时区、排序及有效数值；正常空结果属于数据不可用，不能生成成功收据。仅支持当前/最近完整交易日，不能传历史日期、区间或多资产参数；历史研究不要继承与目标需求无关的分钟角色。
+
 ## 端点（对齐公式包）
 
 | 操作 | 方法 + 路径 | 认证 |
@@ -25,7 +31,7 @@
 | 撤销 | `POST /skill/revokeDataGrant` | Bearer |
 | 刷新 | `POST /skill/refreshDataGrant` | Bearer |
 
-> `endpoint` / `api_key` 读 `config.json`（与 `formula_package.py` / `static_page.py` 共用同一 endpoint）。`signature` 仅在**注册响应中明文返回一次**，服务端不可再取出；脚本会自动落盘到 `output/data_grants/<grant_id>.json` 以防丢失（与公式包凭证同款）。
+> `endpoint` / `api_key` 读 `config.json`（与 `formula_package.py` / `static_page.py` 共用同一 endpoint）。`signature` 仅在**注册响应中明文返回一次**，服务端不可再取出；有task_id时脚本保存到任务根目录 `credentials/grant/<grant_id>.json`，并保存合同绑定登记收据；无任务的旧调用仍使用 `output/data_grants/<grant_id>.json`。
 
 ## 调用方式（与 formula_package.py 同款 CLI）
 
@@ -125,3 +131,8 @@ DKR_PARAMS='{"html_file":"old.html","out_file":"old-new.html"}' python scripts/d
 ## 计费
 
 注册计 `register_data_grant`；取数计 `QUERY_RU`，**费用计入 grant 所有者配额**，取数方不消耗自己配额、也无需 API Key。
+
+
+## 计划任务的登记与重试
+
+register携带本地`validation_receipt_file`；返回`registration_receipt_file`绑定该grant_id与真实请求fingerprint。相同有效合同直接复用登记；未知结果不自动再次创建。refresh/revoke同步更新任务登记，轮换使旧构建收据失效。`registration_status`仅查看本地状态，不会重发请求。完整流程见[计划与恢复](../workflows/planned-delivery-recovery.md)。

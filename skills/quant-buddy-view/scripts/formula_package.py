@@ -61,6 +61,8 @@ import urllib.error
 import urllib.request
 
 import common as C
+import runtime_credentials as RC
+import execution_plan as EP
 
 SKILL_ROOT = C.SKILL_ROOT
 
@@ -86,36 +88,18 @@ def _config(require_key):
     return C.endpoint_of(cfg), cfg.get("api_key", "")
 
 
+def _credential_dir():
+    return os.path.join(SKILL_ROOT, "output", "formula_packages")
+
+
 def _save_credential(reg):
-    """注册/轮换成功后把 package_id + signature 落盘，供后续取数 / 看板引用。"""
-    pkg = reg.get("package_id")
-    sig = reg.get("signature")
-    if not pkg or not sig:
+    if not reg.get("package_id") or not reg.get("signature"):
         return None
-    out_dir = os.path.join(SKILL_ROOT, "output", "formula_packages")
-    os.makedirs(out_dir, exist_ok=True)
-    path = os.path.join(out_dir, f"{pkg}.json")
-    record = {
-        "package_id": pkg,
-        "signature": sig,
-        "outputs": reg.get("outputs"),
-        "expires_at": reg.get("expires_at"),
-    }
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(record, f, ensure_ascii=False, indent=2)
-    return path
+    return RC.save_legacy("package", reg, _credential_dir())
 
 
-def load_credential(package_id):
-    """从本地凭证目录读取 {package_id, signature, outputs, ...}，不存在返回 None。"""
-    cred = os.path.join(SKILL_ROOT, "output", "formula_packages", f"{package_id}.json")
-    if os.path.exists(cred):
-        try:
-            with open(cred, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return None
-    return None
+def load_credential(package_id, task_id=None):
+    return RC.load("package", package_id, _credential_dir(), task=task_id)
 
 
 def _split_left_values(formula):
@@ -225,15 +209,16 @@ def cmd_register(params):
     for k in ("intents", "begin_date", "ttl_days"):
         if params.get(k) is not None:
             body[k] = params[k]
-    reg = C.http_json("POST", C.api_url(endpoint, _PATH["register"]),
-                      C.headers(api_key), body, timeout=_DEFAULT_TIMEOUT)
-    if isinstance(reg, dict):
+    contract = {key: body[key] for key in ("formulas", "reads", "begin_date") if key in body}
+    try:
+        reg = RC.register("package", params, contract, endpoint, api_key,
+                          lambda: C.http_json("POST", C.api_url(endpoint, _PATH["register"]), C.headers(api_key), body, timeout=_DEFAULT_TIMEOUT), _credential_dir())
         reg["_preflight"] = preflight
-    if reg.get("code") == 0 and reg.get("package_id"):
-        saved = _save_credential(reg)
-        if saved:
-            reg["_saved_credential"] = saved
-    return reg
+        return reg
+    except EP.PlanError as exc:
+        return exc.as_dict()
+    except OSError:
+        return {"code": 1, "error": "REGISTRATION_PERSIST_FAILED", "retryable": False, "next_action": "registration_status"}
 
 
 def query_package(endpoint, package_id, signature, outputs=None, api_key=""):
@@ -466,7 +451,7 @@ def cmd_query(params):
     pkg = params.get("package_id")
     sig = params.get("signature")
     if pkg and not sig:
-        cred = load_credential(pkg)
+        cred = load_credential(pkg, task_id=params["task_id"]) if params.get("task_id") else load_credential(pkg)
         if cred:
             sig = cred.get("signature")
     if not pkg or not sig:
@@ -565,48 +550,29 @@ def cmd_list(params):
     return C.http_json("GET", url, C.headers(api_key))
 
 
-def cmd_revoke(params):
+def _manage(params, operation):
     endpoint, api_key = _config(require_key=True)
     if not params.get("package_id"):
-        return {"code": 1, "message": "revoke 需要 package_id"}
+        return {"code": 1, "message": operation + "需要package_id"}
     body = {"package_id": params["package_id"]}
-    return C.http_json("POST", C.api_url(endpoint, _PATH["revoke"]), C.headers(api_key), body)
+    if operation == "refresh": body["rotate_signature"] = bool(params.get("rotate_signature", False))
+    try:
+        result = RC.mutate("package", params, endpoint, api_key,
+                           lambda: C.http_json("POST", C.api_url(endpoint, _PATH[operation]), C.headers(api_key), body), _credential_dir(), operation)
+        if operation == "refresh" and params.get("rotate_signature") and result.get("code") == 0:
+            result["warning"] = "签名已轮换，旧签名失效；需重建并验收所有引用该包的页面，未自动修改公开页面。"
+        return result
+    except EP.PlanError as exc:
+        return exc.as_dict()
 
 
-def cmd_refresh(params):
-    endpoint, api_key = _config(require_key=True)
-    if not params.get("package_id"):
-        return {"code": 1, "message": "refresh 需要 package_id"}
-    body = {"package_id": params["package_id"],
-            "rotate_signature": bool(params.get("rotate_signature", False))}
-    res = C.http_json("POST", C.api_url(endpoint, _PATH["refresh"]), C.headers(api_key), body)
-    rotated = bool(params.get("rotate_signature", False))
-    if res.get("code") == 0 and res.get("signature"):
-        cred = os.path.join(SKILL_ROOT, "output", "formula_packages",
-                            f"{params['package_id']}.json")
-        cred_updated = False
-        if os.path.exists(cred):
-            try:
-                with open(cred, "r", encoding="utf-8") as f:
-                    rec = json.load(f)
-                rec["signature"] = res["signature"]
-                with open(cred, "w", encoding="utf-8") as f:
-                    json.dump(rec, f, ensure_ascii=False, indent=2)
-                res["_credential_updated"] = cred
-                cred_updated = True
-            except Exception:
-                pass
-        # 轮换成功后打醒目善后提醒：新签名已生效，所有内嵌旧签名的已发布页面此刻已失效，
-        # 必须重建 + static_page update 每一个页面把新签名同步进去，否则它们取数会报 SIGNATURE_INVALID。
-        if rotated:
-            warn = ("⚠️ 签名已轮换，旧签名此刻已失效：所有内嵌该包旧签名的已发布页面现在取数会报 "
-                    "SIGNATURE_INVALID。必须立即用新签名重建 HTML 并 static_page update 覆盖每一个页面（同 "
-                    "page_id、链接不变）。新签名只此一次明文返回、服务端不可再取出，务必落库/记录。")
-            if not cred_updated:
-                warn += ("｜本地无该包凭证 output/formula_packages/{}.json，脚本未能回写新签名——"
-                         "请手动保存上面的 signature，否则 build_dashboard 无法重建。").format(params["package_id"])
-            res["_rotate_warning"] = warn
-    return res
+def cmd_revoke(params): return _manage(params, "revoke")
+def cmd_refresh(params): return _manage(params, "refresh")
+
+
+def cmd_registration_status(params):
+    try: return RC.status("package", params)
+    except EP.PlanError as exc: return exc.as_dict()
 
 
 _COMMANDS = {
@@ -615,6 +581,7 @@ _COMMANDS = {
     "list": cmd_list,
     "revoke": cmd_revoke,
     "refresh": cmd_refresh,
+    "registration_status": cmd_registration_status,
     "import": cmd_import,
 }
 

@@ -1,5 +1,7 @@
 # build_dashboard — spec → 自包含看板 HTML
 
+> 路由已锁定Compose时，整页使用`static_page.py compose_page @params`，不要在此命令加upload重建整页；panel_block只生成局部。受控组装器复用本renderer并校验计划/借鉴绑定，见[计划驱动交付](../workflows/planned-delivery-recovery.md)。
+
 ## image panel
 
 `type:"image"` 只接受 `image_upload` 返回的绝对同域 WebP `image_url`，不接受本地文件、外部 CDN 或来源 page_id 的 URL，且不参与公式/授权输出健康检查。
@@ -217,3 +219,10 @@ python scripts/build_dashboard.py '{
 - `reply_validation_command`
 
 公网浏览器验收通过后，把最终 Markdown **原样写入返回的 `reply_draft_file`**，再执行发布器原样返回的 `reply_validation_command`；不得手工重建 contract、hash 或验证参数。只有 validator 返回 `valid:true` 才能发送最终回复，并在此后停止调用工具。缺少这些字段说明发布链路尚未形成完整终态门禁，不能把页面判为交付完成。
+
+
+## 已验证快照面板
+
+快照面板指定snapshot_receipt_file，不能混入grant_id/signature。公式快照还需snapshot_output（单个）或snapshot_outputs（多个），使用快照合同中的真实产出名。构建器验证文件hash与任务身份，读取数据、复用正常table/line/bar renderer，但不产生运行时查询；本地文件路径不会写进公开BOOT JSON。
+
+计划中必须登记snapshot_roles。只有快照时输出data_mode=snapshot；与运行授权混用时输出mixed，页面和终态回复必须准确标识两类数据。

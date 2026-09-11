@@ -2,7 +2,7 @@
 name: quant-buddy-view
 slug: quant-buddy-view
 author: guanzhao
-version: 0.6.73
+version: 0.6.74
 description: |
   QBV / quant-buddy-view（用户可能写成 /quant-buddy-view、/qbv、qbv 或 QBV）用于把量化数据做成「公开可分享、实时取数」的网页看板/落地页。
   已有 JPG/PNG、HTML、PDF 等文件转活页（含检查报告、重做 HTML 后活化的复合需求）也使用本 Skill：优先静态转换、托管、验收和链接交付，再考虑 QBS 数据接入，不等待查数或范式匹配。
@@ -13,7 +13,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 0.6.73
+  version: 0.6.74
   author: guanzhao
   category: quant-finance
   tags: [quant, dashboard, formula-package, static-page, publish, visualization]
@@ -123,6 +123,8 @@ QBV_API_KEY=<本次任务的 key> python scripts/trace_context.py begin '{"user_
 
 > `build_dashboard.py` 也属于上述“后续每个命令”：只要 spec 含 `upload:true` 或 `update_page_id`，必须写入同一 `task_id`。成功结果会返回 hash-bound `reply_draft_file + reply_validation_command`；公网验收后必须写草稿并运行该命令，只有 `valid:true` 才能最终回复，之后停止工具调用。
 
+> **计划与恢复**：普通研究页按[计划驱动交付](workflows/planned-delivery-recovery.md)执行。借鉴范围、目标运行角色及构建模式必须一致；Compose返回的params文件用于完整候选构建，随后publish_verified。`update_progress`必须使用page_status/current_step；技术失败不是用户确认，已有可读内容不得被失败进度页覆盖。 登记运行凭据需对应验证收据；静态金融页用materialize_snapshot及计划snapshot_roles，不手填数据绕过验证。
+
 **具体资产证据闸门**：已有文件转活页先执行静态交付，本闸门仅在其后实时增强阶段生效。除 `new_asset_page` 固定场景外，只要用户点名具体资产，就在 Trace 后、解释资产身份或提交 `routing_decision` 前，按「Trace → 资产映射 → 最小接口验证 → 页面路由」的顺序完成验证：调用 `scripts/qbs_bridge.py resolve_asset_data` 得到平台 ticker 映射，并按页面实际需要探测所需数据角色是否可取数，只记录接口成功/失败、可用字段和结构化错误。页面结构与 direct/fork/unmatched 判断只依据"用户所需能力 × 已验证的平台能力"，不得依据 Agent 对公司上市状态、所有权、资产名称或市场惯例的记忆。验证前不得引入"上市/未上市、公开/私营、代理资产、无行情、只能静态"等限制性前提；若用户没有询问这些身份属性，也不要把它们扩展成分析主线。
 
 `resolve_asset_data` 的输入合同必须直接按下面形状写入新的 `output/*.json`，不要先猜 schema、不要把多只资产拼成一个 `asset` 字符串，也不要为每只资产各写一份参数文件：
@@ -205,7 +207,7 @@ python scripts/static_page.py new_asset_page '{"task_id":"task_xxx","asset":"贵
   - `fork_prepare 返回 publish_command 后` 即进入发布收敛阶段：只填写返回的 review 文件并执行该命令，禁止读取 `scripts/*.py`、运行 `--help` 或探索 `publish_workflow.py` / `fork_runtime_contract.py` 实现；命令失败只按结构化错误修正输入。已创建首链时必须完成 terminal 或明确失败收口，不得让进度页长期停留在 running。
   - `inherit_augment` 向 `fork_prepare` 传 `augmentation_spec`，新增 package/grant 角色与来源角色物理隔离。新增公式必须通过 QBS 验证，marker 必须恰好出现一次且输出必须被实际渲染。
   - `compose` 先运行 `intent_profile` 做 user_term/platform_dimensions/method_terms 三层映射，再用 `research_templates` 提取 credential-free 的栏目 HTML、CSS、渲染函数及合同形状，最后 `fork_compose` 提交借鉴清单。收据及 SHA256 绑定后才允许发布；全部 original 的零借鉴 Compose 被拒绝。 `fork_compose` 必须传 `borrow_plan.modules`（不是顶层 `borrowed_refs`），并逐项认领 intent profile 的每个 `user_term`；优先复制 `research_templates.templates_summary[].fork_compose_example` 后修改，遇到 `COMPOSE_BORROW_PLAN_REQUIRED` 必须按返回示例重试，不得停在 running 进度页。
-  - Compose 参数必须一次写完整：`intent_profile` 至少传 `{"task_id":"task_xxx","asset_scope":{"kind":"sector","name":"目标资产组","market":"A股"},"dimensions":[{"user_term":"实时行情","platform_dimensions":["close","pct_chg"],"method_terms":["横向比较"]}]}`；`research_templates` 传 `{"task_id":"task_xxx","template_ids":["page_source"]}`。任一结构化错误若返回 `example_intent_profile`、`example_research_templates` 或 `fork_compose_example`，必须直接复制该完整示例后修改并重试，不能逐字段猜测。  - **资产替换的职责分工**：Agent 说清楚"换成哪只标的"，脚本负责"这只标的在页面里写成什么样"。来源主资产由脚本从模板公式词频 + 标题推导，代码的实际写法（`SH600900` / `600900.SH` / 裸 `600900`）由脚本扫描来源 HTML 得出，只替换真实存在的写法——不要去猜来源 HTML 里代码写成什么样，你看不到那个文件。多资产/指数类范式推不出主资产时返回 `FORK_SOURCE_ASSET_AMBIGUOUS`（报错自带候选名与可照抄的调用），用 `source_asset` 显式指明后重试。`asset_replacements` 仅作可选覆盖。替换后主资产若仍有残留，在写出工作 HTML 前就返回 `FORK_SOURCE_ASSET_RESIDUAL`，不会等到发布后才发现。
+  - Compose 参数必须一次写完整：`intent_profile` 至少传 `{"task_id":"task_xxx","asset_scope":{"kind":"sector","name":"目标资产组","market":"A股"},"dimensions":[{"user_term":"实时行情","platform_dimensions":["close","pct_chg"],"method_terms":["横向比较"]}]}`；`research_templates` 传 `{"task_id":"task_xxx","template_ids":["page_source"]}`。任一结构化错误若返回 `example_intent_profile`、`example_research_templates` 或 `fork_compose_example`，必须直接复制该完整示例后修改并重试，不能逐字段猜测。  - **资产替换的职责分工**：Agent 说清楚"换成哪只标的"，脚本负责"这只标的在页面里写成什么样"。来源主资产由脚本从模板公式词频 + 标题推导，代码的实际写法（`SH600900` / `600900.SH` / 裸 `600900`）由脚本扫描来源 HTML 得出，只替换真实存在的写法——不要去猜来源 HTML 里代码写成什么样，你看不到那个文件。多资产/指数类范式推不出唯一主资产时，不得用标题或研究ID拼造 `source_asset`；只借布局或重组多资产时转 `research_templates → fork_compose → compose_page`，真正单资产替换才补经核验的来源身份。`asset_replacements` 仅作可选覆盖。替换后主资产若仍有残留，在写出工作 HTML 前就返回 `FORK_SOURCE_ASSET_RESIDUAL`，不会等到发布后才发现。
   - Agent只在 `fork_prepare` 生成的 `review_update_params_file.decisions` 中填写 `required_decisions` 声明的业务决策：规则性同业矩阵填 `target_slots`，复杂跨资产公式填 `target_formulas`，标签替换填 `page_label_replacements`。`decisions` 已按角色预生成嵌套占位骨架（`{"roles":{"<role_id>":{...}}}`），只需要在骨架里补全空值，不要新增/改写顶层字段，也不要把 `required_decisions` 里的扁平 `decision_id`（如 `roles.package.package_001.target_formulas`）当成提交用的 key。禁止直接编辑标准 fork HTML/review。
   - Grant按来源角色完整继承 `kind/query_type/fields/dimensions/window_days/result_mode` 与 CSV/inline 合同，只允许自动修改 manifest 声明的资产范围字段；其他变化必须填写 `contract_change_reason`。
   - 继承 Grant 的数据级失败可降级并继续发布存活角色；鉴权/配额/协议等系统级失败仍阻断。若页面仍用 `queryDataGrant` 无条件消费失败 Grant，返回 `GRANT_DEGRADATION_UNSAFE`，不得用空凭证假降级。
@@ -350,7 +352,7 @@ npx skills update pseudo-longinus/quant-buddy-skills -y
 8. **正文图片先上传后引用**：先用 `static_page.py image_upload` 获得目标 `page_id` 下的绝对 `https://pages.quantbuddy.cn/pages/assets/...webp` URL，再写入 HTML；禁止跨页复用托管 URL。图片必须带明确 `alt` 与 `width/height`；首屏和海报目标内不得 lazy，正文下方才可 `loading="lazy"`。标准 image panel 默认启用当前页大图预览，装饰图才设 `zoomable:false`；不要用新窗口打开图片 URL。fork 必须按 manifest 的 `images[]` 上传到目标页并替换 marker，不能保留来源图片 URL。
 9. **`templates` 摘要必须覆盖全部候选，落盘失败不能裸奔**：`items_summary` 的条目数量必须等于 `item_count`（完整候选去重后的真实数量，不是服务端可能未重算的 `total`），不允许只看其中一部分候选就判定 `unmatched`；一旦返回 `error:"TEMPLATES_PERSIST_FAILED"` 或 `error:"TEMPLATES_RESPONSE_SHAPE_UNEXPECTED"`（落盘失败或响应结构异常），必须先向用户说明「范式候选未能完整确认，暂缓路由判断」，禁止在这种不完整信息下判定为 `unmatched` 走自建，也**不得通过重复调用 `templates` 来补救**（每个任务仍然只能调用一次这条硬规则不变）；确需重试仅限明确的瞬时网络失败，且只重试一次。
 10. **Card Runtime 先做零副作用结构预检**：含 Card Runtime artifact 的 HTML 必须由 `publish_workflow.py` 在 QBS 验证、注册、图片上传和发布前用假凭证执行 `verify_page.mjs --card-runtime-structure-only`。正文与 Card 共用凭证时用 marker 数组扇出；每个数组元素仍须全局唯一并在 HTML 中恰好出现一次。禁止空 manifest 凭证；普通 `<img>` 必须有非空 `src`，仅显式声明 `data-qb-runtime-src` 且等待运行时赋值的预览图可以暂时为空；同时禁止注册等价的重复 Card package/grant。
-11. **普通建页前必须先查范式卡并显式确认路由**：`new_page` 会校验完整候选并绑定路由。fork 必须声明借鉴度，且一经判定不得改判 unmatched；继承不成立时只能在 fork 内降为 Compose。`build_dashboard` 对 fork/inherit* 禁止整页构建；fork/compose 仅在 `fork_compose` 绑定后允许 `emit:"panel_block"`。
+11. **普通建页前必须先查范式卡并显式确认路由**：`new_page` 会校验完整候选并绑定路由。fork 必须声明借鉴度，且一经判定不得改判 unmatched；继承不成立时只能在 fork 内降为 Compose。`build_dashboard` 对 fork/inherit* 禁止整页构建；fork/compose 的完整页面使用 `static_page.py compose_page`；`emit:"panel_block"` 仍仅是局部产物。已绑定Compose不得再次全量fork_prepare。
 12. **本地验收与公网验收分责**：`fork-local` 在本地 `file://`（origin=null）下用放开同源策略的测试浏览器跑真实取数渲染（`security_mode:"disabled-web-security"`），布局/占位符/运行时错误/图片/Card Runtime 门禁照常执行；`public-smoke` 保持浏览器默认安全策略，数据接口 CORS/`Failed to fetch`/运行时失败仍严格拦截。平台注入的 `/webapi/skill/track` 分析埋点是 fire-and-forget，其 CORS/网络失败降为 `non_core_console_warnings`，不再让成功页面发布失败；数据接口（`queryDataGrant`/`queryFormulaPackage`）的失败仍是阻塞性核心错误。
 13. **Fork 数据通道必须继承来源合同**：fork 的目标是替换标的并保持来源范式运行合同，不是重新设计数据层。来源模板某一角色使用公式包，目标页同一角色继续使用公式包；来源使用 `fast_query` / `stock_profile` / `composition_select` 数据授权，目标页继续使用同 kind、同 query_type、同响应形状的数据授权。禁止仅因“财务数据通常可走 fast_query(report)”就在 fork 中把来源财务公式包改成 grant，也禁止反向把来源 grant 改成公式包。只有 `unmatched` / 明确从零重建时才重新做通道选择；此时平台白名单报告期财务优先 `fast_query(query_type="report")`。
 14. **已有文件先原样托管，后同页渐进增强**：所有已有文件转活页先执行 [静态优先工作流](workflows/existing-file-static-first.md)，包括“先纠错、重做后活化”的复合请求。用 file_prepare 及其持久发布参数，不先研究或改写来源。已获准的动态来源优先捕获只读响应并回放，以保留本地交互；只能视觉冻结时明确损失。第一版公网验收后立即交付静态链接，不等用户再催；已授权增强继续执行。保真增强按通道使用 Data Grant/Formula Package，成功区域才声明 `data-qb-live-mode="live"` 与 `data-qb-live-tag="qbs-formula-package|qbs-data-grant"`；未转换内容保留快照，不为静态声明强行注入属性。本地候选验证后仅更新同一 page_id，失败不覆盖最后成功版本、不创建替代链接；未知写入、恢复失败要明确记录，不能说成成功。首次静态不需要模板fork或Handoff；本流程不引入Block Runtime或全局标签改造。

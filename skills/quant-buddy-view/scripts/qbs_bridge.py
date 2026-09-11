@@ -12,6 +12,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+import grant_capabilities as GC
 import common as C
 import fork_runtime_contract as FRC
 import reply_data_evidence as RDE
@@ -1022,7 +1023,7 @@ def _resolve_single_asset_data(call_script, params, env):
             successful_required.add("profile")
             contract = {"kind": "stock_profile", "payload": {"asset": asset, "result_mode": "inline", "required_fields": required_by_role["profile"]}}
             fingerprint = FRC.contract_fingerprint(contract)
-            receipt = _grant_validation_receipt(task_id, "profile", "stock_profile", fingerprint)
+            receipt = _grant_validation_receipt(task_id, "profile", "stock_profile", fingerprint, snapshot={"contract": contract, "result": profile_result})
             grant = {"name": "profile", "role": "profile", "kind": "stock_profile", "contract": contract, "contract_fingerprint": fingerprint, "validation_receipt_file": receipt}
             grants.append(grant)
             selected_routes.append({"role": "profile", "kind": "stock_profile", "receipt_file": receipt, "contract_fingerprint": fingerprint})
@@ -1054,7 +1055,7 @@ def _resolve_single_asset_data(call_script, params, env):
             contract_payload = {"assets": [asset], "fields": fields, "query_type": role, "result_mode": "value"}
             contract = {"kind": "fast_query", "payload": contract_payload}
             fingerprint = FRC.contract_fingerprint(contract)
-            receipt = _grant_validation_receipt(task_id, role, "fast_query", fingerprint)
+            receipt = _grant_validation_receipt(task_id, role, "fast_query", fingerprint, snapshot={"contract": contract, "result": result})
             grant = {"name": role, "role": role, "kind": "fast_query", "query_type": role, "contract": contract, "contract_fingerprint": fingerprint, "validation_receipt_file": receipt}
             grants.append(grant)
             selected_routes.append({"role": role, "kind": "fast_query", "query_type": role, "receipt_file": receipt, "contract_fingerprint": fingerprint})
@@ -1237,7 +1238,7 @@ def _resolve_asset_data(call_script, params, env):
     }
 
 
-def _grant_validation_receipt(task_id, role_name, kind, fingerprint):
+def _grant_validation_receipt(task_id, role_name, kind, fingerprint, snapshot=None):
     root = C.task_temp_path(task_id, "grant_validation_receipts", create_parent=True)
     root.mkdir(parents=True, exist_ok=True)
     digest = hashlib.sha256(f"{task_id}:{role_name}:{fingerprint}".encode("utf-8")).hexdigest()
@@ -1252,6 +1253,12 @@ def _grant_validation_receipt(task_id, role_name, kind, fingerprint):
         "success": True,
         "validated_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
     }
+    if snapshot:
+        try:
+            import verified_snapshot as VS
+            payload.update(VS.capture(task_id, snapshot["contract"], snapshot["result"]))
+        except (OSError, ValueError) as exc:
+            payload["snapshot_warning"] = type(exc).__name__
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return str(path)
 
@@ -1262,11 +1269,11 @@ def _validate_grant_set(call_script, params, env):
         return {"code": 1, "error": "INVALID_GRANTS", "message": "grants 必须是数组"}
     task_id = str(params.get("task_id") or "").strip()
     user_query = str(params.get("user_query") or "").strip()
-    tool_by_kind = {
-        "fast_query": "fast_query",
-        "stock_profile": "stockProfile",
-        "composition_select": "selectByComposition",
-    }
+    tool_by_kind = GC.TOOL_BY_KIND
+    errors = GC.grant_set_errors(grants)
+    if errors:
+        return {"code": 1, "error": "GRANT_SET_INVALID", "errors": errors,
+                "message": "请一次修正全部Grant合同；尚未进行查询或注册", "retryable": False}
     names = set()
     results = []
     receipts = []
@@ -1297,7 +1304,9 @@ def _validate_grant_set(call_script, params, env):
                 "missing_fields": [],
             })
             continue
-        if kind == "fast_query":
+        if kind == "fast_query_minute":
+            evaluation = GC.evaluate_minute(payload, result)
+        elif kind == "fast_query":
             assets = payload.get("assets") if isinstance(payload.get("assets"), list) else []
             asset = str((assets or [payload.get("asset") or ""])[0] or "").strip()
             required_fields = payload.get("required_fields") if isinstance(payload.get("required_fields"), list) else payload.get("fields") or []
@@ -1321,7 +1330,7 @@ def _validate_grant_set(call_script, params, env):
                 "missing_fields": evaluation.get("missing_fields") or [],
             })
             continue
-        receipt = _grant_validation_receipt(task_id, name, kind, fingerprint)
+        receipt = _grant_validation_receipt(task_id, name, kind, fingerprint, snapshot={"contract": contract, "result": result})
         receipts.append(receipt)
         results.append({
             "name": name,
