@@ -226,3 +226,8 @@ python scripts/build_dashboard.py '{
 快照面板指定snapshot_receipt_file，不能混入grant_id/signature。公式快照还需snapshot_output（单个）或snapshot_outputs（多个），使用快照合同中的真实产出名。构建器验证文件hash与任务身份，读取数据、复用正常table/line/bar renderer，但不产生运行时查询；本地文件路径不会写进公开BOOT JSON。
 
 计划中必须登记snapshot_roles。只有快照时输出data_mode=snapshot；与运行授权混用时输出mixed，页面和终态回复必须准确标识两类数据。
+
+
+### Compose 角色别名
+
+Compose 草稿支持 `runtime_role_id` 引用执行计划角色，编译后仍使用现有 grant_id/package_id 协议。text/image 不消费运行数据；文字研究与table/number/line等真实数据面板分开。多资产角色默认各自生成table；不要只把 grant_id 填到纯文本面板就声明实时接入。该别名属于 compose_page 入口，普通 build_dashboard 的原有合同不变。

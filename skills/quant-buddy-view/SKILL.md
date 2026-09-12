@@ -2,7 +2,7 @@
 name: quant-buddy-view
 slug: quant-buddy-view
 author: guanzhao
-version: 0.6.74
+version: 0.6.75
 description: |
   QBV / quant-buddy-view（用户可能写成 /quant-buddy-view、/qbv、qbv 或 QBV）用于把量化数据做成「公开可分享、实时取数」的网页看板/落地页。
   已有 JPG/PNG、HTML、PDF 等文件转活页（含检查报告、重做 HTML 后活化的复合需求）也使用本 Skill：优先静态转换、托管、验收和链接交付，再考虑 QBS 数据接入，不等待查数或范式匹配。
@@ -13,7 +13,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 0.6.74
+  version: 0.6.75
   author: guanzhao
   category: quant-finance
   tags: [quant, dashboard, formula-package, static-page, publish, visualization]
@@ -94,6 +94,10 @@ python scripts/static_page.py interpret '{"url":"用户提供的页面 URL"}'
 
 > **QBS 并行 Handoff**：收到 `qbs_qbv_handoff_v1` 时运行 `scripts/trace_context.py beginHandoff`（兼容 `begin-handoff`），传入 Handoff object 或绝对 `handoff_file`。必须原样复用其中真实 `task_id + turn_id + source_skill_id`，不得再次 `begin/beginTurn`、不得在 QBV 重做 QBS 路由分类。`create/existing_page` 之后仍进入本 Skill 完整 SOP，由 QBV 判断 direct/fork/unmatched、查询 ownership 并执行本人原位更新或他人复制；高风险持久状态未确认时 `beginHandoff` 必须拒绝。
 
+
+## Compose 参数交接
+
+`fork_compose` 与 `execution_plan` 修订返回会话可写目录中的 `next_action.params_file`。编辑该草稿的标题和研究内容，不编辑内部 `/tmp` 收据；修订后使用新路径和当前 `plan_hash`。已注册角色自动生成数据面板，`runtime_role_id` 是受支持的角色引用；纯 `text/image` 不算数据消费。先处理 `draft_diagnostics`，不能通过清空角色或取消实时要求绕过错误。只有工具返回 `publish_verified` 才进入发布；缺路由时提供本任务已有的 `route_receipt_file`，不重复注册。失败回复保留“任务进度（构建失败）/（未完成）”链接，但不使用成品交付措辞；宿主卡片不作为成功证据。
 
 ## 何时用本技能 vs quant-buddy-skill
 

@@ -68,7 +68,7 @@ def _remote(meta):
             'sha256': meta.get('sha256'), 'url': meta.get('public_url') or meta.get('url') or meta.get('download_url')}
 
 
-def prepare_write(plan, candidate_hash, observed, request_body=None):
+def prepare_write(plan, candidate_hash, observed, request_body=None, content_kind="candidate"):
     """Record intent before write. Uncertain prior writes never retry blindly."""
     task, page = plan['task_id'], plan['target_page_id']
     current = _remote(observed)
@@ -93,7 +93,10 @@ def prepare_write(plan, candidate_hash, observed, request_body=None):
                   'base': current, 'idempotency_key': EP.digest([task, page, plan['plan_hash'], candidate_hash, EP.digest(request_body) if request_body is not None else None, current['version_no'], current['sha256']]),
                   'request_body_sha256': EP.digest(request_body) if request_body is not None else None,
                   'started_at': _now(), 'consistency': 'local_lock_and_read_before_write_no_server_cas'}
-        state.update(last_write=intent, execution_status='running', current_step='final_publish')
+        intent['content_kind'] = content_kind
+        state['last_write'] = intent
+        if content_kind != 'progress':
+            state.update(execution_status='running', current_step='final_publish')
         return {'intent': intent, 'state': _save(state)}
 
 
@@ -110,12 +113,14 @@ def record_write(plan, result, expected_idempotency_key=None, content_kind='cand
             write.update(status='confirmed', remote=remote, confirmed_result={k:v for k,v in result.items() if k not in ('signature','api_key')})
             # Do not promote last_good until the public verification succeeds.
             if content_kind!='progress':state['delivery_state'] = 'partial'
+            else:state.pop('progress_sync_error',None)
         else:
             error=result.get('error');error=error.get('code') if isinstance(error,dict) else error
             write['status'] = 'rejected' if error in ('PAGE_VERSION_CONFLICT','IDEMPOTENCY_KEY_REUSED','WRITE_APPLIED_NOT_CURRENT') else 'unknown'
             write['error_code']=error
-            state.update(execution_status='failed', last_error={'error_code': 'PUBLISH_OUTCOME_UNKNOWN',
-                         'next_action': {'command': 'delivery_status'}, 'stage': 'final_publish'})
+            failure={'error_code': 'PUBLISH_OUTCOME_UNKNOWN', 'next_action': {'command': 'delivery_status'}, 'stage': 'final_publish'}
+            if content_kind == 'progress':state['progress_sync_error']=failure
+            else:state.update(execution_status='failed', last_error=failure)
         state['last_write'] = write
         return _save(state)
 

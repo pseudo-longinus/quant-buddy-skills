@@ -9,6 +9,7 @@ from pathlib import Path
 import common as C
 import execution_plan as EP
 import runtime_credentials as RC
+import compose_inputs as CI
 
 RECEIPT_FILE = 'receipts/compose-build.json'
 SUPPORTED = {'layout', 'layout+style', 'original'}
@@ -62,7 +63,7 @@ def _read_binding(plan, routing, sp):
 
 
 def _check_roles(plan, params, panels):
-    used_grants = {p['grant_id'] for p in panels if p.get('grant_id')}
+    used_grants = {p['grant_id'] for p in panels if p.get('grant_id') and p.get('type') not in ('text','image')}
     used_packages = {params['package_id']} if params.get('package_id') else set()
     expected_grants = {r.get('grant_id') for r in plan['runtime_roles'] if r['kind'] == 'grant'}
     expected_packages = {r.get('package_id') for r in plan['runtime_roles'] if r['kind'] == 'package'}
@@ -125,6 +126,11 @@ def build(params):
         if not modules: raise EP.PlanError('COMPOSE_MODULES_REQUIRED', 'Compose必须声明实际借鉴模块')
         if any(x['borrow_level'] not in SUPPORTED for x in modules):
             raise EP.PlanError('COMPOSE_MODULE_ADAPTER_REQUIRED', '此组装器仅接受layout/layout+style/original；脚本或公式借鉴需显式运行角色适配，不能偷偷继承全部来源')
+        params, binding_issues = CI.normalize_panels(plan, params)
+        if binding_issues:
+            recovery = CI.prepare(plan, params)
+            return {'code': 1, 'error': 'PLAN_ROLE_CONFLICT', 'message': '面板未正确消费计划角色；按issues与修正草稿恢复，不能删除已验证角色',
+                    'terminal': False, 'issues': binding_issues, **recovery}
         panels = copy.deepcopy(params.get('panels') or [])
         if not panels or any(not isinstance(p, dict) for p in panels): raise EP.PlanError('COMPOSE_CONTENT_REQUIRED', '填写目标研究panels')
         registrations = _check_roles(plan, params, panels)
@@ -185,10 +191,14 @@ def build(params):
         EP.atomic_json(built['manifest'], manifest)
         publish = {k: params[k] for k in ('task_id', 'title', 'description', 'page_context', 'agent_reply_template',
                    'live_data_mode', 'route_receipt_file', 'validation_receipt_files', 'grant_validation_receipt_files',
-                   'market_data_required', 'agent_intent') if k in params}
+                   'market_data_required', 'agent_intent', 'asset', 'turn_id', 'handoff_validation_receipt_files') if k in params}
         publish.update(page_id=plan['target_page_id'], html_file=str(artifact), plan_hash=plan['plan_hash'], require_live_data=plan.get('require_live_data',False))
         if receipt['data_mode'] in ('snapshot','mixed'):
             publish['live_data_mode']='verified_snapshot' if receipt['data_mode']=='snapshot' else 'mixed'
+        publish, evidence_error = CI.evidence(plan, publish)
+        if evidence_error:
+            return {**built, **evidence_error, 'out_file': str(artifact), 'page_id': plan['target_page_id'], 'terminal': False,
+                    'publication_ready': False, 'compose_receipt_file': str(receipt_path), **CI.prepare(plan, params)}
         publish_path = C.task_temp_path(task, 'compose/publish-params.json', create_parent=True)
         EP.atomic_json(publish_path, publish)
         return {**built, 'out_file': str(artifact), 'page_id': plan['target_page_id'], 'terminal': False,

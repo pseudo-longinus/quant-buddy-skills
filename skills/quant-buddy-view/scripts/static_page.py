@@ -3074,6 +3074,34 @@ def _validate_live_receipts(params, route, *, allow_partial=False):
     identity_error = _validate_route_identity(route, params)
     if identity_error:
         return identity_error
+    if "asset_results" in route:
+        # Validate original child receipts, not a newly invented aggregate contract.
+        import compose_inputs
+        if (route.get("status") != "live" or route.get("required_roles_complete") is not True
+                or route.get("static_fallback_allowed") is not False):
+            return _evidence_error("LIVE_DATA_ROUTE_INCOMPLETE", "多资产路由尚未完整")
+        try:
+            leaves = compose_inputs.route_leaf_files(route, params.get("route_receipt_file"))
+        except EP.PlanError as exc:
+            return exc.as_dict()
+        assets = [child.get("asset") for child, _ in leaves]
+        if len(set(assets)) != len(assets) or set(assets) != set(route.get("assets") or []):
+            return _evidence_error("LIVE_DATA_ROUTE_ASSET_MISMATCH", "多资产父子路由范围不一致")
+        supplied = {key: _receipt_files(params.get(key)) for key in (
+            "validation_receipt_files", "grant_validation_receipt_files", "handoff_validation_receipt_files")}
+        selected_paths = [_normalized_evidence_path(item.get("receipt_file")) for child, _ in leaves for item in child.get("selected_routes", [])]
+        all_paths = [_normalized_evidence_path(path) for files in supplied.values() for path in files]
+        if len(set(selected_paths)) != len(selected_paths) or sorted(selected_paths) != sorted(all_paths):
+            return _evidence_error("LIVE_DATA_RECEIPT_SET_MISMATCH", "多资产收据必须与全部已选择路线一一对应")
+        for child, child_path in leaves:
+            selected = {_normalized_evidence_path(item.get("receipt_file")) for item in child.get("selected_routes", [])}
+            child_params = {**params, "asset": child.get("asset"), "route_receipt_file": str(child_path)}
+            for key, files in supplied.items():
+                child_params[key] = [file for file in files if _normalized_evidence_path(file) in selected]
+            error = _validate_live_receipts(child_params, child, allow_partial=False)
+            if error:
+                return error
+        return None
     required_roles = route.get("required_roles") if isinstance(route.get("required_roles"), list) else []
     attempted_roles = route.get("attempted_roles") if isinstance(route.get("attempted_roles"), list) else []
     selected = route.get("selected_routes") if isinstance(route.get("selected_routes"), list) else []
@@ -4097,6 +4125,14 @@ def _attach_progress_result(out, state, params=None):
                 if not _delivery_policy():
                     waiting_context["public_url"] = out.get("url") or out.get("public_url") or ""
                 hint.update(waiting_context)
+        if state.get("page_status") in ("failed", "waiting_input"):
+            out.pop("agent_reply_contract", None)
+            label = "任务进度（构建失败）" if state.get("page_status") == "failed" else "任务进度（未完成）"
+            out["terminal"] = False
+            out["progress_link"] = {"label": label, "url": _delivery_public_url(_record_url(out)), "terminal": False}
+            if hint is not None:
+                hint.update(terminal=False, progress_link_label=label, delivery_status=state.get("page_status"),
+                            failure_stage=state.get("current_step"), next_action=(params or {}).get("next_action"))
         out["progress"] = state
         out["steps"] = state.get("steps") or []
         out["progress_page"] = {
@@ -5216,10 +5252,15 @@ def cmd_update_progress(params):
         if plan:
             delivery = DS.record_progress(plan, params)
             if delivery["delivery_state"] != "placeholder":
-                return {"code": 0, "operation": "progress_recorded", "page_id": params["page_id"],
-                        "public_page_updated": False, "delivery_state": delivery,
-                        "agent_reply_hint": {"terminal": False, "interaction_required": params.get("page_status") == "waiting_input"},
-                        "message": "已记录执行状态，保留现有公开内容；宿主或对话负责展示进度"}
+                result = {"code": 0, "operation": "progress_recorded", "page_id": params["page_id"],
+                          "public_page_updated": False, "delivery_state": delivery,
+                          "message": "已记录执行状态，保留现有公开内容；宿主或对话负责展示进度"}
+                known = delivery.get("last_good_version") or (delivery.get("last_write") or {}).get("remote") or {}
+                if known.get("url"):
+                    result["public_url"] = known["url"]
+                result = _attach_progress_result(result, PP.build_state(params), params)
+                result["progress_page"]["mode"] = "execution_state_only"
+                return result
     except EP.PlanError as exc:
         return exc.as_dict()
     state, html = _progress_state_and_html(params)
@@ -7234,18 +7275,15 @@ def cmd_fork_compose(params):
     _, write_error = _write_routing_credential_record(cred)
     if write_error:
         return write_error
-    build_params_file = C.task_temp_path(task_id, "compose-build-params.json", create_parent=True)
-    if not build_params_file.exists():
-        EP.atomic_json(build_params_file, {
-            "task_id": task_id, "page_id": plan["target_page_id"], "plan_hash": plan["plan_hash"],
-            "title": "", "panels": [{"type": "text", "title": item["module"],
-                "compose_module": item["module"], "text": ""} for item in provenance],
-        })
+    try:
+        import compose_inputs
+        handoff = compose_inputs.prepare(plan, params)
+    except EP.PlanError as exc:
+        return {**exc.as_dict(), "execution_plan": plan, "plan_committed": True}
     return {
         "code": 0, "operation": "fork_compose", "task_id": task_id,
         "execution_plan": {"revision": plan["revision"], "plan_hash": plan["plan_hash"], "build_mode": plan["build_mode"]},
-        "next_action": {"command": "compose_page", "params_file": str(build_params_file),
-                        "instruction": "按目标需求填写title和各模块panels，使用当前plan_hash；不要再次fork_prepare"},
+        **handoff,
         "borrow_mode": "compose", "source_template_id": source,
         "compose_binding_file": str(path), "compose_binding_sha256": binding_sha,
         "borrowed_module_count": borrowed_count,
@@ -9080,7 +9118,11 @@ def cmd_execution_plan(params):
                            runtime_roles=params.get("runtime_roles"), snapshot_roles=params.get("snapshot_roles"), require_live_data=params.get("require_live_data"),
                            expected_revision=params.get("expected_revision"),
                            revision_reason=params.get("revision_reason", ""))
-        return {"code": 0, "execution_plan": plan}
+        handoff = {}
+        if not params.get("view") and plan.get("build_mode") == "compose_page":
+            import compose_inputs
+            handoff = compose_inputs.prepare(plan, params)
+        return {"code": 0, "execution_plan": plan, **handoff}
     except EP.PlanError as exc:
         return exc.as_dict()
 

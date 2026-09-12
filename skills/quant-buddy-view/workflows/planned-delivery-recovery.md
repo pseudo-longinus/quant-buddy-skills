@@ -7,7 +7,7 @@
 1. 按现有 Trace/ownership/范式路由创建或恢复一个目标 page_id。`new_page` 成功后保存执行计划和首链状态。
 2. **单资产且确需继承数据合同**才走 `fork_prepare → fork_review_update → publish_workflow`。来源名称与代码必须对应真实资产；研究ID、篮子名不是证券代码。
 3. **多主题/多资产或只借布局**走 `intent_profile → research_templates → fork_compose`。资产范围可用 `asset_scope.kind:"basket"`；不要为了满足单资产参数拼造source_asset。
-4. `fork_compose` 返回 `execution_plan.plan_hash` 与 `next_action.params_file`。填写该文件的title、panels及每个panel的compose_module，用当前plan_hash运行 `static_page.py compose_page @文件`。
+4. `fork_compose` 返回 `execution_plan.plan_hash` 与 `next_action.params_file`。文件位于会话可写输出目录；填写title、研究文字及需要调整的compose_module，保留自动绑定的数据面板，用当前plan_hash运行 `static_page.py compose_page @文件`。
 5. `compose_page`生成完整候选页和发布参数文件；按next_action运行 `publish_verified`，完成本地浏览器、同页发布和公开验收，再按终态回复契约收口。完整候选不是已发布成品，panel_block也不是完整页面。
 
 当前Compose组装器支持layout、layout+style及original，复用被选section的外层布局类和受限样式，替换旧内容；不自动执行来源脚本或继承来源数据。其他借鉴级别返回需要适配的结构化错误，不得伪装成布局借鉴绕过。
@@ -19,7 +19,7 @@ python scripts/static_page.py execution_plan '{"task_id":"task_xxx","view":true}
 python scripts/static_page.py execution_plan @plan-revision.json
 ```
 
-修订输入必须包含 `expected_revision + revision_reason`，按需提供 `target_scope` 与 `runtime_roles`。task/page/source身份不能改变；初始化路由计划可在首次准备时补全，已准备的计划变化必须显式修订。旧plan_hash的候选和发布参数失效。
+修订输入必须包含 `expected_revision + revision_reason`，按需提供 `target_scope` 与 `runtime_roles`。task/page/source身份不能改变；初始化路由计划可在首次准备时补全，已准备的计划变化必须显式修订。旧plan_hash的候选和发布参数失效。每次成功修订返回新的next_action.params_file；旧稿保留，研究文字自动迁移，不编辑内部收据或手工修补旧hash。
 
 目标运行角色至少声明 `role_id + kind(package|grant)`。Compose引用已注册数据时还需相应 `package_id/grant_id`、`contract_fingerprint`、`validation_receipt_file`；收据必须属于同任务且completed/success。先完成合同验证和注册，再填写引用；不能把signature或API Key写进执行计划。
 
@@ -97,3 +97,15 @@ materialize返回snapshot_receipt_file及snapshot_receipt_sha256。把这两项�
 - captured_at是快照生成时间，不是行情交易日。保留数据本身的日期/报告期，不能自动把生成时间当成数据时点。
 
 快照和mixed的终态回复链接分别使用“可分享静态研究页”和“可分享活页（部分实时、部分静态）”；validator按合同检查，不再强制把快照称作实时活页。
+
+## 可编辑草稿与恢复诊断
+
+宿主设置 `QBV_OUTPUT_ROOT` 时，草稿必须在 `SESSION_WORKSPACE` 内；否则使用当前会话工作目录的 `output/qbv/<task_id>/`。路径穿越、符号链接越界和写入Skill安装目录均失败关闭。`next_action.params_file` 才是Agent编辑入口，内部计划、凭据和验证收据不是编辑目标。
+
+草稿按 revision/内容摘要命名，不覆盖旧研究文件。`unassigned_panels` 表示因模块删除而待迁移的内容，需搬到有效模块后明确移除迁移项，不能忽略它继续发布。
+
+`runtime_roles[*].compose_module` 可指定数据面板位置；省略时放入首个模块，并按验证合同中的资产命名。`panels[*].runtime_role_id` 引用当前角色；与显式 grant_id/package_id 冲突时拒绝。text/image 不算运行角色消费，修正草稿保留文字并补独立table。`issues` 和 `draft_diagnostics` 汇总未解决项，不要原样重复调用或删除实时要求。
+
+运行角色齐备后优先复用唯一、同任务、合同匹配的已有路由；存在多个匹配候选时显式提供 route_receipt_file。多资产路由逐项核验原子路由及收据，不制造新验证结果。未通过发布证据预检不会返回 publish_verified 下一步。
+
+失败回复可保留 `progress_link`，使用返回的“任务进度（构建失败）/（未完成）”标签，明确 terminal=false。这里并未修改宿主卡片识别逻辑，不以“已完成”徽标或提取到的URL判断业务成功。

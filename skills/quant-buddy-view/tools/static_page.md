@@ -810,3 +810,14 @@ python scripts/static_page.py unpublish_community '{"page_id":"page_xxx"}'
 可恢复绑定索引存储在用户私有持久目录，QBV_FILE_BINDING_DIR可配置共享位置。普通update/upload不得通过省略记录绕过；失败返回原file_publish_dir及bound_task_id用于继续原流程，不改写现有内容。跨任务续跑复用该任务的beginTurn与绑定，不能假冒新任务接管旧记录。
 
 文件增强的唯一发布入口为携带file_publish_dir的update；content模式自动编译分享壳并完成文件验收后才写入。不要把未编译主体缺分享控件的ui-refinement结果当作此流程失败；用户未要求的额外字号/海报优化不应阻塞可读内容增强。需要调试用candidate_verification_command。
+
+
+## Compose 草稿交接（0.6.75）
+
+`fork_compose` 和非只读 `execution_plan` 成功修订返回 `next_action.params_file`、`plan_hash`、`draft_ready`、`draft_diagnostics`。草稿在会话可写目录，旧稿不覆盖；可信收据仍在内部任务存储。`draft_ready` 只表示绑定与证据准备情况，不代表研究文字已填完或页面已发布。
+
+执行计划角色可带 `compose_module`，面板可带 `runtime_role_id`，引用会解析到已注册ID；显式ID不一致、文本冒充数据、额外凭据或遗漏角色会返回完整问题清单及修正草稿。`route_receipt_file` 可在计划修订/构建时显式提供，缺省仅自动匹配唯一的本任务完整路由。
+
+`compose_page` 返回 `publication_ready:false` 时不得发布；根据诊断补齐既有路由/证据或迁移内容后重新构建，不重查已验证数据或重注册。只有预检通过才给出 publish_verified 下一步。
+
+`update_progress` 的 failed/waiting 输出保持非终态，使用 progress_link 的失败/未完成标签；上传进度HTML只改变写入收据，不改变业务失败/等待状态。

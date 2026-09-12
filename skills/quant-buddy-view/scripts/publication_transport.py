@@ -48,7 +48,7 @@ def write(plan, body, endpoint, key, observe, content_kind='candidate'):
                 return _fail('PUBLISH_OUTCOME_UNKNOWN', '上次更新结果不确定；现有接口不能证明请求是否仍会执行，不自动重发或改用新任务绕过',
                              next_action={'command': 'delivery_status'}, write_consistency=CONSISTENCY)
             candidate_hash = hashlib.sha256(body['html'].encode('utf-8')).hexdigest()
-            prepared = DS.prepare_write(plan, candidate_hash, observed, request_body=mutation_body(body))
+            prepared = DS.prepare_write(plan, candidate_hash, observed, request_body=mutation_body(body), content_kind=content_kind)
             if prepared.get('reuse_result'):
                 result = previous.get('confirmed_result')
                 if not result:
