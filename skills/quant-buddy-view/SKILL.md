@@ -2,7 +2,7 @@
 name: quant-buddy-view
 slug: quant-buddy-view
 author: guanzhao
-version: 0.6.75
+version: 0.6.79
 description: |
   QBV / quant-buddy-view（用户可能写成 /quant-buddy-view、/qbv、qbv 或 QBV）用于把量化数据做成「公开可分享、实时取数」的网页看板/落地页。
   已有 JPG/PNG、HTML、PDF 等文件转活页（含检查报告、重做 HTML 后活化的复合需求）也使用本 Skill：优先静态转换、托管、验收和链接交付，再考虑 QBS 数据接入，不等待查数或范式匹配。
@@ -13,7 +13,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 0.6.75
+  version: 0.6.79
   author: guanzhao
   category: quant-finance
   tags: [quant, dashboard, formula-package, static-page, publish, visualization]
@@ -395,6 +395,14 @@ npx skills update pseudo-longinus/quant-buddy-skills -y
 > **stock legacy 时间窗口门禁**：`stock_analysis_instance_v1` 缺少 `QBV_RENDER_JS` marker 时，改窗口必须使用 `scripts/stock_window.py apply`，不要生成或执行 `output/*.py` 临时补丁。转换后必须本地浏览器预检、`static_page.py update` 同一页并做公网验收。
 > 数据层统一调 `assets/data-kernel.js`（`QB.query` 取数、`QB.series/lastValue/topValues` 解包清洗），别再每页各抄 `fetch`/解包、各踩"假 0/缺口"的坑。见 [guides/bespoke-page.md](guides/bespoke-page.md)。
 > 发布前用 `scripts/verify_page.mjs <html_file> --require-browser` 检查桌面与 390px/320px 移动端，确保无 `QB_SHARED_` / `replace_with_signature` / `pkg_replace` 残留、存在 `<h1>`、无关键横向溢出和核心取数脚本错误。页面声明 `stock_analysis_instance_v1` 且在 `data_sources.benchmark_series` 或 `comparison.benchmark_series` 配置基准时，脚本还会在 runtime pending 归零后等待稳定窗口，并强制检查最终 canvas、个股/基准两条有效图表序列、共同交易日、基准右侧 Y 轴、双 Y 轴和数据表列；同时静态拒绝原生 runtime 与 panel_block 共同接管 `#priceChart`。不能只因 runtime ready 或首帧短暂出现就视为对比页已交付。含范式卡 artifact 的页面加 `--card-runtime`（或 `--card-runtime-only`）验收 artifact/manifest/独立 hydrate。Playwright 不在默认 Node 搜索路径时，可用 `QBV_PLAYWRIGHT_MODULE_ROOT` 指向包含 `playwright/` 的 `node_modules` 根目录；可用 `CHROME_PATH` 指定浏览器可执行文件，未指定时自动发现 Chrome/Edge。若机器没有 Playwright/Chrome/Edge，脚本会明确标记为 `static-only`，不能当完整浏览器验收。
+
+## 历史分钟与连续期货数据源
+
+- 注册、Fork改资产/窗口前必读 [分钟行情支持范围与越界提示](references/minute-data-coverage.md)：A股/美股股票及国内期货起于2026-05-13，港股股票2026-05-20，国内指数2026-08-13；美国/香港指数及期货暂不支持。全窗口早于起点不注册授权；部分覆盖先提示并在页面标注，不静默裁剪原始payload，不宣称完整覆盖。
+
+- 当前/最近完整日分钟用 `fast_query_minute` Grant（保留 fields）；历史跨日分钟用 `fast_query_minute_range` Grant（全列，无fields/format/remove_nan）。绝对窗口或-70至-1自然日offset二选一，不含市场今天。详见 [tools/data_grant.md](tools/data_grant.md)。
+- 历史分钟CSV是 trade_date/timestamp/行情列长表，内核读取实际表头，不走日频宽表。绝对窗口固定、offset授权滚动；页端持有Grant而不是临时CSV地址，不称历史分钟为“当前盘中”。
+- 连续期货：单日只显示所选trade_date的具体合约/状态；日频窗口与跨日分钟按trade_date解释换月事件，夜盘不能拿UTC自然日匹配。inferred不等于独立实时核验，附加warnings不影响行情成功或作为发布失败理由。
 
 ## 配置
 

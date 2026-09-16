@@ -316,6 +316,31 @@ const QB = (function () {
 
     const parsedRecords = records(text);
     const header = parsedRecords.shift();
+    if (payload.layout === 'minute_range') {
+      const meta = payload.manifest || {}, columns = (header || []).map(v => v.trim());
+      const shape = meta.shape;
+      if (!Array.isArray(shape) || shape.length !== 2 || shape.some(v => !Number.isInteger(v) || v < 0) ||
+          columns.length < 2 || columns[0] !== 'trade_date' || columns[1] !== 'timestamp' ||
+          columns.some(v => !v) || new Set(columns).size !== columns.length || shape[1] !== columns.length ||
+          (meta.columns !== undefined && JSON.stringify(meta.columns) !== JSON.stringify(columns))) throw new Error('历史分钟CSV表头/shape不一致');
+      let previous = null;
+      const rows = parsedRecords.map(raw => {
+        if (raw.length !== columns.length || !/^[0-9]{8}$/.test(raw[0]) || !raw[1].trim()) throw new Error('历史分钟CSV行宽或日期非法');
+        const day = normalDate(raw[0]), stamp = Number(raw[1]);
+        if (!Number.isFinite(stamp) || (previous !== null && stamp < previous) ||
+            (meta.start_date && day < meta.start_date) || (meta.end_date && day > meta.end_date)) throw new Error('历史分钟日期/UTC时间戳不合法');
+        previous = stamp;
+        return [Number(raw[0]), stamp].concat(raw.slice(2).map((cell, i) => {
+          const value = cell.trim();
+          if (/^(?:|null|none|nan|[+-]?(?:infinity|inf))$/i.test(value)) return null;
+          if (/^[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:e[+-]?[0-9]+)?$/i.test(value)) return Number.isFinite(Number(value)) ? Number(value) : null;
+          if (['open','high','low','close','volume','amount'].includes(columns[i + 2])) throw new Error('历史分钟行情列含非数值');
+          return value;
+        }));
+      });
+      if (rows.length !== shape[0]) throw new Error('历史分钟CSV行数与shape不一致');
+      return { columns, rows };
+    }
     if (!header || header.length < 3 || String(header[0]).trim().toLowerCase() !== 'ticker' ||
         String(header[1]).trim().toLowerCase() !== 'name')
       throw new Error('CSV 表头异常（字段=' + intent + '）：期望 ticker,name,<日期...>');
@@ -476,6 +501,15 @@ const QB = (function () {
     return _mergeHydratedCsv(data, parsed);
   }
 
+  async function _hydrateMinuteRangeCsv(data) {
+    if (data.status !== 'ok' || !Array.isArray(data.shape)) throw new Error('历史分钟manifest不合法');
+    if (!data.csv_url && data.empty === true && JSON.stringify(data.shape) === '[0,0]')
+      return Object.assign({}, data, { source_mode: 'csv', columns: [], rows: [] });
+    const text = await _downloadCsvField({ intent: '历史分钟全列', csv_url: data.csv_url }, new Set());
+    const parsed = _parseWideCsvPayload({ intent: '历史分钟全列', layout: 'minute_range', manifest: data, text });
+    return Object.assign({}, data, parsed, { source_mode: 'csv' });
+  }
+
   async function _requestGrantBody(cfg) {
     const { endpoint, grant_id, signature } = cfg;
     // 跨域取数改用表单 POST（CORS 安全列表内的 Content-Type）且不带自定义头，
@@ -518,7 +552,7 @@ const QB = (function () {
         if (body && body.data && String(body.data.mode || '').toLowerCase() === 'csv') {
           _runtimeTransport('csv');
           try {
-            body = Object.assign({}, body, { data: await _hydrateFastQueryCsv(body.data) });
+            body = Object.assign({}, body, { data: body.data.query_type === 'minute_range' ? await _hydrateMinuteRangeCsv(body.data) : await _hydrateFastQueryCsv(body.data) });
           } catch (error) {
             if (attempt === 0 && error && error.retryable) {
               body = await _requestGrantBody({ endpoint, grant_id, signature });

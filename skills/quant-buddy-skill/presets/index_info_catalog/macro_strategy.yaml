@@ -1,31 +1,8 @@
 # Auto-generated business catalog; do not edit records by hand.
 schema_version: 2
 category: macro_strategy
-record_count: 165
+record_count: 142
 records:
-  - {id: "62a06255a777c6016078c32c", index_title: "(示例数据) GDP年度同比(缺失填充)"}
-  - {id: "62c27eb0a777c60160b11be0", index_title: "(示例数据)(实际减预测)社融增速预期差去尾"}
-  - {id: "62d4f174a777c60160d14c32", index_title: "(示例数据)RSRS日频择时策略（N=18，M=600，修正）"}
-  - {id: "627ccac1ebf8352bfedbd07d", index_title: "(示例数据)万得社会融资规模存量"}
-  - {id: "62a06207a777c6016078c15c", index_title: "(示例数据)上证指数历史低点"}
-  - {id: "62a06305a777c6016078c5cf", index_title: "(示例数据)上证指数历史低点信号延长"}
-  - {id: "62a065fda777c6016078d667", index_title: "(示例数据)上证指数支撑价格"}
-  - {id: "62a06820a777c6016078e109", index_title: "(示例数据)上证指数收盘价"}
-  - {id: "62a06544a777c6016078d2d3", index_title: "(示例数据)上证指数最低价序列"}
-  - {id: "62961895334a2a0aac746011", index_title: "(示例数据)城镇调查失业率"}
-  - {id: "62a06348a777c6016078c724", index_title: "(示例数据)城镇调查失业率(按期延迟)"}
-  - {id: "62a06330a777c6016078c682", index_title: "(示例数据)城镇调查失业率缺失填充"}
-  - {id: "62d4f08fa777c60160d148c7", index_title: "(示例数据)沪深300RSRS修正标准分指标序列（N=18，M=600）"}
-  - {id: "62c66cbaa777c60160b98f86", index_title: "(示例数据)沪深300RSRS斜率序列（N=18）"}
-  - {id: "62d4aeb6a777c60160d0989c", index_title: "(示例数据)沪深300RSRS标准分指标序列（N=18，M=600）"}
-  - {id: "62c671aba777c60160b9a044", index_title: "(示例数据)沪深300决定系数序列（N=18）"}
-  - {id: "627ccaa4ebf8352bfedbd07c", index_title: "(示例数据)社会融资规模存量公布日期"}
-  - {id: "627ccea5a777c6016036ae3e", index_title: "(示例数据)社融增速(实际减预测)"}
-  - {id: "627cce72a777c6016036ad1c", index_title: "(示例数据)社融增速(按公布日)"}
-  - {id: "627cce89a777c6016036adbe", index_title: "(示例数据)社融增速预期"}
-  - {id: "627ccdb6a777c6016036a896", index_title: "(示例数据)社融存量(按公布日)"}
-  - {id: "62c2851da777c60160b12ac2", index_title: "(示例数据)社融预期差滞后因子"}
-  - {id: "627ccb2bebf8352bfedbd07e", index_title: "(示例数据)预测平均值:社会融资规模:当月值"}
   - {id: "6a1e83c7031ae7c8e9b89731", index_title: "A股中单资金当日流量净占比"}
   - {id: "6a1e83af031ae7c8e9b893fe", index_title: "A股中单资金当日流量净额"}
   - {id: "6a1e832c031ae7c8e9b87d16", index_title: "A股主力资金当日流量净占比"}

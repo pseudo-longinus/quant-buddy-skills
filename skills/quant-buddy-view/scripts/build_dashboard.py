@@ -374,11 +374,14 @@ function normalize(data) {
   return {columns: ['value'], rows: [[data]]};
 }
 
-// 数据授权三类 kind 的 data 归一为「对象数组」，再交给 normalize 出规整表。
+// 数据授权各类 kind 的 data 归一为「对象数组」，再交给 normalize 出规整表。
 // 必须与 Python 侧 _normalize_grant_data 同款口径。无法识别时原样返回。
 function normalizeGrantData(kind, data) {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return data;
   var k = (kind || '').toLowerCase();
+  if (k === 'fast_query_minute_range') {
+    return (data.rows || []).map(row => Object.fromEntries((data.columns || []).map((key, i) => [key, row[i]])));
+  }
   if (k === 'fast_query_minute') {
     return (data.dates || []).map((date, i) => Object.assign({日期: date},
       Object.fromEntries(Object.entries(data.fields || {}).map(([key, values]) => [key, values[i]]))));
@@ -1533,11 +1536,13 @@ def cmd_panel_block(params):
 
 
 def _normalize_grant_data(kind, data):
-    """把数据授权三类 kind 的 data 归一成「对象数组」，供渲染 normalize 与体检统一消费。
+    """把数据授权各类 kind 的 data 归一成「对象数组」，供渲染 normalize 与体检统一消费。
     必须与前端 normalizeGrantData 同款口径。无法识别时原样返回 data（走通用兜底）。"""
     if not isinstance(data, dict):
         return data
     k = (kind or "").lower()
+    if k == "fast_query_minute_range":
+        return [dict(zip(data.get("columns") or [], row)) for row in data.get("rows") or []]
     if k == "fast_query_minute":
         return [{"日期": date, **{key: values[i] if i < len(values) else None
                 for key, values in (data.get("fields") or {}).items() if isinstance(values, list)}}

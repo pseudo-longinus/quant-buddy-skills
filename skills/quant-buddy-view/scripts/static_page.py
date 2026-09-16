@@ -9089,6 +9089,16 @@ def cmd_materialize_snapshot(params):
     return verified_snapshot.materialize_registered(params)
 
 
+def cmd_bind_runtime_route(params):
+    import runtime_route
+    try:
+        return runtime_route.bind(params)
+    except EP.PlanError as exc:
+        return exc.as_dict()
+    except (OSError, ValueError, TypeError, KeyError):
+        return {'code': 1, 'error': 'ROUTE_EVIDENCE_INVALID', 'message': '注册或验证证据不可读取'}
+
+
 def cmd_delivery_status(params):
     task = _routing_task_id(params)
     try:
@@ -9165,6 +9175,7 @@ _COMMANDS = {
     "fork_compose": cmd_fork_compose,
     "execution_plan": cmd_execution_plan,
     "delivery_status": cmd_delivery_status,
+    "bind_runtime_route": cmd_bind_runtime_route,
     "materialize_snapshot": cmd_materialize_snapshot,
     "compose_page": cmd_compose_page,
     "fork_review_update": cmd_fork_review_update,

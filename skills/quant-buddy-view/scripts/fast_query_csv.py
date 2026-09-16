@@ -176,6 +176,12 @@ def _download_field(field, timeout):
 
 
 def download_and_hydrate(data, *, timeout=20, max_workers=4):
+    if isinstance(data, dict) and data.get('query_type') == 'minute_range':
+        from minute_range_csv import parse_minute_range_csv
+        if isinstance(data.get('rows'), list) and data.get('source_mode') == 'csv': return data
+        text = _download_field({'intent': '历史分钟全列', 'csv_url': data['csv_url']}, timeout) if data.get('csv_url') else None
+        try: return parse_minute_range_csv(text, data)
+        except ValueError as exc: raise CsvHydrationError(str(exc)) from exc
     fields = (data or {}).get("csv_fields") or []
     if not fields:
         raise CsvHydrationError("CSV 字段清单为空")

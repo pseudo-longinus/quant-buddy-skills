@@ -10,16 +10,29 @@ import execution_plan as EP
 VERSION='qbv_verified_snapshot_v1'
 
 
+def project_result(result, resource):
+    """Drop only known package transport envelopes; reject secrets everywhere else."""
+    result = copy.deepcopy(result)
+    # Validate before projection so unknown secret locations cannot be hidden by a whitelist.
+    if resource == 'package' and isinstance(result.get('outputs'), dict):
+        for output in result['outputs'].values():
+            if isinstance(output, dict) and isinstance(output.get('data'), dict):
+                output['data'].pop('signature', None)
+    EP._no_secrets(result)
+    allowed = ('code', 'success', 'outputs') if resource == 'package' else ('code', 'success', 'data')
+    return {key: result[key] for key in allowed if key in result}
+
+
 def capture(task_id,contract,result,resource='grant',hydrate_csv=False):
     if not task_id or not isinstance(result,dict) or result.get('code') not in (0,None) or result.get('success') is False:
         raise EP.PlanError('SNAPSHOT_VALIDATION_REQUIRED','只可保存已成功验证的数据')
     if resource not in ('grant','package'):raise EP.PlanError('SNAPSHOT_RESOURCE_INVALID','未知数据源类型')
-    result=copy.deepcopy(result)
+    result=project_result(result, resource)
     materialized=True
-    if resource=='grant' and contract.get('kind')=='fast_query':
+    if resource=='grant' and contract.get('kind') in ('fast_query', 'fast_query_minute_range'):
         import fast_query_csv as FQCSV
         data=result.get('data')
-        if isinstance(data,dict) and bool(data.get("csv_fields")):
+        if isinstance(data,dict) and (bool(data.get("csv_fields")) or (data.get("query_type") == "minute_range" and data.get("mode") == "csv")) and not isinstance(data.get("rows"), list):
             if hydrate_csv:result['data']=FQCSV.download_and_hydrate(data,timeout=20)
             else:materialized=False
     body={'version':VERSION,'task_id':task_id,'resource':resource,'contract':contract,
@@ -104,6 +117,10 @@ def materialize_registered(params):
             if kind=='fast_query_minute':
                 import grant_capabilities as GC
                 evaluated=GC.evaluate_minute(contract['payload'],result)
+                if not evaluated.get('success'):return {'code':1,'error':evaluated.get('error_code')}
+            elif kind=='fast_query_minute_range':
+                import grant_capabilities as GC
+                evaluated=GC.evaluate_minute_range(contract['payload'],result)
                 if not evaluated.get('success'):return {'code':1,'error':evaluated.get('error_code')}
             data=BD._normalize_grant_data(kind,(result or {}).get('data'))
             if BD._inspect_output_data(data) is not None:raise EP.PlanError('SNAPSHOT_DATA_EMPTY','数据为空，不能冻结为成品')

@@ -177,3 +177,13 @@ asset_errors / field_errors / warnings
 - **总市值/流通市值**：单位已是亿元
 - **result_mode**：默认 `value`；需要固定区间完整序列时才传 `result_mode="series"`
 - **window series**：已按日期升序；`window` 可传 `window_days`，也可传 `start_date/end_date` 固定日期范围（二选一）。`window` 固定返回序列，不需要传 `result_mode`。
+
+## 连续期货附加返回（4.25.38）
+
+不增加请求字段，原 fields 保留。服务结果可能增加 `future_context`，按连续ticker分组；verbose、compact和CSV均须保留该元信息。
+
+- window/series：`future_context[ticker].roll_events` 是实际返回窗口内事件；JSON按最终序列日期，CSV按导出日期轴（scope=csv_date_axis），不是为了取数扩大的begin_date。
+- snapshot/value：`future_context[ticker].contract_info.contracts[]` 按各字段**实际有效值日期**分别匹配具体合约，含历史fallback日期。不要把某个字段较新的合约套给较旧值。status=inferred 是事件推导，unavailable/null是不确定，不是无合约。
+- 事件 trade_date 是生效交易日；old_close/new_close 为当日新旧具体合约各自未复权日频收盘价，不是分钟换月价。字段仅辅助解释，不能据此自行改写报价或宣称全历史已复权。
+- `future_context[ticker].error` / warnings 仅表示附加信息缺失；即使 partial_ok=false 也不应丢掉已成功行情。主行情错误仍按原规则处理。
+- 内部合约检索按需回看6/12/24个月，不从1900年全量查、不暴露 lookup_start_date；Agent无需额外请求。日内当前分钟用 fast_query_minute，历史跨日分钟用 fast_query_minute_range，不把日频窗口误当分钟数据。

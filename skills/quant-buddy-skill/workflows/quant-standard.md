@@ -1,5 +1,7 @@
 # 量化标准流程
 
+日行情与季度财务联合选股先读[发布日对齐与筛选合同](daily-financial-screen.md)，保留用户原文与解析口径，验收目标交易日，并分离桥接 stdout JSON 与 stderr 进度。
+
 > **路由排除**：若请求是“单资产 + 2～4 个 `fast_query` 标准历史字段 + 明确放在同一张图”，不得使用本 workflow；返回 `visual-page-fast-path.md`。该场景禁止 `searchFunctions` 和公式引擎。
 
 > 本文档是量化选股/回测/因子/图表场景的完整流程规范——唯一权威来源。

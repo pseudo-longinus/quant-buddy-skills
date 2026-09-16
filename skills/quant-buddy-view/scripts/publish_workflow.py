@@ -309,7 +309,7 @@ def _write_live_route_receipt(task_id, asset, package_results, grant_results):
         "static_fallback_allowed": False,
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
     }
-    root = SCRIPT_DIR.parent / "output" / "live_data_route_receipts"
+    root = C.task_temp_path(task_id, "live_data_route_receipts", create_parent=True)
     root.mkdir(parents=True, exist_ok=True)
     digest = hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
     path = root / f"{digest}.json"

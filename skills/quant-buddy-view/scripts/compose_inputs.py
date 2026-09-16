@@ -153,15 +153,29 @@ def evidence(plan,params):
     out['live_data_mode']='mixed' if snapshots else 'live'
     explicit=out.get('route_receipt_file')
     paths=[Path(explicit)] if explicit else sorted(C.task_temp_path(task,'live_data_route_receipts').glob('*.json'))
-    wanted={str(Path(r['validation_receipt_file']).resolve()):r['contract_fingerprint'] for r in roles};matches=[]
+    wanted={str(Path(r['validation_receipt_file']).resolve()):r['contract_fingerprint'] for r in roles};matches=[];rejected=[]
     for path in paths:
         try:
             route=_read(path);leaves=route_leaf_files(route,path)
-            if route.get('task_id')!=task or any(r.get('task_id')!=task for r,_ in leaves):continue
+            if route.get('task_id')!=task or any(r.get('task_id')!=task for r,_ in leaves):
+                rejected.append({'reason':'task_mismatch'});continue
+            turn = out.get('turn_id') or C.current_trace_context().get('turn_id')
+            if turn and route.get('turn_id') != turn:
+                rejected.append({'reason':'turn_mismatch'});continue
+            if route.get('plan_hash') and route['plan_hash'] != plan['plan_hash']:
+                rejected.append({'reason':'plan_mismatch'});continue
             selected=[s for r,_ in leaves for s in r.get('selected_routes',[])]
-            if {str(Path(s.get('receipt_file','')).resolve()) for s in selected}!=set(wanted):continue
-            if any(_read(path).get('contract_fingerprint')!=fingerprint for path,fingerprint in wanted.items()):continue
-            if any(s.get('contract_fingerprint') and s['contract_fingerprint']!=wanted[str(Path(s['receipt_file']).resolve())] for s in selected):continue
+            if {str(Path(s.get('receipt_file','')).resolve()) for s in selected}!=set(wanted):
+                rejected.append({'reason':'receipt_set_mismatch'});continue
+            if any(_read(path).get('contract_fingerprint')!=fingerprint for path,fingerprint in wanted.items()):
+                rejected.append({'reason':'contract_mismatch'});continue
+            if any(s.get('contract_fingerprint') and s['contract_fingerprint']!=wanted[str(Path(s['receipt_file']).resolve())] for s in selected):
+                rejected.append({'reason':'contract_mismatch'});continue
+            if route.get('plan_hash'):
+                for role in roles:
+                    RC.verify_binding(task,role['kind'],role.get('package_id') or role.get('grant_id'),role['contract_fingerprint'])
+                if any(hashlib.sha256(Path(s['receipt_file']).read_bytes()).hexdigest()!=s.get('receipt_sha256') for s in selected):
+                    rejected.append({'reason':'receipt_changed'});continue
             candidate=copy.deepcopy(out);candidate['route_receipt_file']=str(path.resolve())
             candidate['validation_receipt_files']=[r['validation_receipt_file'] for r in roles if r['kind']=='package']
             candidate['grant_validation_receipt_files']=[r['validation_receipt_file'] for r in roles if r['kind']=='grant']
@@ -170,10 +184,16 @@ def evidence(plan,params):
             if route.get('turn_id'):candidate.setdefault('turn_id',route['turn_id'])
             error=SP._validate_publish_data_evidence(candidate)
             if error is None:matches.append(candidate)
-        except (EP.PlanError,OSError,ValueError,KeyError,TypeError):continue
+            else:rejected.append({'reason':'publication_evidence_invalid','error':error.get('error')})
+        except EP.PlanError as exc:rejected.append({'reason':'credential_or_evidence_invalid','error':exc.code})
+        except (OSError,ValueError,KeyError,TypeError):rejected.append({'reason':'unreadable_evidence'})
     if len(matches)==1:return matches[0],None
     code='COMPOSE_ROUTE_AMBIGUOUS' if len(matches)>1 else 'COMPOSE_ROUTE_REQUIRED'
-    return out,{'code':1,'error':code,'message':'请指定同任务且完整覆盖当前合同的route_receipt_file；不重复验证或注册','matching_candidates':[c['route_receipt_file'] for c in matches]}
+    return out,{'code':1,'error':code,'message':'使用bind_runtime_route绑定已有验证与注册证据；不重复计算或注册',
+                'reasons':rejected or [{'reason':'route_missing'}],
+                'next_action':{'command':'bind_runtime_route','params':{'task_id':task,'plan_hash':plan['plan_hash'],
+                    **({'turn_id':out['turn_id']} if out.get('turn_id') else {})}},
+                'matching_candidates':[c['route_receipt_file'] for c in matches]}
 
 
 def prepare(plan,params=None):

@@ -202,14 +202,16 @@ def cmd_register(params):
             "message": "公式任务包注册参数预检失败",
             "_preflight": preflight,
         }
+    import package_contract as PC
+    try:
+        contract = PC.normalize(params)
+    except (ValueError, TypeError) as exc:
+        return {'code': 1, 'error': 'PREFLIGHT_FAILED', 'message': str(exc)}
     endpoint, api_key = _config(require_key=True)
-    formulas = params.get("formulas")
-    reads = params.get("reads")
-    body = {"formulas": formulas, "reads": reads}
+    body = dict(contract)
     for k in ("intents", "begin_date", "ttl_days"):
         if params.get(k) is not None:
             body[k] = params[k]
-    contract = {key: body[key] for key in ("formulas", "reads", "begin_date") if key in body}
     try:
         reg = RC.register("package", params, contract, endpoint, api_key,
                           lambda: C.http_json("POST", C.api_url(endpoint, _PATH["register"]), C.headers(api_key), body, timeout=_DEFAULT_TIMEOUT), _credential_dir())

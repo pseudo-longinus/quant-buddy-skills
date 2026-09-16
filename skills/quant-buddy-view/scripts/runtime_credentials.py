@@ -76,6 +76,17 @@ def _proof(task,fingerprint,path,required=False):
     except (OSError,ValueError,TypeError) as exc:raise CredentialError('REGISTRATION_VALIDATION_REQUIRED','验证收据不可读') from exc
     if not isinstance(value,dict) or value.get('task_id')!=task or value.get('success') is not True or value.get('status')!='completed' or value.get('contract_fingerprint')!=fingerprint:
         raise CredentialError('REGISTRATION_VALIDATION_MISMATCH','验证收据不属于当前任务/已完成合同')
+    if 'contract' in value:
+        if EP.digest(value['contract']) != fingerprint:
+            raise CredentialError('REGISTRATION_VALIDATION_MISMATCH','验证合同内容与指纹不同')
+        for child in value.get('batch_receipts', []):
+            try:
+                data = Path(child['file']).read_bytes()
+                valid = hashlib.sha256(data).hexdigest() == child['sha256']
+            except (OSError, KeyError, TypeError):
+                valid = False
+            if not valid:
+                raise CredentialError('REGISTRATION_VALIDATION_MISMATCH','子批次证据已变化或丢失')
     return {'file':str(Path(path).resolve()),'sha256':hashlib.sha256(raw).hexdigest()}
 
 

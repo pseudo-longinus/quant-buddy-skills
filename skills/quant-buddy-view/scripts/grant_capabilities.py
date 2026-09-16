@@ -8,6 +8,7 @@ from datetime import datetime
 TOOL_BY_KIND = {
     'fast_query': 'fast_query',
     'fast_query_minute': 'fast_query_minute',
+    'fast_query_minute_range': 'fast_query_minute_range',
     'stock_profile': 'stockProfile',
     'composition_select': 'selectByComposition',
 }
@@ -42,6 +43,9 @@ def contract_errors(contract, role_id=''):
         fields = payload.get('fields')
         if not isinstance(fields, list) or not fields or any(not isinstance(f, str) or f not in MINUTE_FIELDS for f in fields):
             add('MINUTE_FIELDS_INVALID', 'fields必须是非空OHLCVA字段数组')
+    if kind == 'fast_query_minute_range':
+        from minute_range_contract import validate_request
+        for code, message in validate_request(payload): add(code, message)
     return errors
 
 
@@ -101,7 +105,9 @@ def evaluate_minute(payload, result):
         if not isinstance(dates, list):
             return _failure('MINUTE_TIMELINE_INVALID')
         times = [datetime.fromisoformat(str(d).replace('Z', '+00:00')) for d in dates]
-        if any(t.date() != trade_date for t in times) or any(a >= b for a, b in zip(times, times[1:])):
+        is_future = bool(re.fullmatch(r'[A-Z]+(?:_S|[0-9]+)?\.(?:DCE|CZC|CZCE|SHF|SHFE|CFE|CFFEX|INE|GFE|GFEX)', returned))
+        wrong_day = any(t.date() > trade_date if is_future else t.date() != trade_date for t in times)
+        if wrong_day or any(a >= b for a, b in zip(times, times[1:])):
             return _failure('MINUTE_TIMELINE_INVALID')
     except (ValueError, TypeError, KeyError):
         return _failure('MINUTE_TIMELINE_INVALID')
@@ -123,3 +129,26 @@ def evaluate_minute(payload, result):
         return _failure('MINUTE_ALIGNED_DATA_EMPTY', 'data')
     return {'success': True, 'trade_date': data['trade_date'], 'timezone': zone,
             'data_scope': data['data_scope'], 'row_count': len(dates), 'fields': required}
+
+
+def evaluate_minute_range(payload, result):
+    if not isinstance(result, dict) or result.get('code') not in (0, None) or result.get('success') is False:
+        return _failure('MINUTE_RANGE_QUERY_FAILED')
+    data = result.get('data')
+    if not isinstance(data, dict) or data.get('status') != 'ok' or data.get('query_type') != 'minute_range':
+        return _failure('MINUTE_RANGE_RESPONSE_INVALID')
+    if data.get('interval') != '1min' or data.get('data_scope') != 'historical' or not data.get('timezone'):
+        return _failure('MINUTE_RANGE_SCOPE_INVALID')
+    requested = _ticker(payload.get('asset'))
+    if re.fullmatch(r'(?:SH|SZ|BJ|HK)[0-9]{4,6}|[A-Z0-9_]+\.(?:DCE|CZC|SHF|CFE|INE|GFE|N|O|A)', requested) and requested != _ticker(data.get('ticker')):
+        return _failure('MINUTE_RANGE_ASSET_MISMATCH')
+    for key in ('start_date', 'end_date'):
+        if key in payload and payload[key] != data.get(key): return _failure('MINUTE_RANGE_DATE_MISMATCH')
+    try:
+        from fast_query_csv import download_and_hydrate
+        hydrated = download_and_hydrate(data, timeout=20)
+        result['data'] = hydrated
+    except (ValueError, OSError): return _failure('MINUTE_RANGE_CSV_INVALID')
+    if not hydrated['rows']: return _failure('MINUTE_RANGE_DATA_EMPTY', 'data')
+    return {'success': True, 'start_date': data.get('start_date'), 'end_date': data.get('end_date'),
+            'row_count': len(hydrated['rows']), 'columns': hydrated['columns'], 'warnings': data.get('warnings', [])}

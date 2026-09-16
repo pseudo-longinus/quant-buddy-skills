@@ -16,6 +16,7 @@ import grant_capabilities as GC
 import common as C
 import fork_runtime_contract as FRC
 import reply_data_evidence as RDE
+import package_contract as PC
 
 QBV_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_FORMULA_BEGIN_DATE = 20150101
@@ -366,17 +367,15 @@ def _read_completed_formula_receipt(path, task_id):
 
 
 def _write_package_validation_receipt(task_id, item, child_receipt_files):
-    contract = {
-        "formulas": list(item.get("formulas") or []),
-        "reads": list(item.get("reads") or []),
-        "begin_date": item.get("begin_date"),
-    }
+    contract = PC.normalize(item)
     fingerprint = FRC.contract_fingerprint(contract)
     child_entries = []
     outputs = []
     for raw_path in child_receipt_files:
         child_path = str(Path(raw_path).resolve())
         child = _read_completed_formula_receipt(child_path, task_id)
+        if child.get('turn_id') and child['turn_id'] != item.get('turn_id'):
+            raise ValueError('child receipt turn mismatch')
         child_entries.append({"file": child_path, "sha256": _file_sha256(child_path)})
         outputs.extend(item for item in child.get("outputs") or [] if isinstance(item, dict))
     digest_source = json.dumps(outputs, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -390,6 +389,8 @@ def _write_package_validation_receipt(task_id, item, child_receipt_files):
         "outputs": outputs,
         "outputs_sha256": hashlib.sha256(digest_source.encode("utf-8")).hexdigest(),
         "package_name": item.get("name"),
+        "contract": contract,
+        "turn_id": item.get("turn_id") or "",
         "contract_fingerprint": fingerprint,
         "batch_count": len(child_entries),
         "batch_receipts": child_entries,
@@ -397,8 +398,13 @@ def _write_package_validation_receipt(task_id, item, child_receipt_files):
     }
     root = C.task_temp_path(task_id, "formula_validation_receipts", create_parent=True)
     root.mkdir(parents=True, exist_ok=True)
-    digest = hashlib.sha256(f"{task_id}:{item.get('name')}:{fingerprint}".encode("utf-8")).hexdigest()
+    digest = hashlib.sha256(f"{task_id}:{item.get('turn_id')}:{item.get('name')}:{fingerprint}:{json.dumps(child_entries, sort_keys=True)}".encode("utf-8")).hexdigest()
     path = root / f"{C.safe_task_id(task_id)}-{digest}.json"
+    if path.exists():
+        existing = json.loads(path.read_text(encoding='utf-8'))
+        if all(existing.get(k) == v for k, v in payload.items() if k != 'created_at'):
+            return str(path), fingerprint
+        raise ValueError('existing package receipt content mismatch')
     fd, temp_path = tempfile.mkstemp(prefix=".receipt-", suffix=".json", dir=root)
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
@@ -514,7 +520,7 @@ def _validate_package_set(call_script, params, env):
             return {"code": 1, "error": "INVALID_PACKAGE", "message": f"packages[{index}] 必须是对象"}
         name = str(item.get("name") or "").strip()
         formulas = item.get("formulas")
-        reads = item.get("reads") if isinstance(item.get("reads"), list) else []
+        reads = item.get("reads", [])
         if not name or name in names:
             return {"code": 1, "error": "INVALID_PACKAGE_NAME", "message": f"packages[{index}].name 缺失或重复"}
         if not isinstance(formulas, list) or not formulas or len(formulas) > MAX_PACKAGE_FORMULAS or not all(isinstance(value, str) and value.strip() for value in formulas):
@@ -537,13 +543,17 @@ def _validate_package_set(call_script, params, env):
         except ValueError as exc:
             return {"code": 1, "error": "INVALID_BEGIN_DATE", "message": str(exc)}
         names.add(name)
-        contract = {"formulas": formulas, "reads": reads, "begin_date": begin_date}
+        try:
+            contract = PC.normalize({"formulas": formulas, "reads": reads, "begin_date": begin_date})
+        except (ValueError, TypeError) as exc:
+            return {"code": 1, "error": "PACKAGE_READS_INVALID", "message": str(exc)}
         normalized.append({
             "name": name,
             "formulas": formulas,
             "force_reusable_array": force_reusable,
             "begin_date": begin_date,
             "reads": reads,
+            "turn_id": params.get("turn_id") or C.current_trace_context().get("turn_id") or "",
             "contract_fingerprint": FRC.contract_fingerprint(contract),
         })
 
@@ -654,7 +664,7 @@ def _validate_package_set(call_script, params, env):
 
         package_receipt = batch_receipts[0]
         contract_fingerprint = item["contract_fingerprint"]
-        if len(batch_receipts) > 1:
+        if batch_receipts:
             try:
                 package_receipt, aggregate_fingerprint = _write_package_validation_receipt(task_id, item, batch_receipts)
             except (OSError, ValueError, json.JSONDecodeError) as exc:
@@ -969,13 +979,14 @@ def _resolve_single_asset_data(call_script, params, env):
     if not isinstance(required, dict):
         return {"code": 1, "error": "INVALID_REQUIRED_ROLES", "message": "required_roles 必须是对象"}
     required_by_role = {}
+    formula_options = required.get('formula') if isinstance(required.get('formula'), dict) else {}
     for role in ("profile", "snapshot", "report", "formula"):
         values = required.get(role, [])
         # Accept the common {"fields": [...]} spelling while keeping the
         # canonical internal representation as a string array. Extra routing
         # hints such as window_days are intentionally ignored here.
         if isinstance(values, dict):
-            values = values.get("fields", [])
+            values = values.get("formulas", values.get("fields", [])) if role == 'formula' else values.get("fields", [])
         if not isinstance(values, list) or not all(isinstance(value, str) and value.strip() for value in values):
             return {"code": 1, "error": "INVALID_REQUIRED_ROLES", "message": f"required_roles.{role} 必须是字符串数组，或包含 fields 字符串数组的对象"}
         required_by_role[role] = [value.strip() for value in values]
@@ -1065,11 +1076,13 @@ def _resolve_single_asset_data(call_script, params, env):
     formulas = required_by_role["formula"]
     if not blocked and formulas:
         attempted_required.add("formula")
-        package_contract = {"formulas": formulas, "begin_date": _begin_date(params.get("begin_date"), "begin_date")}
+        package_contract = {"formulas": formulas, "reads": formula_options.get('reads', []),
+                            "begin_date": _begin_date(formula_options.get('begin_date', params.get("begin_date")), "begin_date")}
         package_result = _validate_package_set(call_script, {
             "task_id": task_id,
             "user_query": user_query,
             "packages": [{"name": "formula", **package_contract}],
+            "turn_id": params.get('turn_id') or C.current_trace_context().get('turn_id') or '',
             "begin_date": package_contract["begin_date"],
         }, env)
         outputs = _formula_output_names(formulas)
@@ -1306,6 +1319,8 @@ def _validate_grant_set(call_script, params, env):
             continue
         if kind == "fast_query_minute":
             evaluation = GC.evaluate_minute(payload, result)
+        elif kind == "fast_query_minute_range":
+            evaluation = GC.evaluate_minute_range(payload, result)
         elif kind == "fast_query":
             assets = payload.get("assets") if isinstance(payload.get("assets"), list) else []
             asset = str((assets or [payload.get("asset") or ""])[0] or "").strip()

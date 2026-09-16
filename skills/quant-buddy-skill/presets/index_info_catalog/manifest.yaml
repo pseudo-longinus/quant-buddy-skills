@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "generated_at": "2026-08-26T01:00:33+00:00",
-  "total_records": 2539,
+  "total_records": 2516,
   "categories": {
     "a_share_financials": {
       "file": "a_share_financials.yaml",
@@ -25,7 +25,7 @@
     },
     "macro_strategy": {
       "file": "macro_strategy.yaml",
-      "record_count": 165
+      "record_count": 142
     }
   }
 }

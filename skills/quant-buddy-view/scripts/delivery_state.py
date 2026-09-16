@@ -31,6 +31,9 @@ def load(task, page):
 
 
 def _save(state):
+    context = C.current_trace_context()
+    if context.get('task_id') == state['task_id'] and context.get('turn_id'):
+        state['turn_id'] = context['turn_id']
     state['revision'] += 1
     state['updated_at'] = _now()
     state.pop('state_hash', None)
