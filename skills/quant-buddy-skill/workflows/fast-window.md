@@ -27,7 +27,9 @@
 
 **停止条件**：fast_query 返回 `success: true`，目标序列已到手 → 立刻停止。
 
-**report_period 稀疏序列收敛规则**：当 `fast_query(window)` 成功返回 `date_type="report_period"`，或目标字段是港/美股单季估值、财报/报告期口径字段时，`series` 稀疏不是失败。若用户只要求区间走势、最高/最低值、有效日期或序列展示，应直接基于已返回的 `series` 回答，并说明该字段按报告期更新、不是逐交易日连续数据；禁止仅因序列稀疏升级到 `confirmDataMulti` / `runMultiFormulaBatchStream` / `readData` 链路。
+**兼容字段优先判断**：若返回 `LEGACY_FIELD_UPGRADED`，仅将 `upgraded` 显式列出的兼容字段按映射后的标准口径解释（如 `PE_单季 → PE_TTM` 为日频 TTM 估值），优先于旧字段冲突的 `date_type="report_period"`。日期取字段自身 `dates`，否则取与值数组对应的共享日期轴；已返回可用结果不因元信息冲突重查。不得将此例外推广到未明确升级的字段；用户真正要求单季口径时，说明返回的日频标准估值不满足单季要求。
+
+**report_period 稀疏序列收敛规则**：排除上述显式升级的兼容字段后，当 `fast_query(window)` 成功返回 `date_type="report_period"`，或目标字段明确为财报/报告期口径字段时，`series` 稀疏不是失败。若用户只要求区间走势、最高/最低值、有效日期或序列展示，应直接基于已返回的 `series` 回答，并说明该字段按报告期更新、不是逐交易日连续数据；禁止仅因序列稀疏升级到 `confirmDataMulti` / `runMultiFormulaBatchStream` / `readData` 链路。
 
 ---
 
@@ -36,7 +38,7 @@
 | 参数 | 提取方式 |
 |---|---|
 | `assets` | 用户提到的资产（≤1000） |
-| `fields` | 参照 fast-snapshot.md 字段映射表（行情字段；估值字段 `PE_TTM`/`PB`/`PS_TTM`/`股息率`/`PCF`/`总市值` 及单季版 `PE_单季`/`PB_单季`/`PS_单季`/`股息率_单季` 在 window 模式同样支持 A/US/HK；`流通市值`/`换手率` 仅 A 股；期货仅尝试行情字段：收盘价、开盘价、最高价、最低价、涨跌幅、成交额、成交量） |
+| `fields` | 参照 fast-snapshot.md 字段映射表（行情字段；估值字段 `PE_TTM`/`PB`/`PS_TTM`/`股息率`/`PCF`/`总市值` 及历史兼容名 `PE_单季`/`PB_单季`/`PS_单季`/`股息率_单季`（港美股实际为日频，不是单季估值） 在 window 模式同样支持 A/US/HK；`流通市值`/`换手率` 仅 A 股；期货仅尝试行情字段：收盘价、开盘价、最高价、最低价、涨跌幅、成交额、成交量） |
 | `window_days` | 用户说”最近 N 日”时使用（整数，1~2500）；与 `start_date`/`end_date` 二选一 |
 | `start_date`/`end_date` | 用户给出明确起止日期时使用，格式 YYYYMMDD |
 

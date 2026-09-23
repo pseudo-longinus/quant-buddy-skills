@@ -24,7 +24,8 @@
 - 显式 `start_date`/`end_date` 没有独立的 2,500 交易日跨度拦截；仍校验日期合法性、顺序及最早数据日期。
 - `start_date > end_date` 会返回 `INVALID_DATE_RANGE`。
 - 日期早于系统最早数据日期 `20050104` 会返回 `DATE_BEFORE_SYSTEM_LIMIT`。
-- `result_mode="value"` 返回区间最后有效值；`result_mode="series"` 返回区间完整序列。
+- `result_mode="value"` 默认返回指定区间内的最后有效值；`result_mode="series"` 返回区间完整序列。
+- **日频行情/估值的显式日期对齐**：当 `result_mode="value"` 且同时传入 `start_date`、`end_date` 时，服务端会从 `start_date` 向前回看 10 个自然日。先严格选择指定区间内的数据；若某个日频字段（如 PE/PB）因刷新晚于行情而尚未覆盖该区间，才返回该字段最近有效值，并用字段自身日期标识。该行为是正常的刷新时点差异，不是 `DATA_UNAVAILABLE`。
 - 不支持月采样或其他采样频率参数；需要月度序列应走完整公式链路。
 
 ## 日内刷新行为
@@ -42,9 +43,10 @@
 英文：`close` `open` `high` `low` `pct_change` `回报率` `amount` `volume`
 
 **估值**（snapshot/window）：
-- A/US/HK 均支持（TTM〔估值数据〕，日频）：`PE` `PE_TTM` `市盈率TTM` `PB` `市净率` `PS_TTM` `市销率` `股息率` `PCF` `市现率` `PCF_现金净流量`（港美股自动映射到对应市场的 TTM 估值数据）
+- A/US/HK 均支持（日频估值）：`PE` `PE_TTM` `市盈率TTM` `PB` `市净率` `PS_TTM` `市销率` `股息率` `PCF` `市现率` `PCF_现金净流量`（港美股按字段自动映射；PB 不带 TTM；精确数据名与 ID 沿用 presets 数据层）
 - 仅 A 股：`总市值`（英文：`market_cap`，亿元）`流通市值` `换手率`（英文：`turnover`）——港股/美股查询这些字段返回 `FIELD_MARKET_MISMATCH`
-- A/US/HK 均支持（港美股专用单季口径）：`PE_单季` `PB_单季` `PS_单季` `股息率_单季`（显式查询季频数据时使用）
+- 历史兼容入口：`PE_单季` `PB_单季` `PS_单季` `股息率_单季` 在港美股实际映射日频估值，不代表季频；新调用使用 `PE_TTM` / `PB` / `PS_TTM` / `股息率`。
+- **兼容字段元信息冲突**：若返回 `LEGACY_FIELD_UPGRADED`，仅对其 `upgraded` 显式列出的字段按映射后的标准字段解释；例如 `PE_单季 → PE_TTM` 是日频 TTM 估值，即使旧字段仍标为 `date_type="report_period"`，也不得称为报告期序列。日期仍取字段自身 `d` / `dates`，否则取与值数组对应的共享日期轴；单值无自身日期时取映射后标准字段的日期类型对应的公共日期，缺失则说明日期未提供，不猜测。已返回可用结果时不因元信息冲突重查。未明确升级的字段继续遵循原日期类型；用户真正要求单季口径时，须说明当前返回的日频标准估值不满足单季要求。
 - PE（静态）：A 股用静态 PE，港美股自动映射到 TTM 版（HK/US 无静态 PE）
 
 **所属行业基础信息**（仅 `snapshot` + `value`）：
@@ -104,7 +106,7 @@ results: {
   "资产名": { ticker, 字段1: 值, 字段2: 值, ... }   ← 日期已提升时直接是数字
 }
 ```
-若字段日期与公共日期不同（fallback 等），该字段值为 `{v: 数值, d: "日期", fallback: true}`。
+若字段日期与公共日期不同（例如日频行情/估值刷新错位触发 `DATE_RANGE_FALLBACK`），该字段值为 `{v: 数值, d: "日期", fallback: true}`。此时使用 `v`，并按该字段的 `d` 展示真实日期；不要因其晚于公共日期而报缺失、重试或升级到完整链路。
 
 `result_mode="series"` 或 `query_type="window"` — 列式存储：
 ```
@@ -166,7 +168,8 @@ asset_errors / field_errors / warnings
 | 2 | 资产无法识别 | 告知，其余资产继续 |
 | 3 FIELD_UNRESOLVABLE | 字段不可解析 | 见下方恢复策略 |
 | 3 FIELD_MARKET_MISMATCH | 字段不支持该市场（如港/美股请求总市值/流通市值/换手率等仅 A 股字段） | 告知用户该字段仅支持 A 股；其余字段继续 |
-| 4 | 数据为空/公式失败/派生字段计算失败（`DERIVED_COMPUTE_FAILED`） | 告知该字段暂无数据 |
+| Warning DATE_RANGE_FALLBACK | 日频字段在指定日期/范围内暂未更新，已返回最近有效值 | 按字段 `d` 标注日期并正常作答，**不得**把它当作 `DATA_UNAVAILABLE`、重试或升级完整链路 |
+| 4 DATA_UNAVAILABLE | 字段经过日期对齐回看后仍无数据，或公式/派生字段计算失败（`DERIVED_COMPUTE_FAILED`） | 告知该字段暂无数据；按当前 workflow 的恢复规则处理 |
 
 **FIELD_UNRESOLVABLE 恢复**（partial_ok: true）：保留已成功字段，仅对失败字段补 `confirmDataMulti` → `runMultiFormulaBatchStream`（公式：`"字段全名"*取出(资产名)`，**禁止 LAST() 语法**），不得重读任何 workflow .md。若 field_error 带 `fallback_hint`，按其操作。
 

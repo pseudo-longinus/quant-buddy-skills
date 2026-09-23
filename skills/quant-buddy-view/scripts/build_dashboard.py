@@ -449,14 +449,39 @@ function colIdx(tab, name) {
 }
 
 function renderTable(el, tab, panel) {
-  const cols = (panel.columns && panel.columns.length) ? panel.columns : tab.columns;
+  let cols = (panel.columns && panel.columns.length) ? panel.columns : tab.columns;
+  if (!panel.columns?.length && cols.includes('asset') && cols.includes('name'))
+    cols = ['name','asset',...cols.filter(c=>c !== 'name' && c !== 'asset')];
+  if (!panel.columns?.length && cols.includes('代码') && cols.includes('名称'))
+    cols = ['名称','代码',...cols.filter(c=>c !== '名称' && c !== '代码')];
   const idx = cols.map(c => colIdx(tab, c));
-  let h = '<table><thead><tr>' + cols.map(c => '<th>' + c + '</th>').join('') + '</tr></thead><tbody>';
-  tab.rows.forEach(r => {
-    h += '<tr>' + idx.map(i => '<td>' + fmt(i == null ? '' : r[i]) + '</td>').join('') + '</tr>';
+  // Keep source keys/values intact; only translate reader-facing field labels.
+  const fieldLabels = {asset:'代码', name:'名称', value:'数值', date:'观察日', close:'收盘价', open:'开盘价', high:'最高价', low:'最低价',
+    pct_chg:'涨跌幅', pe_ttm:'市盈率(TTM)', pb:'市净率', market_cap:'总市值',
+    volume:'成交量', amount:'成交额', turnover_rate:'换手率'};
+  const label = key => Object.prototype.hasOwnProperty.call(panel.output_labels || {}, key)
+    ? panel.output_labels[key] : Object.prototype.hasOwnProperty.call(fieldLabels, key) ? fieldLabels[key] : key;
+  const formatFor = c => (panel.column_formats || {})[c] || (panel.column_formats || {})[Object.keys(panel.output_labels || {}).find(k=>panel.output_labels[k]===c)];
+  const cell = (v,c) => {
+    const f=formatFor(c);
+    if (v == null) return '—';
+    if (f?.style === 'percent' && typeof v === 'number' && Number.isFinite(v))
+      return (v*f.scale).toFixed(f.decimals ?? 2)+'%';
+    return fmt(c === '指标' ? label(v) : v);
+  };
+  let rows = tab.rows.slice();
+  const ranked = ['asc','desc'].includes(panel.rank_order);
+  const rankColumn = tab.columns.includes(panel.rank_by) ? panel.rank_by : (panel.output_labels || {})[panel.rank_by];
+  const ri = colIdx(tab,rankColumn);
+  el.dataset.qbRankError = ranked && ri == null ? '排序字段不存在' : '';
+  if (ranked && ri != null) rows.sort((a,b)=>{
+    const av=a[ri],bv=b[ri],an=typeof av==='number'&&Number.isFinite(av),bn=typeof bv==='number'&&Number.isFinite(bv);
+    return an&&bn ? (panel.rank_order==='asc'?1:-1)*(av-bv) : an?-1:bn?1:0;
   });
-  h += '</tbody></table>';
-  el.innerHTML = h;
+  const table = data => '<table'+(ranked?' data-qb-rank-order="'+panel.rank_order+'"':'')+'><thead><tr>' + cols.map(c => '<th scope="col">' + esc(label(c)) + '</th>').join('') + '</tr></thead><tbody>' + data.map(r=>
+    '<tr'+(ranked&&ri!=null&&typeof r[ri]==='number'?' data-qb-rank-value="'+esc(r[ri])+'"':'')+'>'+idx.map((i,n)=>'<td>'+esc(cell(i==null?null:r[i],cols[n]))+'</td>').join('')+'</tr>').join('')+'</tbody></table>';
+  const limit = ranked ? (Number.isInteger(panel.rank_limit)&&panel.rank_limit>0?panel.rank_limit:10) : rows.length;
+  el.innerHTML = table(rows.slice(0,limit)) + (rows.length>limit?'<details class="qb-ranking-rest"><summary>展开其余 '+(rows.length-limit)+' 项（共 '+rows.length+' 项）</summary>'+table(rows.slice(limit))+'</details>':'');
 }
 
 function fmt(v) {
@@ -501,12 +526,45 @@ function renderNumber(el, tab, panel) {
     }
   }
   const desc = panel.description ? '<div class="desc">' + esc(panel.description) + '</div>' : '';
-  el.innerHTML = '<div class="big' + clsForNumber(val) + '">' + fmt(val) + (panel.unit ? '<span class="unit">' + esc(panel.unit) + '</span>' : '') + '</div>' + desc;
+  el.innerHTML = '<div class="big' + (panel.color_by === 'sign' ? clsForNumber(val) : '') + '">' + (val == null ? '—' : fmt(val)) + (panel.unit ? '<span class="unit">' + esc(panel.unit) + '</span>' : '') + '</div>' + desc;
 }
 
+// Small, escaped Markdown subset for research prose. No raw HTML, images or executable URLs.
+function proseInline(raw) {
+  return esc(raw).replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+}
+function proseMarkdown(text) {
+  const lines = String(text).replace(/\r/g, '').split('\n');
+  const blocks = [];
+  const cells = line => line.trim().replace(/^\||\|$/g, '').split('|').map(s=>s.trim());
+  for (let i = 0; i < lines.length;) {
+    const line = lines[i].trim();
+    if (!line) { i++; continue; }
+    if (line.includes('|') && i + 1 < lines.length && /^\s*\|?\s*:?-{3,}/.test(lines[i+1])) {
+      const head = cells(line); i += 2;
+      const rows = [];
+      while (i < lines.length && lines[i].trim().includes('|')) rows.push(cells(lines[i++]));
+      blocks.push('<div class="prose-table" tabindex="0" role="region" aria-label="正文表格"><table><thead><tr>' + head.map(c=>'<th scope="col">'+proseInline(c)+'</th>').join('') + '</tr></thead><tbody>' + rows.map(row=>'<tr>'+head.map((_,n)=>'<td>'+proseInline(row[n] || '')+'</td>').join('')+'</tr>').join('')+'</tbody></table></div>');
+    } else if (/^#{1,6}\s/.test(line)) {
+      blocks.push('<h3>'+proseInline(line.replace(/^#{1,6}\s+/, ''))+'</h3>'); i++;
+    } else if (/^(?:[-*+]\s|\d+\.\s)/.test(line)) {
+      const ordered = /^\d+\./.test(line), items = [];
+      const pattern = ordered ? /^\d+\.\s+/ : /^[-*+]\s+/;
+      while (i < lines.length && pattern.test(lines[i].trim())) items.push('<li>'+proseInline(lines[i++].trim().replace(pattern,''))+'</li>');
+      const tag = ordered ? 'ol' : 'ul'; blocks.push('<'+tag+'>'+items.join('')+'</'+tag+'>');
+    } else {
+      const paragraph = [proseInline(line)]; i++;
+      while (i < lines.length && lines[i].trim() && !/^(?:#{1,6}\s|[-*+]\s|\d+\.\s)/.test(lines[i].trim()) && !(i+1<lines.length && /^\s*\|?\s*:?-{3,}/.test(lines[i+1]))) paragraph.push(proseInline(lines[i++].trim()));
+      blocks.push('<p>'+paragraph.join('<br>')+'</p>');
+    }
+  }
+  return blocks.join('');
+}
 function renderText(el, panel) {
   const text = panel.text || panel.content || panel.description || '';
-  el.innerHTML = '<div class="text-panel">' + esc(text).replace(/\n/g, '<br>') + '</div>';
+  el.innerHTML = '<div class="text-panel" data-qb-text-format="' + (panel.text_format === 'plain' ? 'plain' : 'markdown') + '">' + (panel.text_format === 'plain' ? esc(text).replace(/\n/g, '<br>') : proseMarkdown(text)) + '</div>';
 }
 
 function openImageLightbox(src, alt, caption, trigger) {
@@ -552,6 +610,20 @@ function renderImage(el, panel) {
 
 function renderChart(el, tab, panel) {
   const chart = echarts.init(el);
+  // Rank the original signed values. Never negate returns to obtain a bottom-N.
+  if (panel.type === 'bar' && ['asc', 'desc'].includes(panel.rank_order)) {
+    const requested = panel.rank_by || (panel.y || [])[0] || tab.columns[1];
+    const column = tab.columns.includes(requested) ? requested : (panel.output_labels || {})[requested];
+    const index = colIdx(tab, column);
+    el.dataset.qbRankError = index == null ? '排序字段不存在' : '';
+    if (index != null) {
+      const direction = panel.rank_order === 'asc' ? 1 : -1;
+      const rows = tab.rows.filter(row => typeof row[index] === 'number' && Number.isFinite(row[index]))
+        .slice().sort((a,b) => direction * (a[index] - b[index]));
+      const limit = Number.isInteger(panel.rank_limit) && panel.rank_limit > 0 ? panel.rank_limit : rows.length;
+      tab = Object.assign({}, tab, {rows: rows.slice(0, limit)});
+    }
+  }
   const xName = panel.x || tab.columns[0];
   const xi = colIdx(tab, xName);
   const xData = tab.rows.map(r => xi == null ? '' : r[xi]);
@@ -567,26 +639,32 @@ function renderChart(el, tab, panel) {
   const dualAxis = panel.dual_axis === true && rightSet.size > 0;
   // 迷你走势图：panel.sparkline===true 时去掉坐标轴/图例/网格留白，只保留曲线本身。
   const spark = panel.sparkline === true;
+  const horizontal = panel.type === 'bar' && !dualAxis && panel.orientation !== 'vertical' && (panel.orientation === 'horizontal' || ['asc','desc'].includes(panel.rank_order));
   const series = yCols.map(c => {
     const i = colIdx(tab, c);
     const onRight = dualAxis && rightSet.has(c);
-    return {name: c, type: panel.type === 'bar' ? 'bar' : 'line', smooth: panel.type !== 'bar',
-            showSymbol: false, connectNulls: true, data: tab.rows.map(r => r[i]),
+    const label = (panel.output_labels || {})[c] ||
+      (yCols.length === 1 && ['value', 'values', 'y', 'c1'].includes(c) && panel.title ? panel.title : c);
+    return {name: label, type: panel.type === 'bar' ? 'bar' : 'line', smooth: panel.type !== 'bar',
+            showSymbol: false, connectNulls: true, data: tab.rows.map(r => typeof r[i] === 'number' ? r[i] * (panel.value_scale ?? 1) : r[i]),
             yAxisIndex: onRight ? 1 : 0,
+            label: horizontal ? {show:true, position:'right', color:'#24394e', fontSize:12,
+              formatter:p=>Number(p.value).toFixed(2)+(panel.unit || '')} : undefined,
             lineStyle: spark ? {width: 2} : undefined};
   });
-  const yAxisBase = {type: 'value', scale: true, axisLabel: {color: '#697586'}, splitLine: {lineStyle: {color: '#e8edf4'}}};
+  const yAxisBase = {type: 'value', name: panel.unit || '', scale: panel.type !== 'bar', axisLabel: {color: '#697586'}, splitLine: {lineStyle: {color: '#e8edf4'}}};
   const yAxis = dualAxis
     ? [yAxisBase, Object.assign({}, yAxisBase, {splitLine: {show: false}})]
     : yAxisBase;
   chart.setOption({
-    tooltip: {trigger: 'axis', show: !spark},
-    legend: {data: yCols, top: 0, type: 'scroll', show: !spark},
+    tooltip: {trigger: 'axis', show: !spark, valueFormatter:v=>fmt(v)+(panel.unit || '')},
+    legend: {data: series.map(s => s.name), top: 0, type: 'scroll', show: !spark && !(horizontal && series.length===1)},
     color: ['#2454a6', '#7a8ca8', '#c03d3d', '#16845b', '#b2762d'],
-    grid: spark ? {left: 2, right: 2, top: 2, bottom: 2} : {left: 56, right: dualAxis ? 56 : 24, top: 34, bottom: 42},
-    xAxis: {type: 'category', data: xData, boundaryGap: panel.type === 'bar', show: !spark,
+    grid: spark ? {left: 2, right: 2, top: 2, bottom: 2} : horizontal ? {left:8,right:64,top:30,bottom:20,containLabel:true} : {left: 56, right: dualAxis ? 56 : 24, top: 34, bottom: 42},
+    xAxis: horizontal ? yAxisBase : {type: 'category', data: xData, boundaryGap: panel.type === 'bar', show: !spark,
             axisLine: {lineStyle: {color: '#bfccda'}}, axisTick: {show:false}, axisLabel: {color: '#697586'}},
-    yAxis: spark ? Object.assign({}, yAxisBase, {show: false, splitLine: {show: false}}) : yAxis,
+    yAxis: horizontal ? {type:'category',data:xData,inverse:true,axisTick:{show:false},axisLine:{show:false},
+      axisLabel:{interval:0,width:112,overflow:'truncate',fontSize:12,color:'#24394e'}} : spark ? Object.assign({}, yAxisBase, {show: false, splitLine: {show: false}}) : yAxis,
     series: series,
   });
   window.addEventListener('resize', () => chart.resize());
@@ -623,6 +701,7 @@ let OUTPUT_INDEX = {};
 
 // 面板依赖的 output 名单：新的 panel.outputs（复数，叠加对比线）优先，兼容旧的 panel.output（单数）。
 function panelOutputNames(panel) {
+  if (panel.binding) return [...new Set(Object.values(panel.binding.values || {}).map(ref => ref.output))];
   if (Array.isArray(panel.outputs) && panel.outputs.length) return panel.outputs;
   if (panel.output) return [panel.output];
   return [];
@@ -630,11 +709,34 @@ function panelOutputNames(panel) {
 
 // 把一个面板依赖的若干 output 合并成一张表：单 output 时行为与老版本完全一致（直接 normalize）；
 // 多 output 时各自 normalize 成 [x,y] 两列，再按 x（日期）外连接拼成宽表，喂给 renderChart 出多条线。
-function mergeOutputTables(names, received, labels = {}) {
+function mergeOutputTables(names, received, labels = {}, panelType = '') {
   if (names.length <= 1) {
     const out = names.length ? received[names[0]] : null;
     if (!out || out.error) return {tab: null, out: out || {error: '无产出'}};
     return {tab: normalize(out.data), out: null};
+  }
+  // Tables retain scalar dates and asset identity; charts keep their x/y join.
+  const present = names.filter(name => received[name] && !received[name].error);
+  const scalar = name => {
+    let data = received[name]?.data;
+    if (data && data.last_day_stats) data = data.last_day_stats;
+    if (data && data.last_value) data = data.last_value;
+    return data && !Array.isArray(data) && 'value' in Object(data) && 'date' in Object(data) ? data : null;
+  };
+  if (panelType === 'table' && present.length && present.every(name => scalar(name))) {
+    return {tab: {columns:['指标','数值','观察日'], rows:present.map(name=>{const value=scalar(name); return [labels[name] || name, value.value, fmtDate(value.date)];})}, out:null};
+  }
+  const normalized = present.map(name=>({name, tab:normalize(received[name].data)}));
+  if (panelType === 'table' && normalized.length && normalized.every(({tab})=>tab.columns.includes('asset') && tab.columns.includes('value'))) {
+    const assets = new Map();
+    normalized.forEach(({name,tab})=>tab.rows.forEach(row=>{
+      const asset = row[tab.columns.indexOf('asset')];
+      if (!assets.has(asset)) assets.set(asset,{asset, name:'', values:{}});
+      const entry = assets.get(asset), nameIndex = tab.columns.indexOf('name');
+      if (nameIndex >= 0 && row[nameIndex]) entry.name = row[nameIndex];
+      entry.values[name] = row[tab.columns.indexOf('value')];
+    }));
+    return {tab:{columns:['代码','名称',...names.map(name=>labels[name] || name)], rows:[...assets.values()].map(row=>[row.asset,row.name,...names.map(name=>row.values[name] ?? null)])},out:null};
   }
   const perOutput = names.map(name => {
     const out = received[name];
@@ -679,19 +781,21 @@ function createCard(panel) {
       if (existing && typeof existing.dispose === 'function') existing.dispose();
       target.replaceChildren();
       target.classList.add('qb-embedded-body', 'body', type);
+      if (type === 'table') { target.tabIndex = 0; target.setAttribute('role', 'region'); target.setAttribute('aria-label', panel.title || '数据表格'); }
       return {body: target, span: 'embedded'};
     }
     console.warn('[QBV] target_selector 未命中: ' + panel.target_selector + '，回退到标准网格卡片');
   }
   const card = document.createElement('section');
-  const defaultSpan = (type === 'line' || type === 'bar' || type === 'radar') ? 'full' : 'auto';
+  const defaultSpan = type === 'number' ? 'auto' : 'full';
   const span = ['full', 'wide', 'auto'].includes(panel.span) ? panel.span : defaultSpan;
   card.className = 'card card-' + type + ' span-' + span;
-  card.innerHTML = '<div class="card-head"><h3>' + esc(panel.title || panel.output || '') + '</h3>' +
+  card.innerHTML = '<div class="card-head"><h2>' + esc(panel.title || panel.output || '') + '</h2>' +
     (panel.description && type !== 'number' && type !== 'text' ? '<p>' + esc(panel.description) + '</p>' : '') +
     '</div>';
   const body = document.createElement('div');
   body.className = 'body ' + type;
+  if (type === 'table') { body.tabIndex = 0; body.setAttribute('role', 'region'); body.setAttribute('aria-label', panel.title || '数据表格'); }
   card.appendChild(body);
   const grid = document.getElementById('grid');
   if (grid) grid.appendChild(card);
@@ -753,6 +857,10 @@ function buildSkeletons() {
   const embedded = BOOT.panels.length > 0 && BOOT.panels.every(panel =>
     panel.target_selector && document.querySelector(panel.target_selector));
   if (grid && !embedded) grid.innerHTML = '';
+  if (grid && !embedded) {
+    const count = BOOT.panels.filter(panel => panel.type === 'number' && !panel.span).length;
+    grid.style.setProperty('--qb-auto-span', String(count >= 1 && count <= 4 ? 12 / count : 4));
+  }
   PANEL_REG = [];
   OUTPUT_INDEX = {};
   BOOT.panels.forEach(panel => {
@@ -761,7 +869,7 @@ function buildSkeletons() {
     const names = panelOutputNames(panel);
     const reg = {panel: panel, body: made.body, span: made.span, filled: false, names: names, received: {}};
     PANEL_REG.push(reg);
-    if (type === 'text') { renderText(made.body, panel); reg.filled = true; return; }
+    if (type === 'text' && !panel.binding) { renderText(made.body, panel); reg.filled = true; return; }
     if (type === 'image') { renderImage(made.body, panel); reg.filled = true; return; }
     made.body.innerHTML = '<p class="empty">加载中…</p>';
     names.forEach(name => { (OUTPUT_INDEX[name] = OUTPUT_INDEX[name] || []).push(reg); });
@@ -773,8 +881,10 @@ function buildSkeletons() {
 function applyOutput(name, out) {
   (OUTPUT_INDEX[name] || []).forEach(reg => {
     reg.received[name] = out;
+    // Bound prose is committed only after this complete fetch epoch finishes.
+    if (reg.panel.binding) return;
     if (!reg.names.every(n => Object.prototype.hasOwnProperty.call(reg.received, n))) return;
-    const merged = mergeOutputTables(reg.names, reg.received, reg.panel.output_labels);
+    const merged = mergeOutputTables(reg.names, reg.received, reg.panel.output_labels, reg.panel.type);
     if (reg.names.length === 1 && (reg.panel.type || 'table') === 'raw') merged.rawData = out.data;
     renderPanelBody(reg.body, reg.panel, reg.span, merged);
     reg.filled = true;
@@ -793,7 +903,36 @@ function renderAll(outputs) {
   LAST_OUTPUTS = outputs || {};
   buildSkeletons();
   Object.keys(LAST_OUTPUTS).forEach(name => applyOutput(name, LAST_OUTPUTS[name]));
+  renderBoundProse();
   syncLiveCard(LAST_OUTPUTS);
+}
+
+__PROSE_BINDING_RUNTIME__
+function renderBoundProse() {
+  const dates = new Set();
+  const visit = value => {
+    if (!value || typeof value !== 'object') return;
+    for (const [key, item] of Object.entries(value)) {
+      if (['date', 'd', 'first_valid_date', 'last_valid_date'].includes(key)) {
+        const text = String(item ?? '').replaceAll('-', '').replaceAll('/', '');
+        if (/^20\d{6}$/.test(text)) dates.add(text.slice(0,4)+'-'+text.slice(4,6)+'-'+text.slice(6));
+      } else if (item && typeof item === 'object') visit(item);
+    }
+  };
+  visit(LAST_OUTPUTS);
+  const designRoot = document.querySelector('[data-qb-page-design]');
+  if (designRoot) designRoot.dataset.qbObservationDates = JSON.stringify([...dates].sort());
+  PANEL_REG.filter(reg => reg.panel.binding).forEach(reg => {
+    try {
+      const text = resolveBoundProse(reg.panel.binding, LAST_OUTPUTS);
+      renderText(reg.body, {...reg.panel, text, text_format: 'plain'});
+      delete reg.body.dataset.qbBindingError;
+      reg.filled = true;
+    } catch (error) {
+      reg.body.innerHTML = '<p class="empty err">本轮数据不完整，暂不生成判断：' + esc(error.message) + '</p>';
+      reg.body.dataset.qbBindingError = 'true';
+    }
+  });
 }
 
 function parseSSEBlock(block) {
@@ -930,7 +1069,12 @@ async function fetchGrantsLive() {
   }));
 }
 
-async function fetchLive() {
+let activeFetch = null;
+function fetchLive() {
+  if (!activeFetch) activeFetch = fetchLiveEpoch().finally(() => { activeFetch = null; });
+  return activeFetch;
+}
+async function fetchLiveEpoch() {
   buildSkeletons();          // 先把面板骨架铺出来，产出到一个就渲染一个
   LAST_OUTPUTS = {};
   Object.entries(BOOT.snapshots || {}).forEach(([name, out]) => { LAST_OUTPUTS[name] = out; applyOutput(name, out); });
@@ -938,6 +1082,7 @@ async function fetchLive() {
   if (resolvePackages().length) tasks.push(fetchPackageLive());
   if (BOOT.grants && BOOT.grants.length) tasks.push(fetchGrantsLive());
   if (tasks.length) await Promise.all(tasks.map(task => task.catch(() => null)));
+  renderBoundProse();
   // 收尾：始终没等到产出的非 text 面板，标注无产出
   PANEL_REG.forEach(reg => {
     if (!reg.filled && (reg.panel.type || 'table') !== 'text') {
@@ -1058,7 +1203,8 @@ def _render_js_for_boot(boot):
     否则走标准整页启动，行为与此前完全一致。_render_html（整页生成）与 chart_edit.py（定点编辑回写）
     共用这份判断，保证「这个页面当初是不是嵌入模式生成的」在编辑时不会被错误地换回整页启动逻辑。"""
     boot_json = json.dumps(boot, ensure_ascii=False)
-    full = _RENDER_JS_TEMPLATE.replace("__BOOT__", boot_json)
+    full = _RENDER_JS_TEMPLATE.replace("__BOOT__", boot_json).replace(
+        '__PROSE_BINDING_RUNTIME__', _read_text(os.path.join(ASSETS_DIR, 'prose-bindings.js')))
     if not boot.get("embedded"):
         return full
     embedded, n = _BOOTSTRAP_BLOCK_RE.subn(_EMBEDDED_BOOTSTRAP, full, count=1)
@@ -1067,9 +1213,34 @@ def _render_js_for_boot(boot):
     return embedded
 
 
+def _evidence_first_panels(spec, panels):
+    """Keep the default first screen useful without rewriting inherited layouts."""
+    if spec.get('layout_order') == 'authored' or any(p.get('target_selector') for p in panels):
+        return panels
+    if not panels or panels[0].get('type') != 'text':
+        return panels
+    remaining = list(panels)
+    lead = []
+    if remaining and remaining[0].get('type') == 'text' and not remaining[0].get('binding'):
+        text = str(remaining[0].get('text') or '').strip()
+        if text and len(text) <= 120 and '\n' not in text:
+            lead.append(remaining.pop(0))
+    numbers = [p for p in remaining if p.get('type') == 'number']
+    if len(numbers) > 4:
+        numbers = []
+    number_ids = {id(p) for p in numbers}
+    remaining = [p for p in remaining if id(p) not in number_ids]
+    main = next((p for p in remaining if p.get('type') in ('line', 'bar', 'radar', 'image')), None)
+    if main is None:
+        main = next((p for p in remaining if p.get('type', 'table') == 'table'), None)
+    primary = [main] if main is not None else []
+    return lead + numbers + primary + [p for p in remaining if p is not main]
+
+
 def _render_html(spec, *, title, subtitle, panels, endpoint, package_id, signature, generated_at, grants=None, snapshots=None):
     """组装 HTML。骨架自包含（样式/内核内联），数据走运行时实时取数：页面内联 endpoint+凭证 + 取数 JS。
     grants：panel 里引用 grant_id 的数据授权列表 [{grant_id,signature}]，与公式包 panel 同页并存。"""
+    panels = _evidence_first_panels(spec, panels)
     share = _share_config(spec)
     page_mode = "live" if package_id or grants else "static"
 
@@ -1127,6 +1298,7 @@ def _render_html(spec, *, title, subtitle, panels, endpoint, package_id, signatu
     shared_footer = _shared_shell_section("FOOTER")
     shared_modal = _shared_shell_section("MODAL")
     shared_css = _shared_shell_css()
+    dashboard_css = _read_text(os.path.join(ASSETS_DIR, "dashboard-design.css"))
     shared_runtime_js = _shared_shell_js()
     data_kernel_js = _read_text(os.path.join(ASSETS_DIR, "data-kernel.js")).replace(
         "__QBV_SKILL_VERSION__", C.SKILL_VERSION or ""
@@ -1165,158 +1337,20 @@ def _render_html(spec, *, title, subtitle, panels, endpoint, package_id, signatu
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title_esc}</title>
 <style>
-  :root {{
-    color-scheme: light;
-    --qb-ink: #101827;
-    --qb-text: #1f2937;
-    --qb-muted: #697586;
-    --qb-canvas: #f3f6fa;
-    --qb-surface: #ffffff;
-    --qb-surface-soft: #f8fafc;
-    --qb-border: #dde5ef;
-    --qb-border-strong: #bfccda;
-    --qb-accent: #d8a54b;
-    --qb-up: #c2412d;
-    --qb-down: #16845b;
-    --qb-line: #2454a6;
-  }}
-  * {{ box-sizing: border-box; }}
-  body {{ margin: 0; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", Roboto, Helvetica, Arial, sans-serif;
-         background: var(--qb-canvas); color: var(--qb-text); }}
-  a {{ color: inherit; }}
-  a:focus-visible {{ outline: 2px solid #d8a54b; outline-offset: 3px; }}
-  .shell-inner {{ max-width: 1180px; margin: 0 auto; padding: 0 20px; }}
-  .eyebrow {{ margin: 0 0 8px; color: #a8b1c2; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }}
-  h1 {{ margin: 0; font-size: 32px; line-height: 1.12; letter-spacing: 0; }}
-  .subtitle {{ margin: 12px 0 0; color: #dbe2ee; max-width: 860px; font-size: 14px; }}
-  .meta-row {{ display:flex; flex-wrap:wrap; gap:8px; margin-top:16px; }}
-  .meta-pill {{ display:inline-flex; align-items:center; min-height:26px; padding:0 9px; border-radius:8px;
-               background:rgba(255,255,255,.08); color:#cbd5e1; font-size:12px; }}
-  .meta-pill-strong {{ background:rgba(216,165,75,.16); color:#f8e4b7; border:1px solid rgba(216,165,75,.34); }}
-  main {{ max-width: 1180px; margin: 0 auto; padding: 18px 20px 26px; }}
-  #grid {{ display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 12px; align-items: stretch; }}
-  .card {{ position:relative; background: var(--qb-surface); border: 1px solid var(--qb-border); border-radius: 8px; padding: 14px 16px;
-          box-shadow: 0 10px 26px rgba(16,24,39,.045); min-width: 0; }}
-  .card h3 {{ margin: 0; font-size: 13px; color:#2b3445; font-weight:700; }}
-  .card-head {{ display:flex; flex-direction:column; gap:3px; margin-bottom: 10px; }}
-  .card-head p {{ margin:0; color:var(--qb-muted); font-size:12px; }}
-  .card .body {{ overflow: auto; }}
-  .span-full {{ grid-column: span 12; }}
-  .span-wide {{ grid-column: span 8; }}
-  .span-auto {{ grid-column: span 4; }}
-  .card-text {{ display:grid; grid-template-columns: 132px minmax(0,1fr); gap:16px; align-items:start;
-               padding:15px 18px; border-color:#d7e0eb; background:linear-gradient(90deg, rgba(216,165,75,.10), rgba(255,255,255,.96) 34%, #fff); }}
-  .card-text::before {{ content:""; position:absolute; inset:12px auto 12px 0; width:4px; border-radius:0 4px 4px 0; background:var(--qb-accent); }}
-  .card-text .card-head {{ margin:0; padding-top:1px; }}
-  .card-text h3 {{ color:#172033; font-size:14px; }}
-  .card-text .body {{ overflow:visible; }}
-  .card-number {{ min-height: 112px; display:flex; flex-direction:column; justify-content:flex-start; gap:12px; padding:13px 15px 12px; background:linear-gradient(180deg,#fff,#fbfdff); }}
-  .card-number .card-head {{ margin-bottom:0; min-height:18px; }}
-  .card-number .body {{ overflow:visible; min-height:58px; display:flex; flex-direction:column; justify-content:flex-start; }}
-  .card-number::before {{ content:""; position:absolute; left:14px; right:14px; top:0; height:3px; border-radius:0 0 3px 3px; background:#c7d2df; }}
-  .card-number:has(.big.up)::before {{ background:var(--qb-up); }}
-  .card-number:has(.big.down)::before {{ background:var(--qb-down); }}
-  .card-line {{ padding:16px 18px 18px; border-color:#cfd9e6; box-shadow:0 14px 34px rgba(16,24,39,.06); }}
-  .card-line .card-head {{ padding-bottom:8px; border-bottom:1px solid #edf1f6; }}
-  .card-line h3 {{ font-size:15px; color:#172033; }}
-  table {{ border-collapse: collapse; width: 100%; font-size: 13px; }}
-  th, td {{ border-bottom: 1px solid #eef0f2; padding: 6px 8px; text-align: right; white-space: nowrap; }}
-  th:first-child, td:first-child {{ text-align: left; }}
-  thead th {{ position: sticky; top: 0; background: #fafbfc; }}
-  .big {{ font-size: 30px; line-height:1.1; font-weight: 760; padding: 3px 0 2px; letter-spacing:0; color:#111827; font-variant-numeric: tabular-nums; }}
-  .big.up {{ color:var(--qb-up); }} .big.down {{ color:var(--qb-down); }} .big.flat {{ color:#667085; }}
-  .big .unit {{ font-size: 16px; font-weight: 400; margin-left: 6px; opacity: .7; }}
-  .desc {{ color:var(--qb-muted); font-size:12px; line-height:1.35; margin-top:2px; }}
-  .text-panel {{ color:#334155; font-size:13px; line-height:1.7; max-height:7em; overflow:auto; padding-right:4px; }}
-  .image-panel {{ margin:0; display:grid; gap:8px; }}
-  .image-panel img {{ display:block; width:100%; max-height:520px; border-radius:10px; background:#f1f5f9; }}
-  .image-panel figcaption {{ color:#64748b; font-size:12px; line-height:1.6; }}
-  .image-zoom-trigger {{ position:relative; display:block; width:100%; padding:0; overflow:hidden; border:0; border-radius:10px; background:transparent; cursor:zoom-in; }}
-  .image-zoom-trigger:focus-visible {{ outline:3px solid var(--qb-accent); outline-offset:3px; }}
-  .image-zoom-hint {{ position:absolute; right:10px; bottom:10px; padding:5px 9px; border:1px solid rgba(255,255,255,.35); border-radius:999px; background:rgba(16,24,39,.78); color:#fff; font-size:12px; line-height:1.2; opacity:0; transform:translateY(4px); transition:opacity .16s ease, transform .16s ease; pointer-events:none; }}
-  .image-zoom-trigger:hover .image-zoom-hint, .image-zoom-trigger:focus-visible .image-zoom-hint {{ opacity:1; transform:none; }}
-  body.image-lightbox-open {{ overflow:hidden; }}
-  .image-lightbox {{ width:min(96vw, 1600px); max-width:none; max-height:94vh; padding:0; overflow:hidden; border:1px solid rgba(255,255,255,.18); border-radius:14px; background:#0b1220; color:#fff; box-shadow:0 28px 90px rgba(0,0,0,.48); }}
-  .image-lightbox::backdrop {{ background:rgba(3,8,18,.82); backdrop-filter:blur(5px); }}
-  .image-lightbox__shell {{ position:relative; display:grid; max-height:94vh; padding:42px 18px 16px; }}
-  .image-lightbox__close {{ position:absolute; z-index:1; top:8px; right:10px; width:34px; height:34px; padding:0; border:1px solid rgba(255,255,255,.24); border-radius:50%; background:rgba(255,255,255,.10); color:#fff; font:400 26px/30px Arial,sans-serif; cursor:pointer; }}
-  .image-lightbox__close:hover {{ background:rgba(255,255,255,.18); }}
-  .image-lightbox__close:focus-visible {{ outline:3px solid #f2c86f; outline-offset:2px; }}
-  .image-lightbox__figure {{ display:grid; gap:10px; min-height:0; margin:0; }}
-  .image-lightbox__figure img {{ display:block; width:auto; max-width:100%; height:auto; max-height:calc(94vh - 92px); margin:auto; border-radius:8px; object-fit:contain; }}
-  .image-lightbox__figure figcaption {{ overflow:hidden; color:#d4dbe7; font-size:12px; line-height:1.5; text-align:center; text-overflow:ellipsis; white-space:nowrap; }}
-  .empty {{ color: #8a9099; padding: 12px 0; }}
-  .empty.err {{ color: #d33; }}
-  pre {{ margin: 0; font-size: 12px; white-space: pre-wrap; word-break: break-all; }}
-  .site-footer {{ max-width: 1180px; margin: 0 auto; padding: 0 20px 24px; color: #697586; font-size: 12px; }}
-  .footer-inner {{ border-top:1px solid #e2e7ef; padding-top:16px; display:flex; justify-content:space-between; gap:16px; align-items:flex-start; }}
-  .footer-brand {{ color:#344054; font-weight:700; margin-bottom:4px; }}
-  .footer-note {{ max-width:760px; line-height:1.7; }}
-  .footer-link {{ color:#2454a6; text-decoration:none; white-space:nowrap; }}
-  .footer-link:hover {{ text-decoration:underline; }}
-  @media (max-width: 860px) {{
-    .span-full, .span-wide, .span-auto {{ grid-column: span 12; }}
-    .card-number.span-auto {{ grid-column: span 6; }}
-    h1 {{ font-size:26px; }}
-    main {{ padding:14px 12px 22px; }}
-    #grid {{ gap:10px; }}
-    .card-text {{ grid-template-columns:1fr; gap:8px; padding:13px 14px 14px; }}
-    .card-text .card-head {{ margin-bottom:0; }}
-    .text-panel {{ max-height:9em; }}
-    .card-number {{ min-height:104px; gap:10px; padding:12px 12px 11px; }}
-    .card-number .body {{ min-height:52px; }}
-    .card-number::before {{ left:12px; right:12px; }}
-    .big {{ font-size:24px; }}
-    .big .unit {{ font-size:13px; margin-left:4px; }}
-    .card-line {{ padding:14px 12px 16px; }}
-    .image-lightbox {{ width:96vw; max-height:92vh; border-radius:10px; }}
-    .image-lightbox__shell {{ max-height:92vh; padding:40px 10px 10px; }}
-    .image-lightbox__figure img {{ max-height:calc(92vh - 82px); }}
-    .footer-inner {{ flex-direction:column; }}
-  }}
-  @media (hover:none) {{
-    .image-zoom-hint {{ opacity:1; transform:none; }}
-  }}
-  @media (prefers-reduced-motion: reduce) {{
-    .image-zoom-hint {{ transition:none; }}
-  }}
-  @media (max-width: 360px) {{
-    .card-number.span-auto {{ grid-column: span 12; }}
-  }}
-  @media (prefers-color-scheme: dark) {{
-    body {{ background:#0d1117; color:#c9d1d9; }}
-    .card {{ background:#161b22; border-color:#30363d; box-shadow:none; }}
-    .card h3 {{ color:#dbe2ee; }}
-    .card-head p, .desc {{ color:#8b949e; }}
-    .big {{ color:#f0f6fc; }}
-    .text-panel {{ color:#c9d1d9; }}
-    th, td {{ border-color:#21262d; }} thead th {{ background:#1b2129; }}
-    .site-footer {{ color:#8b949e; }}
-    .footer-inner {{ border-color:#30363d; }}
-    .footer-brand {{ color:#dbe2ee; }}
-    .footer-link {{ color:#8fb4ff; }}
-  }}
-  .std-hero {{ margin:0 0 14px; padding:16px 18px; background:#ffffff; border:1px solid var(--qb-border); border-radius:8px; }}
-  .std-hero .eyebrow {{ margin:0 0 7px; color:#8a6a26; font-size:12px; letter-spacing:.06em; text-transform:uppercase; }}
-  .std-hero h1 {{ color:#172033; }}
-  .std-hero .subtitle {{ color:#475467; }}
-  .std-hero .meta-pill {{ background:#eef3f8; color:#4b5b70; }}
-  .std-hero .meta-pill-strong {{ background:rgba(216,165,75,.16); color:#87611d; border:1px solid rgba(216,165,75,.34); }}
+{dashboard_css}
 {shared_css}
 </style>
 </head>
 <body>
 {shared_header}
-<main{poster_target_attr}>
+<main class="qb-dashboard" data-qb-page-design="research-v1"{poster_target_attr}>
   {card_runtime_artifacts}
   <section class="std-hero">
-    <div class="eyebrow">{mode_note}</div>
+    <div class="eyebrow">{page_type_esc}</div>
     <h1>{title_esc}</h1>
     {f"<p class='subtitle'>{subtitle_esc}</p>" if subtitle_esc else ""}
     <div class="meta-row">
-      <span class="meta-pill">{page_type_esc}</span>
-      <span class="meta-pill meta-pill-strong">Agent + Skill 生成</span>
-      <span class="meta-pill">{mode_label_esc}</span>
+      <span class="meta-pill">{mode_note}</span>
     </div>
   </section>
   <div id="grid"></div>
@@ -1549,6 +1583,32 @@ def _normalize_grant_data(kind, data):
                 for i, date in enumerate(data.get("dates") or [])]
     if k == "fast_query":
         results = data.get("results") or []
+        # snapshot/value responses may use an asset-keyed mapping instead of the
+        # older list-of-fields shape. Normalize that compact shape directly so
+        # table panels and build-time health checks can consume it safely.
+        if isinstance(results, dict):
+            rows = []
+            dates = data.get("dates") or {}
+            default_date = next((value for value in dates.values() if value), None) if isinstance(dates, dict) else None
+            for asset_name, payload in results.items():
+                if not isinstance(payload, dict):
+                    continue
+                row = {"标的": asset_name}
+                if payload.get("ticker"):
+                    row["代码"] = payload.get("ticker")
+                for field_name, raw_value in payload.items():
+                    if field_name == "ticker":
+                        continue
+                    if isinstance(raw_value, dict) and "v" in raw_value:
+                        row[field_name] = raw_value.get("v")
+                        if raw_value.get("d"):
+                            row.setdefault("日期", raw_value.get("d"))
+                    else:
+                        row[field_name] = raw_value
+                if default_date:
+                    row.setdefault("日期", default_date)
+                rows.append(row)
+            return rows or data
         has_series = any(
             isinstance(field.get("series"), list)
             for result in results
@@ -1658,6 +1718,8 @@ def _panel_output_names(panel):
     """
     if not isinstance(panel, dict):
         return []
+    if panel.get('binding'):
+        return list(dict.fromkeys(ref['output'] for ref in panel['binding']['values'].values()))
     if panel.get("_source") != "grant":
         names = panel.get("outputs")
         if isinstance(names, list) and names:
@@ -1674,7 +1736,7 @@ def _inspect_outputs(panels, outputs):
     """逐 panel 体检其引用的全部产出，返回问题列表（空=全部健康）。"""
     problems = []
     for p in panels:
-        if (p.get("type") or "").lower() in ("text", "image"):
+        if (p.get("type") or "").lower() in ("text", "image") and not p.get('binding'):
             continue
         names = _panel_output_names(p)
         if not names:
@@ -1935,6 +1997,37 @@ def _validate_panel_transforms(panels):
     return None
 
 
+def _validate_table_presentation(panels, title=''):
+    """Require an authored ranking/scale contract; never guess a financial unit."""
+    data_panels = [p for p in panels if (p.get('type') or 'table') in ('table', 'bar', 'line')]
+    rankable = [p for p in data_panels if (p.get('type') or 'table') in ('table', 'bar')]
+    ranking_page = bool(re.search(r'排名|强弱|榜单', title))
+    if ranking_page and rankable and not any(p.get('rank_order') in ('asc', 'desc') and p.get('rank_by') for p in rankable):
+        return {'code': 1, 'error': 'RANKING_PRESENTATION_REQUIRED', 'message': '排名页必须明确主榜单的rank_by与rank_order；不能按代码原序展示。table可设置rank_limit:10，剩余记录可展开。'}
+    if ranking_page and sum((p.get('type') or 'table') == 'table' for p in data_panels) > 1 and not any(p.get('type') == 'bar' for p in data_panels):
+        return {'code': 1, 'error': 'RANKING_OVERVIEW_REQUIRED', 'message': '排名页不能堆叠多张全量表；先用最强/最弱原始数值柱图呈现主要证据，再保留一张多窗口完整表。Compose同样适用，保留借鉴外层结构。'}
+    for p in data_panels:
+        if 'value_scale' in p and (type(p['value_scale']) not in (int, float) or p['value_scale'] not in (1, 100)):
+            return {'code': 1, 'error': 'CHART_SCALE_INVALID', 'message': 'value_scale仅支持1或100，按真实源值声明；已转换为百分数的数据不能再乘100。'}
+        if 'rank_order' in p and (p['rank_order'] not in ('asc', 'desc') or not p.get('rank_by')):
+            return {'code': 1, 'error': 'RANKING_PRESENTATION_REQUIRED', 'message': 'rank_order只能为asc/desc，且必须声明rank_by。'}
+        formats = p.get('column_formats') or {}
+        if not isinstance(formats, dict):
+            return {'code': 1, 'error': 'TABLE_FORMAT_INVALID', 'message': 'column_formats必须为列名到格式的映射。'}
+        for f in formats.values():
+            if not isinstance(f, dict) or f.get('style') != 'percent' or type(f.get('scale')) not in (int, float) or f['scale'] not in (1, 100) or type(f.get('decimals', 2)) is not int or not 0 <= f.get('decimals', 2) <= 6:
+                return {'code': 1, 'error': 'TABLE_FORMAT_INVALID', 'message': '百分比格式使用{style:percent,scale:100或1,decimals:2}；必须根据源数据确认0.05还是5表示5%，不可猜测。'}
+        if (p.get('type') or 'table') == 'table':
+            labels = p.get('output_labels') or {}
+            required = [k for k,v in labels.items() if re.search(r'涨跌幅|收益率|回报率|股息率|[%％]', str(v))]
+            if re.search(r'涨跌幅|收益率|回报率|股息率|[%％]', str(p.get('title') or '')) and not required:
+                required = list(p.get('outputs') or [p.get('value_field') or 'value'])
+            missing = [k for k in required if k not in formats and labels.get(k) not in formats]
+            if missing:
+                return {'code': 1, 'error': 'TABLE_PERCENT_SCALE_REQUIRED', 'message': '百分比列必须声明column_formats及真实scale，避免比例小数裸显或重复乘100。', 'columns': missing}
+    return None
+
+
 def _validate_image_panels(panels):
     for index, panel in enumerate(panels):
         if not isinstance(panel, dict) or (panel.get("type") or "").lower() != "image":
@@ -2048,9 +2141,16 @@ def _build_authorized(params):
     panels = params.get("panels")
     if not isinstance(panels, list) or not panels:
         return {"code": 1, "message": "spec.panels 必须是非空数组"}
+    import prose_contract
+    binding_error = prose_contract.validate(panels)
+    if binding_error:
+        return binding_error
     transform_error = _validate_panel_transforms(panels)
     if transform_error:
         return transform_error
+    presentation_error = _validate_table_presentation(panels, str(title))
+    if presentation_error:
+        return presentation_error
     image_panel_error = _validate_image_panels(panels)
     if image_panel_error:
         return image_panel_error

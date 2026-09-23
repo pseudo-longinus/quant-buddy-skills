@@ -23,6 +23,7 @@ import { findBrowser, playwrightLaunchAttempts, playwrightSearchRoots } from './
 import { parseExtraViewport, resolveVerificationProfile, CORE_ERROR_RE, TRACKER_NOISE_RE, isCoreConsoleError } from './verification_profiles.mjs';
 import { staticImageProblems } from './image_verification.mjs';
 import { cardVisualContractProblems } from './card_visual_contract.mjs';
+import { dashboardDesignMetrics } from './dashboard_design_checks.mjs';
 
 const args = process.argv.slice(2);
 const requireBrowser = args.includes('--require-browser');
@@ -754,6 +755,7 @@ async function playwrightBrowserChecks(pw, url, options = {}) {
       const imageMetrics = await page.evaluate(prepareImagesExpression);
       const shareModalMetrics = options.checkShareModal ? await page.evaluate(shareModalChecksExpression) : null;
       const metrics = await page.evaluate(pageMetricsExpression);
+      metrics.dashboardDesign = await page.evaluate(dashboardDesignMetrics, options.requireDashboardDesign === true);
       metrics.images = imageMetrics;
       metrics.shareModal = shareModalMetrics;
       results.push({ ...viewportResult(viewport, metrics, options), document_sha256: documentSha256 });
@@ -1141,6 +1143,7 @@ function viewportResult(viewport, metrics, options = {}) {
       broken: (metrics.images?.broken || []).map(item => ({ ...item, src: sanitizeBrowserText(item.src) })),
     },
     stockComparison: metrics.stockComparison || null,
+    dashboardDesign: metrics.dashboardDesign || null,
   };
   return result;
 }
@@ -1504,6 +1507,11 @@ async function cdpBrowserChecks(url, options = {}) {
         continue;
       }
       evaluated.result.value.images = preparedImages.result?.value || {};
+      const designMetrics = await cdp.send('Runtime.evaluate', {
+        expression: `(${dashboardDesignMetrics.toString()})(${options.requireDashboardDesign === true})`, returnByValue: true,
+      });
+      if (designMetrics.exceptionDetails) throw new Error('Dashboard design checks failed to execute');
+      evaluated.result.value.dashboardDesign = designMetrics.result?.value || null;
       evaluated.result.value.shareModal = shareModalMetrics?.result?.value || null;
       results.push({ ...viewportResult(viewport, evaluated.result.value, options), document_sha256: documentSha256 });
     }
@@ -1555,6 +1563,7 @@ function summarize(staticResult, browserResult, options) {
   if (browserResult.checked) {
     for (const r of browserResult.viewports) {
       if (options.checkLayout !== false && r.horizontalOverflow) problems.push(`${r.viewport}: 存在横向溢出`);
+      for (const problem of r.dashboardDesign?.problems || []) problems.push(`${r.viewport}: 自建页设计底线：${problem}`);
       if (!r.hasH1) problems.push(`${r.viewport}: 缺少可见 h1`);
       if (r.placeholderHits.length) problems.push(`${r.viewport}: 占位符残留 ${r.placeholderHits.join(', ')}`);
       if (r.placeholderOnly) problems.push(`${r.viewport}: 核心内容疑似全是占位符`);
@@ -1737,11 +1746,12 @@ try {
     process.exit(cardRuntimeResult.ok ? 0 : 1);
   }
   const browserOptions = {
+    requireDashboardDesign: verificationProfile.requireDashboardDesign,
     checkShareModal: verificationProfile.checkShareModal,
     minVisibleFontPx,
     // fork-local 在本地 file://(origin=null) 下放开同源策略，让真实取数能跑完渲染；
     // public-smoke 仍用浏览器默认安全策略，核心数据接口 CORS 仍严格拦截。
-    relaxSecurity: verificationProfile.name === 'fork-local',
+    relaxSecurity: !/^https?:/i.test(target) && ['fork-local', 'self-built'].includes(verificationProfile.name),
   };
   const browserResult = await browserChecks(target, browserOptions);
   const summary = summarize(staticResult, browserResult, {

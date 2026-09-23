@@ -26,6 +26,12 @@ const PROFILES = {
     checkLayout: true,
     cardRuntimeOnly: false,
   },
+  'self-built': {
+    viewports: ALL_VIEWPORTS,
+    checkLayout: true,
+    requireDashboardDesign: true,
+    cardRuntimeOnly: false,
+  },
   'public-smoke': {
     viewports: [{ name: 'publicSmoke', width: 1280, height: 800, mobile: false }],
     checkLayout: false,
@@ -56,6 +62,7 @@ export function resolveVerificationProfile(name = 'full') {
     name: normalized,
     viewports: profile.viewports.map(viewport => ({ ...viewport })),
     checkLayout: profile.checkLayout,
+    requireDashboardDesign: profile.requireDashboardDesign === true,
     checkShareModal: profile.checkShareModal === true,
     cardRuntimeOnly: profile.cardRuntimeOnly,
   };

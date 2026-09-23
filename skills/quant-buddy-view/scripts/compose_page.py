@@ -14,6 +14,22 @@ import compose_inputs as CI
 RECEIPT_FILE = 'receipts/compose-build.json'
 SUPPORTED = {'layout', 'layout+style', 'original'}
 
+COMPOSE_LAYOUT_CSS = '.qb-compose-module{grid-column:1/-1;min-width:0}.qb-compose-module>h2{margin:12px 0 20px;font-size:24px;line-height:1.4}.qb-compose-panels{display:grid;gap:20px;grid-template-columns:repeat(12,minmax(0,1fr));align-items:start}'
+
+
+def _panel_shell(index, panel, *, show_title=True):
+    """Keep the Compose body on the same component/width contract as the default builder."""
+    kind = str(panel.get('type') or 'table')
+    span = panel.get('span')
+    if span not in ('full', 'wide', 'auto'):
+        span = 'auto' if kind == 'number' else 'full'
+    title = html.escape(str(panel.get('title') or ''))
+    description = ('<p>' + html.escape(str(panel['description'])) + '</p>') if panel.get('description') and kind not in ('number', 'text') else ''
+    heading = '<div class="card-head"><h3>' + title + '</h3>' + description + '</div>' if show_title else description
+    return ('<article class="card card-' + html.escape(kind, quote=True) + ' span-' + span
+            + ('' if show_title else ' card-unheaded') + '">' + heading
+            + '<div id="qb-compose-body-' + str(index) + '"></div></article>')
+
 
 class _OuterSection(HTMLParser):
     def __init__(self, source):
@@ -157,7 +173,8 @@ def build(params):
             for index, panel in by_module[module['module']]:
                 target = 'qb-compose-body-' + str(index)
                 panel['target_selector'] = '#' + target
-                bodies.append('<article class="card card-' + html.escape(str(panel.get('type') or 'text'), quote=True) + '"><h3>' + html.escape(str(panel.get('title') or '')) + '</h3><div id="' + target + '"></div></article>')
+                show_title = len(by_module[module['module']]) > 1 or panel.get('title') != module['module']
+                bodies.append(_panel_shell(index, panel, show_title=show_title))
             # Copy only the selected outer layout classes/presentation, not old content or executable code.
             shells.append('<section id="' + section_id + '" class="qb-compose-module ' + ' '.join(source_classes) + '"><h2>' + html.escape(module['module']) + '</h2><div class="qb-compose-panels">' + ''.join(bodies) + '</div></section>')
             provenance.append({'module': module['module'], 'borrow_level': module['borrow_level'],
@@ -172,7 +189,7 @@ def build(params):
         if '<div id="grid"></div>' not in document:
             raise EP.PlanError('COMPOSE_RENDERER_CONTRACT_CHANGED', '标准renderer的grid接口发生变化')
         document = document.replace('<div id="grid"></div>', '<div id="grid">' + ''.join(shells) + '</div>', 1)
-        css = '.qb-compose-module{grid-column:1/-1;min-width:0}.qb-compose-panels{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr))}'
+        css = COMPOSE_LAYOUT_CSS
         document = document.replace('</head>', '<style>' + css + '\n' + '\n'.join(styles) + '</style></head>', 1)
         artifact.write_text(document, encoding='utf-8')
         built['size'] = artifact.stat().st_size

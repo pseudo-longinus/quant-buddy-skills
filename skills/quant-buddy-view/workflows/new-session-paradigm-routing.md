@@ -107,6 +107,8 @@ fork/unmatched 都必须由 Agent 在 `new_page.routing_decision` 中显式记�
 
 ## ③ 未命中：自建
 
+进入本分支必须先读取 [自建质量底线](../guides/self-build-quality.md)。先确定首要证据与阅读顺序，再选择标准组件或必要的 bespoke；保留主题自身的视觉表达。无模板命中不允许降低字体、布局、内容呈现与浏览器验收标准。
+
 无匹配范式时，由 Agent 指出最接近候选及实质能力缺口，再走 [dashboard-end-to-end.md](dashboard-end-to-end.md)：
 
 ```bash

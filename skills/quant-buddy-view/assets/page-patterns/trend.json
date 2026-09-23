@@ -1,0 +1,25 @@
+{
+  "title": "跨资产走势 · 从同一起点观察",
+  "subtitle": "同一观察窗口，分别呈现走势与研究边界。以下曲线由测试序列生成。",
+  "page_type": "趋势比较",
+  "panels": [
+    {
+      "type": "line",
+      "title": "观察窗口内的指数变化",
+      "outputs": [
+        "series_a",
+        "series_b"
+      ],
+      "output_labels": {
+        "series_a": "测试序列甲",
+        "series_b": "测试序列乙"
+      },
+      "description": "基准值 100 · 离线设计样例"
+    },
+    {
+      "type": "text",
+      "title": "观察边界",
+      "text": "**曲线用于检验图表布局。**\n\n走势比较应使用共同日期和相同口径，不能把不同交易日的变化混为一谈。"
+    }
+  ]
+}

@@ -17,9 +17,12 @@ Use for comparing two or more stocks, indexes, funds, or assets with a shared se
 - Use side-by-side tables. Do not turn comparison output into separate single-asset reports.
 - If one asset lacks a field, mark only that cell as `--`; do not drop the whole table.
 - Explicitly name the comparison winner only for metrics supported by data.
+- Check each highest/lowest claim against the complete comparison column, including the opening paragraph. PE and PB may have different winners; never generalize one ranking into “两项估值都最高”. Equal displayed values are ties; lower multiples alone do not establish investment superiority.
 - Keep qualitative advice separate from numeric comparison.
 - Keep calculation-dimension comparison and volatility comparison as separate sections.
 - Preserve every compared asset; a failed asset is shown with `⚫` / `--` cells instead of silently disappearing.
+- Choose conclusion rows from verified metrics only. Price return is not revenue/earnings growth; market capitalization is not trading liquidity. With only prices, valuation and capitalization, use “区间收益 / 当前回撤 / 估值 / 规模”, and omit unsupported growth, funds and liquidity conclusions.
+- Count finite dated observations separately from the calendar axis length. `range_data.dates` may include weekends and holidays with null values; its length is not a trading-day count. Without an exchange calendar use “有效观测数”, state the first/last valid dates, and never call all calendar points trading days.
 
 ## Markdown Skeleton
 
@@ -28,7 +31,7 @@ Use for comparing two or more stocks, indexes, funds, or assets with a shared se
 
 时间：截至 {computed_at 日期} | 数据来源：QB / 活页实时数据
 
-{一句话：N 只标的中，估值最高 / 增长最快 / 波动最大 / 资金最活跃 分别是谁；核心分歧点是什么。}
+{一句话：只比较本轮实际验证的指标，指出有证据支持的差异；没有财务、波动或资金数据时不填写这些判断。}
 
 ---
 
@@ -73,10 +76,8 @@ Use for comparing two or more stocks, indexes, funds, or assets with a shared se
 
 | 维度 | 更优标的 | 数据依据 |
 |------|----------|----------|
-| 估值 | {asset} | {evidence} |
-| 成长 | {asset} | {evidence} |
-| 资金 | {asset} | {evidence} |
-| 风险 | {asset} | {evidence} |
+| {已验证的指标维度，如区间收益} | {asset} | {该指标数值、日期和口径} |
+| {另一已验证的指标维度，如当前回撤} | {asset} | {该指标数值、日期和口径} |
 
 > 数据截至 {computed_at 日期}；不构成投资建议。
 ```

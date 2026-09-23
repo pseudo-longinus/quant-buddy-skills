@@ -20,6 +20,7 @@ stock | 创新药ETF | SH512170 |  |
 stock | 地产ETF | SH512200 |  |
 stock | 生物医药ETF国泰 | SH512290 |  |
 stock | 有色ETF南方 | SH512400 |  |
+stock | 半导体ETF国联安 | SH512480 |  |
 stock | 军工ETF | SH512660 |  |
 stock | 银行ETF华宝 | SH512800 |  |
 stock | 红利低波ETF华泰柏瑞 | SH512890 |  |
@@ -46,6 +47,7 @@ stock | 交运ETF国泰 | SH561320 |  |
 stock | 石油ETF国泰 | SH561360 |  |
 stock | 绿电ETF华夏 | SH562550 |  |
 stock | 绿色电力ETF易方达 | SH562960 |  |
+stock | A500ETF华泰柏瑞 | SH563360 |  |
 stock | 科创50ETF华夏 | SH588000 |  |
 stock | 科创100ETF国泰 | SH588120 |  |
 stock | 科创100ETF银华 | SH588190 |  |
@@ -54,6 +56,7 @@ stock | 科创100ETF鹏华 | SH588220 |  |
 stock | UC科创半导体设备ETF华泰柏瑞 | SH588710 |  |
 stock | 科创芯片ETF博时 | SH588990 |  |
 stock | 科创芯片设计ETF易方达 | SH589030 |  |
+stock | 科创创新药ETF国泰 | SH589720 |  |
 stock | 浦发银行 | SH600000 | 银行 |
 stock | 白云机场 | SH600004 | 交通运输 |
 stock | 东风股份 | SH600006 | 汽车 |
@@ -842,6 +845,7 @@ stock | 锦江航运 | SH601083 | 交通运输 |
 stock | 国芳集团 | SH601086 | 商贸零售 | 国芳
 stock | 中国神华 | SH601088 | 煤炭 | 神华
 stock | 福元医药 | SH601089 | 医药生物 |
+stock | 沈鼓集团 | SH601091 |  |
 stock | 宏盛华源 | SH601096 | 建筑装饰 |
 stock | 中南传媒 | SH601098 | 传媒 |
 stock | 太平洋 | SH601099 | 非银金融 |
@@ -1425,7 +1429,7 @@ stock | 地素时尚 | SH603587 | 纺织服饰 | 地素
 stock | 高能环境 | SH603588 | 环保 |
 stock | 口子窖 | SH603589 | 食品饮料 |
 stock | 康辰药业 | SH603590 | 医药生物 |
-stock | ST东尼 | SH603595 | 电子 |
+stock | ST东尼 | SH603595 | 电子 | 东尼电子
 stock | 伯特利 | SH603596 | 汽车 |
 stock | 引力传媒 | SH603598 | 传媒 |
 stock | 广信股份 | SH603599 | 基础化工 |
@@ -2380,6 +2384,7 @@ stock | 频准激光 | SH688826 |  |
 stock | 国仪公司 | SH688828 |  |
 stock | 高凯技术 | SH688835 |  |
 stock | 宇树科技 | SH688836 |  |
+stock | 信诺维 | SH688837 |  |
 stock | 中芯国际 | SH688981 | 电子 |
 stock | 九号公司 | SH689009 | 汽车 | 九号公司-WD
 stock | Sotera_Health_Company | SHC.O |  |
@@ -3899,10 +3904,12 @@ stock | 通信ETF嘉实 | SZ159695 |  |
 stock | 建材ETF国泰 | SZ159745 |  |
 stock | 港股通互联网ETF富国 | SZ159792 |  |
 stock | 5GETF博时 | SZ159811 |  |
+stock | 人工智能ETF易方达 | SZ159819 |  |
 stock | 金融科技ETF华宝 | SZ159851 |  |
 stock | 养殖ETF国泰 | SZ159865 |  |
 stock | 创业板ETF易方达 | SZ159915 |  |
 stock | 消费ETF汇添富 | SZ159928 |  |
+stock | 创新药ETF银华 | SZ159992 |  |
 stock | 特锐德 | SZ300001 | 电力设备 |
 stock | 神州泰岳 | SZ300002 | 传媒 |
 stock | 乐普医疗 | SZ300003 | 医药生物 | 乐普
@@ -5304,6 +5311,7 @@ stock | 新恒汇 | SZ301678 | 电子 |
 stock | 固德电材 | SZ301680 | 汽车 |
 stock | 宏明电子 | SZ301682 | 国防军工 |
 stock | 慧谷新材 | SZ301683 | 基础化工 |
+stock | 中塑股份 | SZ301686 |  |
 stock | 新广益 | SZ301687 | 基础化工 |
 stock | 格林生物 | SZ301688 |  |
 stock | 电科思仪 | SZ301689 |  |

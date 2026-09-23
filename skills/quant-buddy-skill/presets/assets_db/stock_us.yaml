@@ -1,8 +1,8 @@
 # ============================================================
-# 美股及境外 ETF（NASDAQ .N / NYSE .O / AMEX .A）
-# 来源：MongoDB tkrsInfo 集合（type=stock，ticker 以 .N/.O/.A 结尾）
+# 美股及境外 ETF（保留平台 ticker 后缀 .N/.O/.A/.BAT）
+# 来源：MongoDB tkrsInfo 集合（type=stock/etf，ticker 以 .N/.O/.A/.BAT 结尾）
 # 格式：stock | name | ticker | 备注 | short_names
-# ⚠️ 仅支持行情价格数据（收盘/开盘/涨跌幅等），不支持估值/财务
+# ⚠️ 行情优先；估值/财务按 fast_query 字段覆盖及实际返回判断
 # ============================================================
 
 stock | 3M公司 | MMM.N |  |
@@ -16,6 +16,7 @@ stock | Affirm_Holdings_Inc | AFRM.O |  |
 stock | AGNC_Investment_Corp | AGNC.O |  |
 stock | Agree_Realty_Corporation | ADC.N |  |
 stock | Air_Lease_Corporation | AL.N |  |
+stock | Alamos_Gold_Inc | AGI.N |  |
 stock | Albertsons_Companies_Inc | ACI.N |  |
 stock | Alexandria_Real_Estate_Equities_Inc | ARE.N |  |
 stock | Allegion_plc | ALLE.N |  |
@@ -119,7 +120,6 @@ stock | Columbia_Banking_System_Inc | COLB.O |  |
 stock | Comfort_Systems_USA_Inc | FIX.N |  |
 stock | Commerce_Bancshares_Inc | CBSH.O |  |
 stock | Concentrix_Corporation | CNXC.O |  |
-stock | Confluent_Inc | CFLT.O |  |
 stock | Constellation_Energy_Corporation | CEG.O |  |
 stock | Copart_Inc | CPRT.O |  |
 stock | Corcept_Therapeutics_Incorporated | CORT.O |  |
@@ -222,6 +222,7 @@ stock | Globant_SA | GLOB.N |  |
 stock | Globe_Life_Inc | GL.N |  |
 stock | Globus_Medical_Inc | GMED.N |  |
 stock | GoDaddy_Inc | GDDY.N |  |
+stock | Goldcom_Inc | GOLD.N |  |
 stock | Grand_Canyon_Education_Inc | LOPE.O |  |
 stock | Graphic_Packaging_Holding_Company | GPK.N |  |
 stock | Guidewire_Software_Inc | GWRE.N |  |
@@ -571,6 +572,7 @@ stock | 仲量联行 | JLL.N |  |
 stock | 伊利诺伊工具 | ITW.N |  |
 stock | 伊塔乌联合银行 | ITUB.N |  |
 stock | 伊士曼化工 | EMN.N |  |
+stock | 伊格尔矿业 | AEM.N |  |
 stock | 伊萨 | ESAB.N |  |
 stock | 伊顿 | ETN.N |  |
 stock | 伍德沃德 | WWD.O |  |
@@ -697,6 +699,7 @@ stock | 宾士域 | BC.N |  |
 stock | 富兰克林资源 | BEN.N |  |
 stock | 富国银行 | WFC.N |  |
 stock | 富美实 | FMC.N |  |
+stock | 小型黄金矿业ETF-VanEck | GDXJ.A |  |
 stock | 小鹏汽车 | XPEV.N |  |
 stock | 布鲁克 | BRKR.O |  |
 stock | 希尔顿 | HLT.N |  |
@@ -808,6 +811,7 @@ stock | 汽车地带 | AZO.N |  |
 stock | 沃尔玛 | WMT.O |  |
 stock | 沃特世 | WAT.N |  |
 stock | 泛林 | LRCX.O |  |
+stock | 泛美白银 | PAAS.N |  |
 stock | 波士顿啤酒 | SAM.N |  |
 stock | 波士顿科学 | BSX.N |  |
 stock | 波尔 | BALL.N |  |
@@ -848,7 +852,7 @@ stock | 瑞穗金融集团 | MFG.N |  |
 stock | 瓦莱罗能源 | VLO.N |  |
 stock | 甲骨文 | ORCL.N |  |
 stock | 登士柏西诺德 | XRAY.O |  |
-stock | 百事可乐 | PEP.O |  |
+stock | 百事可乐 | PEP.O |  | 百事
 stock | 百富门 | BF-A.N |  |
 stock | 百富门 | BF-B.N |  |
 stock | 百度 | BIDU.O |  |
@@ -1066,5 +1070,7 @@ stock | 高通 | QCOM.O |  |
 stock | 高露洁棕榄 | CL.N |  |
 stock | 麦克森 | MCK.N |  |
 stock | 麦当劳 | MCD.N |  |
+stock | 黄金ETF-SPDR | GLD.A |  |
+stock | 黄金矿业ETF-VanEck | GDX.A |  |
 stock | 黑石集团 | BX.N |  |
 stock | 默克 | MRK.N |  |

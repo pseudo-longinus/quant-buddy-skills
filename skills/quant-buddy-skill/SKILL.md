@@ -2,9 +2,10 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.25.41
+version: 4.25.44
 description: |
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据；支持查询 A 股股票所属行业。
+  显式日期的单值快照可同时返回按实际更新日对齐的日频行情与估值；字段日期不同时按字段自身日期展示，不将较晚刷新字段误判为无数据。
   查询最近N个交易日的价格序列、日涨跌幅序列、窗口最高价、最低价、振幅等短期统计。
   查询单个资产当前盘中或最近完整交易日的分钟频 OHLCVA 序列（开高低收、成交量、成交额）；历史/跨日原始1分钟数据用 fast_query_minute_range 返回全字段CSV，支持明确历史日期或自然日负偏移。
   查询上市公司最近报告期的营业收入、净利润、归母净利润、ROE、总资产、资产负债率等财务指标（A股及部分港/美股字段，以工具返回为准）。
@@ -16,7 +17,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.25.41
+  version: 4.25.44
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -292,14 +293,14 @@ SKILL_ROOT/
 │   ├── cases_index.yaml         106 张案例卡片目录（量化标准场景必读，快速查数无需）
 │   ├── assets.yaml              常用资产（99 行精选，可一次读完）
 │   ├── assets_db/               全量资产字典（按类型分文件，⚠️ 仅 grep 检索，禁止 read_file 整文件；不含指数成分股映射）
-│   │   ├── stock_a.yaml             A 股 5299 条（SH/SZ，含场内 ETF）
+│   │   ├── stock_a.yaml             A 股 5316 条（SH/SZ，含场内 ETF）
 │   │   ├── stock_hk.yaml            港股 2858 条（HK 前缀；行情优先，财务以 fast_query 返回为准）
-│   │   ├── stock_us.yaml            美股及境外ETF 1061 条（.N/.O/.A；行情优先，财务以 fast_query 返回为准）
-│   │   ├── index.yaml               指数 604 条
-│   │   └── future.yaml              期货 240 条
+│   │   ├── stock_us.yaml            美股及境外ETF 1069 条（.N/.O/.A/.BAT；行情优先，财务以 fast_query 返回为准）
+│   │   ├── index.yaml               指数 513 条
+│   │   └── future.yaml              期货 239 条
 │   ├── functions.yaml           常用函数（170 条）
 │   ├── data_catalog.yaml        常用精选数据集（高频 index_title）
-│   ├── index_info_catalog/      系统支持数据名全量索引（2539 条，按 provider 分 YAML，grep 检索）
+│   ├── index_info_catalog/      系统支持数据名全量索引（2566 条，按业务分类分 YAML，grep 检索）
 │   ├── dimensions.yaml          已物化指标候选的本地快照，用于 selectByComposition 的常见快速映射
 │   │                            ⚠️ 细分指标、快照未命中项和实时可选状态，用 `listDimensionIndicators` 在线确认；公式口径用 `getIndicatorFormulas`
 │   ├── sectors.yaml             行业板块（742 条，10 个分类）
@@ -495,10 +496,10 @@ SKILL_ROOT/
 > - **行情价格类**（收盘价、开盘价、最高价、最低价、涨跌幅、成交量、成交额）：A / HK / US 均支持。
 > - **所属行业基础信息**：仅 A 股股票支持 `所属行业`，使用 `fast_query(snapshot/value)`；资产须为 `type=stock` 且 `market_id=1/2`。返回申万一级 `swl1`、申万二级 `swl2` 和概念列表 `jqc`；港股、美股、指数及其他资产暂不支持。
 > - **估值类**：
->   - A/US/HK：`PE`/`PE_TTM`/`PB`/`PS_TTM`/`股息率`/`PCF`/`总市值`（港美股使用 TTM〔估值数据〕，日频，服务端自动映射）
+>   - A/US/HK：`PE`/`PE_TTM`/`PB`/`PS_TTM`/`股息率`/`PCF`/`总市值`（日频，服务端按字段自动映射；PB 不带 TTM）
 >   - 仅 A 股：`流通市值`/`换手率`
 >   - PE（静态）：A 股用静态 PE，港美股自动映射到 TTM 版
->   - 单季口径：`PE_单季`/`PB_单季`/`PS_单季`/`股息率_单季` 仍可用于显式查询季频数据
+>   - 历史兼容入口：港美股 `PE_单季`/`PB_单季`/`PS_单季`/`股息率_单季` 实际映射到日频估值，不是季频数据；新调用使用 `PE_TTM`/`PB`/`PS_TTM`/`股息率`
 > - **财务类**（营业收入/净利润/归母净利润等）：A / HK / US 均支持（通过 `fast_query` 接口）；**ROE 仅 A 股**。
 > - **资金流向 / 南北向持股类**（`fast_query` `snapshot`/`window`，**非 `report`**）：
 >   - 仅 A 股：`主力资金净额`/`主力资金净占比`、`超大单/大单/中单/小单 净额·净占比`（主力 = 超大单 + 大单）

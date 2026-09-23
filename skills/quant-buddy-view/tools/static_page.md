@@ -523,6 +523,8 @@ python scripts/publish_workflow.py '@output/forks/page_xxx/page_xxx.publish-plan
 
 ## update 参数
 
+已公开验收的计划/Compose页面做展示层维护时，先 `prepare_maintenance @params.json` 绑定当前线上基线与候选，随后使用其生成参数运行 `publish_verified`。此入口保持原ID、URL及数据合同，不用于首次构建或数据源变化。完整约束见[浏览器批注维护](../guides/browser-feedback-refinement.md)。
+
 | 字段 | 类型 | 必填 | 默认 | 说明 |
 |---|---|---|---|---|
 | `page_id` | string | ✅ | — | 要替换的页面（来自上次 upload / list） |

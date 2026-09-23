@@ -324,6 +324,24 @@ def compact_new_asset_financial_report(result):
             series.sort(key=lambda item: str(item.get("date") or ""))
             if not series:
                 continue
+            variants = {}
+            latest = series[-1]
+            # Compare the actual report periods, never a percentile/score or a
+            # growth-of-growth variant from the profile cache.
+            try:
+                current_date = date.fromisoformat(str(latest['date']))
+                quarter = (current_date.month - 1) // 3
+                for suffix, year, q in (
+                    ('quarter_yoy', current_date.year - 1, quarter),
+                    ('quarter_qoq', current_date.year if quarter else current_date.year - 1, (quarter - 1) % 4),
+                ):
+                    previous = next((item for item in reversed(series[:-1])
+                        if date.fromisoformat(str(item['date'])).year == year
+                        and (date.fromisoformat(str(item['date'])).month - 1) // 3 == q), None)
+                    if previous and _is_finite_number(previous['value']) and previous['value'] > 0 and _is_finite_number(latest['value']):
+                        variants[suffix] = {'value': round((latest['value'] / previous['value'] - 1) * 100, 6), 'date': latest['date']}
+            except (ValueError, TypeError):
+                pass
             compact["indicators"].append({
                 "dimension": "财务分析",
                 "base_id": base_id,
@@ -333,7 +351,7 @@ def compact_new_asset_financial_report(result):
                 "unit": field.get("unit"),
                 "previous_value": series[-2]["value"] if len(series) > 1 else None,
                 "previous_date": series[-2]["date"] if len(series) > 1 else None,
-                "variants": {},
+                "variants": variants,
                 "recent_series": series[-12:],
             })
     latest_dates = [
@@ -385,6 +403,8 @@ def _field(rule, value, *, date_value=None, unit=None, source=None, field_id=Non
 
 
 def _matches_indicator(rule, indicator):
+    if str(rule.get('field_id', '')).startswith('financial.') and indicator.get('dimension') not in (None, '', '财务分析', '财务', 'financial', 'financial_report'):
+        return False
     base = _normalized_key(indicator.get("base_id"))
     name = _normalized_key(indicator.get("name"))
     base_aliases = {_normalized_key(item) for item in rule.get("base_aliases") or []}
@@ -519,7 +539,7 @@ def project_fields(template_ref, formula_outputs, grant_results):
                     )
                     projected.setdefault(field_id, variant_field)
                 variant_groups = []
-                if matched.get("financial_variants"):
+                if matched.get("financial_variants") or grant_kind == 'new_asset_financial_report':
                     variant_groups = _financial_variant_columns()
                 elif matched.get("trading_variants"):
                     variant_groups = _trading_variant_columns()
@@ -534,7 +554,7 @@ def project_fields(template_ref, formula_outputs, grant_results):
                         matched,
                         variant.get("value"),
                         date_value=variant.get("date") or indicator.get("latest_date"),
-                        unit="" if key.startswith("pctrank") else indicator.get("unit"),
+                        unit="" if key.startswith("pctrank") else "%" if key.endswith(('_yoy', '_qoq')) else indicator.get("unit"),
                         field_id=field_id,
                         column_label=column,
                         source={"kind": source_kind, "indicator": indicator.get("base_id"), "variant": suffix},
@@ -688,8 +708,20 @@ def build_new_asset_page(task_id, template_ref, data_sources, csv_result):
     data_sources = data_sources if isinstance(data_sources, dict) else {}
     profile = compact_grant_result("new_asset_profile", data_sources.get("profile") or {})
     report = compact_new_asset_financial_report(data_sources.get("financial_report") or {})
-    grants = [item for item in (profile, report) if item.get("indicators")]
+    # Fast-page financial tables are based on report-period series. Profile
+    # caches include scores and incompatible growth/volatility definitions.
+    profile['indicators'] = [item for item in profile['indicators'] if item.get('dimension') not in ('财务分析', '波动率')]
+    for item in profile['indicators']:
+        if item.get('dimension') == '资产走势':
+            item['variants'] = {}  # Returns require successfully materialized prices.
+    grants = [item for item in (report, profile) if item.get("indicators")]
     csv_result = csv_result if isinstance(csv_result, dict) else {}
+    profile_percentiles = {field['field_id'] for field in project_fields(template_ref, [], [profile])
+                           if '.pctrank' in field.get('field_id', '')}
+    # The fast-page CSV is a short display window. It must not replace the
+    # profile service's 1Y/3Y/5Y distributions with a truncated-window percentile.
+    csv_fields = [field for field in csv_result.get('reply_fields') or []
+                  if '.pctrank' not in field.get('field_id', '')]
     csv_evidence = csv_result.get("evidence") if isinstance(csv_result.get("evidence"), dict) else {}
     warnings = []
     warnings.extend(csv_result.get("warnings") or [])
@@ -711,11 +743,18 @@ def build_new_asset_page(task_id, template_ref, data_sources, csv_result):
             "financial_report_indicator_count": len(report.get("indicators") or []),
             "extra_backend_query_count": 0,
         },
-        additional_fields=csv_result.get("reply_fields") or [],
+        additional_fields=csv_fields,
         prefer_additional=True,
     )
     if evidence is None:
         return None
+    for field in evidence['fields']:
+        if field.get('field_id') in profile_percentiles:
+            value = field.get('value')
+            if isinstance(value, (int, float)) and 0 <= value <= 1:
+                field['value'] = round(value * 100, 6)
+                field['unit'] = '%'
+                field['render_tokens'] = _value_tokens(field['value'])
     evidence["source_evidence"] = {
         "new_asset_csv": redact(csv_evidence),
         "profile": profile,

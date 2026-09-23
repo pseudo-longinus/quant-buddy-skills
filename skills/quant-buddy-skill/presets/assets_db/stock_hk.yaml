@@ -120,7 +120,6 @@ stock | REGAL INT'L | HK0078 | 可选消费 |
 stock | REPUBLIC HC | HK8357 | 医疗保健 |
 stock | S.A.S. DRAGON | HK1184 | 信息技术 |
 stock | SENASIC | HK6675 |  |
-stock | SHANGHAI GROWTH | HK0770 | 金融 |
 stock | SINCEREWATCH HK | HK0444 | 可选消费 |
 stock | SINO HOTELS | HK1221 | 可选消费 |
 stock | SIS INT'L | HK0529 | 信息技术 |
@@ -247,7 +246,6 @@ stock | 东瑞制药 | HK2348 | 医疗保健 |
 stock | 东莞农商银行 | HK9889 | 金融 |
 stock | 东软睿新集团 | HK9616 | 可选消费 |
 stock | 东阳光药 | HK6887 |  |
-stock | 东风集团股份 | HK0489 | 可选消费 |
 stock | 东鹏饮料 | HK9980 |  |
 stock | 中亚烯谷集团 | HK0063 | 房地产 |
 stock | 中伟新材 | HK2579 |  |
@@ -967,7 +965,7 @@ stock | 卓珈控股 | HK1827 | 医疗保健 |
 stock | 卓能(集团) | HK0131 | 房地产 |
 stock | 卓越商企服务 | HK6989 | 房地产 |
 stock | 卓越教育集团 | HK3978 | 可选消费 |
-stock | 卓越睿新 | HK2687 |  |
+stock | 卓越睿新(五十) | HK2687 |  | 卓越睿新,卓越睿新(一百)
 stock | 南京熊猫电子股份 | HK0553 | 信息技术 |
 stock | 南华期货股份 | HK2691 |  |
 stock | 南华金融 | HK0619 | 金融 |
@@ -1228,7 +1226,7 @@ stock | 天工国际 | HK0826 | 材料 |
 stock | 天彩控股 | HK3882 | 可选消费 |
 stock | 天德化工 | HK0609 | 材料 |
 stock | 天德地产 | HK0266 | 房地产 |
-stock | 天成控股 | HK2110 | 工业 |
+stock | 天成控股(新) | HK2110 | 工业 | 天成控股
 stock | 天数智芯 | HK9903 |  |
 stock | 天时资源 | HK8028 | 材料 |
 stock | 天星医疗 | HK1609 | 工业 | 创建集团控股
@@ -1719,6 +1717,7 @@ stock | 星巴克-T | HK4337 |  |
 stock | 星悦康旅 | HK3662 | 房地产 |
 stock | 星星集团 | HK1560 | 房地产 |
 stock | 星源材质 | HK6067 |  |
+stock | 星环科技 | HK6727 |  |
 stock | 星盛商业 | HK6668 | 房地产 |
 stock | 星空华文 | HK6698 | 可选消费 |
 stock | 星谦发展 | HK0640 | 材料 | 星谦发展(新)
@@ -1773,7 +1772,6 @@ stock | 有利集团 | HK0406 | 工业 |
 stock | 有赞 | HK8083 | 信息技术 |
 stock | 有赞 | HK6051 |  |
 stock | 朗华国际集团 | HK8026 | 可选消费 |
-stock | 朗廷-SS | HK1270 | 可选消费 | 朗廷
 stock | 朗诗绿色生活 | HK1965 | 房地产 |
 stock | 朗诗绿色管理 | HK0106 | 房地产 |
 stock | 望尘科技控股 | HK2458 | 信息技术 |
@@ -1818,6 +1816,7 @@ stock | 森浩集团 | HK8285 | 可选消费 |
 stock | 森美控股 | HK0756 | 日常消费 |
 stock | 植华集团 | HK1842 | 可选消费 |
 stock | 椰丰集团 | HK1695 | 日常消费 |
+stock | 楠爵资本 | HK0770 | 金融 | SHANGHAI GROWTH
 stock | 橙天嘉禾 | HK1132 | 可选消费 |
 stock | 欢喜传媒 | HK1003 | 可选消费 |
 stock | 欣融国际 | HK1587 | 日常消费 |
@@ -2007,8 +2006,6 @@ stock | 港仔机器人 | HK0370 | 可选消费 |
 stock | 港华智慧能源 | HK1083 | 公用事业 |
 stock | 港娱国际 | HK8291 | 材料 |
 stock | 港深智能管理 | HK8181 | 房地产 |
-stock | 港湾数字 | HK0913 | 金融 |
-stock | 港灯-SS | HK2638 | 公用事业 | 港灯
 stock | 港誉智慧城市服务 | HK0265 | 可选消费 |
 stock | 港通控股 | HK0032 | 可选消费 |
 stock | 港铁公司 | HK0066 | 工业 |
@@ -2285,6 +2282,7 @@ stock | 紫金黄金国际 | HK2259 |  |
 stock | 红星冷链 | HK1641 |  |
 stock | 红星美凯龙 | HK1528 | 可选消费 |
 stock | 纳泉能源科技 | HK1597 | 工业 |
+stock | 纳真科技 | HK9856 |  |
 stock | 纳芯微 | HK2676 |  |
 stock | 纷美包装 | HK0468 | 材料 |
 stock | 纽曼思 | HK2530 |  |
@@ -2412,7 +2410,7 @@ stock | 芯化兰德 | HK8106 | 信息技术 | 升华兰德
 stock | 芯成科技 | HK0365 | 工业 |
 stock | 芯智控股 | HK2166 | 信息技术 |
 stock | 芯碁微装 | HK9630 |  |
-stock | 花样年控股(新) | HK1777 | 房地产 | 花样年控股
+stock | 花样年控股 | HK1777 | 房地产 | 花样年控股(新)
 stock | 苏新服务 | HK2152 | 房地产 |
 stock | 英恒科技 | HK1760 | 可选消费 |
 stock | 英派药业-B | HK7630 |  |
@@ -2706,7 +2704,7 @@ stock | 阳光油砂 | HK2012 | 能源 |
 stock | 阳光纸业 | HK2002 | 材料 |
 stock | 阳光能源 | HK0757 | 信息技术 |
 stock | 阿仕特朗金融 | HK8333 | 金融 |
-stock | 阿尔法企业-一万 | HK0948 | 信息技术 | 阿尔法企业
+stock | 阿尔法企业 | HK0948 | 信息技术 | 阿尔法企业-一万
 stock | 阿里健康 | HK0241 | 医疗保健 |
 stock | 阿里巴巴-W | HK9988 | 可选消费 | 阿里巴巴
 stock | 阿里巴巴-WR | HK89988 | 可选消费 | 阿里巴巴
@@ -2738,7 +2736,7 @@ stock | 雷士国际 | HK2222 | 可选消费 |
 stock | 震雄集团 | HK0057 | 工业 |
 stock | 霭华押业信贷 | HK1319 | 金融 |
 stock | 霸王集团 | HK1338 | 日常消费 |
-stock | 青岛啤酒股份 | HK0168 | 日常消费 |
+stock | 青岛啤酒(五百) | HK0168 | 日常消费 | 青岛啤酒股份
 stock | 青岛控股 | HK0499 | 可选消费 |
 stock | 青岛港 | HK6198 | 工业 |
 stock | 青岛银行 | HK3866 | 金融 |
@@ -2793,7 +2791,6 @@ stock | 香港宽频 | HK1310 | 电信服务 |
 stock | 香港小轮(集团) | HK0050 | 房地产 |
 stock | 香港生力啤 | HK0236 | 日常消费 |
 stock | 香港生命科学 | HK8085 |  |
-stock | 香港电讯-SS | HK6823 | 电信服务 | 香港电讯
 stock | 香港科技探索 | HK1137 | 可选消费 |
 stock | 香港通讯国际控股 | HK0248 | 可选消费 |
 stock | 香港食品投资 | HK0060 | 日常消费 |

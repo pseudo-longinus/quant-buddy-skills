@@ -13,6 +13,18 @@
 
 ## 桌面与移动端分开推理
 
+### 已发布 Compose 页的展示层候选
+
+已完成公开验收的 Compose 页面后续修改，不把新HTML伪装成首次构建产物。保留当前task/page/plan，先按本指南下载并编辑当前线上HTML，再运行：
+
+```powershell
+python scripts/static_page.py prepare_maintenance @maintenance-params.json
+```
+
+参数复用正式发布的 `task_id/page_id/plan_hash/html_file/title/description/page_context` 及现有数据证据。该入口要求当前可信Turn、同页in_place路由、服务端owner/page_admin权限、已验证的last_good_version，以及线上正文与元数据哈希一致。候选只可改变标准BOOT中的panels/share/generatedAt展示字段，其他BOOT字段和实时取数内核必须保持一致。
+
+工具生成独立的task-scoped维护收据和`next_action.params_file`。原样执行返回的`publish_verified`：写入前重新检查候选哈希、权限、线上基线，继续执行数据证据、本地浏览器、公开浏览器和版本一致性验收。不能只设置`maintenance_mode`跳过校验；首次构建、未完成验收、未知写入、数据合同变化及并发版本变化均拒绝维护。此入口不修改原Compose计划/收据，不另建任务或页面。
+
 桌面重排优先用命名的 CSS Grid areas 表达结构关系。移动端断点必须显式恢复期望阅读顺序；视觉上的 Grid 自动落位不能替代 DOM 顺序，因为读屏、键盘和 CSS 失效时仍以 DOM 为准。
 
 当编号只承担标识作用时，让编号贴近标题；正文、说明框和标签占整卡宽度。不要让一个窄编号列导致整段内容持续缩进。压缩首屏时同时检查移动端顺序、操作目标和横向溢出，不能只看桌面截图。

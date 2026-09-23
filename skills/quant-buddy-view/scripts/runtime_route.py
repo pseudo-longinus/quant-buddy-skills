@@ -45,7 +45,8 @@ def bind(params):
             kind = 'formula'
         else:
             kind = contract['kind']
-        selected.append({'role': role['role_id'], 'kind': kind, 'receipt_file': proof['file'],
+        selected.append({'role': role['role_id'], 'source_role': str(receipt.get('role') or ''),
+                         'kind': kind, 'receipt_file': proof['file'],
                          'receipt_sha256': proof['sha256'], 'contract_fingerprint': role['contract_fingerprint']})
     route = {'schema': 'live_data_route_receipt_v1', 'version': 'live_data_route_receipt_v1',
              'task_id': task, 'turn_id': turn, 'page_id': plan['target_page_id'], 'plan_hash': plan['plan_hash'],
@@ -57,11 +58,23 @@ def bind(params):
         route['asset'] = scope.get('asset') or scope.get('name')
         if not route['asset']:
             raise EP.PlanError('ROUTE_SCOPE_MISMATCH', '单资产范围缺少资产')
+    # Use the publication validator at the producer boundary too. A successful
+    # bind must not produce evidence rejected later by Compose/publication.
+    import static_page as SP
+    evidence_params = {'task_id': task, 'turn_id': turn, 'live_data_mode': 'live',
+                       **({'asset': route['asset']} if route.get('asset') else {}),
+                       'validation_receipt_files': [x['receipt_file'] for x in selected if x['kind'] == 'formula'],
+                       'grant_validation_receipt_files': [x['receipt_file'] for x in selected if x['kind'] != 'formula']}
+    error = SP._validate_live_receipts(evidence_params, route)
+    if error:
+        raise EP.PlanError(error['error'], error['message'])
     path = C.task_temp_path(task, 'live_data_route_receipts/bound-' + EP.digest(route) + '.json', create_parent=True)
     if not path.exists():
         EP.atomic_json(path, route)
     elif json.loads(path.read_text(encoding='utf-8')) != route:
         raise EP.PlanError('ROUTE_RECEIPT_CHANGED', '已保存路由发生变化')
     return {'code': 0, 'route_receipt_file': str(path), 'turn_id': turn, 'task_id': task,
+            'live_data_mode': 'live', **({'asset': route['asset']} if route.get('asset') else {}),
             'selected_routes': selected, 'reused_registrations': len(roles),
-            'next_action': {'command': 'compose_page', 'instruction': '沿用草稿并传入返回的route_receipt_file与turn_id'}}
+            'next_action': {'command': 'compose_page' if plan['build_mode'] == 'compose_page' else 'build_dashboard' if plan['build_mode'] == 'unmatched' else 'fork_review_update',
+                            'instruction': '沿用草稿并传入返回的route_receipt_file、turn_id、live_data_mode及asset（如有）'}}

@@ -1,5 +1,7 @@
 # build_dashboard — spec → 自包含看板 HTML
 
+自建场景先读 [自建质量底线](../guides/self-build-quality.md)。整页生成默认内联 `assets/dashboard-design.css`，采用清楚的研究页层级；`panel_block` 不注入该样式，不接管宿主版式。`verify_page` 自动检查整页设计标记，数据成功不替代截图审查。
+
 > 路由已锁定Compose时，整页使用`static_page.py compose_page @params`，不要在此命令加upload重建整页；panel_block只生成局部。受控组装器复用本renderer并校验计划/借鉴绑定，见[计划驱动交付](../workflows/planned-delivery-recovery.md)。
 
 ## image panel
@@ -47,7 +49,7 @@ BD_PARAMS='{"title":"...","panels":[...],"upload":true}' python scripts/build_da
 | `task_id` | string | 发布时必填 | `trace_context begin/beginHandoff` 返回的当前任务 ID；`upload/update_page_id` 成功后据此生成 hash-bound 终态回复校验文件 |
 | `title` | string | ✅ | 看板标题（`<title>` + 页头） |
 | `subtitle` | string | ❌ | 副标题 |
-| `description` | string | ❌ | 页面说明（≤1000 字），仅作 `static_page` 列表/详情展示；显式传才随 upload/update 透传，不传则不动 |
+| `description` | string | 正式自建发布必填 | 页面说明（≤1000 字），描述实际研究范围，禁止进度占位；仅生成候选时可暂不填 |
 | `page_context` | object | ❌ | 当前活页稳定语义；不传时根据最终标题、面板和输出重新生成，禁止复制来源模板上下文 |
 | `agent_reply_template` | object | ❌ | 显式回复骨架；不传时按页面主题匹配专业骨架，无法匹配则使用 `generic_live_page_delivery_v1` |
 | `package_id` | string | ❌ | 公式包面板使用的 id；缺省取**最近一次**本地凭证。纯 Data Grant 页面不要求 |
@@ -107,12 +109,19 @@ Default brand logo: standard pages inline `assets/logo.svg` into the share heade
 | `y` | ❌ | line/bar 纵轴字段数组（缺省取除 x 外的数值列） |
 | `transform` | ❌ | line/bar 展示层派生：`cumulative_return_pct` 把各序列首个有效值归零后显示累计收益率；`drawdown_pct` 按各序列运行峰值显示回撤率。两者只基于页面实时取得的原始序列计算，不缓存、不改写源数据 |
 | `columns` | ❌ | table 指定列（缺省自动推断） |
+| `rank_by` / `rank_order` / `rank_limit` | ❌ | table/bar 按原始带符号字段排序；desc 最强、asc 最弱。table 默认首批10项，剩余可展开；bar按limit截取。多输出表可用output key，显示名映射不改变排序含义 |
+| `column_formats` | ❌ | table列格式，如 `{"ret20":{"style":"percent","scale":100,"decimals":2}}`；源值0.05表示5%用100，源值5表示5%用1。百分比列必须声明已验证的缩放，缺值仍为缺值 |
+| `value_scale` | ❌ | line/bar数值显示缩放，仅1或100，默认1；配合 `unit:"%"` 显示百分比。源值已为百分数或使用百分比transform时用1 |
+| `orientation` | ❌ | bar 排名默认 horizontal，逐项显示名称与数值；普通柱图默认 vertical。可显式指定，长名称排名优先横向 |
 | `value_field` | ❌ | number 取值字段（缺省取**最后一个数值列的末个有效值**，自动跳过尾部 null；range_data 即取序列值，不会误命中日期列。仅当默认列不对时才需指定） |
 | `unit` | ❌ | number 单位 |
 | `description` | ❌ | 面板说明；number 面板会显示在数值下方，其它面板显示在标题下方 |
-| `span` | ❌ | `full` / `wide` / `auto`；line/bar 默认 `full`，number/table 默认 `auto` |
+| `span` | ❌ | `full` / `wide` / `auto`；number 默认 `auto`，其余默认 `full`；明确并排关系时才缩小 |
 | `height` | ❌ | 图表高度，单位 px；仅 line/bar/radar 有效 |
 | `text` | ❌ | `text` 面板正文，用于摘要、解读、风险提示等无取数输出的说明块 |
+| `text_format` | ❌ | 默认受控 Markdown（段落、加粗、行内代码、小标题、列表、简单表格、http(s) 链接；HTML 转义）；`plain` 原样显示文本 |
+| `color_by` | ❌ | number 默认中性色；明确表示变化/盈亏时设 `sign` 按数值正负上色，价格/市值不自动染红 |
+| `output_labels` | ❌ | 输出名到业务名的映射；多指标表保留“指标/数值/观察日”，截面表保留“代码/名称”和各输出值 |
 | `dual_axis` / `right_series` | ❌ | line/bar 双轴：`dual_axis:true` + `right_series:["output名",...]` 声明哪些系列归右轴，其余归左轴；单 output 面板用 `chart_edit.py add_series` 的 `axis:"right"` 追加第二条线时自动写入 |
 | `sparkline` | ❌ | line/bar 面板传 `true` 时去掉坐标轴/图例/网格留白，只画曲线本身（迷你走势图场景） |
 | `max` | ❌ | radar 面板每个维度的满分刻度，缺省 `1`（比例型 0..1 分数） |
@@ -231,3 +240,7 @@ python scripts/build_dashboard.py '{
 ### Compose 角色别名
 
 Compose 草稿支持 `runtime_role_id` 引用执行计划角色，编译后仍使用现有 grant_id/package_id 协议。text/image 不消费运行数据；文字研究与table/number/line等真实数据面板分开。多资产角色默认各自生成table；不要只把 grant_id 填到纯文本面板就声明实时接入。该别名属于 compose_page 入口，普通 build_dashboard 的原有合同不变。
+
+### 原始数值排序的柱图
+
+`bar` 默认数值轴包含零基线。排名请直接绑定完整截面 `last_column_full.values`：`{"type":"bar","output":"sector_returns","x":"name","y":["value"],"rank_order":"asc","rank_by":"value","rank_limit":10,"title":"最弱10行业：原始涨跌幅（%）"}`。`desc` 取最强，`asc` 取最弱；排序与截取在展示层完成，不改变原始数值。不要为取最弱榜单另造负收益公式，也不要把包含上涨行业的最弱榜单称为“跌幅大小”。缺失值不参加排序，不能补0。

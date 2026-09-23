@@ -30,6 +30,7 @@ EVIDENCE_VERSION = "new_asset_csv_evidence_v1"
 
 DEFAULT_ALLOWED_HOSTS = {
     "quant-buddy-prod.oss-cn-hangzhou.aliyuncs.com",
+    "data-server-temp.oss-cn-shanghai.aliyuncs.com",
 }
 DEFAULT_LIMITS = {
     "single_file_bytes": 10 * 1024 * 1024,

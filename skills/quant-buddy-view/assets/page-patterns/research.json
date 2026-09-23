@@ -1,0 +1,47 @@
+{
+  "title": "价格与条件 · 动态研究观察",
+  "subtitle": "离线回归样本：数字与条件文字引用同一份输出，缺失时不作判断。",
+  "panels": [
+    {
+      "type": "number",
+      "title": "观察价格",
+      "output": "price",
+      "unit": "点"
+    },
+    {
+      "type": "text",
+      "title": "条件判断",
+      "binding": {
+        "values": {
+          "price": {
+            "output": "price",
+            "path": [
+              "last_value",
+              "value"
+            ],
+            "as_of_path": [
+              "last_value",
+              "date"
+            ],
+            "decimals": 2
+          }
+        },
+        "template": "观察值 {{price}}，日期 {{price.as_of}}。",
+        "conditions": [
+          {
+            "left": "price",
+            "op": "gt",
+            "right": 100,
+            "then": "高于参考位",
+            "else": "不高于参考位"
+          }
+        ]
+      }
+    },
+    {
+      "type": "text",
+      "title": "使用边界",
+      "text": "**测试数据，不是投资研究。**\n\n参考位仅用于验证价格跨越前后文字同步。"
+    }
+  ]
+}

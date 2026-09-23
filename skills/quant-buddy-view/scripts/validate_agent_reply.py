@@ -118,6 +118,110 @@ def _placeholder_only(body):
     return _is_missing_value(text)
 
 
+def _ranking_position_errors(draft):
+    """Avoid undefined rank buckets in time-window comparisons.
+
+    Prefer verifiable positions; a rank elsewhere in a sentence does not
+    establish the position of every asset named in that sentence.
+    """
+    for sentence in draft.splitlines():
+        has_window = re.search(r'近\s*\d+\s*(?:个交易日|交易日|日|月|年)|[短中长]期|排名|排序', sentence)
+        if has_window and re.search(r'居中|处于中游|靠前|靠后|居前|居后', sentence):
+            return [{'code':'RANK_POSITION_EVIDENCE_REQUIRED', 'message':'删除排名中的“靠前/靠后/居前/居后/居中/处于中游”等未定义分组。逐个资产从各窗口完整截面计算名次，改写为“近N日第X/M名”；同一句中其他资产的名次不能充当当前资产的依据，也不能由收益为正或不同窗口收益大小推断排名。没有排名证据就只报告已核验数值。'}]
+    return []
+
+
+def _rank_membership_errors(contract, draft):
+    """Check explicit top/bottom membership claims against public chart evidence."""
+    evidence = contract.get('ranking_evidence') or {}
+    groups = evidence.get('groups') or []
+    def name(value):
+        return re.sub(r'I?[（(]申万[）)]$', '', str(value)).strip()
+    def period(value):
+        matches = list(re.finditer(r'近\s*(\d+)\s*(?:个交易日|交易日|日)|观察日|当日|单日', value))
+        if not matches:
+            return None
+        return 'days:' + matches[-1][1] if matches[-1][1] else 'observation_day'
+    assets = {name(v) for v in evidence.get('assets') or []} - {''}
+    errors = []
+    for line in draft.splitlines():
+        if re.search(r'最弱[^|。\n]{0,80}升序[^|。\n]{0,15}(?:后|末|最后)\s*\d+', line.replace('|', ' ')):
+            errors.append({'code':'RANK_DIRECTION_CONFLICT', 'message':'最弱榜是原值升序取前N（或降序取后N），不能写升序取后N。'})
+        for claim in re.finditer(r'(最强|最弱)\s*(\d+)\s*(?:个)?(?:行业)?(?:中|里|内)', line):
+            kind = 'top' if claim[1] == '最强' else 'bottom'
+            n = int(claim[2]); window = period(line[:claim.start()])
+            matches = [g for g in groups if g.get('kind') == kind and g.get('limit') == n
+                       and (window is None or period(str(g.get('title') or '')) == window)]
+            tail = re.split(r'[。；;]|(?:最近)?观察日|近\s*\d+\s*(?:个交易日|交易日|日)|最强|最弱', line[claim.end():], maxsplit=1)[0]
+            mentioned = {asset for asset in assets if asset in tail}
+            if not groups or len(matches) != 1:
+                errors.append({'code':'RANK_MEMBERSHIP_EVIDENCE_REQUIRED', 'message':'榜单成员举例须对应已验收公开图表的明确窗口、最强/最弱与项数；读取contract.ranking_evidence或删除该举例。'})
+                continue
+            members = {name(v) for v in matches[0].get('members') or []}
+            wrong = sorted(mentioned - members)
+            if wrong:
+                errors.append({'code':'RANK_MEMBERSHIP_MISMATCH', 'message':'举例资产不属于公开图表的该榜单；按ranking_evidence修正或删除举例。',
+                               'chart':matches[0]['title'], 'invalid_assets':wrong, 'verified_members':sorted(members)})
+    return errors
+
+
+def _refresh_promise_errors(draft):
+    for sentence in re.split(r'[。；;\n]', draft):
+        if re.search(r'交易(?:时段|时间)内[^。；;\n]{0,30}(?:为|是|代表)[^。；;\n]{0,12}盘中(?:最新值|截面|数据)', sentence) and not re.search(r'不代表|不能|未确认|未核实|未必|不一定', sentence):
+            return [{'code':'UNVERIFIED_INTRADAY_CLAIM', 'message':'交易时段内刷新不等于上游字段盘中更新。默认说明：数据日期按来源返回，未确认本字段的盘中/收盘状态；只有具体字段更新频率与观测时点证据才能另述。'}]
+        if re.search(r'收盘后[^。；;\n]{0,20}(?:即|就|必然|保证)[^。；;\n]{0,20}(?:收盘|最新|当日)', sentence) and not re.search(r'不能|不保证|无法保证|未必|不一定', sentence):
+            return [{'code':'UNVERIFIED_REFRESH_PROMISE', 'message':'刷新仅保证重新请求数据，不能承诺收盘后即返回当日收盘数据；按字段实际日期和已核验刷新频率说明。'}]
+    return []
+
+
+def _comparison_extrema_errors(draft):
+    """Check explicit valuation superlatives against the reply's comparison table.
+
+    This is a bounded consistency check, not a substitute for source-data or
+    business review. Unknown prose/metrics are not guessed.
+    """
+    errors = []
+    prose = '\n'.join(line for line in draft.splitlines() if '|' not in line)
+    for table in _markdown_tables(draft):
+        if table['headers'][0] not in ('标的', '资产', '股票'):
+            continue
+        columns = {}
+        assets = [row[0].replace('**', '').strip() for row in table['rows']]
+        for index, header in enumerate(table['headers'][1:], 1):
+            metric = next((name for name in ('PE', 'PB', 'PS') if re.fullmatch(name+r'(?:\(TTM\)|（TTM）)?', header, re.I)), None)
+            if not metric:
+                continue
+            values = {}
+            for asset, row in zip(assets, table['rows']):
+                cell = row[index].replace(',', '').replace('**', '').strip()
+                match = re.fullmatch(r'(-?\d+(?:\.\d+)?)\s*(?:倍)?', cell)
+                if match:
+                    values[asset] = float(match.group(1))
+            if len(values) >= 2:
+                columns[metric] = values
+        for asset in assets:
+            if not asset:
+                continue
+            pattern = re.escape(asset)+r'([^。；;|\n]{0,70}?)(最高|最低)'
+            for claim in re.finditer(pattern, prose):
+                words, direction = claim.groups()
+                if re.search(r'不|并非|未必|可能|如果|若', words) or any(other != asset and other in words for other in assets):
+                    continue
+                metrics = [metric for metric in columns if re.search(r'\b'+metric+r'\b', words, re.I)]
+                if not metrics and re.search(r'估值.{0,6}(?:都|均|全部)', words):
+                    metrics = list(columns)
+                for metric in metrics:
+                    values = columns[metric]
+                    if asset not in values:
+                        continue
+                    extremum = (max if direction == '最高' else min)(values.values())
+                    if values[asset] != extremum:
+                        winners = '、'.join(name for name, value in values.items() if value == extremum)
+                        errors.append({'code':'COMPARISON_EXTREME_MISMATCH',
+                            'message':f'{asset}的{metric}不是{direction}；表内{direction}为{winners}（{extremum:g}倍）。请修正正文结论，保留已核验数值。'})
+    return errors
+
+
 def _render_policy_errors(template_ref, policy, draft, sections):
     errors = []
     canonical = RTR.get_reply_render_policy(template_ref)
@@ -377,6 +481,11 @@ def validate_reply(contract_payload, draft):
 
     evidence, evidence_errors = _data_coverage_errors(contract, sections)
     errors.extend(evidence_errors)
+    if contract.get('template_ref') == 'multi_asset_compare_v1':
+        errors.extend(_comparison_extrema_errors(draft))
+    errors.extend(_ranking_position_errors(draft))
+    errors.extend(_rank_membership_errors(contract, draft))
+    errors.extend(_refresh_promise_errors(draft))
     delivery_errors, markdown_table_count = _delivery_constraint_errors(contract, draft)
     errors.extend(delivery_errors)
 
@@ -390,6 +499,9 @@ def validate_reply(contract_payload, draft):
     for name, pattern in _SENSITIVE_PATTERNS:
         if pattern.search(draft):
             errors.append({"code": "SENSITIVE_CONTENT", "message": f"最终回复包含禁止内容：{name}"})
+    if re.search(r'\b(?:rank_order|rank_limit|route_binding|plan_hash|QBV_STATE_ROOT)\b', draft):
+        errors.append({'code':'INTERNAL_IMPLEMENTATION_DETAIL',
+            'message':'活页交付回复不要暴露配置键或内部流程；请用从高到低、从低到高等业务语言说明排名。'})
 
     result = {
         "code": 0 if not errors else 1,

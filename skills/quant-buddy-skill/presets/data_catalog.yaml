@@ -214,7 +214,7 @@ valuation:
     description: "美股市销率PS TTM，日频"
 
   - index_title: 美股股息率：TTM〔估值数据〕
-    dimension: one
+    dimension: two
     is_bool: false
     unit: "%"
     description: "美股股息率TTM（%），日频"

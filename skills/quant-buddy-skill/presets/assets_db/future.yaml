@@ -30,7 +30,7 @@ future | CMX-黄金 | GC.CMX |  | 黄金,comex黄金,comex金,COMEX黄金,COMEX�
 future | COMEX上海黄金(美元) | SGU.CMX |  | 上海黄金(美元)
 future | COMEX迷你白银 | QI.CMX |  |
 future | ICE NYH(RBOB)汽油 | N.IPE |  | NYH(RBOB)汽油
-future | ICE WTI原油 | T.IPE |  | WTI原油
+future | ICE WTI原油 | T.IPE |  | WTI原油,WTI原油期货
 future | ICE冷冻浓缩橙汁 | OJ.NYB |  | 冷冻浓缩橙汁
 future | ICE取暖油 | O.IPE |  | 取暖油
 future | ICE可可 | CC.NYB |  | 可可
@@ -83,7 +83,7 @@ future | 沪不锈钢次主连 | SS_S.SHF |  | 不锈钢
 future | 沪低硫燃油主连 | LU.INE |  | 低硫燃料油
 future | 沪低硫燃油次主连 | LU_S.INE |  | 低硫燃料油
 future | 沪原油TAS次主连 | SCTAS_S.INE |  |
-future | 沪原油主连 | SC.INE |  | 原油,INE原油
+future | 沪原油主连 | SC.INE |  | 原油,INE原油,原油主连,SC.SHF
 future | 沪原油次主连 | SC_S.INE |  | 原油,INE原油
 future | 沪国际铜主连 | BC.INE |  | 国际铜
 future | 沪国际铜次主连 | BC_S.INE |  | 国际铜
@@ -189,7 +189,6 @@ future | 郑丙烯主连 | PL.CZC |  |
 future | 郑丙烯次主连 | PL_S.CZC |  |
 future | 郑动力煤主连（退） | ZC.CZC |  |
 future | 郑动力煤次主连 | TC_S.CZC |  | 动力煤
-future | 郑动力煤次主连（退） | ZC_S.CZC |  |
 future | 郑对二甲苯主连 | PX.CZC |  | 对二甲苯
 future | 郑对二甲苯次主连 | PX_S.CZC |  | 对二甲苯
 future | 郑尿素主连 | UR.CZC |  | 尿素
@@ -205,7 +204,7 @@ future | 郑普麦主连（退） | PM.CZC |  | 普麦
 future | 郑普麦次主连（退） | PM_S.CZC |  | 普麦
 future | 郑棉纱主连 | CY.CZC |  | 棉纱
 future | 郑棉纱次主连 | CY_S.CZC |  | 棉纱
-future | 郑棉花主连 | CF.CZC |  | 棉花,郑棉
+future | 郑棉花主连 | CF.CZC |  | 棉花,郑棉,棉花主连
 future | 郑棉花次主连 | CF_S.CZC |  | 棉花,郑棉
 future | 郑油菜籽主连 | RS.CZC |  | 菜籽
 future | 郑油菜籽次主连 | RS_S.CZC |  | 菜籽

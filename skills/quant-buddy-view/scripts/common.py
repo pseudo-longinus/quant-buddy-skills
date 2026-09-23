@@ -607,7 +607,7 @@ def persist_task_agent_model(task_id, agent_model):
         return False
 
 def _has_durable_task_state(root):
-    return (any(os.path.isfile(os.path.join(root, "receipts", name)) for name in ("execution-plan.json", "delivery-state.json"))
+    return (any(os.path.isfile(os.path.join(root, "receipts", name)) for name in ("execution-plan.json", "delivery-state.json", "new-asset-delivery.json"))
             or os.path.isdir(os.path.join(root, "receipts", "registrations")))
 
 

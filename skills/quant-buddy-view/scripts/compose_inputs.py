@@ -249,5 +249,5 @@ def prepare(plan,params=None):
             index+=1;path=root/f'compose-r{plan["revision"]}-{digest[:16]}-{index}.json'
         if not path.exists():EP.atomic_json(path,draft)
         EP.atomic_json(C.task_temp_path(task,POINTER,create_parent=True),{'task_id':task,'page_id':plan['target_page_id'],'plan_hash':plan['plan_hash'],'params_file':str(path),'revision':plan['revision']})
-        return {'next_action':{'command':'compose_page','params_file':str(path),'instruction':'先处理draft_diagnostics，再填写标题和研究文字。保留已绑定数据面板与真实口径，不编辑内部收据；不要原样重试未解决的诊断。'},
+        return {'next_action':{'command':'compose_page','params_file':str(path),'instruction':'先处理draft_diagnostics，再填写标题和研究文字。自动table只是数据绑定起点，不能直接当最终版式：阅读guides/self-build-quality.md，排名页先做最强/最弱原始数值柱图，再保留一张明确排序、单位和日期的完整表；百分比按已验证源值声明scale。可以调整面板类型/顺序但保留runtime_role_id及必需outputs。不编辑内部收据；不要原样重试未解决的诊断。'},
                 'draft_diagnostics':issues,'draft_ready':not issues,'plan_hash':plan['plan_hash']}

@@ -1,5 +1,7 @@
 # Guide · 手搓 bespoke 页（自由排版 + 共享取数内核）
 
+新建 bespoke 同样遵守 [自建质量底线](self-build-quality.md)：主内容结构来自用户问题，正文根及语义节点声明设计检查标记；采用自定义布局不能跳过桌面/手机截图与发布验收。已有 HTML 迁移仍遵守下面的原样保留合同。
+
 ## 正文图片
 
 bespoke 页面不得直接引用本地路径、HTTP 图片或其他 page_id 的托管图片。先 `image_upload`，再使用绝对 `https://pages.quantbuddy.cn/pages/assets/{当前 page_id}/{asset_id}.webp`。每个 `<img>` 明确写 `width`、`height`、有意义的 `alt` 和稳定布局尺寸；首屏或 `[data-qb-poster-target]` 内图片禁止 lazy，正文下方图片可使用 `loading="lazy" decoding="async"`。

@@ -3189,7 +3189,7 @@ def _validate_live_receipts(params, route, *, allow_partial=False):
                 return _evidence_error("LIVE_DATA_ROUTE_RECEIPT_MISSING", f"QBS Handoff 路线 {item.get('role')} 缺少对应 qbs_handoff_validation_receipt_v1")
             if str(receipt.get("contract_fingerprint") or "") != str(item.get("contract_fingerprint") or ""):
                 return _evidence_error("LIVE_DATA_ROUTE_FINGERPRINT_MISMATCH", f"QBS Handoff 路线 {item.get('role')} 的合同指纹与验证收据不一致")
-            if str(receipt.get("role") or "").strip() != str(item.get("role") or "").strip():
+            if str(receipt.get("role") or "").strip() != str(item.get("source_role", item.get("role")) or "").strip():
                 return _evidence_error("LIVE_DATA_ROUTE_ROLE_MISMATCH", f"QBS Handoff 路线 {item.get('role')} 的角色与验证收据不一致")
             if str(receipt.get("package_id") or "").strip() != str(item.get("package_id") or "").strip():
                 return _evidence_error("LIVE_DATA_ROUTE_PACKAGE_MISMATCH", f"QBS Handoff 路线 {item.get('role')} 的 package_id 与验证收据不一致")
@@ -3206,8 +3206,11 @@ def _validate_live_receipts(params, route, *, allow_partial=False):
             if str(receipt.get("contract_fingerprint") or "") != str(item.get("contract_fingerprint") or ""):
                 return _evidence_error("LIVE_DATA_ROUTE_FINGERPRINT_MISMATCH", f"Grant 路线 {item.get('role')} 的合同指纹与验证收据不一致")
             receipt_role = str(receipt.get("role") or "").strip()
-            if receipt_role and receipt_role != str(item.get("role") or "").strip():
-                return _evidence_error("LIVE_DATA_ROUTE_ROLE_MISMATCH", f"Grant 路线 {item.get('role')} 的角色与验证收据不一致")
+            if receipt_role and receipt_role != str(item.get("source_role", item.get("role")) or "").strip():
+                return _evidence_error("LIVE_DATA_ROUTE_ROLE_MISMATCH", f"Grant 路线 {item.get('role')} 的来源角色与验证收据不一致",
+                                       role_id=item.get('role'), expected_source_role=receipt_role,
+                                       actual_source_role=item.get('source_role', item.get('role')),
+                                       recovery='保留业务 role_id，使用 bind_runtime_route 从原验证收据重新生成路由')
     if len(selected) != len(selected_receipt_paths):
         return _evidence_error("LIVE_DATA_RECEIPT_SET_MISMATCH", "selected_routes 必须与验证收据一一对应")
     if selected_formula != set(formula_receipts) or selected_grant != set(grant_receipts) or selected_handoff != set(handoff_receipts):
@@ -5199,9 +5202,20 @@ def cmd_new_asset_page(params):
             "user_query": user_query,
             "summary_marker": SSR.AGENT_SUMMARY_MARKER,
             "evidence_source": "agent_reply_markdown_draft 的第一至第五章",
-            "instruction": "直接回答用户目的，只使用草稿中的数据，提炼结论与关键依据；不要机械复述全部章节。",
+            "instruction": "直接回答用户目的，只使用草稿中的数据，最多三句，提炼最相关依据而不复述五章。创建分享页请求先说明页面已提供什么。分位只沿用明确标注的窗口和百分比，不把短窗当作完整多年分位。股息率高分位与估值低分位不能合称都处低位；单项分别描述。未核实收盘的当日累计成交额不能与完整日均额比较后断言缩量、恐慌或观望情绪。",
         },
     })
+    if trace_context.get('turn_id'):
+        import fast_page_delivery as FPD
+        def observe_fast_page():
+            response = C.http_json('GET', C.api_url(endpoint, _PATH['template']) + '?' + urllib.parse.urlencode({'page_id': result['page_id']}), C.headers(api_key), timeout=30)
+            return _template_record(response) if response.get('code') == 0 else response
+        public_check = FPD.persist_verified(task_id, trace_context['turn_id'], result['page_id'], result['url'], markdown,
+            observe=observe_fast_page, verify=lambda url: _run_page_verifier(url, 'public-smoke'))
+        if public_check.get('code') != 0:
+            return {**public_check, 'operation':'new_asset_page', 'page_id':result['page_id'], 'url':result['url']}
+        result['public_verification'] = public_check
+        result['agent_summary_request']['instruction'] += ' 最终回复必须从草稿标题开始，仅替换 summary_marker；不要添加开场白或其他内容，宿主将核对实际回复。'
     C.cleanup_task_temp_files(task_id)
     for key in ("data_sources_file", "data_sources_sha256", "csv_manifest_file", "csv_evidence_file"):
         result.pop(key, None)
@@ -5553,7 +5567,10 @@ def cmd_publish_final(params):
         plan = EP.load(_fork_task_id(params))
         if plan:
             EP.require(plan["task_id"], page_id=str(params.get("page_id") or ""), plan_hash=params.get("plan_hash"))
-            if plan["build_mode"] == "compose_page":
+            if params.get("maintenance_mode"):
+                import maintenance_candidate
+                maintenance_candidate.validate(sys.modules[__name__], params, plan)
+            elif plan["build_mode"] == "compose_page":
                 import compose_page
                 compose_page.validate_candidate({**params, "task_id": plan["task_id"]})
     except EP.PlanError as exc:
@@ -5713,6 +5730,11 @@ def _verified_trace_evidence(params, *, browser_precheck_passed):
     }
 
 
+def cmd_prepare_maintenance(params):
+    import maintenance_candidate
+    return maintenance_candidate.prepare(sys.modules[__name__], params)
+
+
 def cmd_publish_verified(params):
     if not params.get("page_id"):
         return {"code": 1, "error": "PAGE_ID_REQUIRED", "message": "publish_verified 需要 page_id"}
@@ -5729,6 +5751,17 @@ def cmd_publish_verified(params):
     stages = {}
     timings = {}
     try:
+        import page_quality as PQ
+        try:
+            candidate_bytes = Path(target).read_bytes()
+            quality_required = PQ.requires_design(EP.load(_fork_task_id(params)), candidate_bytes.decode('utf-8'))
+        except (OSError, UnicodeError) as exc:
+            return {'code': 1, 'error': 'CANDIDATE_UNREADABLE', 'published': False, 'verified': False,
+                    'message': '候选HTML不可读，请重新构建'}
+        if quality_required:
+            metadata_error = PQ.metadata_error(params)
+            if metadata_error:
+                return {**metadata_error, 'published': False, 'verified': False}
         started = time.perf_counter()
         stages["fork_validate"] = cmd_fork_validate(dict(params))
         timings["fork_validate_ms"] = round((time.perf_counter() - started) * 1000)
@@ -5759,10 +5792,16 @@ def cmd_publish_verified(params):
         }
         card_runtime = bool(params.get("card_runtime_required") or fork_validation.get("card_runtime_required"))
         started = time.perf_counter()
-        stages["local_browser"] = _run_page_verifier(target, "fork-local", card_runtime=card_runtime)
+        local_profile = 'self-built' if quality_required else 'fork-local'
+        stages["local_browser"] = _run_page_verifier(target, local_profile, card_runtime=card_runtime)
         timings["local_browser_ms"] = round((time.perf_counter() - started) * 1000)
         if not (isinstance(stages["local_browser"], dict) and stages["local_browser"].get("code") == 0):
             return {"code": 1, "published": False, "verified": False, "stages": stages, "timing": timings}
+
+        if Path(target).read_bytes() != candidate_bytes:
+            return {'code': 1, 'error': 'VERIFIED_CANDIDATE_CHANGED', 'published': False, 'verified': False,
+                    'message': '浏览器验收期间候选HTML发生变化，请重新验收', 'stages': stages}
+        stages['page_quality'] = PQ.evidence(params, candidate_bytes, local_profile, stages['local_browser'])
 
         publish_params = dict(params)
         publish_params["trace_evidence"] = _verified_trace_evidence(params, browser_precheck_passed=True)
@@ -5810,6 +5849,13 @@ def cmd_publish_verified(params):
             contract = stages["publish_final"].get("agent_reply_contract")
             if isinstance(contract, dict):
                 result_contract = {**contract, "operation": "publish_verified"}
+                # Bind actual published chart membership into the hashed reply contract.
+                for viewport in ((stages["public_smoke"].get("browser") or {}).get("viewports") or []):
+                    ranks = (viewport.get("dashboardDesign") or {}).get("rankingEvidence") or {}
+                    if ranks.get("version") == 1 and ranks.get("groups"):
+                        result_contract["ranking_evidence"] = ranks
+                        break
+
                 if _delivery_policy():
                     result_contract["public_url"] = _delivery_public_url(
                         result_contract.get("public_url") or public_url
@@ -5931,7 +5977,10 @@ def cmd_fork_validate(params):
         plan = EP.load(_fork_task_id(params))
         if plan:
             EP.require(plan["task_id"], page_id=str(params.get("page_id") or ""), plan_hash=params.get("plan_hash"))
-            if plan["build_mode"] == "compose_page":
+            if params.get("maintenance_mode"):
+                import maintenance_candidate
+                maintenance_candidate.validate(sys.modules[__name__], params, plan)
+            elif plan["build_mode"] == "compose_page":
                 import compose_page
                 compose_page.validate_candidate({**params, "task_id": plan["task_id"]})
     except EP.PlanError as exc:
@@ -9151,6 +9200,7 @@ _COMMANDS = {
     "update_progress": cmd_update_progress,
     "publish_final": cmd_publish_final,
     "publish_verified": cmd_publish_verified,
+    "prepare_maintenance": cmd_prepare_maintenance,
     "upload": cmd_upload,
     "update": cmd_update,
     "interpret": cmd_interpret,
@@ -9185,7 +9235,7 @@ _COMMANDS = {
 }
 
 _TRACE_REQUIRED_COMMANDS = {
-    "file_prepare", "file_status", "file_confirm_delivery",
+    "prepare_maintenance", "file_prepare", "file_status", "file_confirm_delivery",
     "new_asset_page", "new_page", "update_progress", "publish_final", "publish_verified", "upload", "update", "direct_deliver", "direct_finalize", "fork_validate", "image_upload",
     "templates", "intent_profile", "research_templates", "fork_prepare", "fork_compose", "fork_review_update", "execution_plan", "compose_page", "materialize_snapshot",
 }

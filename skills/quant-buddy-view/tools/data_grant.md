@@ -68,6 +68,10 @@ python scripts/data_grant.py refresh '{"grant_id":"dg_xxx","rotate_signature":tr
 // fast_query —— 字段必须命中平台白名单（否则注册拒 FIELD_NOT_WHITELISTED）
 { "assets": ["600519.SH"], "query_type": "snapshot", "fields": ["收盘价","涨跌幅"] }
 
+// fast_query —— 固定日期的日频行情/估值快照；单值时可按字段实际更新时间对齐
+{ "assets": ["600519.SH"], "query_type": "snapshot", "fields": ["收盘价","PE_TTM","PB"],
+  "start_date": 20260917, "end_date": 20260917 }
+
 // fast_query_minute —— 单资产、当前盘中或最近完整交易日；字段会规范为 open/high/low/close/volume/amount
 { "asset": "600519.SH", "fields": ["收盘价", "最高价", "成交量"] }
 
@@ -89,7 +93,7 @@ python scripts/data_grant.py refresh '{"grant_id":"dg_xxx","rotate_signature":tr
 
 ## 取数返回（与在线接口同构，build_dashboard/data-kernel 据此渲染）
 
-- `fast_query`：与在线 fastQuery 同构的值/序列结构。
+- `fast_query`：与在线 fastQuery 同构的值/序列结构。固定日期的 `value` 查询中，日频行情和估值刷新时点不同是正常情况：服务端先选请求区间，若 PE/PB 等字段尚未更新才回看 10 个自然日并返回 `{v, d, fallback:true}` + `DATE_RANGE_FALLBACK`。页面必须使用字段自己的 `d` 显示日期，不能把该字段显示为空、也不能用公共 `dates.trade_date` 覆盖；`series` / `window` 仍严格只含请求区间内的数据。
 - `fast_query_minute`：`data.dates` 为共享分钟时间轴，`data.fields.<field>` 为同索引值数组；自定义活页直接按该列式结构渲染。
 - `stock_profile`：与在线 stockProfile 同构的画像卡结构。
 - `composition_select`：TopN 表（排名/名称/代码/score）+ `composition_used` + `as_of` / `last_date` + `date_alignment_status` + `date_alignment`。`date_alignment_status:"mixed"` 表示组合指标来自不同有效快照，此时全局 `as_of` / `last_date` 为 `null`，页面须逐项展示 `date_alignment`，不能渲染为单一数据日期。

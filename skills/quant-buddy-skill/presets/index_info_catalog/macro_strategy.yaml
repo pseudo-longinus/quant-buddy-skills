@@ -1,7 +1,7 @@
 # Auto-generated business catalog; do not edit records by hand.
 schema_version: 2
 category: macro_strategy
-record_count: 142
+record_count: 144
 records:
   - {id: "6a1e83c7031ae7c8e9b89731", index_title: "A股中单资金当日流量净占比"}
   - {id: "6a1e83af031ae7c8e9b893fe", index_title: "A股中单资金当日流量净额"}
@@ -42,6 +42,7 @@ records:
   - {id: "6400517a0192979ea4b27978", index_title: "万得资产所属指数"}
   - {id: "65f25ee7e38366bf78e390ef", index_title: "上证50-中证500信号"}
   - {id: "691bd8bbc8e3a12d6a9d305e", index_title: "上证50指数成分股"}
+  - {id: "6aaf9fea26fd808eb160fbe3", index_title: "中国交易日"}
   - {id: "68e761d5f08519ce5c8b0c4a", index_title: "中国股市重要政策干预事件"}
   - {id: "68f5c774e119f55a66899f5f", index_title: "中美贸易战关键事件时间序列"}
   - {id: "65670df81c9fd3c9c6a9b829", index_title: "中证1000指数成分股"}
@@ -112,6 +113,7 @@ records:
   - {id: "66432d2cabfd1b87d5562a80", index_title: "月末农历日期"}
   - {id: "624e9d3db1b8730e7ae3a235", index_title: "月末基准日期"}
   - {id: "66309f6d454ccd7a5c28f5ea", index_title: "月末自然日期"}
+  - {id: "6aaf9090c7b66e051045a7ef", index_title: "期货同合约收盘涨跌幅"}
   - {id: "6a3a465e97e2dbd70a82d6a3", index_title: "期货换月合约"}
   - {id: "6a3a466397e2dbd70a82d6a5", index_title: "期货日内量权价涨减仓强度"}
   - {id: "6a3a466097e2dbd70a82d6a4", index_title: "期货日内量权价涨增仓强度"}

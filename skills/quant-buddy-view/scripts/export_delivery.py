@@ -16,14 +16,15 @@ def _url(value):
     return value
 
 
-def export(task, turn):
+def export(task, turn, reply_text='', *, finalize_reply=False):
     result = {'schema_version': 1, 'task_id': task, 'turn_id': turn, 'status': 'unknown'}
     try:
         if not all(re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,159}', v) for v in (task, turn)):
             return result
         plan = EP.load(task)
         if not plan:
-            return result
+            import fast_page_delivery as fast
+            return fast.export(task, turn, reply_text, finalize_reply=finalize_reply)
         state = DS.load(task, plan['target_page_id'])
         if state.get('turn_id') != turn:
             return result
@@ -57,5 +58,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--task-id', required=True)
     parser.add_argument('--turn-id', required=True)
+    parser.add_argument('--reply-file')
+    parser.add_argument('--finalize-reply', action='store_true')
     args = parser.parse_args()
-    print(json.dumps(export(args.task_id, args.turn_id), ensure_ascii=False))
+    reply = ''
+    if args.reply_file:
+        from pathlib import Path
+        file = Path(args.reply_file)
+        if file.stat().st_size <= 256 * 1024:
+            reply = file.read_text(encoding='utf-8')
+    print(json.dumps(export(args.task_id, args.turn_id, reply, finalize_reply=args.finalize_reply), ensure_ascii=False))

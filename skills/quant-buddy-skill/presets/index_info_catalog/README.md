@@ -17,6 +17,7 @@
 - `macro_strategy.yaml`：示例、宏观及策略类数据。
 - `a_share_option_iv.yaml`：A 股期权隐含波动率。
 - `global_classification.yaml`：GICS 行业、板块所属指数。
+- `us_option_market_data.yaml`：美股期权 E1/E2、ATM/25 Delta 的价格、成交量、持仓量、隐含波动率、所选合约到期日及行权价（共 48 项）。
 - `manifest.yaml`：业务分类文件清单和记录数。
 
 分类仅用于检索组织，不代表数据的原创归属。不要手工修改记录；维护流程及真实来源记录保存在用户侧 Skill 目录之外。
