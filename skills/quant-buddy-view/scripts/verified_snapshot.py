@@ -32,7 +32,8 @@ def capture(task_id,contract,result,resource='grant',hydrate_csv=False):
     if resource=='grant' and contract.get('kind') in ('fast_query', 'fast_query_minute_range'):
         import fast_query_csv as FQCSV
         data=result.get('data')
-        if isinstance(data,dict) and (bool(data.get("csv_fields")) or (data.get("query_type") == "minute_range" and data.get("mode") == "csv")) and not isinstance(data.get("rows"), list):
+        already_hydrated = isinstance(data, dict) and data.get('source_mode') == 'csv' and isinstance(data.get('results'), list)
+        if isinstance(data,dict) and (bool(data.get("csv_fields")) or (data.get("query_type") == "minute_range" and data.get("mode") == "csv")) and not isinstance(data.get("rows"), list) and not already_hydrated:
             if hydrate_csv:result['data']=FQCSV.download_and_hydrate(data,timeout=20)
             else:materialized=False
     body={'version':VERSION,'task_id':task_id,'resource':resource,'contract':contract,
@@ -90,6 +91,9 @@ def materialize_registered(params):
             proof=json.loads(Path(params['validation_receipt_file']).read_text(encoding='utf-8'))
             if proof.get('task_id')!=task or proof.get('success') is not True or proof.get('status')!='completed':
                 raise EP.PlanError('SNAPSHOT_VALIDATION_REQUIRED','需要当前任务已完成的验证收据')
+            if not proof.get('snapshot_receipt_file') and proof.get('tool_name') == 'validate_package_set':
+                import formula_snapshot
+                return formula_snapshot.materialize(task, params['validation_receipt_file'], proof)
             snapshot=load(task,proof.get('snapshot_receipt_file'),proof.get('snapshot_receipt_sha256'),allow_deferred=True)
             if snapshot['contract_fingerprint']!=proof.get('contract_fingerprint'):
                 raise EP.PlanError('SNAPSHOT_CONTRACT_MISMATCH','验证与快照合同不一致')

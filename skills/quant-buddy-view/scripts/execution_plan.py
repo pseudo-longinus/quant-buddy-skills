@@ -132,6 +132,14 @@ def bind(routing, *, target_scope=None, runtime_roles=None, borrow_modules=None,
             'build_mode': 'compose_page' if borrow == 'compose' else ('inherit' if mode == 'fork' else mode),
             'plan_stage': 'prepared' if (target_scope is not None or runtime_roles is not None or borrow_modules is not None or (previous or {}).get('plan_stage') == 'prepared') else 'routing',
         }
+        if mode == 'unmatched' and content['borrow_modules']:
+            modules = content['borrow_modules']
+            if any(not isinstance(m, dict) or m.get('borrow_level') != 'original' or not m.get('module')
+                   or not m.get('analysis_role') or not m.get('rationale') for m in modules):
+                raise PlanError('ORIGINAL_MODULE_INVALID', 'unmatched组装只能使用有研究目的的原创模块')
+            if len({m['module'] for m in modules}) != len(modules):
+                raise PlanError('ORIGINAL_MODULE_INVALID', '原创模块名称重复')
+            content['build_mode'] = 'compose_page'
         if not isinstance(content["require_live_data"],bool):raise PlanError("PLAN_LIVE_REQUIREMENT_INVALID","require_live_data必须为布尔值")
         if previous and previous.get("require_live_data") and not content["require_live_data"]:
             raise PlanError("PLAN_LIVE_REQUIREMENT_IMMUTABLE","不能用技术性修订取消用户实时要求；快照只能作为部分交付")

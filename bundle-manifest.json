@@ -6,10 +6,10 @@
       "version": "4.25.46"
     },
     "quant-buddy-view": {
-      "version": "0.6.83",
+      "version": "0.6.84",
       "source_repository": "pseudo-longinus/quant-buddy-view",
-      "source_tag": "v0.6.83",
-      "source_commit": "e025a2d8682e9f2feeece51b84a6b6d1395e84f0"
+      "source_tag": "v0.6.84",
+      "source_commit": "5fcbf3c8c257563c752b4582214b880ad7fdaf10"
     }
   }
 }

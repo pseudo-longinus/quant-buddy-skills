@@ -58,4 +58,4 @@ bridge 的验证执行与收据保留 use_minute_data；`registration_params` �
 
 只有已验证同口径的受支持运行时可替代；否则按原静态降级规则或明确未完成，不修改服务端、不新增任意放行开关。`is_live=true`、定时请求、仅有验证成功都不代表页面分钟更新已实现。
 
-模板来源返回 SOURCE_CREDENTIAL_UNPAIRED 等合同失败时，不换 source_template_id 或重建任务绕过绑定。不满足同一来源 Compose 门禁即记录明确失败；若已有进度页，按 static_page 的 update_progress 标记失败，不把 running 链接当最终交付。
+模板来源返回 SOURCE_CREDENTIAL_UNPAIRED 时，先按同一 source_template_id 调用 research_templates(include:["layout","style"])，安全提取布局后继续 fork_compose；不要重建任务绕过绑定。注册失败保留已验证结果，按 [同页恢复](../workflows/planned-delivery-recovery.md#同页恢复而非停留在失败页) 执行 recover_snapshot 并继续构建、验收。只有受支持恢复路径确实无法满足请求时才记录最终失败；量化建页仍只在验收成功后补链接。

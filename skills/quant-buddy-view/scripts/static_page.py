@@ -7103,10 +7103,14 @@ def _research_template_entry(page_id, include):
     html, error = _fetch_oss(url)
     if error:
         return None, error
-    try:
-        runtime = FRC.build_runtime_artifacts(html, record)
-    except FRC.ForkRuntimeError as exc:
-        return None, exc.as_dict()
+    if set(include) <= {'layout', 'style'}:
+        import layout_material
+        runtime = {'working_html': layout_material.extract(html), 'review': {'roles': []}}
+    else:
+        try:
+            runtime = FRC.build_runtime_artifacts(html, record)
+        except FRC.ForkRuntimeError as exc:
+            return None, exc.as_dict()
     material = str(runtime.get("working_html") or "")
     material = re.sub(r"__QBV_[A-Za-z0-9_]+__", "QB_CREDENTIAL_PLACEHOLDER", material)
     roles = (runtime.get("review") or {}).get("roles") or []
@@ -7121,7 +7125,7 @@ def _research_template_entry(page_id, include):
     } for r in roles if isinstance(r, dict) and r.get("kind") == "grant"]
     known_outputs = [x for package in packages for x in package["required_outputs"]]
     blocks = _section_blocks(material, known_outputs)
-    entry = {"page_id": page_id, "title": str(record.get("title") or ""), "layout_skeleton": _page_headings(html)}
+    entry = {"page_id": page_id, "title": str(record.get("title") or ""), "layout_skeleton": _page_headings(material)}
     if "layout" in include:
         entry["section_blocks"] = blocks
     if "style" in include:
@@ -7208,7 +7212,12 @@ def cmd_research_templates(params):
         elif entry:
             templates.append(entry)
     if not templates:
-        return {"code": 1, "error": "RESEARCH_DIGEST_EMPTY", "warnings": warnings}
+        can_extract_layout = bool(set(include) - {'layout', 'style'}) and any(
+            w.get('error') in ('SOURCE_CREDENTIAL_UNPAIRED', 'SOURCE_RUNTIME_CONTRACT_MISSING') for w in warnings)
+        return {"code": 1, "error": "RESEARCH_DIGEST_EMPTY", "warnings": warnings,
+                **({'recoverable': True, 'next_action': {'command': 'research_templates', 'params': {
+                    'task_id': task_id, 'template_ids': page_ids, 'include': ['layout', 'style']},
+                    'instruction': '只提取布局与样式，随后沿用同来源fork_compose；不继承损坏运行时。'}} if can_extract_layout else {})}
     digest = {
         "version": _RESEARCH_DIGEST_VERSION, "task_id": task_id,
         "purpose": str(params.get("purpose") or ""), "include": include,
@@ -9192,6 +9201,16 @@ def cmd_materialize_snapshot(params):
     return verified_snapshot.materialize_registered(params)
 
 
+def cmd_recover_snapshot(params):
+    import publication_recovery
+    try:
+        return publication_recovery.recover(params)
+    except EP.PlanError as exc:
+        return exc.as_dict()
+    except (OSError, ValueError, TypeError, KeyError):
+        return {'code': 1, 'error': 'RECOVERY_EVIDENCE_INVALID', 'message': '恢复证据或草稿不可读取；保留原页面和计划'}
+
+
 def cmd_bind_runtime_route(params):
     import runtime_route
     try:
@@ -9281,6 +9300,7 @@ _COMMANDS = {
     "delivery_status": cmd_delivery_status,
     "bind_runtime_route": cmd_bind_runtime_route,
     "materialize_snapshot": cmd_materialize_snapshot,
+    "recover_snapshot": cmd_recover_snapshot,
     "compose_page": cmd_compose_page,
     "fork_review_update": cmd_fork_review_update,
     "fork_validate": cmd_fork_validate,
@@ -9291,7 +9311,7 @@ _COMMANDS = {
 _TRACE_REQUIRED_COMMANDS = {
     "prepare_maintenance", "file_prepare", "file_status", "file_confirm_delivery",
     "new_asset_page", "new_page", "update_progress", "publish_final", "publish_verified", "upload", "update", "direct_deliver", "direct_finalize", "fork_validate", "image_upload",
-    "templates", "intent_profile", "research_templates", "fork_prepare", "fork_compose", "fork_review_update", "execution_plan", "compose_page", "materialize_snapshot",
+    "templates", "intent_profile", "research_templates", "fork_prepare", "fork_compose", "fork_review_update", "execution_plan", "compose_page", "materialize_snapshot", "recover_snapshot",
 }
 
 

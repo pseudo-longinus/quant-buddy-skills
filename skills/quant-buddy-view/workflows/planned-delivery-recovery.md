@@ -87,7 +87,7 @@ python scripts/formula_package.py registration_status '{"task_id":"task_xxx","pa
 python scripts/static_page.py materialize_snapshot '{"task_id":"task_xxx","validation_receipt_file":"已完成的验证收据路径"}'
 ```
 
-内联结果直接复用，不重复查数。CSV结果在普通live验证时不增加隐藏下载；物化命令才下载已返回的CSV，不重新执行原查询。若旧验证没有完整数据，可传`resource:"grant"|"package"`、对应已注册ID和contract_fingerprint，验证本任务登记身份后取数冻结。
+内联结果直接复用，不重复查数。日频 window/series CSV 在 validate_grant_set 中下载并逐资产、字段、日期校验，成功收据已包含物化结果；后续 materialize_snapshot 不重复下载或查询。其他引用型旧收据由物化命令下载已返回的 CSV。下载链接过期时，日频验证最多重做一次同合同只读查询，不改变日期/资产。若旧验证没有完整数据，可传`resource:"grant"|"package"`、对应已注册ID和contract_fingerprint，验证本任务登记身份后取数冻结。
 
 materialize返回snapshot_receipt_file及snapshot_receipt_sha256。把这两项与role_id加入执行计划的snapshot_roles（已准备计划需要expected_revision/revision_reason）；panels引用snapshot_receipt_file，公式快照另指定snapshot_output或snapshot_outputs。必需输出不能只验证不展示。
 
@@ -109,3 +109,24 @@ materialize返回snapshot_receipt_file及snapshot_receipt_sha256。把这两项�
 运行角色齐备后优先复用唯一、同任务、合同匹配的已有路由；存在多个匹配候选时显式提供 route_receipt_file。多资产路由逐项核验原子路由及收据，不制造新验证结果。未通过发布证据预检不会返回 publish_verified 下一步。
 
 失败回复可保留 `progress_link`，使用返回的“任务进度（构建失败）/（未完成）”标签，明确 terminal=false。这里并未修改宿主卡片识别逻辑，不以“已完成”徽标或提取到的URL判断业务成功。
+
+## 同页恢复而非停留在失败页
+
+以下是本轮已授权页面任务的内部恢复，直接继续工具调用，保留已发完整业务答案。一次工具失败不等于任务结束；不发占位页作为成品。
+
+1. `validate_grant_set` 的 `success/required_roles_complete` 表示全部合同是否通过；`status:partial` 保留成功项但不代表完整研究可发布。按 failed_grants 修正并只重验失败合同，零成功不注册。不用最新单值代替完整历史，不把缺失数据补零。
+2. `SOURCE_CREDENTIAL_UNPAIRED/RESEARCH_DIGEST_EMPTY`：按 next_action 对同来源仅提取 layout/style，继续 fork_compose。只借布局不继承数据凭证，保持原 page_id 和来源。
+3. `REGISTRATION_REJECTED` 保留明确拒绝码；`REGISTRATION_OUTCOME_UNKNOWN` 不重发注册。两者不意味着研究数据作废。执行返回的 recover_snapshot；单独注册工具返回 materialize_snapshot 时，物化后继续同页恢复。
+
+```bash
+python scripts/static_page.py recover_snapshot @recovery-params.json
+```
+
+参数：task_id、当前 plan_hash、`roles:[{role_id,validation_receipt_file}]`。可传 title、description、panels 等研究内容，未指定时保留当前 Compose 草稿。角色须对应当前计划，不会删除未转换角色。初次 unmatched 计划尚未明确研究范围时，同时传真实 target_scope。
+
+- Grant 复用已验证结果；公式从验证收据绑定的 QBS data_id 按原 reads 读取，既不注册新包也不改公式。旧公式收据缺产出映射时，执行返回的 qbs_bridge.py validate_package_set 重验原合同，再用新收据恢复，不循环调用同一失败的物化命令。
+- 工具转换数据面板绑定、保留正文/标题/原草稿，修订同页计划并返回 compose_page 参数。继承页只借原来源布局；unmatched 保持原创路由，用 original 模块组装，不伪装 fork。
+- **继续整理研究草稿**：自动表格只是数据绑定起点。将已有本地研究的结论、回测表、图表、栏目和口径迁移到返回的参数文件；处理未分配面板和必需产出，不能把三股50策略缩水成行情快照。原始数据验证不等于回测计算验证；保留数据、脚本、参数与结果的对应关系并核对派生结果。
+- 按 next_action 执行 `compose_page → publish_verified → reply_validation_command`，真实验收成功后补链接。恢复成功只表示候选参数已准备，不是发布成功。
+- snapshot 标注实际数据时点和不会自动更新；有效动态角色保留时为 mixed。`require_live_data:true` 不被技术恢复取消，静态部分不能冒充完整实时交付。
+- 相同确定性错误和参数不循环重试。注册未知不重发，公开写入未知按 delivery_status 核对。恢复路径仍缺必要数据/权限或服务持续不可用时，保留原可读页面及研究产物，如实说明缺口，不绕过门禁显示成功。

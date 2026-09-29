@@ -61,6 +61,11 @@ def _scoped_styles(entry, classes, section_id):
 
 
 def _read_binding(plan, routing, sp):
+    if plan.get('source_route') == 'unmatched':
+        if (routing.get('routing_decision', {}).get('mode') != 'unmatched' or plan.get('source_page_id')
+                or any(m.get('borrow_level') != 'original' for m in plan.get('borrow_modules', []))):
+            raise EP.PlanError('COMPOSE_BINDING_IDENTITY_CONFLICT', '原创组装必须保留unmatched路由，不能冒用来源布局')
+        return {}
     binding, error = sp._compose_binding_publish_state(routing, plan['target_page_id'])
     if error: raise EP.PlanError(error.get('error'), error.get('message', 'Compose绑定无效'))
     if not binding or binding.get('compose_binding_sha256') != plan.get('compose_binding_sha256'):

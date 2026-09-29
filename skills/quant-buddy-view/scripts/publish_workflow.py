@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import execution_plan as EP
+import publication_recovery as PR
 import common as C
 import data_grant as DG
 import formula_package as FP
@@ -549,7 +550,7 @@ def _run_workflow_v1(params):
     grants, dropped_grants, html, degradation_error = _apply_grant_degradation(grants, html, grant_validation)
     if degradation_error:
         return degradation_error
-    if grant_validation.get("code") != 0:
+    if grant_validation.get("code") != 0 and not dropped_grants:
         return _failure("GRANT_SET_VALIDATION_FAILED", "QBS grant-set 验证失败", validation=grant_validation)
     grant_receipts = grant_validation.get("validation_receipt_files") or []
     if len(grant_receipts) != len(grants):
@@ -575,7 +576,8 @@ def _run_workflow_v1(params):
         registration.update({"task_id": task_id, "user_query": user_query})
         result = FP.cmd_register(registration)
         if not (isinstance(result, dict) and result.get("code") == 0 and result.get("package_id") and result.get("signature")):
-            return _failure("PACKAGE_REGISTER_FAILED", f"公式包注册失败: {item.get('name') or index}", failed_index=index, registered_packages=registered_packages)
+            return _failure("PACKAGE_REGISTER_FAILED", f"公式包注册失败: {item.get('name') or index}", failed_index=index, registered_packages=registered_packages,
+                            **PR.failure_details(task_id, result, [('package', package_validation), ('grant', grant_validation)]))
         markers = item["markers"]
         html = _replace_marker_field(html, markers["package_id"], result["package_id"], f"packages[{index}].package_id")
         html = _replace_marker_field(html, markers["signature"], result["signature"], f"packages[{index}].signature")
@@ -589,7 +591,8 @@ def _run_workflow_v1(params):
         registration.update({"task_id": task_id, "user_query": user_query})
         result = DG.cmd_register(registration)
         if not (isinstance(result, dict) and result.get("code") == 0 and result.get("grant_id") and result.get("signature")):
-            return _failure("GRANT_REGISTER_FAILED", f"数据授权注册失败: {item.get('name') or index}", failed_index=index, registered_packages=registered_packages, registered_grants=registered_grants)
+            return _failure("GRANT_REGISTER_FAILED", f"数据授权注册失败: {item.get('name') or index}", failed_index=index, registered_packages=registered_packages, registered_grants=registered_grants,
+                            **PR.failure_details(task_id, result, [('package', package_validation), ('grant', grant_validation)]))
         markers = item["markers"]
         html = _replace_marker_field(html, markers["grant_id"], result["grant_id"], f"grants[{index}].grant_id")
         html = _replace_marker_field(html, markers["signature"], result["signature"], f"grants[{index}].signature")
@@ -841,7 +844,7 @@ def _run_workflow_v2(params):
     if degradation_error:
         degradation_error["timing"] = timings
         return degradation_error
-    if grant_validation.get("code") != 0:
+    if grant_validation.get("code") != 0 and not dropped_grants:
         return _failure("GRANT_SET_VALIDATION_FAILED", "QBS grant-set 验证失败", validation=grant_validation, timing=timings)
     if dropped_grants:
         stages["grant_degradation"] = {"dropped_grants": dropped_grants, "surviving_grant_count": len(grants)}
@@ -897,7 +900,8 @@ def _run_workflow_v2(params):
         registration["validation_receipt_file"] = checked.get("validation_receipt_file")
         result = FP.cmd_register(registration)
         if not (isinstance(result, dict) and result.get("code") == 0 and result.get("package_id") and result.get("signature")):
-            return _failure("PACKAGE_REGISTER_FAILED", f"公式包注册失败: {item.get('name') or index}", failed_index=index, timing=timings)
+            return _failure("PACKAGE_REGISTER_FAILED", f"公式包注册失败: {item.get('name') or index}", failed_index=index, timing=timings,
+                            **PR.failure_details(task_id, result, [('package', package_validation), ('grant', grant_validation)]))
         markers = item["markers"]
         html = _replace_marker_field(html, markers["package_id"], result["package_id"], f"packages[{index}].package_id")
         html = _replace_marker_field(html, markers["signature"], result["signature"], f"packages[{index}].signature")
@@ -913,7 +917,8 @@ def _run_workflow_v2(params):
                         "validation_receipt_file": grant_validation_by_name[item["name"]].get("validation_receipt_file")}
         result = DG.cmd_register(registration)
         if not (isinstance(result, dict) and result.get("code") == 0 and result.get("grant_id") and result.get("signature")):
-            return _failure("GRANT_REGISTER_FAILED", f"数据授权注册失败: {item.get('name') or index}", failed_index=index, timing=timings)
+            return _failure("GRANT_REGISTER_FAILED", f"数据授权注册失败: {item.get('name') or index}", failed_index=index, timing=timings,
+                            **PR.failure_details(task_id, result, [('package', package_validation), ('grant', grant_validation)]))
         markers = item["markers"]
         html = _replace_marker_field(html, markers["grant_id"], result["grant_id"], f"grants[{index}].grant_id")
         html = _replace_marker_field(html, markers["signature"], result["signature"], f"grants[{index}].signature")

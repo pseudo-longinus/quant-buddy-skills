@@ -2,7 +2,7 @@
 name: quant-buddy-view
 slug: quant-buddy-view
 author: guanzhao
-version: 0.6.83
+version: 0.6.84
 description: |
   将量化分析或已有 JPG/PNG、HTML、PDF 发布为 Quant Buddy 可分享活页或实时看板，并支持创建、更新、复用、验收和公开链接交付。适用于个股画像、估值财务、指数异动、多因子筛选、商品日报、模板、分享壳及卡片等页面。
   用户提供 QuantBuddy 活页 URL 并要求解读时也使用。显式调用 /quant-buddy-view、/qbv、qbv 或 QBV，且请求并非纯咨询、代码维护或文档解释时，默认按可分享活页任务处理。
@@ -11,7 +11,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 0.6.83
+  version: 0.6.84
   author: guanzhao
   category: quant-finance
   tags: [quant, dashboard, formula-package, static-page, publish, visualization]
@@ -105,6 +105,8 @@ python scripts/static_page.py interpret '{"url":"用户提供的页面 URL"}'
 **验证结果直接交接**：`resolve_asset_data` / `validate_grant_set` / `validate_package_set` 返回 `registration_params_file` 时，首答及页面路由完成后直接执行对应 `registration_command`；不要重写合同、抄指纹、重复查询或另调validate。`publication_evidence` 原样并入看板spec，注册返回的实际ID绑定面板。已有证据的字段/范围确需变化时重新验证新合同，不能沿用旧指纹。公式型行业页面先读 [行业排名交接](guides/industry-ranking-handoff.md)。
 
 ## Compose 参数交接
+
+**技术失败后继续生成**：历史 CSV 验证、来源凭证或注册出错时，执行 [同页恢复](workflows/planned-delivery-recovery.md#同页恢复而非停留在失败页)。优先修正原合同；已有完整验证结果但注册不可用时，使用 `recover_snapshot` 生成同页快照候选，再继续 `compose_page → publish_verified`。不把一次工具失败当作任务结束，不改用 `static_content_only`；用户明确要求实时的页面不能用静态结果冒充完整交付。
 
 已公开验收的计划页面，仅修改正文/布局并保留标准看板取数合同和内核时，可按 `interpret` 确认同页 owner/page_admin 权限后运行 `static_page.py prepare_maintenance @params.json`。它从线上当前版本核验基线，生成独立的维护候选收据及 `publish_verified` 参数；不改写原 Compose 收据。首次建页、未完成公开验收、数据合同变化、版本冲突及未知写入结果不适用。具体约束见 [浏览器批注维护](guides/browser-feedback-refinement.md)。
 

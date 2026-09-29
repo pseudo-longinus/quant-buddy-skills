@@ -388,7 +388,7 @@ def _read_completed_formula_receipt(path, task_id):
     return receipt
 
 
-def _write_package_validation_receipt(task_id, item, child_receipt_files):
+def _write_package_validation_receipt(task_id, item, child_receipt_files, validation_outputs=None):
     contract = PC.normalize(item)
     fingerprint = FRC.contract_fingerprint(contract)
     child_entries = []
@@ -426,9 +426,17 @@ def _write_package_validation_receipt(task_id, item, child_receipt_files):
         "batch_receipts": child_entries,
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
     }
+    if validation_outputs is not None:
+        valid_ids = {str(o.get('data_id') or '') for o in outputs}
+        sources = {o['variable_name']: str(o.get('data_id') or o.get('indexinfo_id') or '')
+                   for o in validation_outputs if o.get('variable_name')}
+        if any(not sources.get(r['output']) or sources[r['output']] not in valid_ids for r in contract['reads']):
+            raise ValueError('snapshot read source is not bound to successful child validation')
+        payload['read_sources'] = {r['output']: sources[r['output']] for r in contract['reads']}
+        payload['read_sources_sha256'] = FRC.contract_fingerprint(payload['read_sources'])
     root = C.task_temp_path(task_id, "formula_validation_receipts", create_parent=True)
     root.mkdir(parents=True, exist_ok=True)
-    digest = hashlib.sha256(f"{task_id}:{item.get('turn_id')}:{item.get('name')}:{fingerprint}:{json.dumps(child_entries, sort_keys=True)}".encode("utf-8")).hexdigest()
+    digest = hashlib.sha256(f"{task_id}:{item.get('turn_id')}:{item.get('name')}:{fingerprint}:{json.dumps(child_entries, sort_keys=True)}:{payload.get('read_sources_sha256', '')}".encode("utf-8")).hexdigest()
     path = root / f"{C.safe_task_id(task_id)}-{digest}.json"
     if path.exists():
         existing = json.loads(path.read_text(encoding='utf-8'))
@@ -699,7 +707,7 @@ def _validate_package_set(call_script, params, env):
         contract_fingerprint = item["contract_fingerprint"]
         if batch_receipts:
             try:
-                package_receipt, aggregate_fingerprint = _write_package_validation_receipt(task_id, item, batch_receipts)
+                package_receipt, aggregate_fingerprint = _write_package_validation_receipt(task_id, item, batch_receipts, validation_outputs)
             except (OSError, ValueError, json.JSONDecodeError) as exc:
                 return {
                     "code": 1,
@@ -935,7 +943,9 @@ def _fast_query_target(results, asset):
     elif isinstance(results, list):
         candidates.extend(("", value) for value in results if isinstance(value, dict))
     for key, row in candidates:
-        if _asset_matches(_entry_asset(row), asset) or _asset_matches(key, asset):
+        identifiers = [key, _entry_asset(row), row.get('asset_name'), row.get('asset_intent'), row.get('name')]
+        if any(_asset_matches(value, asset) or GC._ticker(value) == GC._ticker(asset)
+               for value in identifiers if value):
             return row
     return None
 
@@ -951,6 +961,10 @@ def _evaluate_fast_query_result(asset, required_fields, optional_fields, result)
     # fastQuery 的业务字段包在 {code, data:{...}} 信封里（与上面 stock_profile 评估器同款解包）；
     # 不解包就永远读不到 results，任何资产都会被误判成 TARGET_ASSET_MISSING。
     body = result.get("data") if isinstance(result.get("data"), dict) else result
+    if body.get('success') is False:
+        error_class, error_code = _classify_route_error(body)
+        return {'success': False, 'error_class': error_class, 'error_code': error_code,
+                'missing_fields': required_fields, 'warnings': []}
     asset_errors = _matching_error_entries(body.get("asset_errors"), asset)
     if asset_errors:
         error_class, error_code = _classify_route_error(asset_errors[0])
@@ -959,11 +973,44 @@ def _evaluate_fast_query_result(asset, required_fields, optional_fields, result)
     if row is None:
         return {"success": False, "error_class": "data", "error_code": "TARGET_ASSET_MISSING", "missing_fields": required_fields, "warnings": []}
     field_errors = _field_error_names(body.get("field_errors"))
+    # Hydrated CSV and native series expose fields[].series, not row.close.
+    values = dict(row)
+    timeline = None
+    if isinstance(row.get('fields'), list):
+        seen = set()
+        for field in row['fields']:
+            if not isinstance(field, dict):
+                continue
+            name = field.get('intent') or field.get('field')
+            if name in seen:
+                return {'success': False, 'error_class': 'data', 'error_code': 'DUPLICATE_FIELD',
+                        'missing_fields': [name], 'warnings': []}
+            seen.add(name)
+            if name not in required_fields + optional_fields:
+                continue
+            series = field.get('series')
+            if isinstance(series, list):
+                dates = [point.get('date') for point in series if isinstance(point, dict)]
+                valid = bool(series) and len(dates) == len(series)
+                try:
+                    normalized = [datetime.strptime(str(date), '%Y-%m-%d').date() for date in dates]
+                    valid = valid and all(a < b for a, b in zip(normalized, normalized[1:]))
+                    valid = valid and all(isinstance(p.get('value'), (int, float))
+                        and not isinstance(p.get('value'), bool) and _is_meaningful_value(p['value']) for p in series)
+                except (ValueError, TypeError, KeyError):
+                    valid = False
+                if name in required_fields and body.get('query_type') == 'window':
+                    if timeline is not None and dates != timeline:
+                        valid = False
+                    timeline = dates
+                values[name] = series if valid else None
+            else:
+                values[name] = field.get('value')
     required_error_fields = [field for field in required_fields if field in field_errors]
-    missing = [field for field in required_fields if field in required_error_fields or not _is_meaningful_value(row.get(field))]
+    missing = [field for field in required_fields if field in required_error_fields or not _is_meaningful_value(values.get(field))]
     warnings = []
     for field in optional_fields:
-        if field in field_errors or not _is_meaningful_value(row.get(field)):
+        if field in field_errors or not _is_meaningful_value(values.get(field)):
             warnings.append({"field": field, "warning": "OPTIONAL_FIELD_UNAVAILABLE"})
     if missing:
         return {"success": False, "error_class": "data", "error_code": "REQUIRED_FIELD_MISSING", "missing_fields": missing, "warnings": warnings}
@@ -1431,10 +1478,49 @@ def _validate_grant_set(call_script, params, env):
             evaluation = GC.evaluate_minute_range(payload, result)
         elif kind == "fast_query":
             assets = payload.get("assets") if isinstance(payload.get("assets"), list) else []
-            asset = str((assets or [payload.get("asset") or ""])[0] or "").strip()
             required_fields = payload.get("required_fields") if isinstance(payload.get("required_fields"), list) else payload.get("fields") or []
             optional = payload.get("optional_fields") if isinstance(payload.get("optional_fields"), list) else []
-            evaluation = _evaluate_fast_query_result(asset, required_fields, optional, result)
+            body = result.get('data') if isinstance(result.get('data'), dict) else {}
+            # Daily CSV validation is content validation: parse before issuing a receipt.
+            # A stale download reference can be renewed once by the same read-only query.
+            try:
+                if body.get('mode') == 'csv' and body.get('source_mode') != 'csv':
+                    import fast_query_csv as CSV
+                    first = [result]
+                    def query_once():
+                        if first:
+                            return first.pop()
+                        renewed, failed = _invoke_payload(call_script, tool_by_kind[kind], validation_payload, env)
+                        return failed or renewed
+                    result = CSV.hydrate_query_result(query_once)
+                evaluations = [dict(_evaluate_fast_query_result(str(asset), required_fields, optional, result), asset=asset)
+                               for asset in (assets or [payload.get('asset') or ''])]
+                evaluation = next((e for e in evaluations if not e.get('success')), {'success': True})
+                if evaluation.get('success') and payload.get('query_type') == 'window':
+                    data = result.get('data') if isinstance(result.get('data'), dict) else result
+                    import fast_query_csv as CSV
+                    start = CSV._normalise_date(payload['start_date']) if payload.get('start_date') else None
+                    end = CSV._normalise_date(payload['end_date']) if payload.get('end_date') else None
+                    for asset in assets:
+                        row = _fast_query_target(data.get('results'), asset) or {}
+                        fields = row.get('fields') if isinstance(row.get('fields'), list) else []
+                        by_field = {f.get('intent') or f.get('field'): f for f in fields if isinstance(f, dict)}
+                        timeline = None
+                        for field in required_fields:
+                            points = by_field.get(field, {}).get('series')
+                            dates = [p['date'] for p in points] if isinstance(points, list) else []
+                            if (not dates or (timeline is not None and dates != timeline)
+                                    or any((start and d < start) or (end and d > end) for d in dates)):
+                                evaluation = {'success': False, 'error_class': 'data', 'error_code': 'HISTORY_SCOPE_MISMATCH',
+                                              'missing_fields': [field], 'asset': asset}
+                                break
+                            timeline = dates
+                        if not evaluation.get('success'): break
+            except ValueError as exc:
+                transport = getattr(exc, 'status', None) is not None or '网络或超时' in str(exc)
+                evaluation = {'success': False, 'error_class': 'system' if transport else 'data',
+                              'error_code': 'CSV_TRANSPORT_FAILED' if transport else 'CSV_VALIDATION_FAILED',
+                              'missing_fields': required_fields}
         elif kind == "stock_profile":
             asset = str(payload.get("asset") or "").strip()
             required_fields = payload.get("required_fields") if isinstance(payload.get("required_fields"), list) else payload.get("fields") or payload.get("dimensions") or []
@@ -1451,6 +1537,7 @@ def _validate_grant_set(call_script, params, env):
                 "error_class": evaluation.get("error_class") or "system",
                 "error_code": evaluation.get("error_code") or "GRANT_VALIDATION_FAILED",
                 "missing_fields": evaluation.get("missing_fields") or [],
+                **({'asset': evaluation['asset']} if evaluation.get('asset') else {}),
             })
             continue
         receipt = _grant_validation_receipt(task_id, name, kind, fingerprint, snapshot={"contract": contract, "result": result})
@@ -1465,11 +1552,13 @@ def _validate_grant_set(call_script, params, env):
             "reply_evidence": RDE.compact_grant_result(kind, result),
             **_registration_handoff('grant', task_id, contract, receipt),
         })
-    blocking = any(item.get("error_class") != "data" for item in failed_grants)
+    blocking = bool(failed_grants)
     return {
         "code": 1 if blocking else 0,
         "error": "GRANT_VALIDATION_FAILED" if blocking else None,
         "success": not blocking,
+        "status": ('partial' if results else 'failed') if blocking else 'completed',
+        "required_roles_complete": not blocking,
         "task_id": task_id,
         "grant_count": len(results),
         "failed_grant_count": len(failed_grants),

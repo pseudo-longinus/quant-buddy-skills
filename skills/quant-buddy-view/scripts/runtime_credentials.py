@@ -92,6 +92,9 @@ def _proof(task,fingerprint,path,required=False,resolve_path=None):
 
 def _active(record):
     status=record.get('status')
+    if status == 'rejected':
+        raise CredentialError('REGISTRATION_REJECTED', '前次注册已明确拒绝；修正合同或使用已验证快照继续建页',
+                              cause_code=record.get('cause_code'), next_action='materialize_snapshot')
     if status=='revoked':raise CredentialError('REGISTRATION_REVOKED','凭证已撤销；不能自动重新注册')
     if status!='confirmed':raise CredentialError('REGISTRATION_OUTCOME_UNKNOWN','前一次注册/轮换结果不确定，先查询恢复状态，不重复注册',next_action='registration_status')
     try:
@@ -193,6 +196,15 @@ def register(resource,params,contract,endpoint,key,send,legacy_dir):
         except Exception:
             record['status']='unknown';_write_record(task,resource,record)
             raise CredentialError('REGISTRATION_OUTCOME_UNKNOWN','注册请求结果不确定，不重发')
+        error = response.get('error') if isinstance(response, dict) else None
+        cause = error.get('code') if isinstance(error, dict) else error
+        # Only documented pre-creation rejection codes. Unknown/transport failures stay uncertain.
+        if isinstance(response, dict) and response.get('code') != 0 and cause in {
+                'REGISTER_FAILED', 'FORMULA_INVALID', 'PARAMS_REQUIRED', 'INVALID_PARAMS', 'UNAUTHORIZED', 'FORBIDDEN'}:
+            record.update(status='rejected', cause_code=cause)
+            _write_record(task, resource, record)
+            raise CredentialError('REGISTRATION_REJECTED', '接口明确拒绝注册；修正合同或使用已验证快照继续建页',
+                                  cause_code=cause, next_action='materialize_snapshot')
         if not isinstance(response,dict) or response.get('code')!=0 or not response.get(ID_FIELDS[resource]) or not response.get('signature'):
             record['status']='unknown';_write_record(task,resource,record)
             raise CredentialError('REGISTRATION_OUTCOME_UNKNOWN','未取得可持久化注册结果，不再次创建')

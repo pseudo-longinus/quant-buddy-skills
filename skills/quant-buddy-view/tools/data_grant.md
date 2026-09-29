@@ -1,5 +1,7 @@
 # data_grant — 数据授权（把一次直取数请求钉死成签名凭证 → 页面免 key 取数）
 
+`validate_grant_set` 对日频 CSV 下载并逐资产验证后才生成收据；`status:partial/failed` 不表示全部通过。注册失败时按返回的 recover_snapshot/materialize_snapshot 继续同页研究；未知注册不重复发送。历史快照不会自动更新，不能冒充实时授权。
+
 > 脚本 `scripts/data_grant.py` 已可用；`build_dashboard` 与 `assets/data-kernel.js` 已支持 grant 面板。服务端设计见 `skill_server/docs/dataGrant相关文档/数据授权-技术设计文档.md`（v0.2）。
 
 > 把一次 `fastQuery` / `fastQueryMinute` / `fastQueryMinuteRange` / `stockProfile` / `selectByComposition` 请求在注册时**钉死**，得到 `grant_id` + `signature`；之后**无需 API Key**，页面凭这两个凭证就能反复取数。底层数据更新后，取数永远拿最新结果（钉死的是"查什么"，不是"某天的值"）。

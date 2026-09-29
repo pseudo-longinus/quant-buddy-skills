@@ -221,7 +221,8 @@ def cmd_register(params):
         reg["_preflight"] = preflight
         return reg
     except EP.PlanError as exc:
-        return exc.as_dict()
+        import publication_recovery
+        return publication_recovery.registration_error('package', params, exc.as_dict())
     except OSError:
         return {"code": 1, "error": "REGISTRATION_PERSIST_FAILED", "retryable": False, "next_action": "registration_status"}
 
