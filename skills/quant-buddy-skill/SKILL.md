@@ -2,7 +2,7 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.25.44
+version: 4.25.45
 description: |
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据；支持查询 A 股股票所属行业。
   显式日期的单值快照可同时返回按实际更新日对齐的日频行情与估值；字段日期不同时按字段自身日期展示，不将较晚刷新字段误判为无数据。
@@ -17,7 +17,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.25.44
+  version: 4.25.45
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -77,6 +77,14 @@ runtimeRequirements:
 
 > **首屏优先**：先读本文件前部的「平台工具参数速查」「硬规则」和「场景路由」。简单行情、窗口序列、最近报告期、固定区间收益、K 线图等高频任务命中 Fast Path 时，无需继续整本通读。
 
+本地交付必须复用工具返回的真实路径；不得加 `sandbox:` 或猜测 Skill 安装目录。排名表逐列核对数据 ID、单位和日期；比值列不能抄到 PE 列。参见 [全局执行规则](workflows/global-rules.md)。
+
+## 常见请求的默认口径
+
+- 中文股票全市场排名、未指定市场的涨幅前N热力图，默认 A 股并在首答声明；行业分组默认申万一级，颜色保留股票原涨跌幅、面积或数量明确含义。用户指定其他市场时遵从，不因为这些可披露默认值就停止澄清。
+- 已给出“白酒股”等行业范围的刷新看板，先核验平台对应板块及成分，默认 PE TTM、PB；按 `quant-standard.md` 查询并给出实际行情、成交量、估值首答，再按 `answer-first.md` 继续 QBV。刷新意图不允许先注册公式包，也不能只回复看板设计。不要先要求用户列股票名单。精确板块不存在或确有同名歧义时才澄清，不用几只龙头冒充全部行业。
+- 常见单均线回测可采用 quant-standard 的披露默认值继续执行；用户明确不要网页时不建页。
+
 ## 平台工具参数速查（高频踩坑，先看这一段）
 
 > 下表是 LLM 最容易写错的三个 schema。任何调用前先核对，不要凭"看起来合理"猜参数名。
@@ -102,7 +110,7 @@ runtimeRequirements:
    - 禁止调用或重试旧名/错名：`runMultiFormulaBatch` / `runMultiFormula` / `run_multi_formula`。
    - 任何工具返回 `未知工具` / `Unknown tool` / `tool not found` 后，同名工具 **0 次重试**，也不得尝试名称变体。
    - 若 workflow 已声明唯一正确原生工具，只允许切换到该工具 1 次；仍失败则立即输出受控失败答复。
-   - 若上一步结果已足够回答用户问题，必须直接收敛回答，禁止继续升级工具链。
+   - 若上一步结果已足够回答用户问题，立即给出业务答案，不再升级查数链；已有明确建页意图时，先发送非终止首答，再按 workflows/answer-first.md 同轮继续 QBV。
 
 1. **认证后验与 session 初始化**：
    - 不要在普通查数题第一步读取 `config.json`，也不要检查 `.session.json`、`output/.session*.json` 或任何本地 session 文件。
@@ -121,6 +129,7 @@ runtimeRequirements:
    - 涉及资产时仍需先用 `grep presets/assets_db/{类型}.yaml` 搜索本地资产库，禁止整文件读取；命中多条先澄清，未命中再交给服务端兜底解析。
    - 英文代码无市场后缀时必须先 grep 对应资产库确认 ticker 格式。
 3. **工具失败熔断：同类错误不得重复**
+   - 本地 `RESUME_CONTEXT_MISMATCH` 可按工具返回的唯一 `resume_params` 修正一次；`UNIVERSE_SCOPE_MISMATCH` 可在核对目录后修正为精确行业一次。这两类尚未提交网络请求，不得用这个例外重复真实查询错误。
    - 同一工具、同一参数结构、同一错误类型出现第 1 次后，只能按 workflow 声明的备用路径切换；无备用路径则受控失败。
    - 禁止无新信息地重复调用失败工具；禁止尝试名称变体；禁止读更多文档代替执行；禁止用 shell/Python 包装绕过失败工具。
    - `runMultiFormulaBatchStream` / `resumeJob` 只有最终 `completed` 且全部结果成功时才返回 `validation_receipt_file`；`failed`、部分失败、`deferred` 均不生成收据。QBV 编排必须以该收据作为进度完成证据。长结果可传 `output_mode:"summary"`：completed 保留 `data_id/expression_id/status`；deferred 额外完整保留 `status/task_id/trace_id/job_id/stream_url/_deferred`。deferred 缺 `task_id/trace_id` 时返回 `DEFERRED_CONTINUATION_MISSING`，禁止重提原批次。
@@ -177,9 +186,10 @@ runtimeRequirements:
    5. **禁止**询问用户"是否继续"或解释版本升级过程——直接静默完成自愈并返回结果。
 11. **CHANGELOG / skill-changelog 仅作为审计，不作为规则源**：`CHANGELOG.md`、`skill-changelog/**` 是按时间叠加的变更记录，包含已被后续版本反转或废弃的旧口径。任何「执行顺序、字段名、协议块语义、工具签名、参数格式」相关的判断，**必须**以 `SKILL.md` + `workflows/**` + `tools/**` + `references/troubleshooting.md` 为唯一权威；CHANGELOG 描述与上述文件冲突时，以上述文件为准。CHANGELOG 仅可用于：① 排查问题时回看「哪一版动过什么」；② 升级成功后做 5 条以内的版本上下文摘要。**禁止**：把 CHANGELOG 某条历史叙述当作当前执行规则、依据 CHANGELOG 推断现行参数格式、或在 CHANGELOG 与 SKILL.md 冲突时偏向 CHANGELOG。
 12. **判断工具成败看返回 body 的 `code`/`success`，不看 HTTP 状态码**：HTTP 200 不代表业务成功——body 里出现 `"code": -1` / `"success": false` 即为**业务错误**，必须按失败处理（读 `error`/`message` 再决定重试/改参/走排查表），禁止「HTTP 通了就当成功」继续往下走。另：`call.py` 返回 `"error": "INVALID_TOOL_NAME"` 表示工具名写错或缺失（工具名必须排在命令最前、且为已注册工具名），属可立即修正的本地错误。详见 `references/troubleshooting.md` 顶部「成败判定通则」。
-13. **图表请求与已登记的高频稳定榜单必须实际执行活页路由，不得只靠模型判断**：凡用户要求任何图表 artifact（包括“放在一张图里”“画成一张图”“同图比较”“绘制成图表”），或命中 `workflows/live-page-routing.md` 已登记的确定性 durable 场景（当前包括“低 PE + 高 ROE + 选股/排名 + TopN”），输出 QBS 第一条回答前必须实际执行 `python scripts/live_page_routing.py route ...` 并保留 route JSON。**不得把所有 TopN/选股都视为 durable**；只有路由合同明确列出的窄场景才触发。命中“单资产 + 2～4 个 fast_query 标准历史字段 + 明确同图”时，必须在取数和静态渲染前读取并执行 `workflows/visual-page-fast-path.md`；不得读取 `quant-standard.md` 或 `render-kline.md`，不得先生成静态图。其他图表与 durable 场景按各自 workflow 的路由检查点执行。不得因为用户没说“活页/网页”、已经生成 PNG、已经读过规则、或模型自行判断应为 `none/create` 而跳过命令；必须保留 route JSON 作为本轮 Trace 证据。`create|existing_page` 且 QBS 已有排名、对比、回测、热力图等结构化 artifact 时，优先把最小业务字段写入 `skill/output` 下的请求 JSON，并执行一次 `python scripts/live_page_routing.py prepare-validated-page @output/...json`；该命令原子完成 computation capsule、Handoff 和幂等 Job，成功后禁止再手工执行 `handoff` 或 `prepare`。无结构化 artifact 时才使用通用 handoff → prepare。随后使用宿主真实提供的内部子 Agent 委派工具（优先 `spawn_agent`），只等待即时成功回执，绝不在首答前等待 QBV 完成；不得用 `create_thread/fork_thread` 代替内部子 Agent，也不得只口头声称已启动。若宿主没有内部委派工具，必须执行 `python scripts/live_page_routing.py mark-delegation-unavailable --qbv-job-id <ID>` 把 Job 置为 `DELEGATION_UNAVAILABLE`，不得遗留 queued Job，也不得声称页面正在生成。`source_skill_id` 有真实值就记录，缺失则标记 `unavailable`，不得阻断 Handoff。`none|suggest` 按分类结果继续 QBS。页面 direct/fork/unmatched、本人原位更新、他人复制和权限判断全部由 QBV 执行。路由或委派失败必须记录 Job 失败终态，但不得阻断 QBS 正常答案。只有用户明确只要 PNG/本地图片/表格或不要网页时不创建页面；弱“看看走势”仍保持 QBS。
-14. **QBS→QBV 只复用本轮已经算完的部分，不把 QBV 改成 QBS 专用渲染器**：`create|existing_page` 在 Handoff 前优先运行 `scripts/qbv_computation_capsule.py build @capsule-input.json`，生成 `qbs_computation_capsule_v1`。胶囊必须同时包含用户核心问题/主图意图、资产规范化结果、可复现查询或公式合同及 fingerprint、结果快照或 artifact SHA256、字段映射、结论与验证收据；禁止只交 PNG 或一句总结。 同一业务 role 对应多个已物化结果时可传 `data_ids`；构建器按原顺序展开为 `role__01`、`role__02`…，保留原始 ID 字符串并同步 `required_roles`，禁止 Agent 手工改写或复制 ID。QBV 的 thin adapter 判定 `covered` 时不得重复识别资产或重算相同 role，`partial` 时只补 `missing_roles`，`unusable` 时无损回退原 QBV→QBS bridge；direct/fork/unmatched、ownership、构建、运行时注册、发布和验收仍完全归 QBV。用户直接使用 QBV 时不依赖胶囊，原 SOP 不变。
-15. **已跑通的公式执行合同必须原样交给 QBV，禁止二次改写**：`runMultiFormulaBatchStream` 成功后，以 Validation Receipt 中的 `qbs_formula_runtime_contract_v1` 为唯一执行合同，保留 `formulas` 的条数、顺序、完整指标名、引号、`begin_date`、`include_description`、`use_minute_data`、`force_reusable_array`、`reads` 和 fingerprint。`prepare-validated-page` 必须把该合同写入 computation capsule；不得把平台已确认的 `"A股市盈率（PE, TTM）〔估值数据〕"` / `"A股净资产收益率ROE"` 缩写成 `PE(TTM)` / `ROE` 后交给 QBV，也不得把多条已验证公式合并成一条新公式。显式合同与 Receipt 不一致、fingerprint 不一致或输出左值不完整时必须失败关闭，不得猜测修复。准备交接 JSON 时，Receipt 已含原始公式就不要在 `validated_roles[].formula` 手抄第二份，也不要在每个 role 重复同一 Receipt；优先在顶层 `validation_receipts` 传一次 Receipt 对象或 Receipt 文件路径字符串，也可以让 `prepare-validated-page` 按同任务全部 `data_id` 自动发现，避免引号转义失败和无效重试。
+13. **先答后建页**：每日/定期复盘、行情监控、画线/画图、执行回测、看 K 线等操作请求，以及已登记的稳定榜单（低 PE + 高 ROE + 选股/排名 + TopN）必须实际执行 `scripts/live_page_routing.py route`，不能把普通 TopN 全部升级为活页。上述操作本身构成活页意图，不要求用户另说“网页”；纯概念解释不建页。上下文中的真实建页意图可传 `--page-requested`，明确不要网页/暂不发布仍优先；不要画图只约束表现形式，不能否决表格型活页。按 [先答后建页](workflows/answer-first.md) 执行：QBS 查询验证后先发完整非终止业务答案，再准备 Capsule/Handoff/Job，默认 `same_turn` 进入 QBV；可靠内部委派是可选分支，不得重复执行。`prepare-validated-page` 接受 `answer_structure`；未传时按首答顺序的 validated_roles 生成保守表格结构。成功后按 next_action 继续，不重复 handoff/prepare。prepare 不是图表或页面完成，QBV 不可访问时必须用本 Skill 的 update 写回返回的 on_unavailable 失败字段，不得留 queued 或假称后台执行。路由/页面失败不撤销正常首答；无中途可见消息能力时如实记录限制。页面路由、权限、同页更新和公开验收仍由 QBV 负责。单资产多标准字段同图、近N日行业排名分别沿专用快路径，快路径也必须先答后准备页面。
+
+14. **QBS→QBV 只复用本轮已经算完的部分，不把 QBV 改成 QBS 专用渲染器**：`create|existing_page` 在 Handoff 前优先运行 `scripts/qbv_computation_capsule.py build @capsule-input.json`，生成 `qbs_computation_capsule_v1`。胶囊必须同时包含用户核心问题/主图意图、资产规范化结果、可复现查询或公式合同及 fingerprint、结果快照或 artifact SHA256、字段映射、结论与验证收据；禁止只交 PNG 或一句总结。 同一业务 role 对应多个已物化结果时可传 `data_ids`；构建器按原顺序展开为 `role__01`、`role__02`…，保留原始 ID 字符串并同步 `required_roles`，禁止 Agent 手工改写或复制 ID。QBV 的 thin adapter 判定 `covered` 时不得重复识别资产或重算相同 role，`partial` 时只补 `missing_roles`，`unusable` 时无损回退原 QBV→QBS bridge；direct/fork/unmatched、ownership、构建、运行时注册、发布和验收仍完全归 QBV。用户直接使用 QBV 的量化建页同样先答；无胶囊时保留原查询能力，已有文件/解读/展示维护例外不变。
+15. **已跑通的公式执行合同必须原样交给 QBV，禁止二次改写**：`runMultiFormulaBatchStream` 成功后，原始执行以 Validation Receipt 的 `execution_contract` 为证，安全页面读取另用 `qbs_formula_runtime_contract_v1`（可能缺省），不可混同，保留 `formulas` 的条数、顺序、完整指标名、引号、`begin_date`、`include_description`、`use_minute_data`、`force_reusable_array`、`reads` 和 fingerprint。`prepare-validated-page` 必须把该合同写入 computation capsule；不得把平台已确认的 `"A股市盈率（PE, TTM）〔估值数据〕"` / `"A股净资产收益率ROE"` 缩写成 `PE(TTM)` / `ROE` 后交给 QBV，也不得把多条已验证公式合并成一条新公式。显式合同与 Receipt 不一致、fingerprint 不一致或输出左值不完整时必须失败关闭，不得猜测修复。准备交接 JSON 时，Receipt 已含原始公式就不要在 `validated_roles[].formula` 手抄第二份，也不要在每个 role 重复同一 Receipt；优先在顶层 `validation_receipts` 传一次 Receipt 对象或 Receipt 文件路径字符串，也可以让 `prepare-validated-page` 按同任务全部 `data_id` 自动发现，避免引号转义失败和无效重试。
 
 ## Fast Path / Leaf workflow 顶部硬闸门（每次进入 leaf 都生效）
 
@@ -378,13 +388,14 @@ SKILL_ROOT/
 | 固定区间累计涨跌幅 | 从A到B、某年某月至某年某月、区间收益、累计涨跌幅、区间表现、多资产区间对比 | `global-rules-lite.md` → `period-return-compare.md` |
 | 数据下载 / 导出本地 CSV | 下载成CSV、导出到本地、保存到本地、下载历史数据 | `global-rules.md` → `recipes/download-data.md`；单资产单字段时序优先 `runMultiFormulaBatchStream` → `downloadData` → `write_skill_file`，禁止 Bash 兜底 |
 | 已物化指标选股 / 维度分或细分指标 TopN / 推荐股票 | 分数最高、综合分最高、维度分，或由已物化细分 score/screen 指标组成的推荐/选出/筛选 TopN | `global-rules.md` → `composition-select.md`（`newSession` → 本地快照匹配或在线目录确认 → `selectByComposition`） |
-| 高频稳定因子榜单：低 PE + 高 ROE TopN | 同时出现低PE/低市盈率、高ROE/高净资产收益率、选股/筛选/排名、TopN/前N；即使没说图表或活页 | `global-rules.md` → `quant-standard.md` 的“高频默认口径”；验证 TopN 后必须实际 route，`create` 时用三个已物化 `data_id` 一次 `prepare-validated-page`，QBS 先答、QBV 后台补链接；明确“只要表格/不要网页”则 `none` |
+| 高频稳定因子榜单：低 PE + 高 ROE TopN | 同时出现低PE/低市盈率、高ROE/高净资产收益率、选股/筛选/排名、TopN/前N；即使没说图表或活页 | `global-rules.md` → `quant-standard.md` 的“高频默认口径”；验证 TopN 后必须实际 route，`create` 时用三个已物化 `data_id` 一次 `prepare-validated-page`，QBS 先答、QBV 同轮完成后补链接；明确不要网页则 `none`，只要表格且无其他建页意图也保持 `none` |
 | 维度指标库查询 / 指标口径与公式 | 平台有哪些维度、XX 维度下有哪些指标、XX 指标怎么算的/口径是什么/公式是什么、想按现成指标改口径 | `tools/dimension_indicators.md`（用 `scripts/call.py` 调 `listDimensionIndicators` → `getIndicatorFormulas`，非平台原生工具；要拿改过的公式跑数再转 `quant-standard.md`） |
-| 量化选股 / 回测 / 因子 / 图表 / 上传下载 | 选股、回测、均线、PE选股、因子、净值、上传CSV、下载数据、画图、多个指标放进同一张图…；或目录无匹配维度、需要临时构造指标/历史曲线/自定义公式 | `global-rules.md` → `quant-standard.md`；任何图表 artifact 在首答前必须实际运行 `live_page_routing.py route`，命中 `create` 后非阻塞交接 QBV |
+| 量化选股 / 回测 / 因子 / 图表 / 上传下载 | 选股、回测、均线、PE选股、因子、净值、上传CSV、下载数据、画图、多个指标放进同一张图…；或目录无匹配维度、需要临时构造指标/历史曲线/自定义公式 | `global-rules.md` → `quant-standard.md`；执行回测、监控、画线或任何图表 artifact 在首答前必须实际运行 `live_page_routing.py route`，命中 `create` 后非阻塞交接 QBV |
 | 直接运行用户给定的公式链文件 | 「运行/跑一遍/执行这个文件里的全部公式」「公式链文件」「formula chain」「按这个 md/json 跑」 | `global-rules.md` → `run-formula-chain.md` |
 | 事件研究 | 复盘、历次、涨价、降息、加息、事件窗口、随后表现、超预期、不及预期、政策后表现…（给定事件或需先识别事件日） | `global-rules.md` → `event-study.md` |
 | 阈值区间统计 / 连续阶段 | 历次、每次、平均、回撤超过、从高点下跌超过、熊市区间、连续阶段、regime | `global-rules.md` → `regime-segmentation.md` |
-| 对外发布公式组 / 做取数页面 / 注册任务包 | 注册公式包、package_id、签名取数、做个能直接打开的页面/看板、前端实时取数、对外只读接口、第三方接入 | `tools/formula_package.md` + `recipes/formula-package.md`（用 `scripts/formula_package.py`，非平台原生工具）|
+| 每日复盘 / 持续监控 / 每天看行业股 | 每日或定期复盘、每天看、监控/盯盘、刷新看板、做个能直接打开的页面 | `global-rules.md` → `quant-standard.md` → `answer-first.md`；先原生查询和完整业务首答，再交 QBV；不进入先注册包的旧流程 |
+| 明确开发接口 / 管理公式任务包 | 用户明确要求注册公式包、package_id、签名取数、对外只读接口或第三方接口接入 | `tools/formula_package.md` + `recipes/formula-package.md`；仅接口管理请求，普通研究看板走上一行；注册前仍须验证公式和运行时频率 |
 
 > 上传、下载、画图不是独立场景——它们是 workflow 内的子步骤，workflow 文档会在需要时指引你读对应的 `recipes/`。
 

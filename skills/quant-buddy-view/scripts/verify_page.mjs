@@ -575,9 +575,13 @@ async function prepareImagesExpression() {
   const managed = verifiableImages.filter(img => /^https:\/\/pages\.quantbuddy\.cn\/pages\/assets\/[^/]+\/asset_[0-9a-f]{24}\.webp(?:[?#].*)?$/i.test(img.currentSrc || img.src || ''));
   const posterTarget = document.querySelector('[data-qb-poster-target]');
   let posterCanvasExportable = managed.length === 0;
-  if (managed.length && document.getElementById('shareBtn')) {
+  const shareTrigger = document.getElementById('shareBtn') || document.getElementById('qbHeaderFallbackShare');
+  const shareApi = window.QBShareShell && typeof window.QBShareShell.open === 'function'
+    ? window.QBShareShell.open.bind(window.QBShareShell) : null;
+  if (managed.length && (shareTrigger || shareApi)) {
     try {
-      document.getElementById('shareBtn').click();
+      if (shareApi) shareApi();
+      else shareTrigger.click();
       const deadline = Date.now() + 10000;
       while (Date.now() < deadline) {
         const preview = document.getElementById('sharePosterImage');
@@ -783,7 +787,7 @@ function pageMetricsExpression() {
         error: window.QB_DATA_RUNTIME.error ? String(window.QB_DATA_RUNTIME.error) : null,
       }
     : null;
-  const failureTextHits = ['未返回可绘制数据', '取数失败', 'CSV 下载失败', 'CSV 解析失败']
+  const failureTextHits = ['未返回可绘制数据', '取数失败', '渲染失败', 'CSV 下载失败', 'CSV 解析失败']
     .filter(token => bodyText.includes(token));
   const loadingTextHits = ['取数中', '数据加载中', '加载中…', '加载中...']
     .filter(token => bodyText.includes(token));

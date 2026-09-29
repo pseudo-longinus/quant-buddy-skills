@@ -1,6 +1,6 @@
 # formula_package — 公式任务包（注册一组公式 → 凭包凭证取数）
 
-包验证、登记和路由统一使用完整 `{formulas, reads, begin_date}`。单批也返回包级证明，不得为绕过收据问题增加公式。已有资源恢复见[已验证资源恢复](../workflows/validated-resource-recovery.md)。
+包验证、登记和路由沿用日频 `{formulas, reads, begin_date}`；分钟执行合同额外保留 `use_minute_data:true` 并产生不同指纹。当前服务端不支持分钟公式包，注册前返回 `MINUTE_PACKAGE_UNSUPPORTED`，不得删字段绕过。详见 [分钟边界](../guides/answer-first.md)。单批也返回包级证明，不得为绕过收据问题增加公式。已有资源恢复见[已验证资源恢复](../workflows/validated-resource-recovery.md)。
 
 > 把一组公式注册成「任务包」，得到 `package_id` + `signature`；之后**无需 API Key**，凭这两个凭证就能反复取数。底层数据更新后服务端自动重算，取数永远拿最新结果。
 > 看板（`build_dashboard`）正是消费这里产出的 `package_id` + `signature`。

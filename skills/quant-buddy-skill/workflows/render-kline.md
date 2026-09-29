@@ -3,7 +3,7 @@
 > **适用范围**：用户明确要求 K 线、蜡烛图、OHLC、开高低收或带成交量的 K 线 artifact。普通“股价、成交量、PE 放在一张图”不是 K 线，必须改走 `visual-page-fast-path.md`。
 > **本流程不提供精确数值**——K 线图是 artifact 交付，不是查数工具；用户只说“看走势/最近走势”且未明确要图片时，应改走 `fast-window.md` 数值走势。
 >
-> **并行活页硬闸门**：明确 K 线/带成交量图属于 `create` 强触发。PNG 验证完成后、展示第一条回答前，必须实际执行 `live_page_routing.py route`；不得只读规则、不得自行口头判定、不得因 PNG 已生成而跳过。`create` 时必须把已经生成的 PNG 作为结构化 artifact，按下方固定 JSON 执行一次 `prepare-validated-page`；该命令会原子生成 Capsule、Handoff 和 QBV Job，成功后禁止再手工执行 `qbv_computation_capsule.py build`、`handoff` 或 `prepare`。随后调用宿主内部子 Agent 委派工具（优先 `spawn_agent`），只等待即时成功回执，不在首答前等待页面完成；不得用 `create_thread/fork_thread` 代替。若宿主没有内部委派工具，必须对返回的 `qbv_job_id` 执行 `mark-delegation-unavailable`，不得遗留 queued Job。用户明确说“只要 PNG / 不要网页 / 不要活页”时仍要执行 route 并得到 `none`；弱“看看走势”走数值窗口，不进入本流程。
+> **先答后建页**：K线图沿原 route 分类；数据/PNG验证后先发送完整非终止首答，再 prepare-validated-page，默认 should_continue 同轮进入 QBV。可选 delegated 只委派一次，禁止重复 prepare 和建页。明确只要PNG/不要网页仍为 none。详见 answer-first.md。
 
 ---
 
@@ -83,11 +83,7 @@
 python scripts/live_page_routing.py prepare-validated-page @output/_working/<task_id>/prepare-page.json
 ```
 
-成功返回 `qbv_job_id + handoff_file + job_file + should_spawn` 后，不得再次执行页面准备命令。没有内部委派工具时立即执行：
-
-```powershell
-python scripts/live_page_routing.py mark-delegation-unavailable --qbv-job-id "<qbv_job_id>"
-```
+成功返回后不重复准备。默认 should_continue 同轮 beginHandoff 并消费 adapter；无委派工具不构成失败。已显式选择 delegated 但无法启动时才调用 mark-delegation-unavailable。首答已交付，随后完成页面并补链接。
 
 ### Backward Recovery
 
@@ -277,10 +273,11 @@ K线图渲染默认走最小闭环：确认资产 → 解析时间 → renderKLi
      - 大段参数回显
    - **禁止用"图已生成"代替实际图片交付**：若无法展示图片也无法提供可访问路径，必须明确告知用户"K 线图渲染暂时无法在当前环境交付"，不得假装已完成
 3. **禁止捏造元数据**：图片说明中不得捏造未从 API 返回的信息（如精确最高价）
+   - 优先原样输出工具返回的 `artifact_markdown`。图片链接必须原样使用工具实际返回且已存在的 `artifact_file` 或宿主实际附件 URI。Windows 路径不能凭空改成 `/mnt/data/...` 或 `sandbox:/mnt/data/...`；未实际复制/上传就不能写新路径。
 4. **禁止替代取数**：用户问精确数值时，不得用 K 线图代替结构化查数流程
 5. **时间窗口必须相对**：基于当前日期计算 begin_date，不硬编码固定日期
 6. **禁止未经工具确认的具体起止日期**：回答中不得出现未从工具返回的精确日期范围（如"2025-10-08至2026-03-31"），除非工具明确返回了这些日期
-7. **交付简洁但完整**：图片 + 一句话说明（含图表内容概述）+ 后续可选操作（调时间/叠指标/查行情），之后立即停止。禁止添加：
+7. **交付简洁但完整**：图片 + 一句话说明（含图表内容概述）+ 后续可选操作（调时间/叠指标/查行情），若 route=none 则停止；已有建页意图时先交付上述图片答案，再按 answer-first.md 继续 QBV。首答禁止添加：
    - "从图中可以看到…"等走势描述
    - 时间范围、数据点数量等技术细节
    - 技术分析、趋势判断、投资建议

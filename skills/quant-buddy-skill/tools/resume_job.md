@@ -18,6 +18,8 @@
 
 此时调用 `resumeJob` 即可续传，等待并获取完整结果（与 `runMultiFormulaBatchStream` 同步模式返回结构完全一致）。
 
+`task_id`、`trace_id` 必须原样复制当前 deferred 响应，不手写、补后缀或换任务。本地返回 `RESUME_CONTEXT_MISMATCH` 且给出唯一 `resume_params` 时，表示尚未提交网络请求；允许按这份精确参数修正一次。若只有多个 `resume_candidates`，回到对应原响应核对，不能任选。服务端 `TASK_NOT_FOUND` 不属于这个本地纠错例外。
+
 ## 调用方式
 
 ```bash

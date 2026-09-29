@@ -46,7 +46,7 @@ python scripts/live_page_routing.py route --user-query "用户本轮原话"
 
 若返回 31 个左右行业，直接排序并回答。行业名称必须原样复用；值乘 100 后显示百分比。口径必须写成：**“个股近 N 日区间收益按申万一级行业做成分股算术平均”**，不得写成指数本身的累计涨幅。
 
-5. `readData` 成功后，直接调用一次低自由度准备命令；不要创建中间 JSON：
+5. `readData` 成功并验证后，先发送下文约定的完整非终止 QBS 首答，然后调用一次低自由度准备命令；不要创建中间 JSON：
 
 ```powershell
 python scripts/live_page_routing.py prepare-industry-ranking-page --data-id "<indexinfo_id>" --index-title "行业近N日涨跌幅" --window-days N --asset-count 31 --as-of-date "<readData 返回 YYYYMMDD>"
@@ -58,17 +58,11 @@ python scripts/live_page_routing.py prepare-industry-ranking-page --data-id "<in
 - 固定行业聚合公式，供页面注册实时刷新合同；
 - 横向排名柱状图、正红负绿、零轴、排序、hover 和口径展示要求。
 
-**终止性规则**：命令 `code=0` 后禁止再次执行 `handoff`、`prepare`、`prepare-validated-page` 或第二次页面准备；也禁止再调用 `renderChart`。
+**准备幂等规则（不是结束本轮）**：命令 `code=0` 后不重复 `handoff/prepare`，也不调用 `renderChart`。必须继续步骤 6；prepare 仅准备交接，没有生成图或页面。
 
-6. `should_spawn=true` 时，使用宿主真实提供的内部委派能力把返回的 `handoff_file` 与 `qbv_job_id` 交给独立 QBV SOP，只等待接受回执，不等待页面完成。用户可见表述只能说“正在后台生成可交互页面”，不要说“新开一个子 Agent”。
+6. 默认返回 should_continue=true：当前 Agent 读取 QBV Skill，beginHandoff 后按 adapter 复用已物化结果，同轮完成页面并补链接。无内部委派工具不算失败。只有另行明确选择 delegated 且 should_spawn=true 才真实委派；不得同时同轮建页。页面失败保留首答并写回失败终态。
 
-若当前测试宿主没有内部委派工具，必须执行：
-
-```powershell
-python scripts/live_page_routing.py mark-delegation-unavailable --qbv-job-id "<qbv_job_id>"
-```
-
-此失败只影响页面旁路，不影响 QBS 排名答案；不得假称页面正在生成。
+宿主没有暴露 QBV 或拒绝访问时，使用当前 QBS 的 `python scripts/live_page_routing.py update @failure.json`；JSON 合并准备结果的 `qbv_job_id` 与 `on_unavailable`。确认返回 failed 后再回复页面未完成。不得将 queued 说成“图已生成”或假设会自动后台执行。本文件只读限制仅限 QBS 取数阶段，不禁止首答后读取 QBV 入口。
 
 ## QBS 首答
 
@@ -90,7 +84,7 @@ python scripts/live_page_routing.py mark-delegation-unavailable --qbv-job-id "<q
 | `runMultiFormulaBatchStream` | 1 |
 | `readData` | 1 |
 | 页面准备 Bash | 1 |
-| 内部委派或失败终态 Bash | 1 |
+| 同轮交接（或可选委派） | 1 |
 | **目标总调用** | **7～8** |
 
 任何成功角色不得重复调用。目标是 QBS 先快速回答，QBV 只消费现有 `data_id`，绝不重跑相同公式。

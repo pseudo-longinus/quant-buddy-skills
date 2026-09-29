@@ -20,6 +20,8 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
+from answer_structure import structure_from_roles
+from task_context import adopt_host_context, host_managed_lifecycle, TaskContextError
 
 from qbv_computation_capsule import (
     ComputationCapsuleError,
@@ -91,9 +93,17 @@ def _resolve_prepare_lineage(
     supplied = {
         "task_id": _compact_text(task_id),
         "turn_id": _compact_text(turn_id),
-        "user_query": _compact_text(user_query),
+        # Receipt lineage binds the original question, including internal whitespace.
+        "user_query": str(user_query or "").strip(),
     }
     supplied_intent = _normalize_agent_intent(agent_intent)
+    if host_managed_lifecycle():
+        try:
+            # Host identity uses the original question, not routing whitespace normalization.
+            host = adopt_host_context({**supplied, "user_query": str(user_query or "").strip()})
+        except TaskContextError as exc:
+            raise LivePageRoutingError(exc.code, exc.message) from exc
+        return host['task_id'], host['turn_id'], host['user_query'], supplied_intent
     if all(supplied.values()):
         if agent_intent is not None:
             return supplied["task_id"], supplied["turn_id"], supplied["user_query"], supplied_intent
@@ -106,7 +116,7 @@ def _resolve_prepare_lineage(
         session_matches = (
             _compact_text(session.get("task_id")) == supplied["task_id"]
             and _compact_text(session.get("current_turn_id") or session.get("turn_id")) == supplied["turn_id"]
-            and _compact_text(session.get("current_user_query") or session.get("user_query")) == supplied["user_query"]
+            and str(session.get("current_user_query") or session.get("user_query") or "").strip() == supplied["user_query"]
         )
         inherited_intent = _normalize_agent_intent(session.get("current_agent_intent")) if session_matches else None
         return supplied["task_id"], supplied["turn_id"], supplied["user_query"], inherited_intent
@@ -114,7 +124,7 @@ def _resolve_prepare_lineage(
     session_values = {
         "task_id": _compact_text(session.get("task_id")),
         "turn_id": _compact_text(session.get("current_turn_id") or session.get("turn_id")),
-        "user_query": _compact_text(session.get("current_user_query") or session.get("user_query")),
+        "user_query": str(session.get("current_user_query") or session.get("user_query") or "").strip(),
     }
     session_intent = _normalize_agent_intent(session.get("current_agent_intent"))
     for field, explicit in supplied.items():
@@ -141,11 +151,15 @@ class LivePageRoutingError(ValueError):
 _EXPLICIT_STATIC_PATTERNS = (
     "只要png", "只要 png", "仅png", "仅 png", "png就行", "png 就行",
     "本地图片", "不要网页", "不要页面", "不需要网页", "不需要活页", "不要活页",
-    "只发图片", "只要图片", "导出图片", "不要画图", "不用画图", "不需要图",
-    "无需图", "只要表格", "仅要表格", "只看表格",
+    "只发图片", "只要图片", "导出图片",
 )
+_NO_PAGE_RE = re.compile(
+    r"(?:不要|不用|不需要|无需|不必|暂不|暂时不|先不|不)(?:(?:再|做|制作|生成|创建|发布|公开|分享|到|发到|发)\s*)*(?:网页|页面|活页|外网)|"
+    r"(?:不|不要|不用|无需)(?:公开|发布)(?=[，,。；;！？\s]|$)", re.I,
+)
+_TABLE_ONLY_PATTERNS = ("只要表格", "仅要表格", "只看表格", "只用表格")
 _EXPLICIT_NO_VISUAL_RE = re.compile(
-    r"(?:不要|不用|不需要|无需)[^。！？\n]{0,20}(?:画|绘制|生成|做)?[^。！？\n]{0,20}(?:图表|图|曲线)",
+    r"(?:不要|不用|不需要|无需)(?:再|任何|生成|绘制|画|做|看|展示|显示|加|的|\s)*(?:图表|图|曲线)",
     re.IGNORECASE,
 )
 _STRONG_VISUAL_PATTERNS = (
@@ -166,6 +180,41 @@ _HIGH_RISK_PATTERNS = (
     "持仓", "仓位", "成本价", "持仓成本", "买入成本", "买入价", "股数", "持股数量",
     "止损", "止盈", "减仓", "加仓", "调仓", "自动化规则", "自动交易", "触发条件",
 )
+_REAL_STATE_PATTERNS = (
+    "我的持仓", "实际持仓", "真实持仓", "实盘", "账户", "成本价", "持仓成本",
+    "我的仓位", "买入成本", "买入价", "股数", "持股数量", "自动交易", "自动下单", "自动化规则",
+)
+_CONCEPT_RE = re.compile(
+    r"什么是|是什么|什么意思|怎么理解|如何理解|(?:解释|讲解|介绍).*(?:原理|含义|区别|曲线|图|回测)|"
+    r"(?:指标|方法)有哪些|(?:怎样|如何|怎么).*(?:画|做|回测|监控)|只(?:解释|讲)|先讲方法", re.I,
+)
+_SCENARIO_RES = (
+    ("recurring_review", re.compile(r"(?:每日|每天|每周|每月|定期|收盘后|盘后).{0,16}复盘|复盘.{0,12}(?:每日|每天|每周|每月|定期)")),
+    ("monitoring", re.compile(r"监控|监测|盯盘|盯一下|持续跟踪|长期跟踪")),
+    ("backtest", re.compile(r"回测|历史模拟")),
+    ("chart_annotation", re.compile(r"(?:画|绘制|标出|标注|添加|加一条).{0,20}(?:线|买卖点|信号)|画线")),
+)
+
+
+def _action_clauses(query: str) -> str:
+    """Discard explanation-only / negated action clauses, retaining mixed requests.
+
+    This deterministic fallback is not a general semantic parser. The agent can
+    pass page_requested for contextual actions, but cannot override a page opt-out.
+    """
+    clauses = re.split(r"[，,。；;！？\n]|然后|并且|同时", query)
+    return "，".join(clause for clause in clauses if clause.strip()
+                    and not _CONCEPT_RE.search(clause)
+                    and not re.search(r"(?:不要|不用|不需要|无需|暂不|先不)(?:再)?(?:监控|监测|盯盘|回测|画线)", clause))
+
+
+def _needs_persistence_confirmation(query: str, actions: str) -> bool:
+    # Historical strategy parameters are not a real account or executable order.
+    if _match_any(query, _REAL_STATE_PATTERNS):
+        return True
+    if "回测" in actions or "历史模拟" in actions:
+        return False
+    return _match_any(query, _HIGH_RISK_PATTERNS)
 _PAGE_REFERENCE_HINTS = ("page_id", "page id", "活页链接", "这个活页", "现有活页", "已有活页")
 _VISUAL_COMPOSITION_RES = (
     re.compile(r"(?:画|绘制)(?:成|为)?(?:一张|同一张|同一个)?[^。！？\n]{0,48}(?:图表|图|曲线)", re.IGNORECASE),
@@ -195,7 +244,7 @@ def _match_any(text: str, patterns: Iterable[str]) -> bool:
 
 
 def _is_explicit_static_request(text: str) -> bool:
-    return _match_any(text, _EXPLICIT_STATIC_PATTERNS) or bool(_EXPLICIT_NO_VISUAL_RE.search(text))
+    return _match_any(text, _EXPLICIT_STATIC_PATTERNS) or bool(_NO_PAGE_RE.search(text))
 
 
 def _is_explicit_visual_request(text: str) -> bool:
@@ -236,34 +285,38 @@ def route_live_page(
     user_query: Any,
     page_reference: Any = None,
     persistence_confirmed: bool = False,
+    page_requested: bool = False,
 ) -> Dict[str, Any]:
     """Return a deterministic QBS-side routing decision.
 
-    The classifier is deliberately conservative: ordinary analysis remains in
-    QBS; only explicit visual/page capabilities create a page automatically.
+    Execution requests for recurring review, monitoring, charts and backtests
+    imply a page. Explanations and explicit delivery opt-outs do not.
     """
     query = _compact_text(user_query)
+    if type(page_requested) is not bool:
+        raise LivePageRoutingError('INVALID_PAGE_INTENT', 'page_requested 必须是 boolean，来自真实建页意图')
+    if _is_explicit_static_request(query):
+        return {'route': 'none', 'route_reason': ['static_image_only'],
+                'page_reference': None, 'requires_persistence_confirmation': False}
+    actions = _action_clauses(query)
+    if not actions and not page_requested:
+        return {'route': 'none', 'route_reason': ['explanation_only'],
+                'page_reference': None, 'requires_persistence_confirmation': False}
     reference = normalize_page_reference(page_reference) or extract_page_reference(query)
+    high_risk = _needs_persistence_confirmation(query, actions)
     if reference:
         return {
-            "route": "existing_page",
-            "route_reason": ["existing_page_reference"],
+            "route": "suggest" if high_risk and not persistence_confirmed else "existing_page",
+            "route_reason": ["existing_page_reference"] + (["persistence_confirmation_required"] if high_risk and not persistence_confirmed else []),
             "page_reference": reference,
-            "requires_persistence_confirmation": False,
+            "requires_persistence_confirmation": high_risk and not persistence_confirmed,
         }
 
-    if _is_explicit_static_request(query):
-        return {
-            "route": "none",
-            "route_reason": ["static_image_only"],
-            "page_reference": None,
-            "requires_persistence_confirmation": False,
-        }
-
-    high_risk = _match_any(query, _HIGH_RISK_PATTERNS)
-    strong_visual = _is_explicit_visual_request(query)
-    strong_page = _match_any(query, _STRONG_PAGE_CAPABILITIES)
-    durable_factor_screen = _is_durable_factor_screen(query)
+    scenarios = [name for name, pattern in _SCENARIO_RES if pattern.search(actions)]
+    no_visual = bool(_EXPLICIT_NO_VISUAL_RE.search(query)) or _match_any(query, _TABLE_ONLY_PATTERNS)
+    strong_visual = not no_visual and _is_explicit_visual_request(actions)
+    strong_page = page_requested or _match_any(actions, _STRONG_PAGE_CAPABILITIES) or bool(scenarios)
+    durable_factor_screen = not no_visual and _is_durable_factor_screen(actions)
 
     # "看看走势/分析走势" is intentionally weak unless the user also names a
     # concrete chart/page capability caught above.
@@ -287,6 +340,7 @@ def route_live_page(
             reasons.append("durable_interactive_page")
         if durable_factor_screen:
             reasons.append("structured_factor_screening_ranking")
+        reasons.extend(scenarios)
         if high_risk and not persistence_confirmed:
             reasons.append("persistence_confirmation_required")
             return {
@@ -329,7 +383,7 @@ def _required_id(name: str, value: Any) -> str:
 
 
 def _required_text(name: str, value: Any) -> str:
-    text = _compact_text(value)
+    text = str(value or "").strip() if name == "user_query" else _compact_text(value)
     if not text:
         raise LivePageRoutingError(f"{name.upper()}_REQUIRED", f"{name} 不能为空")
     return text
@@ -654,13 +708,33 @@ class _RegistryLock:
             pass
 
 
+def _delivery_state(record, *, continue_now=False, spawn_now=False):
+    ready = (record.get('status') == 'completed' and record.get('published') is True
+             and record.get('public_verified') is True and bool(record.get('public_url')))
+    return {
+        'page_delivery_ready': ready,
+        'next_action': ('deliver_verified_link' if ready else
+                        'continue_qbv_same_turn' if continue_now else
+                        'delegate_qbv_once' if spawn_now else 'inspect_existing_job'),
+        'on_unavailable': {'status': 'failed', 'failure_code': 'QBV_SKILL_UNAVAILABLE', 'retryable': True},
+        'continuation_instruction': (
+            'prepare 仅准备交接，未生成图或页面。现在读取宿主已提供的 QBV Skill 并执行 Handoff；'
+            '若 QBV 未安装或宿主禁止访问，立即用本 Skill 的 live_page_routing.py update '
+            '写回 qbv_job_id 加 on_unavailable 字段，然后说明页面未完成。'
+            '禁止在 queued/running 状态声称图已生成、后台已启动或链接将自动回推。'),
+    }
+
+
 def prepare_qbv_job(
     handoff: Any,
     *,
     target_skill_id: Any = None,
     job_dir: Any = None,
     retry_failed: bool = False,
+    execution_mode: str = 'same_turn',
 ) -> Dict[str, Any]:
+    if execution_mode not in {'same_turn', 'delegated'}:
+        raise LivePageRoutingError('INVALID_EXECUTION_MODE', 'execution_mode 仅支持 same_turn/delegated')
     valid = validate_qbv_handoff(handoff)
     key = idempotency_key_for(valid)
     root = _job_root(job_dir)
@@ -692,9 +766,14 @@ def prepare_qbv_job(
                 })
                 _atomic_write_json(handoff_path, valid)
                 _atomic_write_json(job_path, existing)
-                return {**existing, "created": False, "reused": True, "should_spawn": True,
+                return {**existing, "created": False, "reused": True,
+                        **_delivery_state(existing, continue_now=existing.get('execution_mode', 'delegated') == 'same_turn',
+                                          spawn_now=existing.get('execution_mode', 'delegated') == 'delegated'),
+                        "should_spawn": existing.get('execution_mode', 'delegated') == 'delegated',
+                        "should_continue": existing.get('execution_mode', 'delegated') == 'same_turn',
                         "handoff_file": str(handoff_path), "job_file": str(job_path)}
-            return {**existing, "created": False, "reused": True, "should_spawn": False,
+            return {**existing, "created": False, "reused": True, "should_spawn": False, "should_continue": False,
+                    **_delivery_state(existing),
                     "handoff_file": str(handoff_path), "job_file": str(job_path)}
 
         target = _compact_text(target_skill_id) or None
@@ -714,6 +793,7 @@ def prepare_qbv_job(
             "route": valid["route"],
             "normalized_page_reference": normalize_page_reference(valid.get("page_reference")),
             "status": "queued",
+            "execution_mode": execution_mode,
             "delegation_tool": None,
             "delegation_id": None,
             "spawn_run_id": None,
@@ -736,7 +816,9 @@ def prepare_qbv_job(
         }
         _atomic_write_json(handoff_path, valid)
         _atomic_write_json(job_path, record)
-        return {**record, "created": True, "reused": False, "should_spawn": True,
+        return {**record, "created": True, "reused": False,
+                **_delivery_state(record, continue_now=execution_mode == 'same_turn', spawn_now=execution_mode == 'delegated'),
+                "should_spawn": execution_mode == 'delegated', "should_continue": execution_mode == 'same_turn',
                 "handoff_file": str(handoff_path), "job_file": str(job_path)}
 
 
@@ -777,7 +859,15 @@ def _artifact_summary(artifact_file: Path) -> Dict[str, Any]:
             "kind": "fast_query_pairwise_analysis",
             "pairwise_analysis": payload["pairwise_analysis"],
         })
-    return {"row_count": row_count, "validation_receipts": receipts}
+    sources = payload.get('sources', []) if isinstance(payload, dict) else []
+    dates = []
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        window = source.get('date_range')
+        if isinstance(window, list) and len(window) == 2 and window[1]:
+            dates.append(str(source.get('label') or '字段') + ': ' + str(window[1]))
+    return {"row_count": row_count, "validation_receipts": receipts, 'as_of': '; '.join(dates) or '未核验'}
 
 
 def prepare_fast_query_page(
@@ -796,14 +886,17 @@ def prepare_fast_query_page(
     job_dir: Any = None,
     target_skill_id: Any = None,
     retry_failed: bool = False,
+    answer_structure: Any = None,
+    page_requested: bool = False,
+    execution_mode: str = "same_turn",
 ) -> Dict[str, Any]:
     """Create a hash-bound capsule, Handoff, and idempotent QBV Job in one call.
 
     This is the narrow adapter for a single-asset, multi-field ``fast_query``
     visual request.  It does not run any QBV page SOP and does not wait for page
-    generation; it only prepares the independent Job for delegation.
+    generation; it prepares the Job for same-turn continuation or optional delegation.
     """
-    route_result = route_live_page(user_query)
+    route_result = route_live_page(user_query, page_requested=page_requested)
     if route_result["route"] != "create":
         raise LivePageRoutingError(
             "FAST_QUERY_PAGE_REQUIRES_CREATE",
@@ -873,6 +966,10 @@ def prepare_fast_query_page(
         validated_outputs=[validated_output],
         validated_insights=[],
         validation_receipts=artifact_meta["validation_receipts"],
+        answer_structure=answer_structure if answer_structure is not None else structure_from_roles([
+            {'role': 'main_series', 'title': asset_name_text + '历史数据',
+             'description': 'fast_query 原始历史字段：' + ', '.join(field_list),
+             'as_of': artifact_meta['as_of'], 'unit': '各字段原单位'}]),
     )
     handoff = build_qbv_handoff(
         task_id=task_id,
@@ -892,6 +989,7 @@ def prepare_fast_query_page(
         target_skill_id=target_skill_id,
         job_dir=job_dir,
         retry_failed=retry_failed,
+        execution_mode=execution_mode,
     )
     return {
         **job,
@@ -919,6 +1017,9 @@ def prepare_validated_page(
     validated_insights: Any = None,
     validation_receipts: Any = None,
     formula_runtime_contract: Any = None,
+    answer_structure: Any = None,
+    page_requested: bool = False,
+    execution_mode: str = 'same_turn',
     source_skill_id: Any = None,
     target_skill_id: Any = None,
     job_dir: Any = None,
@@ -942,6 +1043,7 @@ def prepare_validated_page(
         user_query,
         page_reference=page_reference,
         persistence_confirmed=bool(persistence_confirmed),
+        page_requested=page_requested,
     )
     requested_route = _compact_text(route) or route_result["route"]
     if route_result.get("requires_persistence_confirmation"):
@@ -987,6 +1089,7 @@ def prepare_validated_page(
         validated_insights=validated_insights,
         validation_receipts=effective_validation_receipts,
         formula_runtime_contract=formula_runtime_contract,
+        answer_structure=answer_structure,
     )
     handoff = build_qbv_handoff(
         task_id=task_id,
@@ -1009,6 +1112,7 @@ def prepare_validated_page(
         target_skill_id=target_skill_id,
         job_dir=job_dir,
         retry_failed=bool(retry_failed),
+        execution_mode=execution_mode,
     )
     artifacts = [
         {
@@ -1029,6 +1133,9 @@ def prepare_validated_page(
         "validation_receipt_count": len(capsule["validation_receipts"]),
         "validation_receipt_discovery": receipt_discovery,
         "formula_runtime_contract_attached": bool(capsule.get("formula_runtime_contract")),
+        "formula_execution_contracts": capsule.get('formula_execution_contracts', []),
+        "answer_structure_status": capsule.get('answer_structure_status', 'absent'),
+        "answer_structure": capsule.get('answer_structure'),
         **(
             {"discovered_validation_receipt_file": discovered_receipt_file}
             if discovered_receipt_file
@@ -1055,6 +1162,9 @@ def prepare_industry_ranking_page(
     target_skill_id: Any = None,
     job_dir: Any = None,
     retry_failed: bool = False,
+    answer_structure: Any = None,
+    page_requested: bool = False,
+    execution_mode: str = "same_turn",
 ) -> Dict[str, Any]:
     """Prepare a deterministic QBV handoff from an already materialized industry ranking.
 
@@ -1111,6 +1221,17 @@ def prepare_industry_ranking_page(
     if as_of_date_value:
         role["date"] = as_of_date_value
 
+    if answer_structure is None:
+        # The narrow workflow answers strongest/weakest five from one complete
+        # industry cross-section. Preserve those two blocks and the full source.
+        answer_structure = {'schema_version': 'qbs_answer_structure_v1', 'blocks': [
+            {'id': name, 'type': 'ranking', 'title': title,
+             'role_refs': ['industry_aggregation_ranking'], 'insight_refs': [],
+             'as_of': as_of_date_value or '未核验', 'unit': '收益率（小数，展示乘100为%）',
+             'methodology': role['description'], 'update_mode': 'historical',
+             'rank_order': order, 'rank_limit': 5}
+            for name, title, order in [('leaders', '最强五个行业', 'desc'), ('laggards', '最弱五个行业', 'asc')]]}
+
     return prepare_validated_page(
         task_id=task_id,
         turn_id=turn_id,
@@ -1131,6 +1252,9 @@ def prepare_industry_ranking_page(
             },
         },
         validated_roles=[role],
+        answer_structure=answer_structure,
+        page_requested=page_requested,
+        execution_mode=execution_mode,
         asset_resolution={
             "universe": "申万一级行业",
             "asset_count": asset_count_value,
@@ -1346,6 +1470,10 @@ def _read_route_params(args: list[str]) -> Dict[str, Any]:
     index = 2
     while index < len(args):
         flag = args[index]
+        if flag == '--page-requested':
+            params['page_requested'] = True
+            index += 1
+            continue
         if flag == "--persistence-confirmed":
             params["persistence_confirmed"] = True
             index += 1
@@ -1359,6 +1487,29 @@ def _read_route_params(args: list[str]) -> Dict[str, Any]:
         raise LivePageRoutingError("INVALID_ROUTE_ARGUMENT", f"不支持的 route 参数: {flag}")
     return params
 
+
+
+def _read_update_params(args: list[str]) -> Dict[str, Any]:
+    if not args or not args[0].startswith('--'):
+        return _read_params(args)
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument('--qbv-job-id', required=True)
+    parser.add_argument('--status', required=True, choices=sorted(JOB_STATUSES))
+    for field in ('job-dir', 'failure-code', 'target-skill-id', 'delegation-tool',
+                  'delegation-id', 'spawn-run-id', 'child-session-key', 'source-page-id',
+                  'target-page-id', 'public-url'):
+        parser.add_argument('--' + field)
+    for field in ('retryable', 'published', 'public-verified'):
+        parser.add_argument('--' + field, nargs='?', const='true', choices=('true', 'false'))
+    parser.add_argument('--worker-timeout-seconds', type=int)
+    try:
+        params = {k: v for k, v in vars(parser.parse_args(args)).items() if v is not None}
+    except SystemExit as exc:
+        raise LivePageRoutingError('INVALID_UPDATE_ARGUMENT', 'update 接受 JSON/@file 或 --qbv-job-id ID --status STATUS') from exc
+    for field in ('retryable', 'published', 'public_verified'):
+        if field in params:
+            params[field] = params[field] == 'true'
+    return params
 
 
 def _read_job_id_params(args: list[str]) -> Dict[str, Any]:
@@ -1389,6 +1540,8 @@ def _read_prepare_fast_query_params(args: list[str]) -> Dict[str, Any]:
     parser.add_argument("--fields", required=True)
     parser.add_argument("--window-days", required=True, type=int)
     parser.add_argument("--artifact-file", required=True)
+    parser.add_argument("--page-requested", action="store_true")
+    parser.add_argument("--execution-mode", choices=['same_turn', 'delegated'], default='same_turn')
     parser.add_argument("--job-dir")
     parser.add_argument("--target-skill-id")
     parser.add_argument("--retry-failed", action="store_true")
@@ -1407,6 +1560,8 @@ def _read_prepare_industry_ranking_params(args: list[str]) -> Dict[str, Any]:
     parser.add_argument("--index-title", required=True)
     parser.add_argument("--window-days", required=True, type=int)
     parser.add_argument("--asset-count", required=True, type=int)
+    parser.add_argument("--page-requested", action="store_true")
+    parser.add_argument("--execution-mode", choices=['same_turn', 'delegated'], default='same_turn')
     parser.add_argument("--as-of-date")
     parser.add_argument("--formula")
     parser.add_argument("--task-id")
@@ -1439,6 +1594,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     try:
         params = (
             _read_route_params(argv) if command == "route"
+            else _read_update_params(argv) if command == 'update'
             else _read_prepare_fast_query_params(argv) if command == "prepare-fast-query-page"
             else _read_prepare_industry_ranking_params(argv) if command == "prepare-industry-ranking-page"
             else _read_job_id_params(argv) if command in {"mark-delegation-unavailable", "expire-stale"}
@@ -1448,7 +1604,10 @@ def main(argv: Optional[list[str]] = None) -> int:
             result = route_live_page(
                 params.get("user_query"), params.get("page_reference"),
                 bool(params.get("persistence_confirmed", False)),
+                page_requested=params.get('page_requested', False),
             )
+            result['artifact_base_dir'] = Path(__file__).resolve().parents[1].as_posix()
+            result['artifact_delivery_instruction'] = 'write_skill_file返回output/...相对路径时，交付链接需加上artifact_base_dir，保留原文件名，不猜其他工作区路径；原生render工具优先直接用artifact_markdown。'
         elif command == "handoff":
             # Be idempotent for callers that accidentally pass an already-built
             # handoff file back to this command. Revalidate it instead of leaking
@@ -1475,6 +1634,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                 target_skill_id=params.get("target_skill_id"),
                 job_dir=params.get("job_dir"),
                 retry_failed=bool(params.get("retry_failed", False)),
+                execution_mode=params.get('execution_mode', 'same_turn'),
             )
         elif command == "update":
             fields = dict(params)

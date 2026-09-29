@@ -92,12 +92,23 @@ def prepare(sp, params):
         record = {'version': VERSION, 'task_id': plan['task_id'], 'page_id': plan['target_page_id'],
                   'plan_hash': plan['plan_hash'], 'turn_id': turn, 'base': base,
                   'html_file': str(path), 'html_sha256': candidate_hash, 'runtime_digest': runtime}
+        if params.get('recover_runtime_evidence'):
+            mapping = params.get('receipt_path_map', {})
+            if not isinstance(mapping, dict) or any(not isinstance(k, str) or not isinstance(v, str) for k, v in mapping.items()):
+                raise EP.PlanError('MAINTENANCE_RECEIPT_MAP_INVALID', '收据映射必须是原路径到本地路径的对象')
+            record['receipt_path_map'] = mapping
         digest = EP.digest(record)
         receipt = C.task_temp_path(plan['task_id'], 'receipts/maintenance/' + digest + '.json', create_parent=True)
         EP.atomic_json(receipt, record)
         publish = {k: v for k, v in params.items() if not k.startswith('_')}
         publish.update(maintenance_mode='presentation', maintenance_receipt_file=str(receipt),
-                       maintenance_receipt_sha256=digest, html_file=str(path), plan_hash=plan['plan_hash'])
+                       maintenance_receipt_sha256=digest, html_file=str(path), plan_hash=plan['plan_hash'], turn_id=turn)
+        if params.get('recover_runtime_evidence'):
+            import runtime_route
+            recovered = runtime_route.bind(publish)
+            publish.update(route_receipt_file=recovered['route_receipt_file'], live_data_mode='live',
+                           validation_receipt_files=[r['receipt_file'] for r in recovered['selected_routes'] if r['kind'] == 'formula'],
+                           grant_validation_receipt_files=[r['receipt_file'] for r in recovered['selected_routes'] if r['kind'] != 'formula'])
         publish_path = path.parent / ('maintenance-publish-' + digest[:12] + '.json')
         EP.atomic_json(publish_path, publish)
         return {'code': 0, 'terminal': False, 'page_id': plan['target_page_id'], 'base': base,

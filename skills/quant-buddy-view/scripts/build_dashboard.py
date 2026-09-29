@@ -31,7 +31,7 @@ r"""
           "transform": "line/bar 可选 cumulative_return_pct | drawdown_pct",
           "x":      "line/bar 横轴字段名（数据为对象数组时）",
           "y":      ["line/bar 纵轴字段名，可多条"],
-          "value_field": "number 取值字段（缺省取首个数值）",
+          "value_field": "number 取值字段（也支持单一 y 字段；都未指定时兼容末个数值列）",
           "unit":   "number 单位（可选）",
           "description": "面板说明（可选）",
           "span":   "full | wide | auto（可选，默认按类型决定）",
@@ -512,19 +512,30 @@ function lastRealNumber(tab, ci) {
   }
   return null;
 }
-function renderNumber(el, tab, panel) {
-  let val = null;
-  const f = panel.value_field;
-  if (f && colIdx(tab, f) != null) {
-    val = lastRealNumber(tab, colIdx(tab, f));
-  } else {
-    // 默认取「最后一个数值列」的末个有效值：对 range_data 的 [日期, 序列] 形态即取序列值，
-    // 不再用 .find(第一个数字) 误命中日期列。末列若全空则向前回退到其它数值列。
-    for (let c = tab.columns.length - 1; c >= 0; c--) {
-      val = lastRealNumber(tab, c);
-      if (val != null) break;
-    }
+function numberPanelValue(tab, panel) {
+  // A number panel may use the same single-series selector as its chart.
+  // Never replace an explicitly requested field with a different metric.
+  let field = panel.value_field;
+  if (!field && panel.y != null) {
+    const fields = Array.isArray(panel.y) ? panel.y : [panel.y];
+    if (fields.length !== 1 || typeof fields[0] !== 'string' || !fields[0])
+      throw new Error('number 面板需要唯一 value_field 或 y 字段');
+    field = fields[0];
   }
+  if (field) {
+    const ci = colIdx(tab, field);
+    if (ci == null) throw new Error('number 面板取值字段不存在：' + field);
+    return lastRealNumber(tab, ci);
+  }
+  // 未指定字段的旧面板兼容末个数值列；显式选择不能进入此回退。
+  for (let c = tab.columns.length - 1; c >= 0; c--) {
+    const val = lastRealNumber(tab, c);
+    if (val != null) return val;
+  }
+  return null;
+}
+function renderNumber(el, tab, panel) {
+  const val = numberPanelValue(tab, panel);
   const desc = panel.description ? '<div class="desc">' + esc(panel.description) + '</div>' : '';
   el.innerHTML = '<div class="big' + (panel.color_by === 'sign' ? clsForNumber(val) : '') + '">' + (val == null ? '—' : fmt(val)) + (panel.unit ? '<span class="unit">' + esc(panel.unit) + '</span>' : '') + '</div>' + desc;
 }
@@ -633,6 +644,7 @@ function renderChart(el, tab, panel) {
     const i = colIdx(tab, c);
     return i != null && tab.rows.some(r => typeof r[i] === 'number');
   });
+  if (xi == null || !yCols.length) throw new Error('图表缺少有效横轴或数值系列');
   // 双轴：panel.right_series 声明哪些列（= 多 output 面板里的 output 名）归右轴，其余归左轴；
   // 未声明 right_series 或 dual_axis!==true 时行为与单轴完全一致（向后兼容默认关闭）。
   const rightSet = new Set(Array.isArray(panel.right_series) ? panel.right_series : []);
@@ -709,8 +721,8 @@ function panelOutputNames(panel) {
 
 // 把一个面板依赖的若干 output 合并成一张表：单 output 时行为与老版本完全一致（直接 normalize）；
 // 多 output 时各自 normalize 成 [x,y] 两列，再按 x（日期）外连接拼成宽表，喂给 renderChart 出多条线。
-function mergeOutputTables(names, received, labels = {}, panelType = '') {
-  if (names.length <= 1) {
+function mergeOutputTables(names, received, labels = {}, panelType = '', fields = {}) {
+  if (names.length <= 1 && !names.some(name => fields[name])) {
     const out = names.length ? received[names[0]] : null;
     if (!out || out.error) return {tab: null, out: out || {error: '无产出'}};
     return {tab: normalize(out.data), out: null};
@@ -738,14 +750,23 @@ function mergeOutputTables(names, received, labels = {}, panelType = '') {
     }));
     return {tab:{columns:['代码','名称',...names.map(name=>labels[name] || name)], rows:[...assets.values()].map(row=>[row.asset,row.name,...names.map(name=>row.values[name] ?? null)])},out:null};
   }
-  const perOutput = names.map(name => {
+  let fieldError = null;
+  const perOutput = names.flatMap(name => {
     const out = received[name];
-    if (!out || out.error) return null;
+    if (!out || out.error) return [];
     const tab = normalize(out.data);
-    if (!tab.rows.length) return null;
-    const yi = tab.columns.length > 1 ? 1 : 0;
-    return {name: name, rows: tab.rows.map(r => [r[0], r[yi]])};
+    if (!tab.rows.length) return [];
+    const selected = fields[name] || {};
+    const xi = selected.x ? tab.columns.indexOf(selected.x) : 0;
+    const ys = selected.y ? (Array.isArray(selected.y) ? selected.y : [selected.y]) : [tab.columns[tab.columns.length > 1 ? 1 : 0]];
+    if (xi < 0 || ys.some(y => !tab.columns.includes(y))) {
+      fieldError = '叠加系列字段不存在: ' + name + ' / ' + [selected.x, ...ys].join(', ');
+      return [];
+    }
+    return ys.map(y => ({name: selected.y ? ((labels[name] && ys.length === 1) ? labels[name] : y) : (labels[name] || name),
+      rows: tab.rows.map(r => [r[xi], r[tab.columns.indexOf(y)]])}));
   });
+  if (fieldError) return {tab: null, out: {error: fieldError}};
   if (perOutput.every(s => !s)) return {tab: null, out: {error: '无产出'}};
   const byX = new Map();
   const order = [];
@@ -756,12 +777,13 @@ function mergeOutputTables(names, received, labels = {}, panelType = '') {
       byX.get(x)[s.name] = y;
     });
   });
-  const columns = ['x'].concat(names);
+  const columns = ['x'].concat(perOutput.map(s => s.name));
+  if (new Set(columns).size !== columns.length) return {tab:null, out:{error:'叠加系列名称重复'}};
   const rows = order.map(x => {
     const cell = byX.get(x);
     return columns.map(c => c === 'x' ? x : (c in cell ? cell[c] : null));
   });
-  return {tab: {columns: columns.map(name => labels[name] || name), rows: rows}, out: null};
+  return {tab: {columns: columns, rows: rows}, out: null};
 }
 
 function createCard(panel) {
@@ -884,7 +906,7 @@ function applyOutput(name, out) {
     // Bound prose is committed only after this complete fetch epoch finishes.
     if (reg.panel.binding) return;
     if (!reg.names.every(n => Object.prototype.hasOwnProperty.call(reg.received, n))) return;
-    const merged = mergeOutputTables(reg.names, reg.received, reg.panel.output_labels, reg.panel.type);
+    const merged = mergeOutputTables(reg.names, reg.received, reg.panel.output_labels, reg.panel.type, reg.panel.output_fields);
     if (reg.names.length === 1 && (reg.panel.type || 'table') === 'raw') merged.rawData = out.data;
     renderPanelBody(reg.body, reg.panel, reg.span, merged);
     reg.filled = true;
@@ -1097,15 +1119,9 @@ function panelDisplayValue(panel) {
   if (!out || out.error) return '—';
   const tab = normalize(out.data);
   if (!tab.rows.length) return '—';
-  let value = null;
-  if (panel.value_field && colIdx(tab, panel.value_field) != null) {
-    value = lastRealNumber(tab, colIdx(tab, panel.value_field));
-  } else {
-    for (let c = tab.columns.length - 1; c >= 0; c--) {
-      value = lastRealNumber(tab, c);
-      if (value != null) break;
-    }
-  }
+  let value;
+  const selector = panel.type === 'number' ? panel : {value_field: panel.value_field};
+  try { value = numberPanelValue(tab, selector); } catch (_) { return '—'; }
   return value == null ? '—' : fmt(value) + (panel.unit ? ' ' + panel.unit : '');
 }
 
@@ -2306,11 +2322,16 @@ def _build_authorized(params):
         plan = EP.load(task_id)
         if plan and (params.get("upload") or params.get("update_page_id")):
             EP.require(task_id, page_id=str(params.get("update_page_id") or plan["target_page_id"]))
-            publish_params = {key: params[key] for key in ("title", "description", "live_data_mode", "market_data_required", "route_receipt_file", "validation_receipt_files", "grant_validation_receipt_files", "page_context", "agent_reply_template") if key in params}
+            publish_params = {key: params[key] for key in ("title", "description", "asset", "turn_id", "live_data_mode", "market_data_required", "route_receipt_file", "validation_receipt_files", "grant_validation_receipt_files", "page_context", "agent_reply_template") if key in params}
             publish_params.update(task_id=task_id, page_id=plan["target_page_id"], html_file=out_file, plan_hash=plan["plan_hash"])
+            if not str(publish_params.get("description") or "").strip():
+                panel_titles = [str(panel.get("title") or panel.get("output") or panel.get("type") or "") for panel in panels]
+                publish_params["description"] = str(params.get("title") or "研究看板") + "；内容包括：" + "、".join(panel_titles) + "。"
+            if result["data_mode"] == "live":
+                publish_params.setdefault("live_data_mode", "live")
             if result["data_mode"] in ("snapshot", "mixed"):
                 publish_params["live_data_mode"] = "verified_snapshot" if result["data_mode"] == "snapshot" else "mixed"
-            publish_path = C.task_temp_path(task_id, "dashboard-publish-params.json", create_parent=True)
+            publish_path = os.path.join(C.SKILL_ROOT, "output", "_working", C.safe_task_id(task_id), "dashboard-publish-params.json")
             EP.atomic_json(publish_path, publish_params)
             result.update(terminal=False, page_id=plan["target_page_id"],
                           next_action={"command": "publish_verified", "params_file": str(publish_path)},

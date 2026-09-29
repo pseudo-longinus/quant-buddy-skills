@@ -304,6 +304,9 @@ def cmd_add_series(params):
     for k in ("intents", "begin_date", "ttl_days"):
         if params.get(k) is not None:
             register_body[k] = params[k]
+    for k in ("task_id", "validation_receipt_file", "use_minute_data"):
+        if params.get(k) is not None:
+            register_body[k] = params[k]
     reg = FP.cmd_register(register_body)
     if reg.get("code") != 0:
         return {"code": 1, "message": "新增系列的公式包注册失败（只含这条新线的公式，与页面上其它系列无关）",
@@ -325,6 +328,14 @@ def cmd_add_series(params):
             raise _ChartEditError("PANEL_NOT_FOUND", f"未找到面板: {panel_sel}")
         panel = boot["panels"][idx]
         names = _panel_output_names(panel)
+        # A grant may contain several fields. Preserve the original chart's
+        # source selectors before switching to the joined output schema.
+        if len(names) == 1 and not panel.get("output_fields"):
+            selectors = {k: panel[k] for k in ("x", "y") if panel.get(k)}
+            if selectors:
+                panel["output_fields"] = {names[0]: selectors}
+                panel["x"] = "x"
+                panel.pop("y", None)
         if output_name not in names:
             names.append(output_name)
         panel["outputs"] = names
@@ -391,6 +402,11 @@ def cmd_remove_series(params):
         elif len(names) == 1:
             panel["output"] = names[0]
             panel.pop("outputs", None)
+            if panel.get("output_fields"):
+                selectors = panel.pop("output_fields").get(names[0], {})
+                panel.pop("x", None)
+                panel.pop("y", None)
+                panel.update(selectors)
         else:
             panel["outputs"] = names
         boot["panels"] = panels
@@ -494,6 +510,9 @@ def cmd_set_window(params):
     begin_date_int = int(_fmt_date(requested_start).replace("-", ""))
 
     register_body = {"formulas": pkg["formulas"], "reads": [read_entry], "begin_date": begin_date_int}
+    for k in ("task_id", "validation_receipt_file", "use_minute_data"):
+        if params.get(k) is not None:
+            register_body[k] = params[k]
     if params.get("ttl_days") is not None:
         register_body["ttl_days"] = params["ttl_days"]
     reg = FP.cmd_register(register_body)

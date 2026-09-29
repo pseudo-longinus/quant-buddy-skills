@@ -4,6 +4,7 @@ import os
 import re
 import tempfile
 from datetime import datetime, timezone
+from formula_execution_contract import SCHEMA as EXECUTION_SCHEMA, normalize_execution_contract
 
 
 VERSION = "qb_validation_receipt_v1"
@@ -173,6 +174,15 @@ def _formula_runtime_contract(tool_name, params):
     return contract
 
 
+def _execution_contract(tool_name, params):
+    if tool_name != 'runMultiFormulaBatchStream' or not isinstance(params, dict):
+        return None
+    try:
+        return normalize_execution_contract({**params, 'schema_version': EXECUTION_SCHEMA})
+    except ValueError:
+        return None
+
+
 def _runtime_formulas_by_output(runtime_contract):
     if not isinstance(runtime_contract, dict):
         return {}
@@ -272,6 +282,9 @@ def build_receipt(tool_name, params, payload):
     runtime_contract = _formula_runtime_contract(tool_name, params)
     if runtime_contract is not None:
         receipt["runtime_contract"] = runtime_contract
+    execution_contract = _execution_contract(tool_name, params)
+    if execution_contract is not None:
+        receipt['execution_contract'] = execution_contract
     return _bind_receipt_outputs_to_runtime(receipt)
 
 
@@ -344,19 +357,60 @@ def _record_deferred_runtime_contract(tool_name, params, payload):
     if tool_name != "runMultiFormulaBatchStream" or not _is_deferred(payload):
         return None
     contract = _formula_runtime_contract(tool_name, params)
+    execution = _execution_contract(tool_name, params)
     task_id, trace_id = _continuation_ids(params, payload)
-    if contract is None or not task_id or not trace_id:
+    if (contract is None and execution is None) or not task_id or not trace_id:
         return None
     context = {
         "version": CONTINUATION_CONTEXT_VERSION,
         "task_id": task_id,
         "trace_id": trace_id,
         "runtime_contract": contract,
+        "execution_contract": execution,
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
     }
     path = _continuation_path(task_id, trace_id)
     _write_json_atomic(path, context, ".continuation-")
     return path
+
+
+def validate_resume_context(params):
+    """Reject a mistyped continuation when this task has persisted evidence.
+
+    Unknown tasks remain compatible with continuations started on another host.
+    Multiple recorded traces are never reduced to a guessed latest task.
+    """
+    task_id = str(params.get("task_id") or "").strip()
+    trace_id = str(params.get("trace_id") or "").strip()
+    if not task_id:
+        return None
+    contexts = []
+    try:
+        paths = os.listdir(_continuation_root())
+    except OSError:
+        return None
+    for name in paths:
+        if not name.endswith('.json'):
+            continue
+        try:
+            with open(os.path.join(_continuation_root(), name), encoding='utf-8') as handle:
+                context = json.load(handle)
+        except (OSError, ValueError):
+            continue
+        if (isinstance(context, dict) and context.get('version') == CONTINUATION_CONTEXT_VERSION
+                and context.get('task_id') == task_id and context.get('trace_id')):
+            contexts.append(context)
+    if not contexts or any(c['trace_id'] == trace_id for c in contexts):
+        return None
+    candidates = [{'task_id':task_id, 'trace_id':c['trace_id'], 'since':str(params.get('since','0'))}
+                  for c in contexts]
+    error = {'code':1, 'success':False, 'task_id':task_id,
+             'error':{'code':'RESUME_CONTEXT_MISMATCH',
+                      'message':'trace_id与本任务原始deferred返回不一致；只复用返回的续传参数，禁止重新提交公式。'},
+             'query_submitted':False, 'resume_candidates':candidates}
+    if len(candidates) == 1:
+        error['resume_params'] = candidates[0]
+    return error
 
 
 def _load_deferred_runtime_contract(tool_name, params, payload):
@@ -379,6 +433,23 @@ def _load_deferred_runtime_contract(tool_name, params, payload):
     return contract if _runtime_contract_is_valid(contract) else None
 
 
+def _load_deferred_execution_contract(tool_name, params, payload):
+    if tool_name != 'resumeJob':
+        return None
+    task_id, trace_id = _continuation_ids(params, payload)
+    if not task_id or not trace_id:
+        return None
+    try:
+        with open(_continuation_path(task_id, trace_id), encoding='utf-8') as handle:
+            context = json.load(handle)
+        if (context.get('version') != CONTINUATION_CONTEXT_VERSION or
+                context.get('task_id') != task_id or context.get('trace_id') != trace_id):
+            return None
+        return normalize_execution_contract(context.get('execution_contract'))
+    except (OSError, ValueError, TypeError, AttributeError):
+        return None
+
+
 def write_receipt(tool_name, params, payload):
     params = params or {}
     _record_deferred_runtime_contract(tool_name, params, payload)
@@ -389,11 +460,18 @@ def write_receipt(tool_name, params, payload):
         runtime_contract = _load_deferred_runtime_contract(tool_name, params, payload)
         if runtime_contract is not None:
             receipt["runtime_contract"] = runtime_contract
+    if 'execution_contract' not in receipt:
+        execution = _load_deferred_execution_contract(tool_name, params, payload)
+        if execution is not None:
+            receipt['execution_contract'] = execution
     _bind_receipt_outputs_to_runtime(receipt)
     root = _receipt_root()
     os.makedirs(root, exist_ok=True)
     task_hash = hashlib.sha256(receipt["task_id"].encode("utf-8")).hexdigest()[:16]
-    filename = f"{task_hash}-{receipt['outputs_sha256'][:16]}.json"
+    # Same output ids can be returned for different execution modes. Do not
+    # overwrite the original evidence with a later daily/minute invocation.
+    execution_hash = receipt.get('execution_contract', {}).get('contract_fingerprint', '')[-16:]
+    filename = f"{task_hash}-{receipt['outputs_sha256'][:16]}{('-' + execution_hash) if execution_hash else ''}.json"
     path = os.path.join(root, filename)
     _write_json_atomic(path, receipt, ".receipt-")
     return path

@@ -207,6 +207,9 @@ def cmd_register(params):
         contract = PC.normalize(params)
     except (ValueError, TypeError) as exc:
         return {'code': 1, 'error': 'PREFLIGHT_FAILED', 'message': str(exc)}
+    capability_error = PC.registration_capability_error(contract)
+    if capability_error:
+        return capability_error
     endpoint, api_key = _config(require_key=True)
     body = dict(contract)
     for k in ("intents", "begin_date", "ttl_days"):

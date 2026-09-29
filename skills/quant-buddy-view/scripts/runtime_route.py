@@ -17,6 +17,16 @@ def bind(params):
     if context.get('turn_id') and context['turn_id'] != turn:
         raise EP.PlanError('ROUTE_TURN_MISMATCH', '轮次与当前Trace身份不一致')
     plan = EP.require(task, page_id=params.get('page_id'), plan_hash=params.get('plan_hash'))
+    # Historical evidence may only be re-attested for a currently authorized,
+    # verified presentation-only maintenance candidate. Never rewrite originals.
+    recovery = None
+    if params.get('maintenance_mode'):
+        import maintenance_candidate as MC
+        import static_page as SP
+        recovery = MC.validate(SP, params, plan)
+    path_map = (recovery or {}).get('receipt_path_map', {})
+    def resolve_path(path):
+        return path_map.get(str(path), path)
     scope = params.get('target_scope', plan['target_scope'])
     if scope != plan['target_scope'] or scope.get('kind') == 'unspecified':
         raise EP.PlanError('ROUTE_SCOPE_MISMATCH', '先在执行计划中声明目标范围')
@@ -26,13 +36,16 @@ def bind(params):
     selected = []
     for role in roles:
         record = RC.verify_binding(task, role['kind'], role.get('package_id') or role.get('grant_id'), role.get('contract_fingerprint', ''))
-        receipt_path = role.get('validation_receipt_file')
-        proof = RC._proof(task, role['contract_fingerprint'], receipt_path, required=True)
+        original_path = role.get('validation_receipt_file')
+        receipt_path = resolve_path(original_path)
+        proof = RC._proof(task, role['contract_fingerprint'], receipt_path, required=True, resolve_path=resolve_path)
         registered_proof = record.get('validation_receipt') or {}
-        if registered_proof != proof:
+        same_original = (recovery is not None and registered_proof.get('file') == original_path
+                         and registered_proof.get('sha256') == proof['sha256'])
+        if registered_proof != proof and not same_original:
             raise EP.PlanError('ROUTE_RECEIPT_MISMATCH', '必须使用注册时核验的原始收据')
         receipt = json.loads(Path(receipt_path).read_text(encoding='utf-8'))
-        if receipt.get('turn_id') and receipt['turn_id'] != turn:
+        if receipt.get('turn_id') and receipt['turn_id'] != turn and recovery is None:
             raise EP.PlanError('ROUTE_TURN_MISMATCH', '验证收据属于其他轮次')
         contract = record['contract']
         if EP.digest(contract) != role['contract_fingerprint']:
@@ -65,7 +78,7 @@ def bind(params):
                        **({'asset': route['asset']} if route.get('asset') else {}),
                        'validation_receipt_files': [x['receipt_file'] for x in selected if x['kind'] == 'formula'],
                        'grant_validation_receipt_files': [x['receipt_file'] for x in selected if x['kind'] != 'formula']}
-    error = SP._validate_live_receipts(evidence_params, route)
+    error = SP._validate_live_receipts(evidence_params, route, resolve_path=resolve_path)
     if error:
         raise EP.PlanError(error['error'], error['message'])
     path = C.task_temp_path(task, 'live_data_route_receipts/bound-' + EP.digest(route) + '.json', create_parent=True)

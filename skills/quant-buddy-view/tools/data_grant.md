@@ -22,6 +22,12 @@
 
 ## 发布链路能力预检
 
+`resolve_asset_data` 发现可选字段不可用时，会保留限制说明，移除该字段并重新验证精简后的合同，再生成注册参数与收据；必需字段缺失仍阻断。普通完整合同不重复查数。不能把首次探测的收据绑定到改动后的合同。
+
+`resolve_asset_data` 成功返回的每个 `grants[]` 已含当前合同的验证收据、`registration_params_file` 和 `registration_command`。先发送业务首答并完成模板/页面路由，再执行该注册命令；不修改生成文件，不再次调用 `validate_grant_set`。原样把 `publication_evidence` 合并进看板 spec；它保留实际资产、路由及所有验证收据。
+
+只有新增或改动的合同才用 `qbs_bridge.py validate_grant_set`，结构为 `{"task_id":"当前任务","user_query":"用户原话","grants":[{"name":"snapshot","contract":{"kind":"fast_query","payload":{"assets":["已确认资产"],"query_type":"snapshot","fields":["close"],"result_mode":"value"}}}]}`。新合同省略 `contract_fingerprint`，由脚本计算；若显式提供则必须精确匹配，否则联网前拒绝。成功后直接用返回的注册文件，不能自己生成或复制旧指纹。
+
 Grant类型由共同能力表约束注册、Fork合同及qbs_bridge。`validate_grant_set`会在查询前聚合结构/类型/fingerprint错误，返回errors[]；不要只处理首个失败角色。
 
 单日 `fast_query_minute` Grant使用专用验证器检查共享dates/fields对齐、必需字段、交易日期、时区、排序及有效数值；正常空结果属于数据不可用，不能生成成功收据。仅支持当前/最近完整交易日，不能传历史日期、区间或多资产参数；历史研究不要继承与目标需求无关的分钟角色。

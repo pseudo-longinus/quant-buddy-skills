@@ -1,4 +1,4 @@
-# QBS → QBV 并行活页路由
+# QBS → QBV 先答后建页路由
 
 > 本文只定义 **QBS 何时交接**、Handoff 合同和后台 Job 边界。页面范式、direct/fork/unmatched、页面归属、复制、发布、Card Runtime 与公网验收全部由 `quant-buddy-view` 的现有 SOP 决定。
 
@@ -6,17 +6,13 @@
 
 已有 JPG/PNG、HTML、PDF 等文件 + 活页化意图（含研究改造复合需求），先进入 QBV `workflows/existing-file-static-first.md`，先静态托管、验收并交付链接，再查数增强。此路径不等待本轮计算、图表分类器、Handoff 或 computation capsule；保留同一 task_id/turn_id 和后续 page_id/URL。下述“先完成查询/计算”的通用顺序不适用于首次静态交付。文件分析但不要求发布、明确暂不发布不触发。
 
-## 1. 不阻塞原则
+## 1. 先答后继续
 
-- QBS 必须先完成本轮查询、计算、校验并准备好正常答案；QBV 失败不得撤销、覆盖或延迟这些业务结果。
-- `route=create|existing_page` 时，QBS 必须使用宿主提供的**内部子 Agent 委派工具**启动独立 QBV 子任务，优先使用 `spawn_agent`；仅当宿主实际提供其他等价内部委派工具时才使用该工具。
-- 委派调用只等待“已接受/已创建子 Agent”的即时回执，**不得在 QBS 第一条回答前等待页面生成完成**。
-- 只有拿到真实委派回执，第一条回答末尾才可写“正在生成活页，完成后补充链接”；委派能力不可用或调用失败时必须把 Job 写为失败，但仍正常返回 QBS 答案，不得假称已开始生成。
-- 子 Agent 完成后，父 Agent 或宿主回调向原用户、原任务追加第二条消息；不得另开用户可见任务代替回推。
+查询、计算和验证完成后，先通过非终止消息发送完整业务答案；再准备 Handoff/Job、执行 QBV。详见 [先答后建页](answer-first.md)。首答之前不查模板、不注册包、不生成页面。默认 same_turn；只有可靠内部委派和回推能力真实存在时才选 delegated。页面失败不影响已交付答案。宿主仅显示最终消息时记录首答可见性未验证，正常完成原任务，不假称后台运行。
 
 ## 2. 强制执行闸门
 
-凡用户要求任何图表 artifact，QBS 在业务数据/静态图验证完成后、发送第一条回答前，必须实际执行分类器。**读取本文、生成 PNG 或模型自行判断均不算完成路由。**
+凡用户要求每日/定期复盘、监控、画线、执行回测、查看 K 线或任何图表 artifact，QBS 在业务数据/静态图验证完成后、发送第一条回答前，必须实际执行分类器。**读取本文、生成 PNG 或模型自行判断均不算完成路由。**
 
 ```powershell
 python scripts/live_page_routing.py route --user-query "用户本轮原话"
@@ -36,11 +32,17 @@ Windows / PowerShell 优先使用上面的 `--user-query` 形式，避免内联 
 
 ## 3. 四种 QBS 路由
 
+先区分“执行任务”与“解释概念”：看 K 线、执行回测、每日复盘、监控行情、画支撑线属于操作；什么是 K 线、解释回测原理、如何理解复盘只回答。混合请求保留实际操作部分。已有页面只读解读继续原入口，不进入修改流程。
+
+先记录活页意图，再选择 QBS 取数 workflow；快查只是计算路径，不能清除建页意图。分类器使用原始 user_query；上下文已经明确操作但表达被省略时，由当前 Agent 同次理解后传 page_requested=true，不增加一次模型调用，不伪造用户原话。route 与 prepare 必须传相同的 page_requested、page_reference、persistence_confirmed；明确不要网页或暂不发布不能被 page_requested 覆盖。多轮原位修改传原 page_reference，QBV 仍检查归属与更新权限。
+
+“不要画图、只要表格”是呈现约束，不是禁止建页；没有其他活页意图的普通表格查询仍只回答。只要本地图片/PNG 或明确不要网页优先不建页。
+
 | route | 条件 | QBS 动作 |
 |---|---|---|
 | `none` | 一次性查数、普通分析、弱“看看走势”、用户只要 PNG/本地图片 | 直接回答，不交接 |
 | `suggest` | 有持续复用价值但结构不稳定；或页面依赖未经确认的高风险状态 | 直接回答并询问/建议，确认前不入队 |
-| `create` | 明确 K 线/分时/收益净值回撤曲线/多资产对比/指标曲线/排名图/热力图/动态看板；明确可刷新、可交互、可分享、持续跟踪；或命中“低PE高ROE选股 TopN”这类已确认高频且结构稳定的因子榜单 | 正常回答，同时准备并启动 QBV Job |
+| `create` | 每日/定期复盘、行情监控/盯盘、画线、执行回测，以及明确 K 线/分时/收益净值回撤曲线/多资产对比/指标曲线/排名图/热力图/动态看板；明确可刷新、可交互、可分享、持续跟踪；或命中“低PE高ROE选股 TopN”这类已确认高频且结构稳定的因子榜单 | 先正常回答，再准备并执行 QBV Job |
 | `existing_page` | 用户给出 `page_id`、活页链接或明确修改已有活页 | 正常回答，把页面引用交给 QBV；QBS 不判断归属 |
 
 
@@ -52,12 +54,12 @@ Windows / PowerShell 优先使用上面的 `--user-query` 形式，避免内联 
 
 - 仅对同时出现“低PE/低市盈率/低估值”与“高ROE/高净资产收益率/高盈利”，并明确“选股/筛选/排名 + TopN/前N”的表达生效。
 - 普通一次性条件选股仍为 `none`；不能因为结果是列表就自动建页。
-- 用户明确“只要表格/不要网页/不需要活页”时优先 `none`。
+- 用户明确“不要网页/不需要活页”时优先 `none`；本榜单未表达其他活页意图且只要表格时也保持 `none`，已有建页意图不能被表格偏好清除。
 - QBS 必须先完成 TopN 文本答案和验证；QBV 只复用结构化结果生成增值页面。
 
 ## 4. 高风险持久状态
 
-以下状态可用于本轮临时计算，但未经用户确认不得写入活页：
+历史回测的模拟仓位、止损止盈阈值、交易成本属于策略参数，不是用户真实账户状态，不因这些词单独要求持久化确认。实际账户信息与自动执行动作不能借“回测”一词豁免。以下真实状态可用于本轮临时计算，但未经用户确认不得写入活页：
 
 - 持仓、仓位、成本价、买入价、股数；
 - 止损、止盈、加减仓、调仓条件；
@@ -70,6 +72,8 @@ Windows / PowerShell 优先使用上面的 `--user-query` 形式，避免内联 
 3. 用户明确确认后再以 `persistence_confirmed=true` 重新分类并准备 Job。
 
 ## 5. Handoff 合同
+
+优先使用 `prepare-validated-page` 从真实 `validated_roles` 与 receipt 构建胶囊；`contract` 必须是对象。以下完整 schema 用于理解/读取，不应手写空胶囊替代计算。手工 HTML 的 `artifact_file` 保留写入工具返回的 `output/...`，不猜测另一 Skill 根目录。
 
 QBS 只能生成 `create` 或 `existing_page` Handoff：
 
@@ -112,6 +116,19 @@ QBS 只能生成 `create` 或 `existing_page` Handoff：
 
 
 ### 5.1 计算胶囊（优先）
+
+除 answer_structure 的阅读顺序外，page_intent 应保留本轮具体操作要求。复用已有对象字段，不从首答自然语言反推：
+
+| 场景 | page_intent 中应保留的要求 |
+|---|---|
+| 每日/定期复盘 | recommended_page_type=recurring_review；requirements 中记录资产范围、观察窗口、比较基准 |
+| 监控 | recommended_page_type=monitoring；requirements 中记录指标、实际数据频率、用户给定阈值与更新需求 |
+| 画线/K线 | recommended_page_type=annotated_chart；requirements 中记录周期、复权、线条定义或坐标；手动画线不得擅自承诺永久保存 |
+| 回测 | recommended_page_type=backtest_performance；requirements 中记录样本区间、策略参数、成本、基准与所需曲线 |
+
+requirements 为可选说明对象，缺失的内容不猜测；公式/数据的权威来源仍是 validated_contracts 与验证收据。展示偏好可写 presentation（如 table_only），它不改变计算合同。answer_structure 可省略或兼容旧版，不能因此丢弃 page_intent 中的已请求能力。
+
+监控页面取数不等于后台定时任务、通知或自动交易；只按实际支持并验证的能力交付。历史回测默认保留样本截止日与参数，不未经请求改成持续滚动重算。范围已明确则直接执行；缺失关键资产或策略定义才澄清，不能只因用户没说“网页”而询问是否建页。
 
 真实用户示例：
 
@@ -209,7 +226,7 @@ python scripts/live_page_routing.py prepare-validated-page @output/_working/<tas
 3. 自动生成 contract fingerprint、artifact SHA256 与 receipt SHA256；
 4. 构造 `qbs_computation_capsule_v1` 和 `qbs_qbv_handoff_v1`；
 5. 创建或复用幂等 `qbs_qbv_job_v1`；
-6. 返回 `should_spawn/qbv_job_id/handoff_file/job_file/computation_coverage`。
+6. 返回 `execution_mode/should_continue/should_spawn/qbv_job_id/handoff_file/job_file/computation_coverage`。
 
 `validation_receipt_file` 可包含单个 object、array，或 `{ "validation_receipts": [...] }`；若其中出现 `task_id/turn_id/user_query` 或 `lineage`，必须与当前 Turn 一致。`required_roles` 可以多于 `validated_roles`，用于明确让 QBV Adapter 返回 `partial` 并只补 `missing_roles`，不得伪造已覆盖 role。
 
@@ -219,7 +236,7 @@ python scripts/live_page_routing.py prepare-validated-page @output/_working/<tas
 
 **低 PE 高 ROE Top20 固定交接**：该场景必须把 QBS 已物化结果拆成六个 `validated_roles`：`ranking_top10`、`ranking_next10`、`pe_top10`、`pe_next10`、`roe_top10`、`roe_next10`，每个 `row_count=10`，并让 `required_roles` 使用同一集合。顶层只引用一次本轮 Validation Receipt；Receipt 中的精确公式合同必须包含 11 条 Top10/Next10 公式和六个 `last_day_stats` reads。QBV Adapter 命中后应返回 `coverage=covered`、`qbs_action=skip`、`formula_runtime_action=register_exact`，不得再次调用 QBS 重算。页面端合并两段、按 Score 降序得到 20 行；标题、分享标题和元数据统一使用“A股低PE高ROE选股 Top20”，不得继承模板中的单只股票名称。
 
-**终止性规则**：`prepare-validated-page` 返回 `code=0` 后，Capsule、Handoff 和 Job 已全部生成。禁止再次执行 `qbv_computation_capsule.py build`、`handoff`、`prepare` 或第二次不同参数的页面准备；只消费返回的 `should_spawn` 和文件路径进行真实内部子 Agent 委派。
+**终止性规则**：`prepare-validated-page` 返回 `code=0` 后，Capsule、Handoff 和 Job 已全部生成。禁止再次执行 `qbv_computation_capsule.py build`、`handoff`、`prepare` 或第二次不同参数的页面准备；只消费执行标志和文件路径：should_continue 同轮进入 QBV；should_spawn 才真实委派，二者互斥。
 
 ## 7. Job 与幂等
 
@@ -240,15 +257,20 @@ task_id + turn_id + route + normalized_page_reference
 
 `prepare` 返回：
 
-- `should_spawn=true`：本次负责启动子 Agent；
-- `should_spawn=false`：已有 queued/running/completed 或不可重试失败 Job，禁止重复建页；
+- `should_continue=true`：本次在同轮进入 QBV；
+- `should_spawn=true`：本次负责启动已选择的内部委派；
+- 两个标志都为 false：已有任务，读取状态，禁止重复建页或换执行模式；
 - `qbv_job_id`、`handoff_file`、`job_file`：交给子 Agent 和审计。
 
 Job 状态：`queued → running → completed | failed`。相同 Turn 的网络重试必须复用原 Job。仅 `failed + retryable=true` 且显式 `retry_failed=true` 时允许重试原 Job。
 
-## 8. 子 Agent 委派模板
+## 8. 执行模式
 
-当 `should_spawn=true` 时：
+默认 execution_mode=same_turn：should_continue=true 时当前 Agent 读取 QBV Skill，beginHandoff 后调用 adapter 并继续完整 SOP；不要求委派工具。adapter 自动标记 running，发布或失败写回终态。首答已经发出，最终补链接或失败原因。prepare 可显式传 execution_mode=delegated，重试沿用首次模式。
+
+### 可选内部委派模板
+
+只有已发送首答、显式选择 delegated 且 `should_spawn=true` 时：
 
 1. 检查当前宿主实际提供的**内部子 Agent 委派工具**，优先使用 `spawn_agent`。兼容宿主若只提供 `sessions_spawn` 等同类内部工具，可以使用真实存在的工具，但不得把某个工具名写死为唯一实现。
 2. **不得使用 `create_thread`、`fork_thread` 或其他用户可见的新任务能力代替子 Agent**；它们会改变用户任务边界，也不能证明会向原任务回推第二条消息。
@@ -272,7 +294,7 @@ Job 状态：`queued → running → completed | failed`。相同 Turn 的网络
 ```
 
 5. 委派工具返回成功回执后，把 Job 更新为 `running`，记录实际 `delegation_tool/delegation_id`；为兼容旧宿主，也可额外记录 `spawn_run_id/child_session_key`。`target_skill_id` 仅在宿主或子 Agent 确知真实 QBV skill_id 时填写，禁止猜测。进入 `running` 时 Job 会记录 `started_at/expires_at`。
-6. 获得委派成功回执后立即发送 QBS 第一条完整答案，不等待子 Agent完成。父 Agent不得重复执行已经委派给子 Agent的 QBV SOP。
+6. 委派发生在完整首答之后；取得回执后不再重复首答。父 Agent不得重复执行已经委派给子 Agent的 QBV SOP。
 7. Worker 的成功终态必须包含真实 `target_skill_id + target_page_id + public_url + published=true + public_verified=true`；缺任一项时 `update completed` 会被拒绝。
 8. 父 Agent或真实编排宿主必须在 `expires_at` 后执行 watchdog：`python scripts/live_page_routing.py expire-stale --qbv-job-id "<qbv_job_id>"`。它会把仍为 `queued/running` 的 Job 写成可重试失败。Skill 仓库只提供确定性 watchdog，不伪装自己拥有生产后台调度器。
 9. 子 Agent终态由父 Agent或宿主回调投递到同一用户、同一任务；成功补充公开链接，失败补充简短失败状态。
@@ -283,7 +305,7 @@ Worker 完成公网验收后的终态写回示例：
 python scripts/live_page_routing.py update '{"qbv_job_id":"<id>","status":"completed","target_skill_id":"<真实QBV skill_id>","target_page_id":"page_xxx","public_url":"https://pages.quantbuddy.cn/...","published":true,"public_verified":true}'
 ```
 
-委派工具不存在或调用失败时，必须执行低自由度终态命令：
+仅已选择 delegated 但委派工具不存在或调用失败时，执行低自由度终态命令（same_turn 不适用）：
 
 ```powershell
 python scripts/live_page_routing.py mark-delegation-unavailable --qbv-job-id "<qbv_job_id>"

@@ -10,12 +10,15 @@
 
 ## 前置
 
+- 新增均线/指标或扩大计算范围时，先 QBS 验证并向用户发完整非终止业务答案（结果、实际日期、单位、口径），再调用写入命令；本工具成功后的链接是第二次交付。直接读取本工具文档、已有页面或恢复会话均不豁免。仅删除/展示裁剪/样式修改沿维护例外。
+
 - 只能编辑**自己的**页面：底层复用 `static_page.py download`/`update`，归属由 `config.json` 的 `api_key`
   认定；不是自己的页面会透传服务端 `FORBIDDEN`，不要重试，转 fork。
 - 只能编辑**本次改动之后生成**的页面（有 `QBV_RENDER_JS_START/END` marker）。更早生成的页面 `inspect`
   会返回 `"legacy": true`，落回 `workflows/dashboard-end-to-end.md` 的整页重建。
 - 新公式必须先在 quant-buddy-skill 用 `runMultiFormulaBatchStream` 跑通确认出数，才能传给 `add_series` /
   `set_window` 注册——这条硬门槛和 `formula_package.py register` 一致，`chart_edit.py` 不会替你跳过。
+- 计划任务还须传对应新合同的 `validation_receipt_file`（及当前 `task_id`），由 `qbs_bridge.py validate_package_set` 返回；已有同合同有效收据直接复用。`add_series` 与扩窗 `set_window` 将其原样交给注册门禁，不能用 QBS 执行收据冒充注册校验收据，也不能删除任务上下文绕过校验。
 
 ## 子命令
 

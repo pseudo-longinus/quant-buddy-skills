@@ -2,15 +2,15 @@
 name: quant-buddy-view
 slug: quant-buddy-view
 author: guanzhao
-version: 0.6.81
+version: 0.6.82
 description: |
   将量化分析或已有 JPG/PNG、HTML、PDF 发布为 Quant Buddy 可分享活页或实时看板，并支持创建、更新、复用、验收和公开链接交付。适用于个股画像、估值财务、指数异动、多因子筛选、商品日报、模板、分享壳及卡片等页面。
   用户提供 QuantBuddy 活页 URL 并要求解读时也使用。显式调用 /quant-buddy-view、/qbv、qbv 或 QBV，且请求并非纯咨询、代码维护或文档解释时，默认按可分享活页任务处理。
-  不用于一次性行情、涨跌幅或估值问答，以及选股、回测探索；除非用户明确要求生成可复用或可分享页面，此类请求应使用 quant-buddy-skill。
+  不用于一次性行情、涨跌幅、估值或概念解释。每日/定期复盘、行情监控、画线画图、执行回测、查看K线等操作请求默认具有活页意图，先由QBS完成验证与业务首答再交接本技能；明确不要网页时只回答。
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 0.6.81
+  version: 0.6.82
   author: guanzhao
   category: quant-finance
   tags: [quant, dashboard, formula-package, static-page, publish, visualization]
@@ -65,10 +65,12 @@ runtimeRequirements:
 
 # quant-buddy-view · 量化看板发布
 
-把「已验证的量化数据与公式」沉淀成一个**公开可分享、实时取数**的网页看板/落地页。本技能不做一次性行情查询或回测探索；默认执行路线是：
+把「已验证的量化数据与公式」沉淀成一个**公开可分享、实时取数**的网页看板/落地页。一次性行情与概念解释由 QBS 回答；执行回测、每日复盘、监控、画线画图和看 K 线默认先 QBS 后本技能，不要求用户另说“做网页”。默认执行路线是：
 > **已有文件交付例外（含增强后版本）**：本流程链接统一称“可分享活页”，不强制称“实时”；数据状态另外如实说明。file_prepare 可恢复流程的原始静态版验收后立即交付，不套用终态“实时活页”固定结尾，也不调用要求terminal=true的终态回复validator；说明静态性质并继续已授权增强。feishu-group使用playground链接。
 
 > **feishu-group 渠道**：打包渠道为 `feishu-group` 时，direct/fork/unmatched/update 等所有分支禁止发送非终态链接；终态 contract 统一把 `pages.quantbuddy.cn/pages/<owner>/<page_id>.html` 转成 `www.quantbuddy.cn/playground/<owner>/<page_id>`，内部发布与验收仍使用原始托管 URL。
+
+**量化建页时序**：除已有文件托管、只读解读、纯展示维护外，先按 [答案结构建页](guides/answer-first.md) 完成 QBS 查询并发完整非终止首答，随后才执行下述快页/模板/建页路线。此顺序也适用于 new_asset_page 快页；不能让页面验收阻塞首答。
 
 **最高优先级：既有活页解读。** 用户给出 `pages.quantbuddy.cn/pages/...` 的 QuantBuddy 活页 URL，且意图是“解读 / 分析当前活页 / 看这页数据”时，先且只运行：
 
@@ -81,8 +83,8 @@ python scripts/static_page.py interpret '{"url":"用户提供的页面 URL"}'
 若 `interpretation_bundle.runtime_data.grants[].data.mode="csv"`，先返回的 `csv_fields[].csv_url` 是短期下载链接而非可直接计算的数据。必须紧接着运行一次 `python scripts/static_page.py interpret_csv '{}'`：它只下载该次 `interpret` 已返回的 CSV、保留链接并补出 `results[].fields[].series`，然后再计算和解读；禁止重跑 `interpret`、另查数据接口或把 CSV 链接给用户。
 
 0. 除上述既有活页解读分支外，在任何后端请求前运行 `scripts/trace_context.py begin`，保存唯一 `task_id` 并在后续命令中复用。这步本身就是后端写入调用，必须和后续命令带同一个身份（`QBV_API_KEY` 环境变量或参数里的 `api_key`），不带会被记成 skill 默认账号。
-1. 若用户只是要**简单分析一只 A 股并返回页面**，且没有定制栏目/版式、额外指标/公式/图表、对比或多标的要求，直接运行一次 `scripts/static_page.py new_asset_page`。成功结果包含完整数据草稿 `agent_reply_markdown_draft`；当前 Agent只需依据用户原问题和草稿前五章数据补写综合观察，不再查 templates，也不另跑 QBS 验证或注册 Grant。
-2. 除上述快速场景外，运行一次 `scripts/static_page.py templates`，查询统一 public 命中池（服务端一次返回官方精选+社区）。
+1. 所有量化建页先读 [先答后建页](guides/answer-first.md)，通过 `qbs_bridge.py` 查询业务数据，校验实际日期与单位，发送完整非终止业务答案。**本步骤的下一次工具调用仍须继续页面流程，不能以无工具的最终消息结束。** 若只是简单分析一只 A 股并返回页面，没有定制栏目/额外指标/对比，首答后运行一次 `scripts/static_page.py new_asset_page`，不用查 templates 或自行注册 Grant。成功草稿用于最终页面交付，不代替之前的 QBS 首答。
+2. 其他量化建页也必须先完成第 1 步的业务首答，然后运行一次 `scripts/static_page.py templates`，查询统一 public 命中池（官方精选+社区）。已有文件托管与纯展示维护保持各自入口。
 3. direct 只有在范式、范围和全部请求维度三轴均有证据时成立；`direct_deliver` 必须提交 `dimension_check`。缺维度改走 fork + `same_paradigm_augment_dimension`。
 4. fork/unmatched 调用 `new_page` 时由 Agent 根据 `items_summary` 显式传 `routing_decision`；fork 还必须声明 `borrow_mode=inherit|inherit_augment|compose`。fork 一旦判定只能继承、增强继承或 Compose，禁止改判 unmatched。
    定义研究范围前读取 [研究与数据合同](guides/research-data-contract.md)：只有市值筛选时标题必须限定为“市值候选/大盘代表股”；只有主连历史时标题必须含“主连参考”；来源没有缺失标记时不能将数值0解释为缺失。新组装页面再读取 [自建质量](guides/self-build-quality.md)，用安装包内的结构示例起步。
@@ -90,8 +92,16 @@ python scripts/static_page.py interpret '{"url":"用户提供的页面 URL"}'
 
 > **多轮追问**：首次用户消息运行 `scripts/trace_context.py begin`；同一 `task_id` 的每条后续用户消息先运行 `scripts/trace_context.py beginTurn`。正常 Agent 必须同时传本轮可选 `agent_intent`：简洁展开上下文指代并写清对象、动作、约束和期望页面/产物，推荐 20～160 字；不得复制用户原话、输出内部推理或提前编造结论。老调用方可省略并按 `null` 继续。一轮内所有 QBV/QBS 工具共享同一 `turn_id`。Turn 是审计旁路：服务端记录失败会返回 `tracking_recorded:false`，但不得阻断建页、更新、取数或发布；业务上下文继续切换到真实 `user_query` / `agent_intent`，attempted `turn_id` 不保存、不传播，后续按无 Turn 模式继续。更新既有活页必须继续复用原 `page_id` 与公开 URL。
 
-> **QBS 并行 Handoff**：收到 `qbs_qbv_handoff_v1` 时运行 `scripts/trace_context.py beginHandoff`（兼容 `begin-handoff`），传入 Handoff object 或绝对 `handoff_file`。必须原样复用其中真实 `task_id + turn_id + source_skill_id`，不得再次 `begin/beginTurn`、不得在 QBV 重做 QBS 路由分类。`create/existing_page` 之后仍进入本 Skill 完整 SOP，由 QBV 判断 direct/fork/unmatched、查询 ownership 并执行本人原位更新或他人复制；高风险持久状态未确认时 `beginHandoff` 必须拒绝。
+> **QBS 先答 Handoff（默认同轮）**：收到 `qbs_qbv_handoff_v1` 时运行 `scripts/trace_context.py beginHandoff`（兼容 `begin-handoff`），传入 Handoff object 或绝对 `handoff_file`。必须原样复用其中真实 `task_id + turn_id + source_skill_id`，不得再次 `begin/beginTurn`、不得在 QBV 重做 QBS 路由分类。`create/existing_page` 之后仍进入本 Skill 完整 SOP，由 QBV 判断 direct/fork/unmatched、查询 ownership 并执行本人原位更新或他人复制；高风险持久状态未确认时 `beginHandoff` 必须拒绝。
 
+
+## 量化建页先答
+
+量化查询型建页先用 QBS 验证数据并发送完整非终止业务答案，再查询模板、注册运行时和构建页面；默认同轮继续。收到 Handoff 时复用已有答案和计算，按 [答案结构建页](guides/answer-first.md) 消费可选 answer_structure。不要将已发首答当作任务结束。已有文件静态托管、只读解读、纯展示维护保持原入口；分钟公式验证成功不代表公式包支持分钟注册。
+
+**量化建页只在验收后补链接**：该场景所有渠道均不发送模板、草稿或进度页链接，直至页面验收成功和适用回复校验通过。此规则优先于下文、工具文档及返回 hint 中的立即首链要求和首链耗时指标；模板匹配、创建和同页更新仍正常执行。已有文件托管保留自己的首链交付与确认流程。
+
+**验证结果直接交接**：`resolve_asset_data` / `validate_grant_set` / `validate_package_set` 返回 `registration_params_file` 时，首答及页面路由完成后直接执行对应 `registration_command`；不要重写合同、抄指纹、重复查询或另调validate。`publication_evidence` 原样并入看板spec，注册返回的实际ID绑定面板。已有证据的字段/范围确需变化时重新验证新合同，不能沿用旧指纹。公式型行业页面先读 [行业排名交接](guides/industry-ranking-handoff.md)。
 
 ## Compose 参数交接
 
@@ -103,7 +113,8 @@ python scripts/static_page.py interpret '{"url":"用户提供的页面 URL"}'
 
 ## 何时用本技能 vs quant-buddy-skill
 
-- **探索/一次性查询**（"茅台今天涨跌幅"、"跑个均线金叉回测看看"）→ 用 **quant-buddy-skill**。
+- **一次性查询/概念解释**（“茅台今天涨跌幅”“什么是均线金叉回测”）→ 用 **quant-buddy-skill**。
+- **执行型需求**（“跑个均线金叉回测看看”“每日复盘”“监控走势”“画支撑线”“看 K 线”）→ QBS 验证并先答，再进入本技能；“不要画图、只要表格”仅改变页面呈现，明确不要网页则不建页。
 - **要一个能反复看、能发给别人、数据会自动更新的页面** → 切到 **quant-buddy-view**；已有文件转活页先静态托管，其他从零研究建页再按探索流程。
 
 ## 已有文件转活页：静态托管优先（高于查数与范式路由）
@@ -156,6 +167,8 @@ QBV_API_KEY=<本次任务的 key> python scripts/trace_context.py begin '{"user_
 
 
 ### 已有 URL 修改按写权限原位更新或 Fork
+
+新增均线/指标、扩大计算范围或修改策略参数是计算更新：QBS 验证后先发完整非终止业务答案，再执行 chart_edit/注册/更新，公开验收成功后补原链接。已有页和恢复会话不豁免；仅删除已有线、展示裁剪、颜色/布局修改属于纯展示维护。
 
 只有用户明确要求“解读/查看当前页面”且不要求修改时，才使用**不带 `task_id`** 的纯只读 `interpret`，读取后即可按返回证据回答，不进入建页流程。
 
@@ -305,7 +318,7 @@ npx skills update pseudo-longinus/quant-buddy-skills -y
 | 设计系统 | 活页 UI/UX 系统 | [guides/live-page-ui-ux-system.md](guides/live-page-ui-ux-system.md) | 新建或整体重构活页时，选择页面原型、主题 token、字体/密度、可组合模式和响应式转换；统一体验底线但保留页面身份 |
 | 维护指南 | 浏览器批注与整页 UI refinement | [guides/browser-feedback-refinement.md](guides/browser-feedback-refinement.md) | 用户针对已有自有页面的字体层级、间距、章节导航、sticky/折叠、响应式或分享交互提出修改；保持同一 `page_id`、runtime 合同和页面视觉身份 |
 
-- 简单单一 A 股综合分析优先走 `new_asset_page`；定制单标的画像/估值财务、指数成分异动、多因子工作台仍先匹配对应在线范式，范围不一致才 fork。详细页面契约由服务端固定场景或模板/构建脚本门禁，不在此重复。
+- 简单单一 A 股综合分析先 QBS 查数并交付业务首答，再走 `new_asset_page`；其他量化场景也先答，再匹配对应在线范式，范围不一致才 fork。详细页面契约由服务端固定场景或模板/构建脚本门禁，不在此重复。
 - fork 后禁止沿用来源 `package_id/grant_id/signature`；必须验证并注册当前用户凭证。
 - 所有页面复用 `assets/share-shell/`；分享壳、海报、Card Runtime 和迁移细则分别读取对应 `guides/`，不要手写重复组件。
 - **自建质量底线**：`unmatched` 自建前必须读取 [guides/self-build-quality.md](guides/self-build-quality.md)，按用户问题选择关键价位、排名对照、趋势或研究叙事的内容结构，再用默认生成器/适用的 bespoke 组件实现。禁止把无模板命中降级成等权碎卡片、小字滚动正文或技术字段堆砌。数据验收和视觉验收分别通过才可交付。
@@ -345,7 +358,7 @@ npx skills update pseudo-longinus/quant-buddy-skills -y
 - **发布只认证据**：Grant-only、formula-only 与混合页面均可发布，但必须提交 route/grant/formula 结构化收据，并让 route receipt 的 `selected_routes` 与实际 Grant/公式收据逐项对应；禁止自由文本 waiver。
 - **两套并存**：探索/验证仍在 quant-buddy-skill 用 api-key 跑三接口（fastQuery / stockProfile / selectByComposition）；本技能只负责把验证过的请求注册成 grant 嵌页。api-key 那套一行不改。
 - **硬门槛同公式包**：注册任何 grant 前，先在 quant-buddy-skill 用 api-key 跑通对应接口、确认命中/出数，再回本技能注册。
-- **固定场景例外**：`new_asset_page` 的三份 Grant payload 由 `skill_server` 固定生成并做结构/白名单校验，Agent 不接触也不自行注册，因此该快速通道不额外执行 quant-buddy-skill 预验证；页面打开时按 Grant 实时取数。
+- **固定场景的注册责任**：`new_asset_page` 的三份 Grant payload 由服务端固定生成并校验，Agent 不自行注册 Grant；这不免除首答前的 QBS 业务查数和日期校验。首答后再创建快页，页面打开时按 Grant 实时取数。
 - **同源约束**：`access_dunhe=false`（页面绝不返回付费/敦和数据）、CORS/https 协议一致、signature 是公开凭证不打印给用户——与公式包完全一致。
 
 ## 硬规则

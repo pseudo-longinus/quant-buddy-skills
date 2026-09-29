@@ -265,6 +265,7 @@ class Publication:
         delivered = bool(state.get('last_good'))
         result = {
             'code': 0 if delivered else 1,
+            'task_completed': state.get('stage') == 'enhanced' and not (problem or state.get('problem')),
             'page_id': state.get('page_id'), 'public_url': state.get('public_url'),
             'delivery_stage': state.get('stage', 'not_published'),
             'page_delivered': delivered,
@@ -294,6 +295,15 @@ class Publication:
             if state.get('stage') == 'static_snapshot' and not state.get('static_delivery'):
                 result['required_user_message'] = '原始静态版本已托管并验收：[查看活页](' + str(state.get('public_url')) + ')。当前为Snapshot。'
                 result['next_action'] = 'emit_required_user_message_before_next_tool_then_file_confirm_delivery'
+                result['continuation'] = {
+                    'message_channel': 'intermediate',
+                    'message': result['required_user_message'],
+                    'after_message_tool': {'name': 'file_confirm_delivery', 'params': {
+                        'task_id': self.task, 'file_publish_dir': str(self.root),
+                        'page_id': state['page_id'], 'public_url': state['public_url'],
+                        'delivery_message': result['required_user_message']}},
+                    'instruction': '这只是首版交付检查点。用户要求增强时，在同一助手消息中先发上述文字，再调用after_message_tool；不能以无工具的最终回复结束。参数中的delivery_message仅在实际发出该文字后有效。仅要求静态托管时可交付后结束。'
+                }
             self.sp._attach_agent_reply_contract(result, operation='update')
             contract = result.get('agent_reply_contract', {})
             if isinstance(contract, dict):
@@ -306,6 +316,11 @@ class Publication:
             if isinstance(contract, dict) and result.get('required_user_message'):
                 contract['reply_instruction'] = result['file_delivery_hint']
                 contract['required_user_message'] = result['required_user_message']
+        # Put the actionable continuation before metadata in truncated tool UIs.
+        if result.get('continuation'):
+            ordered = {key: result[key] for key in ('code', 'task_completed', 'continuation')}
+            ordered.update(result)
+            return ordered
         return result
 
     def fail(self, problem):
@@ -569,7 +584,15 @@ class Publication:
                     return self.fail('FILE_PUBLISH_REMOTE_VERSION_CONFLICT')
                 html, error = self.sp._read_html(self.params)
                 if error:
-                    return self.fail('FILE_PUBLISH_CANDIDATE_UNAVAILABLE')
+                    result = self.fail('FILE_PUBLISH_CANDIDATE_UNAVAILABLE')
+                    result['candidate_error'] = error
+                    result['recovery'] = {
+                        'command':'update', 'skill_root':str(Path(self.sp.C.SKILL_ROOT).resolve()),
+                        'file_publish_dir':str(self.root),
+                        'required_overrides':{'file_repair':False, 'snapshot_only':False},
+                        'instruction':'修正html_file后保留原参数重试同页update。write_skill_file返回的output/...相对path按上述skill_root解析，不猜其他Skill目录。当前首版已验收，不能改走file_repair，也不要重新upload。',
+                    }
+                    return result
                 mode = self.params.get('file_enhancement_mode', 'preserve')
                 if mode == 'preserve':
                     stage, validation, error = self.sp._prepare_preserve_live_stage(self.params, html, endpoint=self.endpoint)

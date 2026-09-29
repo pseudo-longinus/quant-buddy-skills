@@ -56,6 +56,43 @@ class TaskContextError(ValueError):
         self.message = message
 
 
+def host_managed_lifecycle():
+    return os.environ.get('QB_HOST_MANAGED_LIFECYCLE', '').strip().lower() in {'1', 'true', 'yes', 'on'}
+
+
+def adopt_host_context(params=None):
+    """Adopt the same trusted host identity as QBV; never create a second task.
+
+    Only lifecycle metadata is read, not credentials. Outside the managed host,
+    standalone / explicit inheritance semantics remain unchanged.
+    """
+    result = dict(params or {})
+    if not host_managed_lifecycle():
+        return result
+    for field in ('task_id', 'turn_id', 'user_query'):
+        value = os.environ.get('QB_HOST_' + field.upper(), '').strip()
+        if not value:
+            raise TaskContextError('HOST_CONTEXT_INCOMPLETE', f'宿主上下文缺少 {field}')
+        supplied = str(result.get(field) or '').strip()
+        if supplied and supplied != value:
+            raise TaskContextError('HOST_CONTEXT_MISMATCH', f'{field} 与当前宿主上下文不一致；不可另建任务或改写收据')
+        result[field] = value
+    result.update(task_mode=TASK_MODE_INHERIT, task_source='host')
+    message_id = os.environ.get('QB_HOST_MESSAGE_ID', '').strip()
+    if message_id:
+        result['message_id'] = message_id
+    return result
+
+
+def host_turn_receipt(turn_context):
+    if not host_managed_lifecycle():
+        return None
+    context = adopt_host_context(turn_context)
+    return {'code': 0, 'success': True, 'tracking_recorded': True, 'created': False,
+            'task_id': context['task_id'], 'turn_id': context['turn_id'],
+            'agent_intent': context.get('agent_intent'), 'tracking_source': 'host'}
+
+
 def _validate_task_id(value):
     task_id = str(value or "").strip()
     if not task_id or not _TASK_ID_RE.fullmatch(task_id):
@@ -68,7 +105,7 @@ def _validate_task_id(value):
 
 def build_new_session_context(params=None, uuid_factory=None):
     """Resolve standalone generation vs explicit upstream inheritance."""
-    params = params if isinstance(params, dict) else {}
+    params = adopt_host_context(params if isinstance(params, dict) else {})
     mode = str(params.get("task_mode") or TASK_MODE_STANDALONE).strip().lower()
     if mode not in {TASK_MODE_STANDALONE, TASK_MODE_INHERIT}:
         raise TaskContextError(
@@ -202,7 +239,7 @@ def tracking_result_outcome(result, expected_task_id, attempted_turn_id):
 def build_turn_context(session, params=None, uuid_factory=None):
     """Build one immutable user-turn context without mutating the session."""
     session = session if isinstance(session, dict) else {}
-    params = params if isinstance(params, dict) else {}
+    params = adopt_host_context(params if isinstance(params, dict) else {})
     task_id = str(params.get("task_id") or session.get("task_id") or "").strip()
     if not task_id:
         raise TaskContextError("TASK_ID_REQUIRED", "beginTurn 前必须先调用 newSession")
@@ -219,7 +256,8 @@ def build_turn_context(session, params=None, uuid_factory=None):
     requested_turn_id = params.get("turn_id")
     turn_id = _validate_turn_id(requested_turn_id) if requested_turn_id else str(factory())
     parent_turn_id = str(
-        params.get("parent_turn_id") or session.get("current_turn_id") or ""
+        params.get("parent_turn_id") or
+        (session.get("previous_turn_id") if turn_id == session.get("current_turn_id") else session.get("current_turn_id")) or ""
     ).strip() or None
     message_id = str(params.get("message_id") or "").strip() or None
     return {

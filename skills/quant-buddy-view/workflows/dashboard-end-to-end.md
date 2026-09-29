@@ -2,7 +2,7 @@
 
 > 优先例外：已有文件（JPG/HTML/PDF 等）转活页，包括先研究改造的复合请求，先走 [existing-file-static-first.md](existing-file-static-first.md)。本篇查数、资产验证与范式路由不得前置阻断首次静态交付。
 
-> 前置分诊：新会话先走 [new-session-paradigm-routing.md](new-session-paradigm-routing.md) 查范式卡判命中。**① 直接命中**不走本流程：普通渠道先返回现成链接，`feishu-group` 等 `direct_deliver` 终态后才返回 playground 链接；本流程覆盖 **② fork**（换标的注册自己的 Formula Package / Data Grant 凭证）和 **③ 未命中自建**。
+> 量化建页先按 [先答后建页](../guides/answer-first.md) 完成 QBS 查询并发送完整业务首答，再走 [new-session-paradigm-routing.md](new-session-paradigm-routing.md) 查范式卡判命中。**① 直接命中**沿用既有链接交付规则；本流程覆盖 **② fork**（换标的注册自己的 Formula Package / Data Grant 凭证）和 **③ 未命中自建**。
 
 把 quant-buddy-skill 里探索好的指标，做成一个公开可分享、数据自动更新的网页看板。
 
@@ -20,9 +20,9 @@
 
 1. 一份 `assets:[...]` 参数调用一次 `qbs_bridge.py resolve_asset_data`，只探测平台直取的行情/估值字段；
 2. `templates` 一次并确定 direct/fork/unmatched；fork/unmatched 立即 `new_page` 绑定首链；
-3. 普通行情/估值注册一个覆盖全部资产的 `fast_query` Data Grant；
+3. 普通行情/估值直接消费第 1 步返回的 `registration_files` 注册已验证的 Data Grant，保留每个资产的合同和收据；不要合并成未验证的新合同或再次手写指纹；
 4. 收益/回撤页面只需注册一组跨资产原始价格 Formula Package，`validate_package_set` / register 各一次；标准看板用同一组 `outputs` 的 `transform:"cumulative_return_pct"` 与 `transform:"drawdown_pct"` 生成两张图，不要读取 `assets/data-kernel.js`，也不要手写 bespoke SSE/Grant 运行时；
-5. 一份 spec 同时放累计收益图、回撤图和估值 Data Grant 表，直接运行一次 `build_dashboard.py @spec.json` 写回第 2 步的同一 `page_id`；成功后只做本地浏览器验收、公网验收和终态回复校验。
+5. 一份 spec 同时放图表与 Data Grant 表，绑定真实注册 ID。普通未命中自建原样携带本轮 `resolve_asset_data.publication_evidence`，补入本轮公式验证收据；Compose 或执行计划明确要求角色绑定时，先执行 `static_page.py bind_runtime_route @params.json`（参数见 `tools/static_page.md`），再携带返回的路由、轮次、资产及验证收据。执行 `build_dashboard.py @spec.json` 后，按返回的 `next_action.params_file` 调用 `publish_verified`。始终写回第 2 步的同一 `page_id`，完成本地浏览器、公网和终态验收后才交付。
 
 公式参数必须是合法 JSON。不要写会破坏 JSON 的裸内嵌引号；例如优先使用：
 
@@ -48,7 +48,7 @@
 
 如果某个可选画像 role 不完整，但本页必需的行情/估值与公式角色已验证成功，应删除非必需 role 后继续；禁止围绕可选画像重复探测直至耗尽工具轮次。`build_dashboard` 已支持上述场景时，禁止再 Grep/Read `scripts/build_dashboard.py`、`assets/data-kernel.js` 或 `tools/static_page.md` 猜实现；直接按命令返回的 `code` / `next_step` 继续。
 
-> 本技能不维护会话 / task_id：register 与发布都凭 `config.json` 的 api_key 认身份，直接开干。
+> 全程继承当前 `trace_context begin/beginHandoff` 返回的 task_id/turn_id；注册和发布凭配置中的凭证鉴权，凭证不能代替任务身份。旧示例省略的任务字段仍须从当前上下文补齐。
 > 调用 `runMultiFormulaBatchStream` 做验证时，`user_query` 要写当前用户的真实请求和当前资产；复制旧示例时不要留下旧股票名、旧测试说明或旧 `task_id`。
 
 ## 1. 注册公式任务包（本示例的公式通道）

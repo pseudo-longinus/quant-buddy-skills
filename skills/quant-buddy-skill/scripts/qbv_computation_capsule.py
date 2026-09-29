@@ -15,6 +15,8 @@ import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
+from answer_structure import attach_answer_structure, structure_from_roles
+from formula_execution_contract import execution_contracts_from_receipts
 
 
 SCHEMA_VERSION = "qbs_computation_capsule_v1"
@@ -30,7 +32,9 @@ class ComputationCapsuleError(ValueError):
 
 
 def _text(name: str, value: Any) -> str:
-    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    text = str(value or "").strip()
+    if name != "user_query":
+        text = re.sub(r"\s+", " ", text)
     if not text:
         raise ComputationCapsuleError(f"{name.upper()}_REQUIRED", f"{name} 不能为空")
     return text
@@ -406,7 +410,7 @@ def _validate_receipt_lineage(
         if field in lineage:
             actual_values.append(lineage.get(field))
         for raw in actual_values:
-            actual = _compact_optional(raw)
+            actual = (str(raw or "").strip() or None) if field == "user_query" else _compact_optional(raw)
             if actual is not None and actual != expected_value:
                 raise ComputationCapsuleError(
                     "RECEIPT_LINEAGE_MISMATCH",
@@ -550,6 +554,7 @@ def build_computation_capsule_from_validated_roles(
     validated_insights: Any = None,
     validation_receipts: Any = None,
     formula_runtime_contract: Any = None,
+    answer_structure: Any = None,
 ) -> Dict[str, Any]:
     """Build a full capsule from the compact role-oriented QBS handoff input.
 
@@ -729,6 +734,7 @@ def build_computation_capsule_from_validated_roles(
         validated_insights=validated_insights,
         validation_receipts=receipts,
         formula_runtime_contract=runtime_contract,
+        answer_structure=answer_structure if answer_structure is not None else structure_from_roles(roles),
     )
 
 
@@ -744,6 +750,7 @@ def build_computation_capsule(
     validated_insights: Any = None,
     validation_receipts: Any = None,
     formula_runtime_contract: Any = None,
+    answer_structure: Any = None,
 ) -> Dict[str, Any]:
     intent = _object("page_intent", page_intent)
     for field in ("question_to_answer", "recommended_page_type", "primary_visualization"):
@@ -764,7 +771,20 @@ def build_computation_capsule(
     normalized_runtime_contract = _normalize_formula_runtime_contract(formula_runtime_contract)
     if normalized_runtime_contract is not None:
         capsule["formula_runtime_contract"] = normalized_runtime_contract
-    return capsule
+    _attach_execution_contracts(capsule)
+    return attach_answer_structure(capsule, answer_structure)
+
+
+def _attach_execution_contracts(capsule):
+    try:
+        contracts = execution_contracts_from_receipts(capsule.get('validation_receipts'),
+                                                     capsule.get('formula_runtime_contract'))
+    except ValueError as exc:
+        raise ComputationCapsuleError('EXECUTION_CONTRACT_INVALID', str(exc)) from exc
+    if contracts:
+        capsule['formula_execution_contracts'] = contracts
+    else:
+        capsule.pop('formula_execution_contracts', None)
 
 
 def validate_computation_capsule(
@@ -787,7 +807,10 @@ def validate_computation_capsule(
         ("turn_id", turn_id, expected_turn_id),
         ("user_query", user_query, expected_user_query),
     ):
-        if expected is not None and re.sub(r"\s+", " ", str(expected or "")).strip() != actual:
+        expected_text = str(expected or "").strip()
+        if name != "user_query":
+            expected_text = re.sub(r"\s+", " ", expected_text)
+        if expected is not None and expected_text != actual:
             raise ComputationCapsuleError("CAPSULE_LINEAGE_MISMATCH", f"computation_capsule {name} 与 Handoff 不一致")
     intent = _object("page_intent", payload.get("page_intent"))
     for field in ("question_to_answer", "recommended_page_type", "primary_visualization"):
@@ -808,7 +831,8 @@ def validate_computation_capsule(
     }
     if "formula_runtime_contract" in payload:
         normalized["formula_runtime_contract"] = _normalize_formula_runtime_contract(payload.get("formula_runtime_contract"))
-    return normalized
+    _attach_execution_contracts(normalized)
+    return attach_answer_structure(normalized, payload.get('answer_structure'))
 
 
 def _read_params(args: list[str]) -> Dict[str, Any]:

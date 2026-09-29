@@ -905,6 +905,10 @@ def call_resume_job(endpoint, api_key, params, timeout=1800):
       - trace_id (str)
       - since    (str, 可选) — 上次断开时的 last_event_id，默认 "0"
     """
+    from validation_receipt import validate_resume_context
+    mismatch = validate_resume_context(params)
+    if mismatch:
+        return mismatch
     task_id = params.get("task_id") or ""
     trace_id = params.get("trace_id") or ""
     since = params.get("since", "0")
@@ -1329,6 +1333,9 @@ def main():
         sys.exit(1)
 
     elapsed_ms = int((time.time() - t0) * 1000)
+    if tool_name == "readData":
+        from read_data_evidence import finalize_read_data
+        result = finalize_read_data(result, params, SKILL_ROOT)
 
     # ── 认证失败：立即终止，不要重试 ──────────────────────────────
     if isinstance(result, str):

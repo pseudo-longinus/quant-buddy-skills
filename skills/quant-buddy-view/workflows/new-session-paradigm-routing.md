@@ -1,5 +1,7 @@
 # Workflow · 新会话：单股快速返回 / 查范式卡后三分支
 
+> 量化查询型建页优先执行 [先答后建页](../guides/answer-first.md)：先 QBS 验证并发送完整非终止业务答案，再进入本篇快页/模板/创建流程。所有渠道只在页面验收及适用回复校验通过后补链接；本篇立即发模板/进度首链及五秒首链要求不适用于该场景。URL 可内部使用，不伪造交付记录。已有文件托管保留下述例外。
+
 > 优先例外：已有文件（JPG/HTML/PDF 等）转活页，包括先研究改造的复合请求，先走 [existing-file-static-first.md](existing-file-static-first.md)。本篇查数、资产验证与范式路由不得前置阻断首次静态交付。
 
 新会话被判定为可分享活页任务后先判断是否命中“简单单一 A 股分析”快速通道；未命中才查范式卡（`templates` 活页列表），再决定 direct / fork / 自建。范式卡 = 后台 `recommend:官方精选` 或 `recommend:社区` 标签的现成活页列表。若 `config.json._channel=feishu-group`，所有非终态 hint 都按 `delivery_policy.emit_intermediate_url=false` 处理：内部流程照常创建/维护页面，但用户只在终态收到 playground 链接。

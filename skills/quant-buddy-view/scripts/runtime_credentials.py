@@ -67,7 +67,7 @@ def _id_path(task,resource,identifier):
 def _context(endpoint,key):return EP.digest({'endpoint':str(endpoint).rstrip('/'),'principal':hashlib.sha256(str(key).encode()).hexdigest()})
 
 
-def _proof(task,fingerprint,path,required=False):
+def _proof(task,fingerprint,path,required=False,resolve_path=None):
     if not path:
         if required:raise CredentialError('REGISTRATION_VALIDATION_REQUIRED','先验证目标合同，再传validation_receipt_file注册')
         return None
@@ -81,7 +81,7 @@ def _proof(task,fingerprint,path,required=False):
             raise CredentialError('REGISTRATION_VALIDATION_MISMATCH','验证合同内容与指纹不同')
         for child in value.get('batch_receipts', []):
             try:
-                data = Path(child['file']).read_bytes()
+                data = Path(resolve_path(child['file']) if resolve_path else child['file']).read_bytes()
                 valid = hashlib.sha256(data).hexdigest() == child['sha256']
             except (OSError, KeyError, TypeError):
                 valid = False

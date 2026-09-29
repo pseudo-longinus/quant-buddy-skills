@@ -29,7 +29,11 @@ def _download(url: str, timeout: int = 60) -> str:
     req = urllib.request.Request(url, headers={"User-Agent": "quant-buddy-skill/csv-fetch"})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         raw = resp.read()
-    return raw.decode("utf-8-sig", errors="replace")
+    try:
+        return raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        # Platform exports also use GB18030. Never replace undecodable names.
+        return raw.decode("gb18030")
 
 
 def _to_float(value: Any) -> Optional[float]:
@@ -248,7 +252,27 @@ def write_artifact(result: dict[str, Any], output_path: Any, output_root: Any = 
     if target == root or not _is_under(target, root):
         raise ValueError(f"artifact 仅允许写入 skill/output: {target}")
     target.parent.mkdir(parents=True, exist_ok=True)
-    payload = json.dumps(result, ensure_ascii=False, indent=2).encode("utf-8")
+    artifact_format = "csv" if target.suffix.lower() == ".csv" else "json"
+    if artifact_format == "csv":
+        stream = io.StringIO(newline="")
+        writer = csv.writer(stream)
+        writer.writerow(["field", "ticker", "name", "date", "value"])
+        row_count = 0
+        for source in result.get("sources") or []:
+            if source.get("error"):
+                raise ValueError("CSV export requires every source to succeed")
+            for asset in source.get("assets") or []:
+                if asset.get("series_truncated") or not isinstance(asset.get("series"), list):
+                    raise ValueError("CSV export requires complete series; use --full and sufficient --max-points")
+                for point in asset["series"]:
+                    writer.writerow([source.get("label", ""), asset.get("ticker", ""),
+                                     asset.get("name", ""), point["date"], point["value"]])
+                    row_count += 1
+        if not row_count:
+            raise ValueError("CSV export has no validated data rows")
+        payload = stream.getvalue().encode("utf-8-sig")
+    else:
+        payload = json.dumps(result, ensure_ascii=False, indent=2).encode("utf-8")
     fd, temp_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=str(target.parent))
     try:
         with os.fdopen(fd, "wb") as handle:
@@ -263,6 +287,8 @@ def write_artifact(result: dict[str, Any], output_path: Any, output_root: Any = 
             pass
     return {
         "artifact_file": str(target),
+        "artifact_format": artifact_format,
+        "artifact_markdown": f"[下载 {artifact_format.upper()}](<{target.as_posix()}>)",
         "artifact_sha256": "sha256:" + hashlib.sha256(payload).hexdigest(),
         "artifact_bytes": len(payload),
     }

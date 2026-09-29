@@ -1,5 +1,7 @@
 # static_page — 静态页托管（上传 / 替换 HTML → 公开可分享链接）
 
+> **量化先答场景优先**：先按 [先答后建页](../guides/answer-first.md) 查询验证、发送完整非终止业务答案，再执行快页、模板或创建。此场景所有渠道均在页面验收和适用回复校验通过后补链接；本篇及工具 hint 的“立即发送模板/进度首链”要求不适用。URL 仅供内部继续执行，发布门禁保持不变。已有文件托管仍须实际首链交付及 file_confirm_delivery。
+
 
 > QBS→QBV 旁路：`publish_verified` 可显式传 `qbv_job_id`、`qbv_job_file`、`turn_id`（或 `qbv_job_dir`）；`direct_deliver` 则可从 `beginHandoff` 持久化的 task-scoped Trace Context 恢复 Turn lineage。公网验收成功，或 direct 取得字段一致的强终态 `direct_finalize` contract 后，脚本自动把对应 `qbs_qbv_job_v2` 写为 `completed`；QBV standalone 没有 Handoff/Job 时行为完全不变。
 

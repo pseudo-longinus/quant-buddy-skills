@@ -11,6 +11,10 @@
 
 ## 核心原则
 
+明确的单均线策略回测不因缺少常见参数而只问澄清：未指定时披露并采用基准规则（收盘价高于均线持有、否则空仓；收盘信号下一交易日生效；无杠杆、不做空；费用先按 0 并说明）。先核验平台信号/成交时点语义，不能使用当天收盘价信号获取当天收益。用完整实际净值序列计算年化及最大回撤（不得从图或抽样估算）；默认年化为区间末净值/初净值按实际年数的 CAGR，不用日收益均值×250 冒充 CAGR；先裁剪统计窗口再计算，累计入场计数须扣除窗口开始前累计值，初始持仓另列；交易次数按 0→1 入场次数并明确末期未平仓；无交易明细时不可凭净值拐点猜次数。用户已有明确期间时不重复询问下载范围，预热期独立于统计期。不同执行口径或平台限制须如实披露。
+
+“每天看某行业涨跌、成交量、估值”已给出业务范围时，先按平台精确行业/板块成分取数，默认估值列 PE TTM、PB 并披露；不能把熟悉的几只股票冒充完整行业，也不因用户未列名单就停止。平台没有精确板块映射时才请求范围澄清。
+
 开始执行前先明确两件事：
 
 **问题1：最终输出是什么？**
@@ -168,6 +172,10 @@
 `force_reusable_array` 只包含六个最终输出：`Top10Score/Next10Score/Top10PE/Next10PE/Top10ROE/Next10ROE`。QBS 为本轮文本回答可对六个物化 `data_id` 使用 `readData(mode="last_column_full")`，按资产对齐后合并两段并按 Score 降序输出完整 20 行；页面运行合同则必须使用六个受支持的 `last_day_stats` reads。禁止把 QBS 的 `readData` mode 复制成 Formula Package read mode，也禁止只返回 Top10 却把标题写成 Top20。
 
 该默认值只解决高频短语的执行口径，不代表投资建议或投资置信度。
+
+本模板六列齐全且公式成功时，Skill 自动从当前 Validation Receipt 获取真实 ID，执行一次 `readData(mode="last_column_full")`，按代码和日期合并、按声明精度校验 ROE/PE 与 Score，并返回置顶的 `answer_evidence` 与原始读取证据文件。`status=verified` 时直接交付其 `markdown`，不用手抄 ID、另调 readData 或重算。旧版本无此字段时，才从当前公式响应复制六个真实 ID 同次读取。incomplete/invalid、截断或内层 DATA_ID_NOT_FOUND 时不得输出完整 Top20，也不能用其他列补值；分批旧列不会自动拼入新结果。
+
+用户要求“白酒股”等行业股票时，使用目录的精确申万行业（例如 `白酒Ⅱ（申万）`）；`白酒概念` 属于另一资产池。只有明确概念要求才用概念池，不能因候选更多而扩大范围。
 
 ## TopN 结果表生成（强制）
 
@@ -342,12 +350,12 @@
 
 ### 最终回答合同（强制）
 
-**图表与 durable 场景路由硬闸门**：只要本轮用户要求任何图表 artifact（包括“放在一张图里”“画成一张图”“同图比较”“绘制成图表”），或命中已登记的高频稳定榜单“低 PE + 高 ROE + 选股/排名 + TopN”，在数据/图片验证完成后、输出 QBS 第一条回答前，必须：
+**图表与持续使用场景路由硬闸门**：只要本轮用户要求执行回测、每日/定期复盘、监控、画线或任何图表 artifact（包括“放在一张图里”“画成一张图”“同图比较”“绘制成图表”），或命中已登记的高频稳定榜单“低 PE + 高 ROE + 选股/排名 + TopN”，在数据/图片验证完成后、输出 QBS 第一条回答前，必须：
 
 1. 读取 `live-page-routing.md`；
 2. 实际执行 `python scripts/live_page_routing.py route --user-query "用户本轮原话"`；
 3. 保留 route JSON；不得仅凭模型判断，也不得因为已生成 PNG 而跳过；
-4. `create|existing_page` 且本流程已有经过证据门禁的排名、对比、回测或其它结构化 artifact 时，把最小 `page_intent + validated_roles` 请求写入 `output/_working/<task_id>/prepare-page.json`，执行一次 `python scripts/live_page_routing.py prepare-validated-page @output/_working/<task_id>/prepare-page.json`；成功后禁止再手工 build capsule / handoff / prepare。只有没有结构化 artifact 的兼容场景才继续 handoff → prepare。随后调用宿主内部子 Agent 委派工具（优先 `spawn_agent`），只等待即时成功回执；不得使用 `create_thread/fork_thread` 或只口头声明。宿主没有内部委派工具时，立即执行 `python scripts/live_page_routing.py mark-delegation-unavailable --qbv-job-id <ID>`，不得遗留 queued Job 或声称正在生成。`source_skill_id` 缺失时标记 `unavailable`，不阻断交接。`none|suggest` 按返回结果继续；任何路由/委派失败必须写入 Job 失败终态，但不阻断本轮答案。
+4. create/existing_page 时先发送完整非终止业务答案，再将最小 page_intent + validated_roles + 可选 answer_structure 写入请求，执行一次 prepare-validated-page；成功后不重复 handoff/prepare，默认 should_continue 同轮进入 QBV。可选 delegated 只执行一次真实委派，不用 create_thread/fork_thread。source_skill_id 缺失记 unavailable，不阻断；页面失败保留首答并写终态。详见 answer-first.md。
 
 “低 PE 高 ROE TopN”命中 `create` 时，优先直接复用本轮三个已验证 `data_id`，不要为了建页重复下载或重算。请求至少包含：
 
@@ -369,7 +377,7 @@
 
 `task_id`、`turn_id`、`user_query`、`source_skill_version` 同时写入请求。 同一业务 role 一次返回多个对象 ID 时，直接使用 `"data_ids":["<id1>","<id2>"]`，保持服务端顺序和字符串原样；不要手工拆 role 或改写 ID。若 run 返回 `validation_receipt_file`，优先只在请求顶层写 `"validation_receipts": ["<validation_receipt_file>"]` 一次；该数组同时兼容内联 Receipt 对象。也可以完全省略，由 `prepare-validated-page` 按同一 `task_id + 全部 data_id` 自动发现。**不要把 Receipt 中含双引号的原始公式再手抄进 `validated_roles[].formula`，也不要把同一 Receipt 重复塞进三个 role**；运行公式合同由 Receipt 原样注入，role 只描述已物化数据的业务语义。请求必须由 `write_skill_file` 写成合法 JSON，首次解析失败后只允许修正该文件一次，不得改写公式合同或重跑数据。`prepare-validated-page` 成功输出的 `qbv_job_id` 和 `handoff_file` 必须保留在 Trace。
 
-只有用户明确说“只要 PNG / 本地图片 / 表格 / 不要网页”时，分类器才应返回 `none`。弱“看看走势”且没有明确图表 artifact 也保持 `none`。
+用户明确说“只要 PNG / 本地图片 / 不要网页 / 暂不发布”时保持 `none`。只要表格或不要画图仅是展示约束，不能覆盖回测、复盘、监控或明确建页意图。纯概念解释只回答，不创建页面。弱“看看走势”且没有明确图表 artifact 也保持 `none`。
 
 完成上述硬闸门（非图表且非已登记 durable 场景无需执行）后，若已拿到满足证据门禁的数据，**直接输出结果并停止**。最终答案的第一个字必须是数据表格或结论本身（如"符合条件的股票共N只："或直接输出表格），不得以任何过程性陈述开头。QBS 不等待 QBV 页面完成。
 
@@ -612,7 +620,8 @@ python scripts/call.py newSession
 |-----------|---------|-----------------------------|
 | 盘中、实时、当前、分钟、现在、今天日内、今天 | 分钟频 `[freq:minute]` | 只选 tags 含 `盘中`/`分钟`/`实时`/`[freq:minute]` 的卡片 |
 | 昨日、日频、收盘后、复盘、历史 | 日频 `[freq:daily]` | 排除含 `[freq:minute]` 的卡片 |
-| 未明确说明 | 默认日频 | 按日频处理 |
+| 最新行情/最新涨跌榜 | 最新可得行情 | 有盘中证据时使用分钟映射；历史/收盘/财务约束优先，核验实际日期 |
+| 未明确说明且非最新行情截面 | 默认日频 | 按日频处理 |
 
 > ⚠️ **频率识别同时决定卡片匹配和 `use_minute_data` 参数。**只有盘中、当前分钟或当日未收盘请求设为 `true`；历史、复盘、回测、净值、回撤、波动率、历史日线及财务报告期设为 `false` 或省略。
 >

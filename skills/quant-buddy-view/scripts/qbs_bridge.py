@@ -2,6 +2,7 @@
 """Run a quant-buddy-skill tool inside the current QBV task context."""
 
 import hashlib
+import copy
 import json
 import os
 import re
@@ -22,6 +23,27 @@ QBV_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_FORMULA_BEGIN_DATE = 20150101
 MAX_PACKAGE_FORMULAS = 100
 MAX_VALIDATION_BATCH_FORMULAS = 20
+
+
+def _registration_handoff(resource, task_id, contract, receipt_file):
+    """Materialize the exact validated request; never register or choose a new contract."""
+    import execution_plan as EP
+    params = {'task_id': task_id, **copy.deepcopy(contract), 'validation_receipt_file': receipt_file}
+    path = Path(C.SKILL_ROOT) / 'output' / '_working' / C.safe_task_id(task_id) / (
+        resource + '-register-' + EP.digest(params)[:24] + '.json')
+    EP.atomic_json(path, params)
+    script = 'data_grant.py' if resource == 'grant' else 'formula_package.py'
+    return {'registration_params': params, 'registration_params_file': path.as_posix(),
+            'registration_command': 'python scripts/' + script + ' register @' + json.dumps(path.as_posix(), ensure_ascii=False)}
+
+
+def _publication_evidence(task_id, route_file, grants, packages, asset=None):
+    evidence = {'task_id': task_id, 'route_receipt_file': route_file,
+                'grant_validation_receipt_files': [g['validation_receipt_file'] for g in grants],
+                'validation_receipt_files': [p['validation_receipt_file'] for p in packages]}
+    if asset:
+        evidence['asset'] = asset
+    return evidence
 
 
 def _read_params(argv):
@@ -374,6 +396,14 @@ def _write_package_validation_receipt(task_id, item, child_receipt_files):
     for raw_path in child_receipt_files:
         child_path = str(Path(raw_path).resolve())
         child = _read_completed_formula_receipt(child_path, task_id)
+        from formula_execution_contract import normalize_execution_contract
+        execution = child.get('execution_contract')
+        child_mode = (normalize_execution_contract(execution)['use_minute_data'] if execution is not None
+                      else (child.get('runtime_contract') or {}).get('use_minute_data', False))
+        if child.get('runtime_contract') and child['runtime_contract'].get('use_minute_data', False) is not child_mode:
+            raise ValueError('child receipt minute mode mismatch')
+        if child_mode is not bool(contract.get('use_minute_data', False)):
+            raise ValueError('child receipt minute mode mismatch')
         if child.get('turn_id') and child['turn_id'] != item.get('turn_id'):
             raise ValueError('child receipt turn mismatch')
         child_entries.append({"file": child_path, "sha256": _file_sha256(child_path)})
@@ -544,7 +574,8 @@ def _validate_package_set(call_script, params, env):
             return {"code": 1, "error": "INVALID_BEGIN_DATE", "message": str(exc)}
         names.add(name)
         try:
-            contract = PC.normalize({"formulas": formulas, "reads": reads, "begin_date": begin_date})
+            contract = PC.normalize({"formulas": formulas, "reads": reads, "begin_date": begin_date,
+                                     "use_minute_data": item.get('use_minute_data', params.get('use_minute_data', False))})
         except (ValueError, TypeError) as exc:
             return {"code": 1, "error": "PACKAGE_READS_INVALID", "message": str(exc)}
         normalized.append({
@@ -555,6 +586,7 @@ def _validate_package_set(call_script, params, env):
             "reads": reads,
             "turn_id": params.get("turn_id") or C.current_trace_context().get("turn_id") or "",
             "contract_fingerprint": FRC.contract_fingerprint(contract),
+            **({'use_minute_data': True} if contract.get('use_minute_data') else {}),
         })
 
     results = []
@@ -575,6 +607,7 @@ def _validate_package_set(call_script, params, env):
                 "formulas": batch["formulas"],
                 "begin_date": item["begin_date"],
                 "output_mode": "summary",
+                **({'use_minute_data': True} if item.get('use_minute_data') else {}),
             }
             if batch["force_reusable_array"]:
                 batch_params["force_reusable_array"] = batch["force_reusable_array"]
@@ -701,12 +734,17 @@ def _validate_package_set(call_script, params, env):
             "validation_receipt_file": package_receipt,
             "registration_params": {"task_id": task_id, "formulas": item["formulas"],
                                     "reads": item["reads"], "begin_date": item["begin_date"],
+                                    **({'use_minute_data': True} if item.get('use_minute_data') else {}),
                                     "validation_receipt_file": package_receipt},
+            "registration_capability": 'unsupported_minute_package' if item.get('use_minute_data') else 'supported',
             "batch_validation_receipt_files": batch_receipts,
             "summary": batch_summaries[-1] if batch_summaries else {},
             "batch_summaries": batch_summaries,
             "validation_outputs": validation_outputs,
         })
+        if not item.get('use_minute_data'):
+            results[-1].update(_registration_handoff('package', task_id,
+                {'formulas': item['formulas'], 'reads': item['reads'], 'begin_date': item['begin_date']}, package_receipt))
     evidence_stats, evidence_warnings = _package_reply_evidence(
         call_script, env, task_id, user_query, str(params.get("template_ref") or ""), normalized, results
     )
@@ -974,6 +1012,28 @@ def _formula_output_names(formulas):
     return names
 
 
+def _answer_evidence(asset, role, result, fingerprint):
+    """Project already validated values without a second QBS call or temp read.
+
+    Keep field-level dates and units verbatim. Never expose transport credentials.
+    """
+    import copy
+    import execution_plan as EP
+    body = result.get('data') if isinstance(result.get('data'), dict) else result
+    keys = ('query_type', 'hint', 'fields_meta', 'field_dates', 'as_of', 'date', 'field_errors')
+    data = {key: copy.deepcopy(body[key]) for key in keys if key in body}
+    if role in ('snapshot', 'report'):
+        target = _fast_query_target(body.get('results'), asset)
+        if target is None:
+            raise ValueError('answer_target_missing')
+        data['results'] = {asset: copy.deepcopy(target)}
+    else:
+        data.update({key: copy.deepcopy(body[key]) for key in ('asset', 'dimensions', 'indicators_count') if key in body})
+    EP._no_secrets(data)
+    return {'asset': asset, 'role': role, 'contract_fingerprint': fingerprint,
+            'source': 'validated_qbs_response', 'data': data}
+
+
 def _resolve_single_asset_data(call_script, params, env):
     task_id = str(params.get("task_id") or "").strip()
     user_query = str(params.get("user_query") or "").strip()
@@ -1006,6 +1066,7 @@ def _resolve_single_asset_data(call_script, params, env):
     grants = []
     formula_packages = []
     warnings = []
+    answer_evidence = []
     successful_required = set()
     failed_required = set()
     attempted_required = set()
@@ -1039,8 +1100,13 @@ def _resolve_single_asset_data(call_script, params, env):
             fingerprint = FRC.contract_fingerprint(contract)
             receipt = _grant_validation_receipt(task_id, "profile", "stock_profile", fingerprint, snapshot={"contract": contract, "result": profile_result})
             grant = {"name": "profile", "role": "profile", "kind": "stock_profile", "contract": contract, "contract_fingerprint": fingerprint, "validation_receipt_file": receipt}
+            grant.update(_registration_handoff('grant', task_id, contract, receipt))
             grants.append(grant)
             selected_routes.append({"role": "profile", "kind": "stock_profile", "receipt_file": receipt, "contract_fingerprint": fingerprint})
+            try:
+                answer_evidence.append(_answer_evidence(asset, 'profile', profile_result, fingerprint))
+            except ValueError:
+                warnings.append({'role': 'profile', 'code': 'ANSWER_EVIDENCE_UNAVAILABLE'})
     else:
         record_failure("profile", "stock_profile", profile_eval)
 
@@ -1062,6 +1128,18 @@ def _resolve_single_asset_data(call_script, params, env):
         result, error = _invoke_payload(call_script, "fast_query", query_payload, env)
         evaluation = _evaluate_fast_query_result(asset, required_by_role[role], optional_fields, error or result)
         warnings.extend({"role": role, **item} for item in evaluation.get("warnings") or [])
+        # A successful required subset does not make unavailable optional fields
+        # registerable. Revalidate the reduced request before sealing its receipt.
+        unavailable = {item.get('field') for item in evaluation.get('warnings') or []}
+        if evaluation.get('success') and unavailable:
+            fields = [field for field in fields if field not in unavailable]
+            retained_optional = [field for field in optional_fields if field not in unavailable]
+            query_payload = {**query_payload, 'fields': fields}
+            result, error = _invoke_payload(call_script, 'fast_query', query_payload, env)
+            evaluation = _evaluate_fast_query_result(asset, required_by_role[role], retained_optional, error or result)
+            if evaluation.get('success') and evaluation.get('warnings'):
+                evaluation = {'success': False, 'error_class': 'system',
+                              'error_code': 'OPTIONAL_CONTRACT_UNSTABLE'}
         route_name = f"fast_query_{role}"
         if evaluation.get("success"):
             successful_required.add(role)
@@ -1071,8 +1149,13 @@ def _resolve_single_asset_data(call_script, params, env):
             fingerprint = FRC.contract_fingerprint(contract)
             receipt = _grant_validation_receipt(task_id, role, "fast_query", fingerprint, snapshot={"contract": contract, "result": result})
             grant = {"name": role, "role": role, "kind": "fast_query", "query_type": role, "contract": contract, "contract_fingerprint": fingerprint, "validation_receipt_file": receipt}
+            grant.update(_registration_handoff('grant', task_id, contract, receipt))
             grants.append(grant)
             selected_routes.append({"role": role, "kind": "fast_query", "query_type": role, "receipt_file": receipt, "contract_fingerprint": fingerprint})
+            try:
+                answer_evidence.append(_answer_evidence(asset, role, result, fingerprint))
+            except ValueError:
+                warnings.append({'role': role, 'code': 'ANSWER_EVIDENCE_UNAVAILABLE'})
         else:
             record_failure(role, route_name, evaluation)
 
@@ -1080,6 +1163,7 @@ def _resolve_single_asset_data(call_script, params, env):
     if not blocked and formulas:
         attempted_required.add("formula")
         package_contract = {"formulas": formulas, "reads": formula_options.get('reads', []),
+                            **({'use_minute_data': formula_options['use_minute_data']} if 'use_minute_data' in formula_options else {}),
                             "begin_date": _begin_date(formula_options.get('begin_date', params.get("begin_date")), "begin_date")}
         package_result = _validate_package_set(call_script, {
             "task_id": task_id,
@@ -1139,7 +1223,10 @@ def _resolve_single_asset_data(call_script, params, env):
         "status": status,
         "task_id": task_id,
         "asset": asset,
+        "publication_evidence": _publication_evidence(task_id, receipt_file, grants, formula_packages, asset),
+        "registration_files": [g['registration_params_file'] for g in grants],
         "attempts": attempts,
+        "answer_evidence": answer_evidence,
         "grants": grants,
         "formula_packages": formula_packages,
         "warnings": warnings,
@@ -1243,6 +1330,8 @@ def _resolve_asset_data(call_script, params, env):
         "status": status,
         "task_id": receipt_payload["task_id"],
         "assets": assets,
+        "publication_evidence": _publication_evidence(receipt_payload["task_id"], receipt_file, grants, formula_packages),
+        "registration_files": [g['registration_params_file'] for g in grants],
         "asset_results": asset_results,
         "attempts": attempts,
         "grants": grants,
@@ -1283,6 +1372,10 @@ def _validate_grant_set(call_script, params, env):
     grants = params.get("grants")
     if not isinstance(grants, list):
         return {"code": 1, "error": "INVALID_GRANTS", "message": "grants 必须是数组"}
+    grants = copy.deepcopy(grants)
+    for item in grants:
+        if isinstance(item, dict) and 'contract_fingerprint' not in item and not GC.contract_errors(item.get('contract')):
+            item['contract_fingerprint'] = FRC.contract_fingerprint(item['contract'])
     task_id = str(params.get("task_id") or "").strip()
     user_query = str(params.get("user_query") or "").strip()
     tool_by_kind = GC.TOOL_BY_KIND
@@ -1358,6 +1451,7 @@ def _validate_grant_set(call_script, params, env):
             "contract_fingerprint": fingerprint,
             "validation_receipt_file": receipt,
             "reply_evidence": RDE.compact_grant_result(kind, result),
+            **_registration_handoff('grant', task_id, contract, receipt),
         })
     blocking = any(item.get("error_class") != "data" for item in failed_grants)
     return {

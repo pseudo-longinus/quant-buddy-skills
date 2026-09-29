@@ -2909,7 +2909,7 @@ def _normalized_evidence_path(value):
         return os.path.normcase(os.path.abspath(str(value or "")))
 
 
-def _valid_formula_receipt(receipt, task_id):
+def _valid_formula_receipt(receipt, task_id, resolve_path=None):
     base_valid = (
         isinstance(receipt, dict)
         and receipt.get("version") == _VALIDATION_RECEIPT_VERSION
@@ -2936,6 +2936,8 @@ def _valid_formula_receipt(receipt, task_id):
         if not isinstance(entry, dict):
             return False
         raw_path = str(entry.get("file") or "").strip()
+        if resolve_path:
+            raw_path = resolve_path(raw_path)
         expected_sha256 = str(entry.get("sha256") or "").strip().lower()
         if not raw_path or not re.fullmatch(r"[0-9a-f]{64}", expected_sha256):
             return False
@@ -3070,7 +3072,7 @@ def _validate_static_after_probe(params, route):
     return None
 
 
-def _validate_live_receipts(params, route, *, allow_partial=False):
+def _validate_live_receipts(params, route, *, allow_partial=False, resolve_path=None):
     identity_error = _validate_route_identity(route, params)
     if identity_error:
         return identity_error
@@ -3098,7 +3100,7 @@ def _validate_live_receipts(params, route, *, allow_partial=False):
             child_params = {**params, "asset": child.get("asset"), "route_receipt_file": str(child_path)}
             for key, files in supplied.items():
                 child_params[key] = [file for file in files if _normalized_evidence_path(file) in selected]
-            error = _validate_live_receipts(child_params, child, allow_partial=False)
+            error = _validate_live_receipts(child_params, child, allow_partial=False, resolve_path=resolve_path)
             if error:
                 return error
         return None
@@ -3141,7 +3143,7 @@ def _validate_live_receipts(params, route, *, allow_partial=False):
     for raw_path in formula_files:
         receipt, error = _read_evidence_receipt(raw_path, "formula receipt")
         path_key = _normalized_evidence_path(raw_path)
-        if error or not _valid_formula_receipt(receipt, task_id):
+        if error or not _valid_formula_receipt(receipt, task_id, resolve_path=resolve_path):
             invalid.append({"file": str(raw_path), "kind": "formula"})
         else:
             formula_receipts[path_key] = receipt
@@ -3267,7 +3269,21 @@ def _validate_publish_data_evidence(params, *, source_credential_count=0, allow_
         return _evidence_error("LIVE_DATA_ROUTE_RECEIPT_REQUIRED", "live/static_after_live_probe 模式必须提供可读取的 live_data_route_receipt_v1", details=error)
     if mode == "static_after_live_probe":
         return _validate_static_after_probe(params, route)
-    return _validate_live_receipts(params, route, allow_partial=allow_partial)
+    resolve_path = None
+    if params.get('maintenance_mode'):
+        import maintenance_candidate as MC
+        try:
+            record = MC.validate(sys.modules[__name__], params, plan)
+            if 'receipt_path_map' in record:
+                import runtime_route
+                recovered = runtime_route.bind(params)
+                if _normalized_evidence_path(recovered['route_receipt_file']) != _normalized_evidence_path(params.get('route_receipt_file')):
+                    raise EP.PlanError('MAINTENANCE_ROUTE_CHANGED', '维护发布必须使用核验原始注册证据后生成的本轮路由')
+        except EP.PlanError as exc:
+            return exc.as_dict()
+        path_map = record.get('receipt_path_map', {})
+        resolve_path = lambda path: path_map.get(str(path), path)
+    return _validate_live_receipts(params, route, allow_partial=allow_partial, resolve_path=resolve_path)
 
 
 class _PreserveHtmlParser(HTMLParser):
@@ -4291,6 +4307,8 @@ def _existing_page_route_mode(reference):
     """
     if not isinstance(reference, dict):
         return None
+    if reference.get("requested_route") == "fork":
+        return "fork"
     capability = reference.get("can_update_in_place")
     if capability is True:
         return "in_place"
@@ -4886,6 +4904,19 @@ def _validate_routing_decision(params):
                 "error": "FORK_BORROW_MODE_REQUIRED",
                 "message": "fork 必须声明 borrow_mode：inherit / inherit_augment / compose。",
                 "allowed_borrow_modes": list(_FORK_BORROW_MODES),
+            }
+        trace = C.current_trace_context()
+        query = str(trace.get("user_query") or "") if str(trace.get("task_id") or "") == task_id else ""
+        snapshot = candidate["snapshot"]
+        labels = " ".join(str(snapshot.get(key) or "") for key in ("title", "category", "scene_tags", "paradigm_tags"))
+        industry_universe = bool(re.search(r"申万.*(?:一级|全行业|行业).*?(?:涨跌|排名|排行|前五|前5)", query))
+        single_asset = bool(re.search(r"个股|单只|单标的|单一资产", labels))
+        multi_industry = bool(re.search(r"行业轮动|全行业|行业排行|行业排名|行业截面", labels))
+        if industry_universe and single_asset and not multi_industry and borrow_mode != "compose":
+            return None, {
+                "code": 1, "error": "INDUSTRY_UNIVERSE_TEMPLATE_MISMATCH",
+                "message": "行业全截面不是单个资产，不能继承个股模板的数据合同。若仅借用布局请选择 compose；无适用范式时按实质能力缺口选择 unmatched。",
+                "source_template_id": source_id, "query_submitted": False,
             }
         return {
             "version": _ROUTING_DECISION_VERSION,
@@ -5955,7 +5986,7 @@ def _publish_verified_cli_result(result, task_id):
     summary = {
         key: persisted_result[key]
         for key in (
-            "code", "published", "verified", "page_id", "public_url", "timing",
+            "code", "error", "message", "next_action", "recoverable", "published", "verified", "page_id", "public_url", "timing",
             "agent_reply_contract_file", "agent_reply_contract_sha256",
             "reply_draft_file", "reply_validation_params_file", "reply_validation_command",
             "reply_validation_env", "reply_validation_env_keys",
@@ -6157,6 +6188,13 @@ def cmd_interpret(params):
     reference = _existing_page_reference_from_interpret(result, url) if task_id else None
     if not reference:
         return result
+    trace = C.current_trace_context()
+    query = str(trace.get("user_query") or "") if str(trace.get("task_id") or "") == task_id else ""
+    wants_copy = bool(re.search(r"复制|副本|另存|别人的页面|改成我的|原页保持不动|原页不动|新的活页|新建.*(?:页面|活页)", query))
+    rejects_copy = bool(re.search(r"(?:不要|不用|无需|不需要)(?:再)?(?:复制|新建)", query))
+    if wants_copy and not rejects_copy:
+        reference["requested_route"] = "fork"
+        reference["route_intent_source"] = "user_query"
     binding_file, binding_error = _record_existing_page_reference(task_id, reference)
     if binding_error:
         return binding_error

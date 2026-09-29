@@ -34,6 +34,8 @@
 
 ## 调用方式
 
+计划任务的 `upload:true` 只生成待发布候选和 `next_action.params_file`，仍须执行返回的 `publish_verified`；不是上传成功。普通未命中自建时，将本轮 `resolve_asset_data.publication_evidence` 原样并入 spec，并绑定用其注册文件得到的真实ID。Compose或计划明确要求绑定角色时，按 `bind_runtime_route` 返回值传入路由、资产/轮次及验证收据。不得把探测收据当成注册收据，不从旧任务寻找参数；生成器只透传收到的证据，不推断或伪造缺失收据。
+
 ```bash
 # 写好 spec.json，生成 live 实时取数 HTML
 python scripts/build_dashboard.py @spec.json
@@ -50,6 +52,9 @@ BD_PARAMS='{"title":"...","panels":[...],"upload":true}' python scripts/build_da
 | `title` | string | ✅ | 看板标题（`<title>` + 页头） |
 | `subtitle` | string | ❌ | 副标题 |
 | `description` | string | 正式自建发布必填 | 页面说明（≤1000 字），描述实际研究范围，禁止进度占位；仅生成候选时可暂不填 |
+| `asset` / `turn_id` | string | 按运行时绑定返回值 | 原样透传 `bind_runtime_route` 的资产与当前轮次，发布时与收据比对 |
+| `route_receipt_file` | string | 实时计划发布必填 | 已注册运行时的真实路由收据路径 |
+| `validation_receipt_files` / `grant_validation_receipt_files` | string[] | 按实际数据通道 | 当前公式 / Data Grant 注册所用验证收据；不填虚构或其他任务路径 |
 | `page_context` | object | ❌ | 当前活页稳定语义；不传时根据最终标题、面板和输出重新生成，禁止复制来源模板上下文 |
 | `agent_reply_template` | object | ❌ | 显式回复骨架；不传时按页面主题匹配专业骨架，无法匹配则使用 `generic_live_page_delivery_v1` |
 | `package_id` | string | ❌ | 公式包面板使用的 id；缺省取**最近一次**本地凭证。纯 Data Grant 页面不要求 |

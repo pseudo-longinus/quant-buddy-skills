@@ -43,23 +43,20 @@ python scripts/fetch_fastquery_csv.py "<csv_url1>" "<csv_url2>" "<csv_url3>" --l
 
 stdout 是紧凑 receipt；完整序列已写入 artifact，不要再读取整份 artifact 回模型上下文。直接使用 receipt 的 `series_summaries`（首值、末值、区间涨跌、极值）、字段统计和 `pairwise_analysis` 支持 QBS 首答；禁止再用 `curl`、`Invoke-WebRequest`、`read_skill_file` 或其它方式读取 CSV/artifact。
 
-7. 一次命令生成 computation capsule、Handoff 和幂等 Job：
+7. 先根据既有数据/receipt 给出下文要求的完整非终止首答；随后一次命令生成 computation capsule、Handoff 和幂等 Job：
 
 ```powershell
 python scripts/live_page_routing.py prepare-fast-query-page --task-id "<task_id>" --turn-id "<turn_id>" --user-query "用户本轮原话" --source-skill-version "<当前 SKILL.md version>" --asset-id "<资产代码>" --asset-name "<资产名称>" --fields "收盘价,成交量,市盈率" --window-days 250 --artifact-file "output/_working/<task_id>/main-series.json"
 ```
 
-有真实 `source_skill_id` 时增加 `--source-skill-id`；不知道就省略，禁止猜测。命令返回的 `handoff_file`、`qbv_job_id`、`should_spawn` 是唯一交接依据。
+有真实 `source_skill_id` 时增加 `--source-skill-id`；不知道就省略，禁止猜测。命令返回的 `handoff_file`、`qbv_job_id`、`should_continue/should_spawn` 是唯一交接依据。
 
-**终止性规则**：`prepare-fast-query-page` 返回 `code=0` 后，capsule、Handoff 和 Job 已全部生成。此后只允许二选一：调用一次内部委派，或调用一次 `mark-delegation-unavailable`；然后立即基于既有 receipt 给出 QBS 首答。**禁止再次执行 `handoff`、`prepare` 或第二次 `prepare-fast-query-page`，也不得再调用任何取数、下载或文件读取工具**；不得把 `qbv_job_id` 当作 Handoff JSON 输入。
+**准备幂等规则（不是结束本轮）**：准备成功后不再重复 handoff/prepare 或取数。默认 should_continue=true，由当前 Agent 读取 QBV Skill，beginHandoff、adapter 后同轮完成页面；只有显式 delegated + should_spawn=true 才真实委派，不同时执行两条路径。无委派工具不影响 same_turn。页面失败写回失败终态，保留首答。
 
-8. `should_spawn=true` 时，使用宿主真实提供的内部委派能力把该 Handoff 交给独立 QBV SOP；只等待接受回执，不等待页面完成。用户可见表述只能说“正在后台生成可交互页面”，不要说“新开一个子 Agent”。若宿主无委派能力或调用失败，执行：
+QBV 未提供或读取被拒绝时，直接执行 `python scripts/live_page_routing.py update --qbv-job-id "<返回ID>" --status failed --failure-code QBV_SKILL_UNAVAILABLE --retryable true`，确认返回 failed 后说明页面未完成。不得留 queued。本文的只读及调用预算只约束 QBS 取数阶段，不禁止首答后读取 QBV 和执行页面/失败收尾。
 
-```powershell
-python scripts/live_page_routing.py mark-delegation-unavailable --qbv-job-id "<qbv_job_id>"
-```
+8. 首答已经发出，后续执行页面构建、验收并补链接。不得终止本轮后假设后台继续。
 
-该命令把 Job 写为 `failed + DELEGATION_UNAVAILABLE + retryable=true`；QBS 首答照常发送，且不得对用户声称页面正在生成。
 9. QBS 首答必须回答用户的分析问题：给出区间、价格/估值变化、相关系数与方向一致率的谨慎解释。**禁止**写“价格主要由估值驱动”“PE 导致股价变化”等因果结论；PE 指标通常包含价格项，高相关可能带有定义上的机械关系，必须明确写出“同步不等于因果，不能据此判断驱动因素”。页面完成后由终态消息补公开链接。
 
 ## Inline 返回的窄恢复
@@ -77,7 +74,7 @@ python scripts/live_page_routing.py mark-delegation-unavailable --qbv-job-id "<q
 | `fast_query` | 1 |
 | CSV artifact Bash 或 `write_skill_file` | 1 |
 | `prepare-fast-query-page` Bash | 1 |
-| 内部委派 | 1 |
+| 同轮交接（或可选委派） | 1 |
 | **目标总调用** | **8～10** |
 
 任何一步成功后不得重复调用同角色工具。`fast_query` 只有明确返回字段失败时才允许对失败字段做一次降级；否则超预算即停止扩张并基于已有结果回答。

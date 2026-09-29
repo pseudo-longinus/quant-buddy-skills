@@ -30,6 +30,8 @@ import uuid
 
 from task_context import (
     TaskContextError,
+    adopt_host_context,
+    host_turn_receipt,
     build_new_session_context,
     build_turn_context,
     clear_turn_session_context,
@@ -152,6 +154,10 @@ def _materialize_chart_artifact(raw: dict, params: dict, skill_root: str) -> dic
     data["mime_type"] = {"png": "image/png", "jpg": "image/jpeg", "webp": "image/webp", "gif": "image/gif"}.get(final_format, data.get("mime_type"))
     data["artifact_file"] = artifact_file
     data["saved_to"] = artifact_file
+    alt = title.replace('\\', '\\\\').replace('[', '\\[').replace(']', '\\]').replace('\n', ' ')
+    link = artifact_file.replace('\\', '/').replace('<', '%3C').replace('>', '%3E')
+    data['artifact_markdown'] = f'![{alt}](<{link}>)'
+    data['artifact_delivery_instruction'] = '原样使用 artifact_markdown 交付此已存在的图片；不要添加 sandbox: 或改写磁盘路径。宿主有实际附件 URI 时才可替换为该 URI。'
     return raw
 
 
@@ -229,6 +235,7 @@ def _finalize_formula_execution_payload(
     raw: dict,
     *,
     task_id: str = "",
+    read_data=None,
 ) -> dict:
     """Persist successful formula receipts on the programmable QuantAPI path.
 
@@ -246,7 +253,9 @@ def _finalize_formula_execution_payload(
         receipt_file = write_receipt(tool_name, params or {}, payload)
         if receipt_file:
             payload["validation_receipt_file"] = receipt_file
-        return apply_output_mode(payload, (params or {}).get("output_mode", "full"))
+        payload = apply_output_mode(payload, (params or {}).get("output_mode", "full"))
+        from read_data_evidence import attach_factor_answer
+        return attach_factor_answer(payload, receipt_file, read_data)
     except Exception:
         return payload
 
@@ -369,6 +378,9 @@ class QuantAPI:
         return self._report_turn("/skill/session/begin", turn_context)
 
     def _report_turn_begin(self, turn_context: dict):
+        host_receipt = host_turn_receipt(turn_context)
+        if host_receipt is not None:
+            return host_receipt
         return self._report_turn("/skill/session/turn", turn_context)
 
     def _check_skill_version(self) -> dict:
@@ -440,6 +452,7 @@ class QuantAPI:
         # ── newSession：独立模式生成 UUID；上游编排模式继承 task_id ──
         if tool_name == "newSession":
             try:
+                params = adopt_host_context(params)
                 task_context = build_new_session_context(params, uuid_factory=_uuid.uuid4)
             except TaskContextError as exc:
                 raise RuntimeError(f"{exc.code}: {exc.message}") from exc
@@ -670,6 +683,13 @@ class QuantAPI:
         turn_warnings = []
         inject_or_validate_turn_context(session_data, params, warnings=turn_warnings)
 
+        if tool_name == "runMultiFormulaBatchStream":
+            from sector_scope import validate_formula_scope
+            scope_error = validate_formula_scope(
+                session_data.get("current_user_query") or session_data.get("user_query") or params.get("user_query"), params)
+            if scope_error:
+                return scope_error
+
         # ── 确保 executor 在 sys.path 里，然后 import ───────────────
         if self._scripts_dir not in sys.path:
             sys.path.insert(0, self._scripts_dir)
@@ -718,11 +738,15 @@ class QuantAPI:
                     return {"code": int(code_m.group(1)), "_raw_yaml": raw}
                 return {"code": -1, "_raw": raw[:2000]}
 
+        if tool_name == "readData":
+            from read_data_evidence import finalize_read_data
+            raw = finalize_read_data(raw, params, self.skill_root)
         if tool_name in ("renderChart", "renderKLine"):
             raw = _materialize_chart_artifact(raw, params, self.skill_root)
         if tool_name in ("runMultiFormulaBatchStream", "resumeJob"):
             raw = _finalize_formula_execution_payload(
-                tool_name, params, raw, task_id=self._task_id or params.get("task_id", "")
+                tool_name, params, raw, task_id=self._task_id or params.get("task_id", ""),
+                read_data=lambda read_params: self._call("readData", read_params),
             )
 
         # 服务端有时在响应里带新的 task_id：
@@ -759,9 +783,11 @@ class QuantAPI:
         访问内层字段。通过此展开保持向下兼容。
         """
         if isinstance(r, dict) and "code" in r and "data" in r:
+            if r.get("code") != 0:
+                return r
             inner = r.get("data")
             if isinstance(inner, dict):
-                return inner
+                return {**inner, **({"answer_evidence": r["answer_evidence"]} if "answer_evidence" in r else {})}
         return r
 
     # ────────────────────────────────────────────

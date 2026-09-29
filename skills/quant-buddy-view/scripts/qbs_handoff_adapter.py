@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+from answer_structure import normalize_answer_structure, layout_for
+from formula_execution_contract import execution_contracts_from_receipts
 import math
 import re
 import sys
@@ -154,6 +156,13 @@ def evaluate_handoff(handoff: Any, required_roles: Any = None) -> Dict[str, Any]
             formula_runtime_contract = _normalize_formula_runtime_contract(capsule.get("formula_runtime_contract"))
         except ValueError as exc:
             return _unusable("formula_runtime_contract_invalid", str(exc))
+    try:
+        execution_contracts = execution_contracts_from_receipts(capsule.get('validation_receipts'), formula_runtime_contract)
+        if ('formula_execution_contracts' in capsule and
+                capsule['formula_execution_contracts'] != execution_contracts):
+            return _unusable('formula_execution_contract_mismatch')
+    except ValueError as exc:
+        return _unusable('formula_execution_contract_invalid', str(exc))
 
     intent = capsule.get("page_intent") if isinstance(capsule.get("page_intent"), dict) else {}
     raw_required = required_roles if required_roles is not None else intent.get("required_roles")
@@ -262,8 +271,24 @@ def evaluate_handoff(handoff: Any, required_roles: Any = None) -> Dict[str, Any]
         "validation_receipts": list(capsule.get("validation_receipts") or []) if isinstance(capsule.get("validation_receipts"), list) else [],
     }
     if formula_runtime_contract is not None:
-        result["formula_runtime_action"] = "register_exact"
+        result["formula_runtime_action"] = ('unsupported_minute_package'
+            if formula_runtime_contract.get('use_minute_data') else 'register_exact')
         result["formula_runtime_contract"] = formula_runtime_contract
+        if formula_runtime_contract.get('use_minute_data'):
+            result['runtime_warning'] = 'MINUTE_PACKAGE_UNSUPPORTED'
+    if execution_contracts:
+        result['formula_execution_contracts'] = execution_contracts
+        if any(contract['use_minute_data'] for contract in execution_contracts):
+            result['formula_runtime_action'] = 'unsupported_minute_package'
+            result['runtime_warning'] = 'MINUTE_PACKAGE_UNSUPPORTED'
+    structure, status, warning = normalize_answer_structure(
+        capsule.get('answer_structure'), capsule.get('validated_outputs', []), capsule.get('validated_insights', []))
+    result['answer_structure_status'] = status if status != 'absent' else capsule.get('answer_structure_status', 'absent')
+    result['answer_layout'] = layout_for(structure)
+    if warning or capsule.get('answer_structure_warning'):
+        result['answer_structure_warning'] = warning or capsule['answer_structure_warning']
+    if structure:
+        result['answer_structure'] = structure
     return result
 
 
@@ -388,6 +413,9 @@ def build_publish_evidence(
     coverage = evaluate_handoff(handoff, [role_name])
     if coverage.get("coverage") != "covered" or role_name not in coverage.get("covered_roles", []):
         raise ValueError(str(coverage.get("reason") or "HANDOFF_ROLE_NOT_COVERED"))
+    if (coverage.get('formula_runtime_contract', {}).get('use_minute_data') or package_contract.get('use_minute_data')
+            or any(c.get('use_minute_data') for c in coverage.get('formula_execution_contracts', []))):
+        raise ValueError('MINUTE_PACKAGE_UNSUPPORTED')
     contract_entry = next(item for item in coverage["reusable_contracts"] if item.get("role") == role_name)
     output_entry = next(item for item in coverage["reusable_outputs"] if item.get("role") == role_name)
     if contract_entry.get("kind") != "quant_buddy_materialized_data":

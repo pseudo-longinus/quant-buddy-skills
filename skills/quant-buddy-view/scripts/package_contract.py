@@ -39,4 +39,19 @@ def normalize(value):
     datetime.strptime(str(date), '%Y%m%d')
     if not 20050104 <= date <= 20991231:
         raise ValueError('begin_date outside supported range')
-    return {'formulas': list(formulas), 'reads': copy.deepcopy(reads), 'begin_date': date}
+    minute = value.get('use_minute_data', False)
+    if type(minute) is not bool:
+        raise ValueError('use_minute_data must be boolean')
+    contract = {'formulas': list(formulas), 'reads': copy.deepcopy(reads), 'begin_date': date}
+    # Preserve legacy daily fingerprints; minute intent must never alias daily.
+    if minute:
+        contract['use_minute_data'] = True
+    return contract
+
+
+def registration_capability_error(contract):
+    if contract.get('use_minute_data') is True:
+        return {'code': 1, 'error': 'MINUTE_PACKAGE_UNSUPPORTED',
+                'message': '当前公式包注册服务未支持分钟执行合同；不得静默改为日频。保留QBS答案，仅使用已验证且口径一致的受支持运行时，或按现有门禁报告页面未完成。',
+                'retryable': False}
+    return None

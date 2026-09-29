@@ -43,6 +43,9 @@ import uuid
 
 from task_context import (
     TaskContextError,
+    adopt_host_context,
+    host_managed_lifecycle,
+    host_turn_receipt,
     build_new_session_context,
     build_turn_context,
     clear_turn_session_context,
@@ -1472,17 +1475,19 @@ def main():
             tracking_recorded = False
             reason_code = None
             try:
-                cfg = _ex.load_config()
-                api_key = _ex.resolve_api_key(turn_params, cfg)
-                endpoint = (cfg.get("endpoint") or "").rstrip("/")
-                if not endpoint or not api_key:
-                    raise RuntimeError("缺少 endpoint 或 api_key")
-                response = _post_turn(
-                    endpoint, api_key, cfg.get("_channel", ""),
-                    "/skill/session/turn", attempted_turn,
-                    agent_model=str(turn_params.get("agent_model") or "").strip() or None,
-                    user_id=turn_params.get("user_id"),
-                )
+                response = host_turn_receipt(attempted_turn)
+                if response is None:
+                    cfg = _ex.load_config()
+                    api_key = _ex.resolve_api_key(turn_params, cfg)
+                    endpoint = (cfg.get("endpoint") or "").rstrip("/")
+                    if not endpoint or not api_key:
+                        raise RuntimeError("缺少 endpoint 或 api_key")
+                    response = _post_turn(
+                        endpoint, api_key, cfg.get("_channel", ""),
+                        "/skill/session/turn", attempted_turn,
+                        agent_model=str(turn_params.get("agent_model") or "").strip() or None,
+                        user_id=turn_params.get("user_id"),
+                    )
                 tracking_recorded, canonical_turn_id, canonical_intent, reason_code = tracking_result_outcome(
                     response, attempted_turn["task_id"], attempted_turn["turn_id"]
                 )
@@ -1538,9 +1543,10 @@ def main():
                 result["reason_code"] = reason_code or "TURN_TRACKING_FAILED"
         except TaskContextError as exc:
             result = {
-                "code": 0, "success": True, "tracking_recorded": False,
-                "reason_code": exc.code, "blocking": False,
-                "message": "Turn 追踪未登记，业务流程可以继续。",
+                "code": 1 if host_managed_lifecycle() else 0,
+                "success": not host_managed_lifecycle(), "tracking_recorded": False,
+                "reason_code": exc.code, "blocking": host_managed_lifecycle(),
+                "message": exc.message if host_managed_lifecycle() else "Turn 追踪未登记，业务流程可以继续。",
             }
         except Exception as exc:
             record_turn_tracking_diagnostic(
@@ -1554,7 +1560,7 @@ def main():
                 "message": "Turn 追踪未登记，业务流程可以继续。",
             }
         _safe_print(json.dumps(result, ensure_ascii=False, indent=2))
-        sys.exit(0)
+        sys.exit(1 if result.get('blocking') else 0)
 
     # ── newSession：独立模式生成 UUID；上游编排模式继承 task_id ──
     if tool_name == "newSession":
@@ -1578,6 +1584,7 @@ def main():
         except Exception:
             pass
         try:
+            _ns_params = adopt_host_context(_ns_params)
             _task_context = build_new_session_context(_ns_params, uuid_factory=uuid.uuid4)
         except TaskContextError as exc:
             _safe_print(json.dumps({
@@ -2058,6 +2065,14 @@ def main():
 
         _abort_on_run_multi_formula_missing_params(tool_name, params)
 
+        if tool_name == "runMultiFormulaBatchStream":
+            from sector_scope import validate_formula_scope
+            scope_error = validate_formula_scope(
+                session_data.get("current_user_query") or session_data.get("user_query") or params.get("user_query"), params)
+            if scope_error:
+                print(json.dumps(scope_error, ensure_ascii=False))
+                sys.exit(1)
+
         # ── 调用 executor.py ──────────────────────────────────────
         rc, stdout_bytes, stderr_bytes = _run_executor(tool_name, param_arg)
 
@@ -2144,6 +2159,13 @@ def main():
                 if _receipt_file:
                     _receipt_payload["validation_receipt_file"] = _receipt_file
                 _receipt_payload = apply_output_mode(_receipt_payload, params.get("output_mode", "full"))
+                from read_data_evidence import attach_factor_answer
+                def _read_factor_columns(read_params):
+                    from quant_api import QuantAPI
+                    api = QuantAPI(skill_root=SKILL_ROOT, api_key=params.get("api_key"))
+                    api._task_id = read_params["task_id"]
+                    return api._call("readData", read_params)
+                _receipt_payload = attach_factor_answer(_receipt_payload, _receipt_file, _read_factor_columns)
                 stdout = json.dumps(_receipt_payload, indent=2, ensure_ascii=False)
             except Exception:
                 pass

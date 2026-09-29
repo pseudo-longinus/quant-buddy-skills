@@ -5,12 +5,18 @@
 
 用户只是想改**一个图表**——叠加一条线、去掉一条线、改时间窗口、或者问"这张图的真实数据是什么"——不要
 默认当成整页重建处理（那意味着把页面上所有公式，包括跟这次改动无关的，重新校验/计算一遍）。这类请求
-优先用 `scripts/chart_edit.py`，只动被要求的那一处；只有 §0 判定为 legacy 或改动本质上要求整页重算时，
+优先用 `scripts/chart_edit.py`，只动被要求的那一处；只有 §1 判定为 legacy 或改动本质上要求整页重算时，
 才落回 [dashboard-end-to-end.md](dashboard-end-to-end.md) 第 4 节的整页重建流程。
 
 设计背景/为什么要这样拆：脚本头部文档 `scripts/chart_edit.py` 与工具说明 `tools/chart_edit.md`。
 
-## 0. 先 inspect，判断能不能走这条路
+## 0. 计算更新先答，再进入图表编辑
+
+“加一条20日均线”、新增指标、扩大计算区间、修改回测参数属于计算更新，不能套用纯展示维护例外。先用 QBS 验证新增结果，**立即发一条用户可见、非终止的完整业务回复**，包含最新结果、实际日期、单位和计算口径；然后同轮继续下面的 inspect/add_series/set_window。不能等页面更新成功才首次回复，也不能用“正在加线”代替计算结果。直接进入本工作流或恢复旧会话时仍须执行此步骤，详见 [先答后建页](../guides/answer-first.md)。
+
+仅删除已有曲线、调整样式、裁剪已取数范围等不新增计算的动作，沿展示维护流程。为确认资产/目标图表确有必要时可先只读 interpret/query_data；新公式注册、页面 patch、发布与公开验收必须在业务首答之后。QBS 验证失败则如实回复，不发明新增指标值。
+
+## 1. inspect，判断能不能走这条路
 
 ```bash
 python scripts/chart_edit.py inspect '{"page_id":"page_xxx"}'
@@ -34,7 +40,7 @@ python scripts/chart_edit.py inspect '{"page_id":"page_xxx"}'
   package_id/formulas/reads/`formulas_known`）。用这个结果定位目标面板与它当前依赖哪些 output，
   不要再临时 `grep`/`sed` 页面源码猜结构。
 
-## 1. 按请求类型分派
+## 2. 按请求类型分派
 
 把用户的请求归到下面四类之一，只调用对应的**一个**子命令；不要因为要改一条线就把页面上其它面板/公式
 也带上重新验证。
@@ -57,6 +63,8 @@ python scripts/chart_edit.py add_series '{
 `panel` 可以是 0-based 下标、面板 title 精确匹配、或该面板已有的某个 output 名。`formulas` 里的公式必须
 先在 quant-buddy-skill 用 `runMultiFormulaBatchStream` 跑通确认出数（与 `dashboard-end-to-end.md` 的硬
 门槛一致），不能跳过验证直接注册。目标面板已有的系列、页面上其它面板，都不会被重新校验或重新计算。
+
+计划任务的 `add_series` / 扩窗 `set_window` 还需传 `validation_receipt_file`：复用同合同的注册校验收据，缺失时用 `qbs_bridge.py validate_package_set` 只验证这条新线的目标合同。不要因为未传收据而改成整页重建，更不能移除当前 task_id 绕过注册门禁。
 
 ### 删：去掉一条线（或整个面板）
 
@@ -102,13 +110,15 @@ python scripts/chart_edit.py query_data '{"page_id":"page_xxx","output_name":"�
 `result_mode` 传 `"full"` 拿完整时间序列；默认 `"summary"` 只给首尾值/变化率/样本数，用于口头核对够用、
 也更省 token。
 
-## 2. 回复用户
+## 3. 公开验收后补充完成消息
+
+这是业务首答之后的第二条回复，不是本轮唯一回复。先验证目标图实际存在原系列与新增系列、有效数值和日期轴；runtime=ready 或存在 canvas 不能单独证明画线成功。页面失败保留先前 QBS 答案，补充失败说明；成功只补充原页真实链接及必要变更说明。
 
 按现有 `reply-templates/`、`reply-data-policies/` 的口径转述结果：只用 `chart_edit.py` 返回的
 `url`/`message`/`start_date` 等字段，不要把 `signature`、完整 `formulas` 列表这类内部细节写进面向用户的
 回复（signature 设计上允许写进页面 HTML 供实时取数，但不代表可以出现在聊天回复里）。
 
-## 3. 与整页重建流程的边界
+## 4. 与整页重建流程的边界
 
 - 一次请求要同时动好几个面板、或明确要求"整体重做/换风格" → 直接走
   `dashboard-end-to-end.md` 第 4 节，别硬拆成好几次 `chart_edit.py` 调用。
