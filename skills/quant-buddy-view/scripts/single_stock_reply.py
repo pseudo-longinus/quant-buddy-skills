@@ -161,8 +161,10 @@ def _asset_identity(asset, evidence):
     raise ReplyRenderError("无法从页面结果或 evidence 确认标的名称")
 
 
-def render(*, evidence_file, evidence_sha256, asset, public_url):
+def render(*, evidence_file, evidence_sha256, asset, public_url, reply_mode="full_answer"):
     """Return a complete data draft whose summary marker must be authored by the Agent."""
+    if reply_mode not in ("full_answer", "page_followup"):
+        raise ReplyRenderError("未知回复模式")
     evidence = _read_evidence(evidence_file, evidence_sha256)
     public_url = str(public_url or "").strip()
     if not public_url.startswith(("https://pages.quantbuddy.cn/", "https://www.quantbuddy.cn/playground/")):
@@ -178,6 +180,15 @@ def render(*, evidence_file, evidence_sha256, asset, public_url):
         if section not in by_section:
             raise ReplyRenderError(f"字段 {field.get('field_id')} 指向未知章节：{section}")
         by_section[section].append(field)
+
+    if reply_mode == "page_followup":
+        # Presentation only: public verification and the sealed draft/reply
+        # check still run in the caller. This is not a delivery attestation.
+        return "\n".join([
+            f"**{identity}活页**", "", AGENT_SUMMARY_MARKER, "",
+            f"可分享实时活页：[{public_url}]({public_url})",
+            "若效果不满意，页面可进一步升级", "",
+        ])
 
     lines = [
         f"**{identity}全面分析**", "",

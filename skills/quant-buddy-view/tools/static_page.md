@@ -28,7 +28,7 @@ python scripts/static_page.py image_list '{"page_id":"page_xxx"}'
 
 > 把一份自包含 HTML 看板上传到对象存储，返回 `https://pages.quantbuddy.cn/...` 公开链接，任何人凭链接即可在浏览器打开。之后凭 `page_id` 管理（替换内容 / 列表 / 撤销）。
 > **替换（`update`）只换内容、不换链接**：页面已经分享出去后想再补充/调整，重建 HTML 后 `update` 同一个 `page_id` 即可，URL 不变、访问者刷新就看到新内容，也不占用新的活跃页配额。
-> **新会话路由**：简单单一 A 股综合分析可在 Trace begin 后直接用 `new_asset_page` 返回终态自有页面；其他请求再查官方精选+社区范式卡。普通渠道 direct 命中后下一条用户可见消息立即发现成链接，再用 `direct_deliver` 确定性取数和 finalize，fork/unmatched 用 `new_page`、`update_progress`、`publish_verified` 维护并发送同一首链。`config.json._channel=feishu-group` 时内部流程不变，但所有非终态链接都禁止发送，只交付 terminal contract 的 playground URL。
+> **新会话路由**：简单单一 A 股综合分析在完整 QBS 非终止首答后用 `new_asset_page`；其他请求先答再查范式卡。所有量化场景只在页面验收及适用回复校验后发链接，direct/fork/unmatched 的页面归属与同页维护规则不变。已有文件托管沿其首链交付规则。
 > 通过本地脚本 `scripts/static_page.py` 调用，页面管理命令凭 API Key 认身份（归属由 api_key 推定，优先级：参数 `api_key` > `QBV_API_KEY` > `config.json`）；每次用户任务先用 `scripts/trace_context.py begin` 建立 `task_id`——该步同样是后端写入、同样按 api_key 归属，必须与后续命令带同一个 key，否则整条链路的第一条记录会归到 `config.json` 的默认账号；后续命令通过参数复用并自动透传 `x-task-id`；`verify_card_runtime` 直连 URL 模式只做公开 HTML 验收。
 
 ## 端点
@@ -54,6 +54,10 @@ python scripts/static_page.py image_list '{"page_id":"page_xxx"}'
 | direct 确定性交付 | 脚本包装：`direct_deliver` 调一次模板详情、下载公开 HTML、每数据源查询一次，再调 `finalizeDirectPage` |
 | direct 终态 | `POST /skill/finalizeDirectPage`（API Key；校验 task、模板 revision 与同 task 实时查询证据） |
 
+## 快页回复模式
+
+`new_asset_page` 的本地可选参数 `reply_mode` 默认 `full_answer`，保持完整分析草稿。仅在完整业务首答已通过非终止消息实际发出时使用 `page_followup`，返回短草稿，验收后补一句页面说明和链接。此参数不透传服务端，也不作为首答送达证明；公开验收、SHA256 证据与宿主实际回复校验保持不变。未知模式在联网前报错。不能中途显示首答时使用默认模式。
+
 ## 调用方式
 
 ```bash
@@ -62,7 +66,7 @@ python scripts/static_page.py new_asset_page '{"task_id":"task_xxx","asset":"贵
 python scripts/static_page.py new_asset_page '{"task_id":"task_xxx","asset":"腾讯控股","user_query":"分析腾讯控股"}'
 python scripts/static_page.py new_asset_page '{"task_id":"task_xxx","asset":"苹果公司","user_query":"分析苹果公司"}'
 
-# 首次会话创建活页进度页（返回 page_id + url + steps；普通渠道发送 url，feishu-group 只内部保留）
+# 首次创建进度页（返回 page_id + url + steps；量化先答场景仅内部保留 URL）
 python scripts/static_page.py new_page '{"title":"贵州茅台估值质量分析","message":"正在确认活页方案"}'
 
 # 阶段推进时只更新同一个 page_id 的进度 HTML；脚本会按 current_step 自动推导步骤状态

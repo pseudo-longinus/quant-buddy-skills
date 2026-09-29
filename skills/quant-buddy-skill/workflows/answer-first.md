@@ -13,6 +13,7 @@
 1. 保留原始 user_query，按现有 route 分类。本轮操作意图已由上下文明确但原话省略对象或页面词时，传 `--page-requested`；更新原页同时传 `--page-reference`，不要改写原始 user_query（JSON 为 `page_requested:true`）；仅安装了 QBV 不构成建页意图。“不要网页/暂不发布/只要本地图片”仍优先；“只要表格/不要画图”不覆盖明确或场景隐含的活页意图。普通行业 TopN 不自动建页。
 2. 完成 QBS 查询、计算、日期/口径/完整性校验。已有上游 task/turn 时继承，不新建第二条任务链。宿主管理生命周期时，newSession/beginTurn 自动采用宿主身份，不重复登记会话；prepare 同样校验身份。直接使用返回的 task_id/turn_id，不读环境、不手改收据或创建第二个 Job 来纠正编号。
 3. **下一条用户可见消息先发完整业务答案**：结果、实际日期、单位、统计口径与限制。使用宿主允许继续工具调用的非终止消息。不能只发“正在查询/生成”，不能先结束本轮再假设后台继续；此时不承诺“已后台启动”。
+   个股综合分析沿 `stock-profile.md` 的完整六章合同，不因“先答/快速通道”降为少量指标摘要；用户明确要求简短或限定字段时才按请求缩减。
 4. 首答发出后再准备胶囊、Handoff、Job，执行模板查询、包注册、页面构建与验收。优先 `prepare-validated-page @params.json`；返回 `should_continue=true` 时，当前 Agent 读取 QBV Skill，调用 `beginHandoff` 与 adapter，继续完整 SOP，不再重复业务计算。
 5. 默认 `execution_mode:"same_turn"`。确有可靠的内部委派及回推能力时，可在首次 prepare 指定 `execution_mode:"delegated"`；只消费 `should_spawn=true` 的一次真实委派。不得使用用户可见的新聊天工具代替；委派成功后父流程不得重复建页。
 6. 两个执行标志都为 false 表示已存在任务，读取现有状态，不重复创建/换执行模式。已明确失败且可重试时通过 `retry_failed:true` 重试，沿用原执行模式。
@@ -23,6 +24,8 @@
 如果宿主只展示最终答案、无法证明中途消息已可见，正常完成用户任务，但将首答可见性记为未验证，不声称实现了后台或提前送达。不要为了探测能力调用不存在的发消息工具。真实模型测试以宿主观察到的消息/工具事件为准。
 
 ## 答案结构（可选，轻量）
+
+裸 A 股固定快页使用 `live-page-routing.md` 的 `single_a_stock_fast` 入口：QBV standalone 复用同一 task/turn，bridge 验证首答后 `new_asset_page`。此窄入口不要求额外通用 Handoff/Job，也不改变首答先于建页及成功验收后才发链接的顺序。
 
 首答和结构使用同一份已验证结果，不增加一次模型调用做页面规划。`prepare-validated-page` 和胶囊 build 都接受 `answer_structure`：
 

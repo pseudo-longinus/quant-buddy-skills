@@ -1336,6 +1336,9 @@ def main():
     if tool_name == "readData":
         from read_data_evidence import finalize_read_data
         result = finalize_read_data(result, params, SKILL_ROOT)
+    if tool_name == "stockProfile":
+        from profile_answer import attach_financial_table
+        result = attach_financial_table(result)
 
     # ── 认证失败：立即终止，不要重试 ──────────────────────────────
     if isinstance(result, str):

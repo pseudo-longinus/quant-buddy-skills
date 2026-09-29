@@ -281,6 +281,60 @@ def extract_page_reference(user_query: str) -> Optional[str]:
     return None
 
 
+def _bare_a_share(query: str) -> Optional[Dict[str, str]]:
+    """Recognize only a complete, unique catalog name/alias/code, never a substring.
+
+    The stock catalog also contains ETFs. Limit the fixed A-share page entry to
+    SH/SZ equity code families; overseas names and ambiguous aliases stay outside.
+    This is local intent recognition, not proof that market data is available.
+    """
+    key = query.strip().upper()
+    key = re.sub(r'^(SH|SZ)[:：](\d{6})$', r'\1\2', key)
+    suffix = re.fullmatch(r'(\d{6})\.(SH|SZ)', key)
+    if suffix:
+        key = suffix[2] + suffix[1]
+    matches = {}
+    try:
+        for filename in ('stock_a.yaml', 'stock_hk.yaml', 'stock_us.yaml'):
+            for line in (_SKILL_ROOT / 'presets' / 'assets_db' / filename).read_text(encoding='utf-8-sig').splitlines():
+                parts = [part.strip() for part in line.split('|')]
+                if len(parts) < 3 or parts[0] != 'stock':
+                    continue
+                name, ticker = parts[1], parts[2].upper()
+                aliases = re.split(r'[,，、;；]', parts[4]) if len(parts) > 4 else []
+                identifiers = {name.upper(), ticker, *(alias.strip().upper() for alias in aliases if alias.strip())}
+                if re.fullmatch(r'(?:SH|SZ)\d{6}', ticker):
+                    identifiers.add(ticker[2:])
+                if key in identifiers:
+                    matches[ticker] = {'name': name, 'ticker': ticker}
+    except (OSError, UnicodeError):
+        return None
+    if len(matches) != 1:
+        return None
+    asset = next(iter(matches.values()))
+    if not re.fullmatch(r'(?:SH60\d{4}|SH68\d{4}|SZ00\d{4}|SZ30\d{4})', asset['ticker']):
+        return None
+    return asset
+
+
+def _simple_a_share_analysis(query: str) -> Optional[Dict[str, str]]:
+    """Accept bounded comprehensive-analysis phrases, not arbitrary asset mentions."""
+    match = re.fullmatch(
+        r'(?:请|请帮我|帮我)?(?:全面分析|综合分析|分析)(?:一下|下)?\s*(.+?)(?:这只股票)?[。！!]?', query)
+    if not match:
+        match = re.fullmatch(r'(.+?)(?:的)?(?:全面分析|综合分析|个股画像)[。！!]?', query)
+    if not match:
+        return None
+    identity = match[1].strip()
+    pair = re.fullmatch(r'([^()（）]+)[(（]([^()（）]+)[)）]', identity)
+    if pair:
+        name_asset, code_asset = _bare_a_share(pair[1]), _bare_a_share(pair[2])
+        if name_asset and code_asset and name_asset['ticker'] == code_asset['ticker']:
+            return name_asset
+        return None
+    return _bare_a_share(identity)
+
+
 def route_live_page(
     user_query: Any,
     page_reference: Any = None,
@@ -310,6 +364,20 @@ def route_live_page(
             "route_reason": ["existing_page_reference"] + (["persistence_confirmation_required"] if high_risk and not persistence_confirmed else []),
             "page_reference": reference,
             "requires_persistence_confirmation": high_risk and not persistence_confirmed,
+        }
+
+    bare_asset = _bare_a_share(query)
+    analysis_asset = _simple_a_share_analysis(query) if not bare_asset else None
+    if bare_asset or analysis_asset:
+        return {
+            'route': 'create', 'route_reason': ['bare_a_share_fast_page' if bare_asset else 'single_a_share_analysis_fast_page'],
+            'page_reference': None, 'requires_persistence_confirmation': False,
+            'page_workflow': 'single_a_stock_fast', 'asset': bare_asset or analysis_asset,
+            'next_step': {
+                'skill': 'quant-buddy-view', 'guide': 'guides/answer-first.md',
+                'instruction': '立即按 QBV 快页入口复用同一 task/turn；尚未取数时由 bridge 取一次完整画像再首答。已有本轮有效画像和完整首答时直接 new_asset_page，禁止重新 resolve_asset_data 或 stockProfile。',
+                'reply_mode_after_visible_answer': 'page_followup',
+            },
         }
 
     scenarios = [name for name, pattern in _SCENARIO_RES if pattern.search(actions)]

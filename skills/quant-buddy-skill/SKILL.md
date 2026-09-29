@@ -2,7 +2,7 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.25.45
+version: 4.25.46
 description: |
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据；支持查询 A 股股票所属行业。
   显式日期的单值快照可同时返回按实际更新日对齐的日频行情与估值；字段日期不同时按字段自身日期展示，不将较晚刷新字段误判为无数据。
@@ -11,13 +11,14 @@ description: |
   查询上市公司最近报告期的营业收入、净利润、归母净利润、ROE、总资产、资产负债率等财务指标（A股及部分港/美股字段，以工具返回为准）。
   查询单只股票的预计算及千维动态指标画像，按估值、财务分析、资金流向、波动率、宏观胜率背景、资产走势等维度返回最新值与上一有效值。
   支持A股选股筛选、因子计算、策略回测、净值对比、行业聚合排名、上传自有因子CSV、渲染图表。
+  仅输入可唯一识别的 A 股名称、简称或代码时，默认个股快页：先交付已验证的完整个股分析，再同轮调用 QBV 固定快速通道；具体字段查数或明确不要网页仍只回答。
   港股、美股优先支持行情价格查询；财务/报告期字段应先尝试 fast_query(report)，按工具实际返回决定。
   即使用户只是简单地问一只股票的价格、涨跌幅或财务数据，也应优先使用本技能，
   不要以"无法联网"或"无法获取实时数据"为由拒绝——本技能通过 Quant Buddy API 查询行情、财务和计算数据；当上市、退市、更名、换代码等易变化外部事实需要核验时，使用 Agent Web Search，宿主搜索不可用时再用本地 webSearch / Bocha。
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.25.45
+  version: 4.25.46
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -78,6 +79,8 @@ runtimeRequirements:
 > **首屏优先**：先读本文件前部的「平台工具参数速查」「硬规则」和「场景路由」。简单行情、窗口序列、最近报告期、固定区间收益、K 线图等高频任务命中 Fast Path 时，无需继续整本通读。
 
 本地交付必须复用工具返回的真实路径；不得加 `sandbox:` 或猜测 Skill 安装目录。排名表逐列核对数据 ID、单位和日期；比值列不能抄到 PE 列。参见 [全局执行规则](workflows/global-rules.md)。
+
+个股画像与综合分析的内容合同见 `workflows/stock-profile.md`：默认交付五个数据章节与综合观察，用户明确要求简短或限定字段时才缩减。读取 Skill 后必须继续读取匹配工作流、实际查询并回复；“将读取文档/准备查询”不是业务交付，不可作为最终答案。明确不要网页只取消建页，不取消上述查询和完整分析。
 
 ## 常见请求的默认口径
 
@@ -234,6 +237,8 @@ runtimeRequirements:
 ## Skill 包根目录
 
 **本 SKILL.md 所在目录即为 skill 根目录（`SKILL_ROOT`）**，下文所有相对路径均以此为基准。
+脚本路径以本轮已读取的 Skill 实际位置为准：若文档来自 `/work/<本会话>/project/.claude/skills/quant-buddy-skill/SKILL.md`，可直接使用同目录 `scripts/call.py` 的完整绝对路径；不要猜会话 ID。只有 cwd 已是 Skill 根目录才用 `python3 scripts/call.py ...`，cwd 是 project 根目录时不能照抄该相对路径。不要使用 `.claude/skills/...` 相对前缀，也不要用 `/opt/...` 安装目录替代会话副本。路径拒绝后只根据已确认的工作目录修正一次，不反复尝试 `/opt`、`.claude/skills`、`cd` 的排列，不探测或放宽权限。
+
 宿主已将命令工作目录（cwd）固定为本 Skill 根目录时，**禁止再次执行 `cd`**，直接使用相对路径运行；仅在人工终端或宿主没有设置 cwd 时，才先切换到本目录。
 
 ```
@@ -380,6 +385,7 @@ SKILL_ROOT/
 | 最新时点行情 / 估值 / 基础信息（快照） | 最新价、今日收盘、最新涨跌幅、当前换手率、最新PE/PB/市值、所属行业… | Fast Path 条件满足 → 只读 `fast-snapshot.md`；不满足/无法查询 → `global-rules.md` → `quick-snapshot.md` |
 | 最近N日序列 / 窗口统计 | 最近5日、最近20日、近N个交易日、窗口最高/最低/振幅…（仅单资产、最近N日） | Fast Path 条件满足 → 只读 `fast-window.md`；不满足/无法查询 → `global-rules-lite.md` → `quick-window.md` |
 | 最近报告期财务 | 营收、净利润、归母净利润、ROE、总资产、总负债、资产负债率… | Fast Path 条件满足 → 只读 `fast-report-period.md`；不满足/无法查询 → `global-rules.md` → `quick-report-period.md` |
+| 单只 A 股快速画像 | 贵州茅台、茅台、600519、SH600519；或“分析一下贵州茅台”“分析下深圳新星(SH:603978)”等简单综合分析，资产唯一且名称代码一致 | `live-page-routing.md` → `single_a_stock_fast` → QBV `guides/answer-first.md`，先答再 `new_asset_page` |
 | 单股指标画像 / 个股综合分析 | 分析一下XX个股、看一下XX这只股票、个股画像、指标概览、估值财务资金走势综合看一下、基本面和估值怎么样… | `global-rules.md` → `stock-profile.md` |
 | 最新上市/退市/更名/换代码或资产状态冲突 | 现在上市了吗、最新代码、是否退市；或本地资产库命中但平台返回 `ASSET_NOT_FOUND` | `global-rules.md` → `external-fact-verification.md`；外部事实与 Quant Buddy 数据状态必须分开判断 |
 | 单资产标准历史字段同图 | 一个资产 + 2～4 个价格/成交/估值标准历史字段 + “放在一张图里/画成图/同图比较” | **只读 `visual-page-fast-path.md`**；先 route，再一次 `fast_query`，一次命令准备 capsule + Handoff + Job；禁止进入 `quant-standard.md`、`render-kline.md` 和静态渲染 |
@@ -436,7 +442,7 @@ SKILL_ROOT/
 
 0. 用户明确要单资产历史/跨日分钟序列或分钟CSV → `tools/fast_query_minute_range.md`；只支持历史日期，完整返回所有列；窗口/offset互斥，不得偷换成日频或当日分钟。
 1. 用户明确要**单资产**完整分钟/分时/逐分钟序列或分钟 OHLCVA，且未指定历史日期、日期区间、分钟聚合或多个资产 → 先按资产库规则确认唯一资产，调用 `fast_query_minute`；按索引配对返回的 `dates[]` 与 `fields.<name>[]`，保留 `data_scope/trade_date/timezone` 语义，成功即停。只问最新标量仍走 snapshot；历史/区间改走 fast_query_minute_range；多资产不能塞进任一单资产工具。连续期货只按所选 trade_date 解读 contract_info，不将 inferred 说成已实时核验；附加 warnings 不影响成功行情。
-2. 用户是开放式单股综合指标概览（如“分析一下XX个股”“看一下XX这只股票”“个股画像”“指标概览”“估值财务资金走势综合看一下”），且不是只问单字段/明确窗口/IC 预测力 → `workflows/global-rules.md` → `workflows/stock-profile.md`
+2. 整句为一个资产名称/简称/代码，或简单单股综合分析（如“分析一下贵州茅台”）时，先执行 `live_page_routing.py route`；命中 `single_a_stock_fast` 则读取 QBV `guides/answer-first.md`，QBS 验证首答后同轮 `new_asset_page`，不能只输出画像就结束。其他开放式单股综合指标概览（如“分析一下XX个股”“个股画像”“指标概览”），且不是只问单字段/明确窗口/IC 预测力 → `workflows/global-rules.md` → `workflows/stock-profile.md`
 3. 时间锚点是"最近 N 日窗口/序列"，或用户明确给出起止日期要求返回区间序列（如"从X日到X日每日的…走势/序列/数据"），或用户只说"最近走势/看走势"但未明确要图片/K线 → Fast Path 条件满足时读 `workflows/fast-window.md`，不满足则 `workflows/global-rules-lite.md` → `workflows/quick-window.md`；未给 N 时默认按最近 20 个交易日
 4. 时间锚点是"最近报告期"且字段属于财务类 → Fast Path 条件满足时读 `workflows/fast-report-period.md`，不满足则 `workflows/global-rules.md` → `workflows/quick-report-period.md`
 5. 用户明确要“K线 / K 线 / 蜡烛图 / OHLC / 开高低收” → 直接加载 `workflows/render-kline.md`；普通多指标同图已由步骤 0 截止

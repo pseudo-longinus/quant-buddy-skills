@@ -2,15 +2,16 @@
 name: quant-buddy-view
 slug: quant-buddy-view
 author: guanzhao
-version: 0.6.82
+version: 0.6.83
 description: |
   将量化分析或已有 JPG/PNG、HTML、PDF 发布为 Quant Buddy 可分享活页或实时看板，并支持创建、更新、复用、验收和公开链接交付。适用于个股画像、估值财务、指数异动、多因子筛选、商品日报、模板、分享壳及卡片等页面。
   用户提供 QuantBuddy 活页 URL 并要求解读时也使用。显式调用 /quant-buddy-view、/qbv、qbv 或 QBV，且请求并非纯咨询、代码维护或文档解释时，默认按可分享活页任务处理。
+  输入可唯一识别的 A 股名称、简称或代码，或简单要求单股综合分析（如“贵州茅台”“600519”“分析一下贵州茅台”）均默认请求个股快页；先通过 QBS 验证并回复完整个股分析，再同轮 new_asset_page，无需用户补说“生成页面”。
   不用于一次性行情、涨跌幅、估值或概念解释。每日/定期复盘、行情监控、画线画图、执行回测、查看K线等操作请求默认具有活页意图，先由QBS完成验证与业务首答再交接本技能；明确不要网页时只回答。
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 0.6.82
+  version: 0.6.83
   author: guanzhao
   category: quant-finance
   tags: [quant, dashboard, formula-package, static-page, publish, visualization]
@@ -83,7 +84,7 @@ python scripts/static_page.py interpret '{"url":"用户提供的页面 URL"}'
 若 `interpretation_bundle.runtime_data.grants[].data.mode="csv"`，先返回的 `csv_fields[].csv_url` 是短期下载链接而非可直接计算的数据。必须紧接着运行一次 `python scripts/static_page.py interpret_csv '{}'`：它只下载该次 `interpret` 已返回的 CSV、保留链接并补出 `results[].fields[].series`，然后再计算和解读；禁止重跑 `interpret`、另查数据接口或把 CSV 链接给用户。
 
 0. 除上述既有活页解读分支外，在任何后端请求前运行 `scripts/trace_context.py begin`，保存唯一 `task_id` 并在后续命令中复用。这步本身就是后端写入调用，必须和后续命令带同一个身份（`QBV_API_KEY` 环境变量或参数里的 `api_key`），不带会被记成 skill 默认账号。
-1. 所有量化建页先读 [先答后建页](guides/answer-first.md)，通过 `qbs_bridge.py` 查询业务数据，校验实际日期与单位，发送完整非终止业务答案。**本步骤的下一次工具调用仍须继续页面流程，不能以无工具的最终消息结束。** 若只是简单分析一只 A 股并返回页面，没有定制栏目/额外指标/对比，首答后运行一次 `scripts/static_page.py new_asset_page`，不用查 templates 或自行注册 Grant。成功草稿用于最终页面交付，不代替之前的 QBS 首答。
+1. 所有量化建页先读 [先答后建页](guides/answer-first.md)。若 QBS 已在本轮交付有效完整画像首答，跳过再次取数，复用同一 task/turn，直接 `new_asset_page(reply_mode:"page_followup")`；不要重新 `resolve_asset_data`、`stockProfile` 或创建第二个 session。尚未取数时通过 `qbs_bridge.py` 查询业务数据，校验实际日期与单位，发送完整非终止业务答案。**本步骤的下一次工具调用仍须继续页面流程，不能以无工具的最终消息结束。** 若只是简单分析一只 A 股并返回页面，没有定制栏目/额外指标/对比，首答后运行一次 `scripts/static_page.py new_asset_page`，不用查 templates 或自行注册 Grant。成功草稿用于最终页面交付，不代替之前的 QBS 首答。
 2. 其他量化建页也必须先完成第 1 步的业务首答，然后运行一次 `scripts/static_page.py templates`，查询统一 public 命中池（官方精选+社区）。已有文件托管与纯展示维护保持各自入口。
 3. direct 只有在范式、范围和全部请求维度三轴均有证据时成立；`direct_deliver` 必须提交 `dimension_check`。缺维度改走 fork + `same_paradigm_augment_dimension`。
 4. fork/unmatched 调用 `new_page` 时由 Agent 根据 `items_summary` 显式传 `routing_decision`；fork 还必须声明 `borrow_mode=inherit|inherit_augment|compose`。fork 一旦判定只能继承、增强继承或 Compose，禁止改判 unmatched。
@@ -201,10 +202,10 @@ python scripts/qbs_handoff_adapter.py evaluate '{"handoff_file":"D:/.../handoff.
 
 ### 单一 A 股简单分析快速通道
 
-用户只要求分析一只 A 股并给出可分享页面，且**没有**定制栏目/版式、指定额外指标/公式/图表、对比、多标的、指数或港美股要求时，直接执行：
+用户仅输入一个可唯一识别的 A 股名称/简称/代码，或要求分析一只 A 股并给出可分享页面，且**没有**定制栏目/版式、指定额外指标/公式/图表、对比、多标的、指数或港美股要求时，走此固定快速通道。先按 `guides/answer-first.md` 取得 QBS 完整画像证据并发送非终止业务分析，随后同轮执行下列命令；不先搜索模板、不额外自建页面、不重复创建通用 Job。明确不要网页或具体字段查数不触发裸资产默认建页：
 
 ```bash
-python scripts/static_page.py new_asset_page '{"task_id":"task_xxx","asset":"贵州茅台","user_query":"分析贵州茅台"}'
+python scripts/static_page.py new_asset_page '{"task_id":"task_xxx","asset":"贵州茅台","user_query":"分析贵州茅台","reply_mode":"page_followup"}'
 ```
 
 该命令调用服务端固定场景，并在内部读取 SHA256 绑定 evidence、生成前五个数据章节、上报终态和清理临时文件。数据章节按有数据才生成表格、整篇最多五表；计算维度以 stock profile 的稳定画像维度为主证据、有效收盘价 CSV 的日涨跌/均线/价格位置为补充，两路均无可核验字段时才整节省略，且后续可见章节自动连续编号。消息面章节暂不输出。成功结果包含 `agent_reply_markdown_draft + agent_summary_request`：草稿第一至第五章就是交给当前 Agent的完整可见证据，第六章只有唯一 `summary_marker`。Agent必须结合本轮真实用户问题，用自己的语言直接回答用户目的，只引用草稿已有数据，提炼结论和关键依据；走势类问题使用条件式判断，财报点评聚焦报告表现，其他问题同样按原意组织，不需要关键词分类器或专用生成器。完成后只替换 marker，不改前五章、免责声明和最终链接块，不运行 validator 或其它工具，立即发送完整 Markdown。公开链接和“若效果不满意，页面可进一步升级”仍是最后两行。CSV 单项失败只删除对应字段并写 warning；完全没有可核验证据或草稿生成失败时 fail closed，不得退化成一句链接或重复调用。后续若用户要改这张自有页面，继续使用 `update` 保持同一个 `page_id` / URL。
@@ -241,7 +242,7 @@ python scripts/static_page.py new_asset_page '{"task_id":"task_xxx","asset":"贵
 
 ## 默认路由
 
-- **简单单一 A 股综合分析**（无定制、额外指标/图表、对比或多标的要求）：`trace_context begin` 后直接 `new_asset_page` 返回自有实时页面。
+- **简单单一 A 股综合分析**（无定制、额外指标/图表、对比或多标的要求）：`trace_context begin` 后先 QBS 完整业务首答，再 `new_asset_page(reply_mode:"page_followup")`，验收后补链接；宿主不能中途显示首答时用默认完整终态回复。
 - **其他固定页面形态**（定制个股页、成分股异动榜、多因子选股看板、商品日报等）：先 `templates` 查询官方精选+社区命中池；direct 直接用列表 URL + revision，fork 才读取和改写模板详情。
 - **宽宝活卡 / 精华卡 / 封面卡（范式卡 artifact）**：把页面精华做成独立 **card runtime artifact**（`embedded-card-v1`：页面内嵌 `<template data-qb-card-template>` + `data-qb-card-manifest` + `QBCardRuntimeV1` runtime），供官网卡片流在空白宿主中**独立 hydrate**。静态首帧 `card_snapshot_url` 由 `skill_server` 按 artifact hash 生成，是页面封面的唯一来源（整页缩略图能力已下线）。按 [guides/essence-cover-card.md](guides/essence-cover-card.md) 生成；已发布页优先用 `preserve_visual:true` 只升级协议。完整重建必须显式传 `visual_contract`，否则 `CARD_VISUAL_REQUIRED` 停止；用 `verify_page.mjs --card-runtime-only --require-card-visual-contract` 验收新 artifact。卡片必须官网浅色系、固定信息骨架、可变核心可视化；不再用旧的 `?cover=1` URL 模式。
 - **没有合适在线模板**：再走 `workflows/dashboard-end-to-end.md`，用 `build_dashboard` 生成声明式实时看板。
@@ -252,7 +253,7 @@ python scripts/static_page.py new_asset_page '{"task_id":"task_xxx","asset":"贵
   下面的整页重建。
 - **改造已发布/已生成页面**：优先 `scripts/retrofit_share_shell.py`，再 `static_page.py update` 保持同一个 `page_id` / URL；正式 update 应传具体 `change_note`，版式变化显式传 `change_aspect:"layout"`，其它类型可让服务端推断。
 - **Share Shell revision 4 页面问答边界**：可见页头由官网 `/embed/live-page-header` iframe 托管，活页 Parent Bridge 只执行刷新、收藏、分享、认证导航和移动 WebAgent 动作、页面问题携题自动发送并校验 `qb-live-page-header-v1` / `qb-web-agent-v1`；官网 WebAgent Preview 注入 `qb-live-page-embed-context=webagent-preview` 时不得加载页头或预加载收藏 iframe。官网只改页头视觉不要求逐页刷新；Parent Bridge、通信协议或能力契约变化才提升 revision。
-- **用户可见链接策略**：普通渠道 direct 在 `templates` 命中后、下一次工具调用前发现成 URL，fork/unmatched 在 `new_page` 返回后立即发首链；`feishu-group` 看到 `delivery_policy.emit_intermediate_url=false` 后禁止发送任何非终态 URL，只在 validator 通过后发送 terminal contract 的 playground `public_url`。进度页仍用 `update_progress` 和 `publish_final` 更新同一 `page_id`；未显式传 `change_note` 时，版本修改描述按“状态 + 中文阶段标题 + 用户可见 message”自动生成，正式发布版本默认记录“完成发布：正式活页内容已发布”。
+- **用户可见链接策略**：量化建页所有渠道均在完整首答、页面验收和适用回复校验后补链接；模板及进度页 URL 只用于内部执行。已有文件托管沿自己的首链规则；`feishu-group` 看到 `delivery_policy.emit_intermediate_url=false` 后禁止发送任何非终态 URL，只在 validator 通过后发送 terminal contract 的 playground `public_url`。进度页仍用 `update_progress` 和 `publish_final` 更新同一 `page_id`；未显式传 `change_note` 时，版本修改描述按“状态 + 中文阶段标题 + 用户可见 message”自动生成，正式发布版本默认记录“完成发布：正式活页内容已发布”。
 - **Agent 回复模板**：活页 metadata 可带 `agent_reply_template` 指向本技能 `reply-templates/` 下的回复骨架。`reply-templates/` 是 Agent 最终回复格式，不是活页 HTML 页面模板；不要和在线 `templates` / `template` API 混用。
 - 本 skill 不再内置本地页面样板，不能从本地历史样板目录或低质 HTML 骨架起步。
 
@@ -266,11 +267,11 @@ python scripts/static_page.py new_asset_page '{"task_id":"task_xxx","asset":"贵
 - fork 必须使用 `fork_prepare` 绑定来源和 manifest，最终 `publish_final` 保持首链 URL、移除来源凭证并保留必需栏目/输出/Card Runtime；详细门禁见 [workflows/new-session-paradigm-routing.md](workflows/new-session-paradigm-routing.md)。
 - prepared fork task 禁止 `build_dashboard`；v2只填写生成的 review-update 决策文件，依次运行 `review_update_command` 和 `publish_command`。只有旧 v1任务继续使用手工 `fork_validate` 路径。
 - 带 `task_id` 的进度从 `package_register` 起必须传同任务的结构化验证证据：实时页提交 `route_receipt`、`grant_receipts`、`formula_receipts`，且 `selected_routes` 必须逐项对应实际注册凭证；自由文本 `validation_not_required_reason` 不再放行。纯静态内容只能用 `static_content_only`；资产实时探测全部数据级失败时只能凭 `live_data_route_receipt_v1` 使用 `static_after_live_probe`。
-- `new_asset_page` 的最终回复只允许把 `agent_reply_markdown_draft` 的唯一 `summary_marker` 替换为 Agent撰写的综合观察；不得改写、删减或重排其它内容，也不得把 marker 发给用户。综合观察首句直接回答本轮用户目的，后续只选最相关证据解释，避免复述全部五章；没有足够证据时明确说明边界，不得补造事实。该分支不返回 evidence 路径或校验命令。其他终态回复必须按回复模板输出并且只能使用 contract 的 `public_url`；`feishu-group` 下该字段必须是 `https://www.quantbuddy.cn/playground/<owner>/<page_id>`。**只要终态回复包含 `public_url`，必须把 `可分享实时活页：[{public_url}]({public_url})` 作为最后倒数第二行，最后一行固定为“若效果不满意，页面可进一步升级”；链接不得在正文、章节或免责声明中提前出现。**一般模板依据 `reply_render_policy` 与 `reply_data_availability` 删除结构性不存在的字段、整列、整行和空可选章节。`single_stock_deep_dive_v1` 还必须读取 SHA256 绑定的 `reply_data_evidence_file`，保留全部七节标题，有数据的模板字段全部输出，整节无数据使用标准说明；只有有效结构中的偶发缺值才写 `--`。若 `delivery_policy.max_markdown_tables` 存在，整篇不得超过该表格数，超出的结构改用列表或行内文本且不得丢数据。validator 返回 `valid=true` 后原样发送 `validated_markdown`，不得再次压缩或改写，也不得暴露原始托管 URL、本地路径、凭证或内部日志。
+- 完整可见首答后，`new_asset_page` 传本地参数 `reply_mode:"page_followup"` 获取短交付草稿；不能中途显示首答时省略参数获取完整草稿。参数不是首答送达证明，两种模式仍走相同公开验收及宿主实际回复校验。最终回复只允许把 `agent_reply_markdown_draft` 的唯一 `summary_marker` 替换为 Agent撰写的综合观察（短交付模式仅一句页面说明，不新增数值或风险结论）；不得改写、删减或重排其它内容，也不得把 marker 发给用户。综合观察首句直接回答本轮用户目的，后续只选最相关证据解释，避免复述全部五章；没有足够证据时明确说明边界，不得补造事实。该分支不返回 evidence 路径或校验命令。其他终态回复必须按回复模板输出并且只能使用 contract 的 `public_url`；`feishu-group` 下该字段必须是 `https://www.quantbuddy.cn/playground/<owner>/<page_id>`。**只要终态回复包含 `public_url`，必须把 `可分享实时活页：[{public_url}]({public_url})` 作为最后倒数第二行，最后一行固定为“若效果不满意，页面可进一步升级”；链接不得在正文、章节或免责声明中提前出现。**一般模板依据 `reply_render_policy` 与 `reply_data_availability` 删除结构性不存在的字段、整列、整行和空可选章节。`single_stock_deep_dive_v1` 还必须读取 SHA256 绑定的 `reply_data_evidence_file`，保留全部七节标题，有数据的模板字段全部输出，整节无数据使用标准说明；只有有效结构中的偶发缺值才写 `--`。若 `delivery_policy.max_markdown_tables` 存在，整篇不得超过该表格数，超出的结构改用列表或行内文本且不得丢数据。validator 返回 `valid=true` 后原样发送 `validated_markdown`，不得再次压缩或改写，也不得暴露原始托管 URL、本地路径、凭证或内部日志。
 - 除 `new_asset_page` 外，最终回复前只运行一次发布器返回的 `reply_validation_command`。`reply_validation_env` 是进程内执行专用值，CLI 与持久化报告只允许返回 `[REDACTED]` 和 `reply_validation_env_keys`，禁止输出真实凭证。若发布时显式设置了 `QBV_API_KEY`，validator 命令必须继承同一个现有环境变量；未显式覆盖时由 `config.json/config.local.json` 解析默认账号，发布器返回中不携带默认配置 key。禁止把 key 拼进命令串或另写参数文件。validator 必须读取发布器生成的 `contract_file + contract_sha256`，不得手工重建精简 contract。direct 使用 `direct_deliver` 返回的完整 task ID 路径和命令，成功后自动清理。`valid=true` 后不再执行任何工具调用。
 - 宿主接管的 `new_asset_page` 会核对同轮公开版本与实际回复；仅在不可变正文及结尾逐字匹配时，宿主可移除多余开场白并发送校验后的正文。正文数据被改写、摘要占位未替换、重复正文或追加尾注均不能视为交付成功；不要依赖宿主修正业务结论。
 - 没有 terminal contract 禁止完成任务。唯一例外是成功的 `waiting_input` checkpoint。
-- 性能门槛：普通渠道模板命中到首链不超过 5 秒；所有渠道 terminal 到最终回复不超过 45 秒，完整活页任务以 10 分钟内完成为常态目标，用户可见消息间隔不超过 60 秒。回复证据补读不设额外人工截止时间，但必须按模板字段过滤、相同模式批量读取且每批最多10个；禁止公式重算和 package/grant 重查。
+- 性能门槛：量化建页记录完整业务首答耗时，首链只在验收后发送；所有渠道 terminal 到最终回复不超过 45 秒，完整活页任务以 10 分钟内完成为常态目标，用户可见消息间隔不超过 60 秒。回复证据补读不设额外人工截止时间，但必须按模板字段过滤、相同模式批量读取且每批最多10个；禁止公式重算和 package/grant 重查。
 - 逐指标声明最新可得日期和实际覆盖范围。未做浏览器验收时，只能声明公开 URL 和实时接口可访问。
 
 ## 前置依赖：公式必须先验证

@@ -5043,6 +5043,10 @@ def _routing_next_step(task_id, page_id, decision):
 
 def cmd_new_asset_page(params):
     params = dict(params or {})
+    reply_mode = params.get("reply_mode", "full_answer")
+    if reply_mode not in ("full_answer", "page_followup"):
+        return {"code": 1, "error": "NEW_ASSET_PAGE_REPLY_MODE_INVALID",
+                "message": "reply_mode 仅支持 full_answer 或 page_followup；后者仅用于完整可见首答之后"}
     asset = str(params.get("asset") or "").strip()
     if not asset:
         return {
@@ -5190,6 +5194,7 @@ def cmd_new_asset_page(params):
             evidence_sha256=reply_artifact.get("reply_data_evidence_sha256"),
             asset=result.get("asset"),
             public_url=(result.get("agent_reply_contract") or {}).get("public_url"),
+            reply_mode=reply_mode,
         )
     except (OSError, ValueError, TypeError) as exc:
         C.cleanup_task_temp_files(task_id)
@@ -5236,6 +5241,17 @@ def cmd_new_asset_page(params):
             "instruction": "直接回答用户目的，只使用草稿中的数据，最多三句，提炼最相关依据而不复述五章。创建分享页请求先说明页面已提供什么。分位只沿用明确标注的窗口和百分比，不把短窗当作完整多年分位。股息率高分位与估值低分位不能合称都处低位；单项分别描述。未核实收盘的当日累计成交额不能与完整日均额比较后断言缩量、恐慌或观望情绪。",
         },
     })
+    if reply_mode == "page_followup":
+        contract['reply_mode'] = 'page_followup_v1'
+        contract['final_response_steps'] = [
+            'Only after a complete visible business answer, replace the summary marker with one short page-delivery sentence.',
+            'Do not repeat analysis or add new numerical claims; preserve the title and verified URL exactly.',
+            'Send the completed draft after public verification succeeds.',
+        ]
+        result['agent_summary_request'].update({
+            'evidence_source': '本次已验证页面的交付合同；业务分析已在首答完成',
+            'instruction': '仅用一句话说明活页已生成，可在页面查看后续数据；不重复六章，不新增数值、日期或风险结论。保持标题和链接不变。',
+        })
     if trace_context.get('turn_id'):
         import fast_page_delivery as FPD
         def observe_fast_page():

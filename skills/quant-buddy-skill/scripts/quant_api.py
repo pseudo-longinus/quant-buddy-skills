@@ -741,6 +741,9 @@ class QuantAPI:
         if tool_name == "readData":
             from read_data_evidence import finalize_read_data
             raw = finalize_read_data(raw, params, self.skill_root)
+        if tool_name == "stockProfile":
+            from profile_answer import attach_financial_table
+            raw = attach_financial_table(raw)
         if tool_name in ("renderChart", "renderKLine"):
             raw = _materialize_chart_artifact(raw, params, self.skill_root)
         if tool_name in ("runMultiFormulaBatchStream", "resumeJob"):

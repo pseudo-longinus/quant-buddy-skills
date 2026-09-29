@@ -905,7 +905,12 @@ def _evaluate_stock_profile_result(asset, required_fields, result):
     data = result.get("data") if isinstance(result.get("data"), dict) else result
     asset_data = data.get("asset") if isinstance(data.get("asset"), dict) else {}
     target = _entry_asset(asset_data) or _entry_asset(data)
-    if not target or not _asset_matches(target, asset):
+    # A profile returns both a canonical ticker and its explicit display name.
+    # Selecting only the ticker rejected valid name queries and caused retries.
+    # Name matching is exact; do not infer aliases or accept another asset.
+    name_match = any(str(asset_data.get(key) or '').strip() == str(asset).strip()
+                     for key in ('name', 'asset_name'))
+    if not ((target and _asset_matches(target, asset)) or name_match):
         return {"success": False, "error_class": "data", "error_code": "TARGET_ASSET_MISSING", "missing_fields": list(required_fields or [])}
     dimensions = data.get("dimensions")
     indicators_count = data.get("indicators_count")
@@ -1020,7 +1025,7 @@ def _answer_evidence(asset, role, result, fingerprint):
     import copy
     import execution_plan as EP
     body = result.get('data') if isinstance(result.get('data'), dict) else result
-    keys = ('query_type', 'hint', 'fields_meta', 'field_dates', 'as_of', 'date', 'field_errors')
+    keys = ('query_type', 'hint', 'fields_meta', 'field_dates', 'as_of', 'date', 'field_errors', 'warnings', 'answer_financial_table')
     data = {key: copy.deepcopy(body[key]) for key in keys if key in body}
     if role in ('snapshot', 'report'):
         target = _fast_query_target(body.get('results'), asset)
@@ -1224,6 +1229,13 @@ def _resolve_single_asset_data(call_script, params, env):
         "task_id": task_id,
         "asset": asset,
         "publication_evidence": _publication_evidence(task_id, receipt_file, grants, formula_packages, asset),
+        **({'after_business_answer': {
+            'precondition': '先从 answer_evidence 发送完整可见非终止业务答案；此对象不是送达证明',
+            'tool': 'static_page.py new_asset_page',
+            'params': {'task_id': task_id, 'asset': asset, 'user_query': user_query,
+                       'reply_mode': 'page_followup'},
+            'fallback': '宿主无法中途显示首答时改用 reply_mode=full_answer，不声称提前交付',
+        }} if params.get('page_workflow') == 'single_a_stock_fast' and complete and answer_evidence else {}),
         "registration_files": [g['registration_params_file'] for g in grants],
         "attempts": attempts,
         "answer_evidence": answer_evidence,

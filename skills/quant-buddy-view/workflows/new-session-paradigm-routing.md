@@ -28,10 +28,12 @@ QBV_API_KEY=<本次任务的 key> python scripts/trace_context.py begin '{"user_
 - 没有定制栏目或版式、指定额外指标/公式/图表、对比、多标的、指数、港股、美股、选股或回测要求。
 
 ```bash
-python scripts/static_page.py new_asset_page '{"task_id":"task_xxx","asset":"贵州茅台","user_query":"分析贵州茅台"}'
+python scripts/static_page.py new_asset_page '{"task_id":"task_xxx","asset":"贵州茅台","user_query":"分析贵州茅台","reply_mode":"page_followup"}'
 ```
 
-命令调用 `POST /skill/newAssetPage`，由服务端完成资产解析、固定来源页实例替换和三份固定 Data Grant 注册；脚本内部材料化 SHA256 绑定 evidence，并生成最多五张数据表的 `agent_reply_markdown_draft`。前五章保留完整数据，第六章放置唯一 `summary_marker`；当前 Agent按同一结果中的 `agent_summary_request`，结合原始 `user_query` 和前五章数据直接撰写贴合用户目的的总结，只替换 marker 后立即发送。禁止关键词分类、固定主题摘要、读取临时 evidence、扫描目录、另建草稿、运行 validator 或调用其它工具。
+上例只在完整非终止首答已实际发出后使用 `page_followup`，返回标题、唯一 marker 和链接的短草稿；marker 仅补一句页面说明，不复述分析。不能中途显示首答时省略该参数，使用默认完整草稿。两种模式的证据、公开访问和实际回复校验相同；参数只在本地消费，不透传服务端。
+
+命令调用 `POST /skill/newAssetPage`，由服务端完成资产解析、固定来源页实例替换和三份固定 Data Grant 注册；脚本内部材料化 SHA256 绑定 evidence，默认生成最多五张数据表的 `agent_reply_markdown_draft`。前五章保留完整数据，第六章放置唯一 `summary_marker`；当前 Agent按同一结果中的 `agent_summary_request`，结合原始 `user_query` 和前五章数据直接撰写贴合用户目的的总结，只替换 marker 后立即发送。禁止关键词分类、固定主题摘要、读取临时 evidence、扫描目录、另建草稿、运行 validator 或调用其它工具。
 
 任一条件不满足就进入第 0 步，不要把定制单股页或多资产请求塞进快速通道。快速通道创建的是调用者自己的页面；后续内容修改复用现有 `update(page_id)`。
 
@@ -88,7 +90,7 @@ fork/unmatched 都必须由 Agent 在 `new_page.routing_decision` 中显式记�
    ```bash
    python scripts/static_page.py new_page '{"task_id":"task_xxx","user_query":"分析下彩虹股份","title":"彩虹股份分析活页","routing_decision":{"mode":"fork","source_template_id":"page_template_xxx","reason_code":"same_paradigm_different_asset","borrow_mode":"inherit"}}'
    ```
-   普通渠道立刻把首链发给用户/承接方；`feishu-group` 只内部保留 `page_id/url`，不得向用户发送。
+   量化建页只内部保留 `page_id/url`，验收及回复校验后再交付；已有文件按静态托管流程交付。
 2. 用同一 `task_id` 调 `fork_prepare`，同时传 `source_template_id + target_page_id`，**并且必须传 `target_asset`**，推荐给全 `{"name":"中国中车","code":"601766"}`（只给代码时脚本会先反查资产库补名字，反查不到才报 `TARGET_ASSET_NAME_REQUIRED`）。
 
    **职责分工**：Agent 负责说清楚"换成哪只标的"，脚本负责"这只标的在页面里写成什么样"。来源模板的主资产由脚本从模板公式（`取出(...)`/`收盘价(...)` 等）词频 + 标题自动推导，代码的实际书写形态（`SH600900` / `600900.SH` / 裸 `600900`）由脚本扫描来源 HTML 得出，**只替换页面里真实存在的写法**。不要去猜来源 HTML 里代码写成什么样——你看不到那个文件，猜错会直接让 fork 失败。
@@ -117,7 +119,7 @@ fork/unmatched 都必须由 Agent 在 `new_page.routing_decision` 中显式记�
 python scripts/static_page.py new_page '{"task_id":"task_xxx","user_query":"制作事件时间线页面","title":"事件分析活页","routing_decision":{"mode":"unmatched","closest_template_id":"page_template_xxx","reason_code":"required_capability_missing","reason":"候选模板缺少用户要求的事件时间线与情景推演能力"}}'
 ```
 
-记录成功后继续 `build_dashboard` / bespoke 自建 → 验证 → 注册 → 生成 → verify → `publish_final`。普通渠道发送首链，`feishu-group` 不发送；其余收口同 ②。`build_dashboard` 会读取 task 路由凭据：`unmatched` 可正常整页自建，fork/inherit* 禁止整页重建，fork/compose 通过受控 `compose_page` 生成完整候选；`panel_block`仍只表示局部产物；`publish_final` 仍会复核最终发布路径与已记录决定一致。
+记录成功后继续 `build_dashboard` / bespoke 自建 → 验证 → 注册 → 生成 → verify → `publish_final`。量化建页所有渠道均先内部保留链接，验收后发送；其余收口同 ②。`build_dashboard` 会读取 task 路由凭据：`unmatched` 可正常整页自建，fork/inherit* 禁止整页重建，fork/compose 通过受控 `compose_page` 生成完整候选；`panel_block`仍只表示局部产物；`publish_final` 仍会复核最终发布路径与已记录决定一致。
 
 若 `new_page` 已记录 fork，但继承合同后来确认不成立，仍不能改判 unmatched。继续按借鉴度处理：结构与合同可继承走 `inherit`；缺维度走 `inherit_augment + augmentation_spec`；合同不可继承但仍能借布局、样式、渲染函数、公式思路或 Grant 形状时，运行 `research_templates → fork_compose → compose_page`，随后 `publish_verified`。`publish_final` 只接受继承绑定或 SHA256 校验通过的 Compose 绑定。
 
@@ -142,5 +144,5 @@ fork/unmatched 创建首链后，如果资产库证明存在 A/H、同名代码�
 - direct 命中后禁止研究脚本实现、运行子命令 `--help` 或重复调用 `template/query/finalize`；使用 `direct_deliver` 的紧凑结果继续生成回复。
 - `new_asset_page` 成功后由当前 Agent补写 `agent_reply_markdown_draft` 的唯一综合观察 marker，随后立即发送，不进入 validator；其余分支在 validator 返回 `valid=true` 后立即最终回复，禁止再次校验、运行 `--help`、扫描临时目录或继续 memory 搜索。
 - 已创建首链的任务必须进入 terminal 成功或明确失败终态，不得让进度页长期停留在 running；公网浏览器验收成功后的下一步必须是最终回复，禁止任何额外工具调用。
-- 性能门槛：普通渠道模板命中到首链 ≤5 秒；所有渠道 terminal 到最终回复 ≤45 秒、端到端 ≤120 秒、用户可见消息间隔 ≤60 秒。
+- 性能门槛：量化建页记录完整业务首答耗时，首链只在验收后发送；所有渠道 terminal 到最终回复 ≤45 秒、端到端 ≤120 秒、用户可见消息间隔 ≤60 秒。
 - 未跑浏览器验收时，只能声明公开 URL 和实时接口可访问。
