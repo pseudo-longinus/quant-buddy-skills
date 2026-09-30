@@ -1,4 +1,12 @@
-﻿# 事件研究
+# 事件研究
+
+## 当前执行入口（先读本节）
+
+**先分清公告日、生效日和报道发布时间。** `webSearch.published` 仅是报道发布时间；“自某日起上调”只证明生效日，不证明公告日。采用公告口径时，必须为每行找到直接说明“何日发布公告”的原文，保存 source_url、announcement_date、effective_date、announcement_evidence_quote、trading_anchor_date。只找到生效日则补查公告；不能给公告日期填相同值来凑齐字段。正文与 published 日期冲突时以明确公告事实为准。先逐行读回这些字段并核对引用，再计算；证据不足的事件单列待核验，不纳入汇总。
+
+**计算入口：** 窗口传整数数组，如 `windows:[21,252]`。`buildEventStudy` 首次返回 `price_series_required` 时，用 `ES_CLOSE=收盘价(SH600519)` 这类不带资产引号的公式取得同一资产完整日收盘序列，`downloadData(id,format="csv",begin_date,end_date)` 保存原始 CSV，然后在原 buildEventStudy 参数补 `price_file:下载返回的绝对路径` 和 `as_of:YYYYMMDD`。这是审核过的专用本地计算，不是临时 Python 旁路。直接使用 rows/summary 的实际端点、完整性、完整样本数，不重写计算脚本。
+
+**计算正确不等于事件事实已核验。** 校验器只证明输入日期与价格之间的运算；最终回答前再次核对表头口径与各事件源证据。不得把生效日计算结果标为公告日收益。不要再用“某天后累加/分段最终值”或当前不可执行的“交易日位移”替代完整窗口。
 
 > **适用范围**：给定或可搜索到的历史事件日期，研究事件发生后资产在各时间窗口的表现。  
 > 本流程定义本场景的专用执行步骤；全局执行合同、证据分级、禁语与回答边界仍以 `workflows/global-rules.md` 为准。
@@ -33,9 +41,9 @@
 3. grep presets/assets_db/{类型}.yaml 确认资产                        ← 未完成则停止
 4. 确定事件日期 → write event_candidates.json            ← 未完成则停止
 5. read event_candidates.json 读回确认
-6. buildEventStudy
-7. runMultiFormulaBatchStream
-8. readData
+6. buildEventStudy → 返回完整价格序列要求
+7. runMultiFormulaBatchStream 仅生成目标资产收盘价序列 → downloadData(csv) 保存原件
+8. buildEventStudy(price_file, as_of) → 检查逐事件窗口与完整样本汇总
 9. 按 evidence-only 模板输出（禁止无证据归因）
 ```
 
@@ -54,8 +62,8 @@
 |----|------|-----------|-----------------|
 | E0 | 场景+模式冻结 | 模式(single/compare/threshold)、资产、窗口已确定 | 模式为三者之一；资产已通过 presets/assets_db 唯一命中；窗口在映射表内 |
 | E1 | 事件日期冻结 | 事件日期列表已确定 | 至少 1 个有效 YYYYMMDD 日期；跨时区口径已校正 |
-| E2 | 公式生成冻结 | buildEventStudy 已返回 formulas | formulas 数组非空；warnings 已记录 |
-| E3 | 数据已取 | runMultiFormulaBatchStream + readData 完成 | 每个窗口至少有 1 个有效数值；无全 NaN 列 |
+| E2 | 窗口合同冻结 | buildEventStudy 已返回序列要求 | 资产、事件、窗口基准已冻结；warnings 已记录 |
+| E3 | 数据已取 | 原始CSV + buildEventStudy完成 | 每行有事件身份、实际端点及完整性状态；不完整窗口无收益 |
 | E4 | 交付完成 | 格式化输出 + Acceptance Test 通过 | 见下方 Acceptance Test 节 |
 
 ### Backward Recovery（失败时）
@@ -75,7 +83,7 @@
 > ⚠️ 429 错误不受本节 Retry Budget 约束——按 global-rules.md 第 12 条「429 前置拦截」规则处理。
 
 ### ⛔ 恢复禁区（公式失败时绝对禁止的路径）
-- **禁止**直接跳 `run_skill_script` 手工计算核心数值
+- **禁止**直接跳 `run_skill_script` 临时手写计算核心数值。唯一专用例外是本流程的 buildEventStudy(price_file)：使用下载的原始价格CSV，计算端点比值并输出窗口完整性证据，不是任意脚本旁路
 - **禁止**用 `webSearch` 搜索来补充核心结论（如事件次数、收益率）
 - **禁止**在脚本 stdout 为空时手写 event_candidates
 - 正确路径：检查语法 → `searchFunctions` 确认函数签名 → 仅重试失败公式
@@ -212,7 +220,7 @@ Step E: readData(HIT, mode=last_column_full) 只读命中点，从非零日期�
 ```
 Step 0.5  事件定义冻结（⛔ 硬门禁，不得跳过）
 Step 1    确定事件日期
-→ Step 2  buildEventStudy 生成公式
+→ Step 2  buildEventStudy 返回原始价格序列要求
 → Step 3  runMultiFormulaBatchStream 执行公式
 → Step 4  格式化输出
 ```
@@ -405,11 +413,11 @@ webSearch({"query": "茅台历次提价时间 日期", "count": 8})
 - 最终 `event_candidates.json` 中的日期仅包含通过 in_scope 校验的日期
 
 **跨时区事件日期口径（硬规则）**：
-- `某天后累加` 从事件日的**下一个交易日**开始计数，因此事件日应定义为"消息公布时 A 股尚未开盘的最后一个交易日"
+- 端点收益从事件锚点收盘后开始观察，因此事件日应定义为"消息公布时 A 股尚未开盘的最后一个交易日"
 - 对于北美/欧洲盘后公布的事件（如 FOMC 声明美东 14:00 = 北京时间次日凌晨），事件日取**美东公布当天的日历日**，而非 A 股首个反应日
   - 示例：FOMC 于美东 2015-12-16 宣布加息 → 事件日 = **20151216**（非 20151217）
-  - 这样 `某天后累加` 自然从 12-17（A 股首个反应日）开始累加，完整捕获首日反应
-- **禁止**将"A 股首个反应日"作为事件日——这会导致 `某天后累加` 从 T+2 开始，系统性丢失事件首日信息
+  - 这样价格端点比值覆盖从 12-17（A 股首个反应日）开始的价格变化，完整捕获首日反应
+- **禁止**将"A 股首个反应日"作为事件日——这会使基准价格落到首个反应日收盘后，系统性丢失事件首日信息
 ### Step 1.5：事件日口径决策（强制执行）
 
 当事件存在多个候选日期（公告日/执行日/生效日/首个交易日）时，必须先列候选日期，再选主口径。
@@ -615,93 +623,31 @@ write_skill_file({
 
 → **任一项不通过 = 修正 event_candidates.json 后重新读回，禁止调用 buildEventStudy**
 
-### Step 2：buildEventStudy 生成公式
+### Step 2–3：独立事件窗口，原始价格序列验算
 
-直接调用 `buildEventStudy` 工具（无需通过 `run_skill_script`）：
+`buildEventStudy` 不再生成 `某天后累加 → 分段最终值` 收益公式：该路径会按自然日/分段截断返回局部结果，不能等同完整N个交易日复利收益。`交易日位移` 虽出现在检索文档中，当前公式接口实测不可执行，不用它作为恢复路线。
 
-#### single 模式
+1. 冻结事件日期后调用 `buildEventStudy({asset,dates,windows})`（compare 使用 group_a_dates/group_b_dates 和组名称），读取 `price_series_required` 与警告。这是继续取数状态，不是失败。
+2. 使用已有相同资产、复权口径且覆盖最早事件至观察截止日的完整日收盘价序列；缺少时仅执行 `ES_CLOSE=收盘价(资产)`，begin_date 覆盖最早事件。不生成分段收益公式。
+3. 对成功返回的真实 data_id 调用 `downloadData({id,format:"csv",begin_date,end_date})`，保存其 `saved_to` 原始文件。保留取数响应以核实资产、字段、复权口径、日期；不能手写价格或重新包装其它资产CSV。下载CSV是本事件校验器明确允许的取数路径，不触发普通短窗的任意脚本旁路禁令。
+4. 调用 `buildEventStudy`，在原参数上补 `price_file:saved_to`、`as_of:YYYYMMDD`。工具在本地确定性计算，不需要新模型调用。Bash宿主可用 `python scripts/call.py buildEventStudy @参数文件`。
+5. 按返回的 `rows` 输出事件日、实际起止日、观察数、收益和状态；按 `summary` 输出各组各窗口真实完整样本数、均值、中位数。不完整窗口不得纳入均值，不将缺失填零。CSV哈希用于复核原始材料，不代表平台认证。
 
+窗口参数支持1周=5、1月=21、1年=252等近似映射，必须披露为**有效日行情观察数**，不是自然月/自然年。事件当天为T+0，N窗口收益=`P(T+N)/P(T)-1`。停牌或缺行不能冒充完整交易所交易日历；用户要求严格自然月/自然年或交易所交易日时另核对真实端点，不静默改变口径。
+
+`anchor_missing` 表示事件锚点未在原始行情中找到：核对公告时点及本市场实际交易日期后修正事件清单，不能自动顺延或套用其他市场日历。`insufficient_observations` 表示截止日未取得足够观察数：该窗口标为数据不足，其他完整事件继续交付。即使最近事件窗口不完整，也不应撤销早期完整样本。
+
+可执行参数示例（观察期不足不会报全局失败）：
 ```json
-buildEventStudy({
-  "dates": [20170911, 20180111],
-  "asset": "贵州茅台",
-  "windows": ["1周", "1月", "1年"],
-  "prefix": "MT"
-})
+{"asset":"SH600519","dates":[20171228,20260330],"windows":[21,252],"price_file":"下载工具返回的原始CSV绝对路径","as_of":20260929}
 ```
+窗口传整数数组，不传 `{days:...}` 对象。取价公式是 `ES_CLOSE=收盘价(SH600519)`，资产参数不加双引号。
 
-#### compare 模式
+可用参数：`mode:single|compare`、`asset`、`dates` 或两组日期、`windows`、`price_file`、`as_of`；旧 `prefix` 可保留但不生成公式。未传price_file时返回数据需求；传入后返回 `status:evaluated`，须逐行检查完整性，不能仅凭这个状态宣称所有窗口完整。
 
-```json
-buildEventStudy({
-  "mode": "compare",
-  "asset": "贵州茅台",
-  "group_a_name": "超预期",
-  "group_a_dates": [20210831, 20220330, 20230829],
-  "group_b_name": "不及预期",
-  "group_b_dates": [20220831, 20240829],
-  "windows": ["1周", "1月"],
-  "prefix": "MT"
-})
-```
+### Step 3.6：映射与完整性校验
 
-#### 参数说明
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| mode | string | 否 | `single`（默认）或 `compare` |
-| dates | int[] | single 必填 | 事件日期列表，YYYYMMDD |
-| asset | string | 是 | 资产名称（如"贵州茅台""沪深300"） |
-| windows | string[] 或 int[] | 否 | 时间窗口，默认 `[5, 21]`。支持：1周/2周/1月/3月/半年/1年 |
-| prefix | string | 否 | 公式前缀，默认 "ES" |
-| group_a_name | string | compare 必填 | A 组名称 |
-| group_a_dates | int[] | compare 必填 | A 组日期列表 |
-| group_b_name | string | compare 必填 | B 组名称 |
-| group_b_dates | int[] | compare 必填 | B 组日期列表 |
-
-#### 窗口映射
-
-| 说法 | 交易日 N |
-|------|----------|
-| 1周 | 5 |
-| 2周 | 10 |
-| 1月 | 21 |
-| 3月 | 63 |
-| 半年 | 126 |
-| 1年 | 252 |
-
-返回值包含 `formulas` 数组和可能的 `warnings`（窗口重叠警告）。
-
-### Step 3：runMultiFormulaBatchStream 执行公式
-
-将 Step 2 返回的 `formulas` 数组直接传入 `runMultiFormulaBatchStream`：
-
-```json
-runMultiFormulaBatchStream({"formulas": [...Step 2 返回的 formulas...]})
-```
-
-### Step 3.5：readData 验证（可选）
-
-如需读取事件收益的具体数值，使用 `readData` 工具：
-
-- 事件研究产出的收益数据为**一维**序列，使用 `mode: "last_column_full"` 读取
-- **不要使用** `table_data` 模式（不支持一维采样数据）
-
-### Step 3.6：执行后映射一致性校验（强制执行）
-
-回答前必须检查：
-1. 本次 buildEventStudy 传入的事件日期列表（记录总数）
-2. 本次 readData 读取的结果条数
-3. 两者是否一一对应
-
-若 `事件数 ≠ 有效结果数`：
-- **不得直接输出逐事件收益表**
-- 必须执行以下之一：
-  1. 合并高时间重叠的事件簇，重新调用 buildEventStudy
-  2. 改为按事件簇输出（标注合并原因）
-  3. 仅输出可确认一一映射的事件，明确标注"以下 N 个事件因窗口重叠被排除"
-- 必须写明原始候选事件数、最终有效样本数、差异原因
-- **禁止**：保留全部事件日但强行对齐不等长的结果列表
+事件身份由 `group + event_date + window` 明确对应，不能按返回序列位置猜配。相邻事件允许各自独立观察，不因重叠擅自合并或删事件；重叠样本非独立，应披露。完整性由各窗口实际观察数与端点决定，不是“有返回值就完整”。输出汇总样本数必须等于该组该窗口 status=complete 的行数。
 
 ### Step 4：格式化输出
 
@@ -794,5 +740,5 @@ runMultiFormulaBatchStream({"formulas": [...Step 2 返回的 formulas...]})
 
 **实测口径（T-037）**：「美联储宣布降息，统计沪深300在**宣布后第2个交易日到第20个交易日**的区间涨幅（**排除事件当天**）」→ 命中第一行 → N=2, M=20 → `收盘(T+20)/收盘(T+2) - 1`。**禁止**算成 T+1→T+20。
 
-> **注意**：模板 C 不走 buildEventStudy 工具，也不需要选取日期生成事件信号。直接用 `取某天` 嵌套 `交易日位移` 提取两个价格点，再做价格比值即可。多个历史事件需为每次事件单独建立前缀变量（`取某天` 每次只能绑定一个日期）。
+> **注意**：模板 C 不走 buildEventStudy 工具，也不需要选取日期生成事件信号。当前 `交易日位移` 在公式接口不可执行；按原始日行情序列定位两个真实端点，核实观察数量后计算价格比值，不能用不可用公式或分段末值替代。多个历史事件需为每次事件单独建立前缀变量（`取某天` 每次只能绑定一个日期）。
 > **成功即停**：模板 C 两个端点价格取到、比值算出后，立即组织答案并停止；禁止再开第二套手工价格点重算、禁止 `fast_query → csv → Bash/Python`、禁止追加 `searchFunctions`/同义公式重算（见 global-rules.md 第 7.5 条旁路禁令）。

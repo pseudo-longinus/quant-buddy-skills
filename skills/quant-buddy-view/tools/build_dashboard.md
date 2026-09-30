@@ -109,7 +109,7 @@ Default brand logo: standard pages inline `assets/logo.svg` into the share heade
 | `outputs` | ✅* | 多序列 `line/bar` 的公式包产出名数组，例如 `["mt_close","wly_close","lzlj_close"]`；构建期会逐项体检，manifest 也会记录全部产出 |
 | `grant_id` | ✅* | 数据授权面板：填 `dg_...`，构建期自动补 signature、运行时走 `queryDataGrant`（普通 JSON）。与 `output/outputs` 互斥，可与公式包面板同页混用 |
 | `title` | ❌ | 面板标题，缺省用 `output` |
-| `type` | ❌ | `line` / `bar` / `radar`（雷达图） / `table`（默认） / `number` / `text` / `raw` |
+| `type` | ❌ | `candlestick` / `line` / `bar` / `radar`（雷达图） / `table`（默认） / `number` / `text` / `raw` |
 | `x` | ❌ | line/bar 横轴字段（缺省取首列；range_data 自动取 dates） |
 | `y` | ❌ | line/bar 纵轴字段数组（缺省取除 x 外的数值列） |
 | `transform` | ❌ | line/bar 展示层派生：`cumulative_return_pct` 把各序列首个有效值归零后显示累计收益率；`drawdown_pct` 按各序列运行峰值显示回撤率。两者只基于页面实时取得的原始序列计算，不缓存、不改写源数据 |
@@ -249,3 +249,18 @@ Compose 草稿支持 `runtime_role_id` 引用执行计划角色，编译后仍�
 ### 原始数值排序的柱图
 
 `bar` 默认数值轴包含零基线。排名请直接绑定完整截面 `last_column_full.values`：`{"type":"bar","output":"sector_returns","x":"name","y":["value"],"rank_order":"asc","rank_by":"value","rank_limit":10,"title":"最弱10行业：原始涨跌幅（%）"}`。`desc` 取最强，`asc` 取最弱；排序与截取在展示层完成，不改变原始数值。不要为取最弱榜单另造负收益公式，也不要把包含上涨行业的最弱榜单称为“跌幅大小”。缺失值不参加排序，不能补0。
+
+### CSV 百分比同日期校准
+
+FastQuery 的紧凑 JSON 与 CSV 原始值可能使用不同缩放，unit:"%" 本身不能证明 CSV 已乘100。表格接 CSV Grant 时，在每个百分比 column_formats 中加入 `verified_sample:{"date":"2026-09-29","percent_value":0.10}`（示例，实际必须取本轮 QBS 首答的同日期已验证结果）。工具将实际 CSV 值×scale 与该百分数核对，不符则拒绝构建。不得照抄原 CSV 值作为验证结果或修改参考值来迁就错误配置。比例值0.001应配scale:100显示0.10%；已是百分数0.10配scale:1。多资产同日还需sample.asset。发布后检查真实单元格数值、正负号和首末日期，而非仅看参数或HTTP状态。日期列rank_by支持实际列名或output_labels的展示名。
+
+
+### `candlestick` K线面板
+
+K线活页直接使用同一份 QBS `fast_query(window)` 数据授权，不调用图片型 `renderKLine`。`grant_id` 对应的主序列必须同时包含 `日期`、`开盘价`、`最高价`、`最低价`、`收盘价`，可选 `成交量`；MA20 等独立公式序列用 `overlays:["MA20"]` 按日期并入同一K线面板。示例：
+
+```json
+{"type":"candlestick","grant_id":"dg_...","open":"开盘价","high":"最高价","low":"最低价","close":"收盘价","volume":"成交量","overlays":["MA20"]}
+```
+
+页面运行时同时绘制蜡烛、成交量和均线；不接受先生成 PNG 再上传作为 K 线活页主链。构建和公开验收必须核对同一授权数据的实际首末日期、最新收盘价、成交量和均线值。

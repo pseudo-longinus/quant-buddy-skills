@@ -21,8 +21,8 @@
 | K1 | 时间窗口已解析 | begin_date 已计算 | "最近 N 月"转为 YYYYMMDD；未指定时默认近 6 个月 |
 | **K1.5** | **日期锚点已获取** | **当前日期来自可靠来源** | 当前日期锚点来自**系统上下文 或 工具返回**（非模型猜测）；begin_date 基于该锚点计算得出。**未通过 K1.5 = 禁止调用 renderKLine** |
 | K2 | K 线图已渲染 | renderKLine 成功 | 返回 base64 图片，data_points > 0 |
-| **K2.5** | **活页路由已执行** | 已运行 `live_page_routing.py route` 并保留 JSON | `create` 已完成非阻塞 handoff/prepare/spawn accepted，或 `none/suggest` 有明确返回；命令失败已记录为软降级 |
-| K3 | 交付完成 | 图片已展示 + 简短说明 | 无多余文字，无目测数值；不等待 QBV 完成 |
+| **K2.5** | **活页路由已执行** | 已运行 `live_page_routing.py route` 并保留 JSON | 确认 create/existing_page/none/suggest；此时不提前 prepare 或委派 |
+| K3 | 业务首答已交付 | 图片已展示，附实际日期、周期、单位和必要限制 | 不目测数值；有建页意图时使用非终止回复，之后继续 QBV |
 
 ### 首选路径
 0. `newSession`（若本轮尚未调用；不可省略，K-1 未通过则禁止往下做任何平台工具调用）
@@ -30,8 +30,8 @@
 2. 解析用户时间描述 → 计算 `begin_date`
 3. `renderKLine(ticker, begin_date, ...)` → 获得图片并验证；用户明确要求 PNG 时必须传 `output_format="png"`，直接使用返回的 `artifact_file`，禁止再调用 Bash/Python 转换格式
 4. 读取 `live-page-routing.md`，实际执行 `python scripts/live_page_routing.py route --user-query "用户本轮原话"`
-5. `create|existing_page`：把 `renderKLine` 已生成的 PNG 写入下方 `prepare-page.json`，执行一次 `prepare-validated-page`，然后调用宿主内部子 Agent 委派工具（优先 `spawn_agent`），只等待即时成功回执；`none|suggest`：直接继续；委派不可用或失败：把 Job 更新为 `DELEGATION_UNAVAILABLE` 后软降级
-6. 展示图片 + 一句话说明；不等待 QBV 完成
+5. 先以非终止消息展示图片，说明实际覆盖日期、日/分钟周期、成交量单位、已核验或未核验的复权口径；数值只能来自工具数据，不能目测图片。首答不等待页面构建。
+6. `create|existing_page`：首答发出后把真实图表与计算合同写入下方 `prepare-page.json`，执行一次 `prepare-validated-page`，默认 `same_turn` 同轮读取 QBV、beginHandoff、adapter 并继续建页/原页更新。可靠内部委派仅为显式选择的替代方式；没有委派工具不构成失败。`none|suggest` 按路由结果回答或澄清，不创建页面 Job。完成验收后补真实链接；无法恢复时记录失败终态并保留首答。
 
 ### K 线活页固定准备合同
 
@@ -77,7 +77,7 @@
 }
 ```
 
-其中 `artifact_file`、`row_count`、ticker、日期和 `show_volume` 必须复制 `renderKLine` 的真实返回/调用参数，不得照抄示例值。然后只执行：
+其中 `artifact_file`、`row_count`、ticker、日期和 `show_volume` 必须复制 `renderKLine` 的真实返回/调用参数，不得照抄示例值。时间窗口随合同交接：保留原始 begin_date，以及本轮已核验的首末日期和有效观察数；不能把 row_count 当作另一个接口的 window_days 后无条件展示全部返回。日历半年与固定交易日数量不是同一口径。QBV 补取实时 OHLCV 可以多取，但展示、成交量、区间统计必须统一裁切到首答采用的窗口；动态半年页按同一日历半年规则滚动。输出实际日期与观察数，验收首答/页面区间一致后才交付。然后只执行：
 
 ```powershell
 python scripts/live_page_routing.py prepare-validated-page @output/_working/<task_id>/prepare-page.json

@@ -12,7 +12,7 @@
 
 首次upload/update返回 `required_user_message` 后，**下一次工具调用之前，先把这句话发成用户可见消息**。不能只把URL留在工具结果，不能等最终总结再发。宿主支持同一消息带文字和工具调用时，文字先展示，再继续工具调用。
 
-优先消费工具置顶的 `continuation`：在一条非终止助手消息中发送其 `message`，并调用 `after_message_tool` 的真实参数。用户已要求增强时，这条消息应同时携带后续工具调用，不能仅输出首链后结束。`task_completed:false` 表示尚有后续工作；`page_delivered:true` 仅表示已有可读版本。脚本不会替你发送消息或自动确认交付。
+优先消费工具置顶的 `continuation`：先输出其 `message` 为非终止助手消息，必须包含真实链接。进度说明、工具描述及参数不是用户消息。确认链接已在本轮助手消息中发出后，再使用 `after_message_tool` 参数，自行补上 `delivery_message` 为刚才实际发送的原文；此字段不预填，不能从工具结果直接复制来冒充发送。用户已要求增强时，发首链后继续调用工具完成增强，不结束任务。`task_completed:false` 表示尚有后续工作；`page_delivered:true` 仅表示已有可读版本。脚本不会替你发送消息或自动确认交付。
 
 随后运行 `static_page.py file_confirm_delivery`，参数：task_id、file_publish_dir、page_id、public_url、delivery_message（刚才实际发给用户的消息原文）。这一步不发布、不查数，只记录首链交付确认。**尚未确认时，后续增强返回FILE_STATIC_LINK_DELIVERY_REQUIRED，不读取候选、不取数、不覆盖页面。** 不得用虚假的delivery_message绕过检查点。
 
@@ -97,3 +97,7 @@
 **接口语义**：is_live=false只表示未绑定实时取数，不代表页面不可访问。静态首版允许is_live=false；以页面状态、实际下载/哈希与公网浏览器验收判断可用性，撤销、过期或哈希不匹配仍拒绝。
 
 **服务端存储合同**：上传后会注入标准qb-static-tracker脚本。客户端候选哈希用于来源保真，last_good保存服务端实际HTML及哈希；优先核对写入响应的sha256/tracker_injected。丢失响应时仅允许已固定校验的标准tracker，正文变化、未知脚本或其他版本差异仍拒绝，不能按marker名称忽略任意JS。
+
+### 首链之后的来源评估终态
+
+`file_confirm_delivery` 后必须按continuation读取原source_file并评估适用性，不以重复首链结束。只有明确资产/字段/来源可映射时才查询QBS继续同页增强。无可映射来源的合成教学数据可以保留静态：运行 `static_page.py file_assess_source`，参数保留task_id、file_publish_dir，并传 `source_assessment:{"status":"snapshot_only","reason":"实际原因","excerpts":["支持结论的源文件原文片段"]}`。该工具核对首链已确认及摘录真实存在，仅记录评估、不会重新上传或查询行情；它不是独立金融语义验真。返回task_completed:true后再交付说明。纠错/重做请求仍需真正完成授权修改，不能用此静态评估代替。

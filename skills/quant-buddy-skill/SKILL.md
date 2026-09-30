@@ -2,7 +2,7 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.25.46
+version: 4.25.47
 description: |
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据；支持查询 A 股股票所属行业。
   显式日期的单值快照可同时返回按实际更新日对齐的日频行情与估值；字段日期不同时按字段自身日期展示，不将较晚刷新字段误判为无数据。
@@ -18,7 +18,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.25.46
+  version: 4.25.47
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -76,6 +76,8 @@ runtimeRequirements:
 
 # 观照量化投研
 
+**WebAgent 宿主交付约定优先**：宿主要求金融问题统一“完整问答＋活页”时，所有金融问题先实际 route，再由 QBS 查询验证并发送非终止首答，同轮继续 QBV。包括具体字段、概念解释和“601137 最近如何？”，不依赖建页关键词。Worker 的 `QBS_DEFAULT_PAGE_REQUESTED=1` 由脚本自动继承；本文件及 leaf workflow 的“只回答/结束/不建页”默认仅适用于独立 QBS。明确不要网页/只回复文字、已有页面只读解读、文件托管与纯维护按各自规则处理。详见 [宿主默认建页](workflows/answer-first.md#webagent-宿主默认建页优先于独立-qbs-路由)。
+
 > **首屏优先**：先读本文件前部的「平台工具参数速查」「硬规则」和「场景路由」。简单行情、窗口序列、最近报告期、固定区间收益、K 线图等高频任务命中 Fast Path 时，无需继续整本通读。
 
 本地交付必须复用工具返回的真实路径；不得加 `sandbox:` 或猜测 Skill 安装目录。排名表逐列核对数据 ID、单位和日期；比值列不能抄到 PE 列。参见 [全局执行规则](workflows/global-rules.md)。
@@ -125,7 +127,7 @@ runtimeRequirements:
    - 同一对话追问可复用当前 session；新问题必须新建 session。
    - 所有业务 HTTP/SSE 请求统一携带 `x-skill-name: quant-buddy-skill` 与当前 `x-task-id`，用于跨 Skill Trace 聚合；quant-buddy-view 上游任务不得切换 task_id。
 2. **原生工具优先，禁止脚本包装**：
-   - 平台已有原生工具时，必须直接调用原生工具：`fast_query`、`fast_query_minute`、`fast_query_minute_range`、`confirmDataMulti`、`selectByComposition`、`runMultiFormulaBatchStream`、`resumeJob`、`readData`、`renderKLine`、`renderChart` 等。
+   - 平台已有原生工具时，必须直接调用原生工具：`fast_query`、`fast_query_minute`、`fast_query_minute_range`、`confirmDataMulti`、`selectByComposition`、`runMultiFormulaBatchStream`、`resumeJob`、`readData`、`renderKLine`、`renderChart` 等；但普通K线活页必须先走 `kline-page-fast-path.md`，不可调用 `renderKLine`。
    - 禁止用 Bash / shell / Python / `scripts/call.py` / `run_skill_script` 包装已有原生平台工具。唯一编排例外是 quant-buddy-view 的 `qbs_bridge.py`，它只负责继承 task_id 和隔离 session，不改写业务参数或结果。
    - 只有平台明确不存在等价原生工具，且 workflow 明确允许脚本兜底时，才可使用本地脚本。
    - **许可例外（csv 解析）**：当 `fast_query` 返回 `mode:"csv"` + `csv_url`（数据点 > 500 的正常交付）时，调用 `python scripts/fetch_fastquery_csv.py "<csv_url>"` 下载并解析该 csv 属于**许可路径**——这是消费工具返回的 OSS 产物（平台无等价原生解析工具），不算"包装原生工具"。历史分钟长表使用 `scripts/fetch_minute_range_csv.py @output/minute-manifest.json --output output/minute-data.json`，不能套用日频宽表解析器。但仍禁止用裸 `curl` / 自写临时脚本替代该脚本。
@@ -193,6 +195,8 @@ runtimeRequirements:
 
 14. **QBS→QBV 只复用本轮已经算完的部分，不把 QBV 改成 QBS 专用渲染器**：`create|existing_page` 在 Handoff 前优先运行 `scripts/qbv_computation_capsule.py build @capsule-input.json`，生成 `qbs_computation_capsule_v1`。胶囊必须同时包含用户核心问题/主图意图、资产规范化结果、可复现查询或公式合同及 fingerprint、结果快照或 artifact SHA256、字段映射、结论与验证收据；禁止只交 PNG 或一句总结。 同一业务 role 对应多个已物化结果时可传 `data_ids`；构建器按原顺序展开为 `role__01`、`role__02`…，保留原始 ID 字符串并同步 `required_roles`，禁止 Agent 手工改写或复制 ID。QBV 的 thin adapter 判定 `covered` 时不得重复识别资产或重算相同 role，`partial` 时只补 `missing_roles`，`unusable` 时无损回退原 QBV→QBS bridge；direct/fork/unmatched、ownership、构建、运行时注册、发布和验收仍完全归 QBV。用户直接使用 QBV 的量化建页同样先答；无胶囊时保留原查询能力，已有文件/解读/展示维护例外不变。
 15. **已跑通的公式执行合同必须原样交给 QBV，禁止二次改写**：`runMultiFormulaBatchStream` 成功后，原始执行以 Validation Receipt 的 `execution_contract` 为证，安全页面读取另用 `qbs_formula_runtime_contract_v1`（可能缺省），不可混同，保留 `formulas` 的条数、顺序、完整指标名、引号、`begin_date`、`include_description`、`use_minute_data`、`force_reusable_array`、`reads` 和 fingerprint。`prepare-validated-page` 必须把该合同写入 computation capsule；不得把平台已确认的 `"A股市盈率（PE, TTM）〔估值数据〕"` / `"A股净资产收益率ROE"` 缩写成 `PE(TTM)` / `ROE` 后交给 QBV，也不得把多条已验证公式合并成一条新公式。显式合同与 Receipt 不一致、fingerprint 不一致或输出左值不完整时必须失败关闭，不得猜测修复。准备交接 JSON 时，Receipt 已含原始公式就不要在 `validated_roles[].formula` 手抄第二份，也不要在每个 role 重复同一 Receipt；优先在顶层 `validation_receipts` 传一次 Receipt 对象或 Receipt 文件路径字符串，也可以让 `prepare-validated-page` 按同任务全部 `data_id` 自动发现，避免引号转义失败和无效重试。
+
+**个人数据与执行能力边界**：个人持仓、成本、份额和交易记录进入持久化活页前，说明当前活页凭链接公开访问；收集必要参数时一并确认是否允许公开这些信息。要求“记录持仓”不等于同意公开；已明确授权公开时不重复确认，普通公开行情查询不受此限制。不能承诺未经验证的私有访问。页面打开/刷新取数不等于每日定时执行、主动通知或自动交易；只有宿主具备相应能力且实际创建成功后才能承诺已启用。详见 [能力与个人数据边界](workflows/answer-first.md#能力与个人数据边界)。
 
 ## Fast Path / Leaf workflow 顶部硬闸门（每次进入 leaf 都生效）
 
@@ -390,7 +394,8 @@ SKILL_ROOT/
 | 最新上市/退市/更名/换代码或资产状态冲突 | 现在上市了吗、最新代码、是否退市；或本地资产库命中但平台返回 `ASSET_NOT_FOUND` | `global-rules.md` → `external-fact-verification.md`；外部事实与 Quant Buddy 数据状态必须分开判断 |
 | 单资产标准历史字段同图 | 一个资产 + 2～4 个价格/成交/估值标准历史字段 + “放在一张图里/画成图/同图比较” | **只读 `visual-page-fast-path.md`**；先 route，再一次 `fast_query`，一次命令准备 capsule + Handoff + Job；禁止进入 `quant-standard.md`、`render-kline.md` 和静态渲染 |
 | 申万一级行业近N日涨跌幅排名图 | 申万一级行业/行业板块 + 最近N日/最近一个月 + 涨跌幅 + 排名图/柱状图/可视化 | **只读 `industry-ranking-fast.md`**；固定一条行业聚合公式，只读 `indexinfo_id`，直接准备已物化 QBV Job；禁止进入 `global-rules.md`、`quant-standard.md`、行业 recipe 和 `renderChart` |
-| K线图（可视化） | 明确出现 K线/K 线/蜡烛图/OHLC/开高低收；普通“股价、成交量、PE 放在一张图”不属于 K 线 | `global-rules.md` → `render-kline.md`；输出首答前必须实际运行 `live_page_routing.py route`；明确“只要 PNG/不要网页”时 route 为 `none` |
+| K线活页（可持续打开） | 明确出现 K线/K 线/蜡烛图/OHLC/开高低收，且没有明确只要图片 | **只读 `kline-page-fast-path.md`**；QBS `fast_query(window)` 验证 OHLCV 后先答，再交给 QBV 的 `candlestick` 运行时面板；禁止调用图片型 `renderKLine` |
+| K线图片（明确只要PNG/图片） | 用户明确不要网页、只要图片 artifact | `global-rules.md` → `render-kline.md`；此时才允许 `renderKLine` |
 | 固定区间累计涨跌幅 | 从A到B、某年某月至某年某月、区间收益、累计涨跌幅、区间表现、多资产区间对比 | `global-rules-lite.md` → `period-return-compare.md` |
 | 数据下载 / 导出本地 CSV | 下载成CSV、导出到本地、保存到本地、下载历史数据 | `global-rules.md` → `recipes/download-data.md`；单资产单字段时序优先 `runMultiFormulaBatchStream` → `downloadData` → `write_skill_file`，禁止 Bash 兜底 |
 | 已物化指标选股 / 维度分或细分指标 TopN / 推荐股票 | 分数最高、综合分最高、维度分，或由已物化细分 score/screen 指标组成的推荐/选出/筛选 TopN | `global-rules.md` → `composition-select.md`（`newSession` → 本地快照匹配或在线目录确认 → `selectByComposition`） |
@@ -445,7 +450,7 @@ SKILL_ROOT/
 2. 整句为一个资产名称/简称/代码，或简单单股综合分析（如“分析一下贵州茅台”）时，先执行 `live_page_routing.py route`；命中 `single_a_stock_fast` 则读取 QBV `guides/answer-first.md`，QBS 验证首答后同轮 `new_asset_page`，不能只输出画像就结束。其他开放式单股综合指标概览（如“分析一下XX个股”“个股画像”“指标概览”），且不是只问单字段/明确窗口/IC 预测力 → `workflows/global-rules.md` → `workflows/stock-profile.md`
 3. 时间锚点是"最近 N 日窗口/序列"，或用户明确给出起止日期要求返回区间序列（如"从X日到X日每日的…走势/序列/数据"），或用户只说"最近走势/看走势"但未明确要图片/K线 → Fast Path 条件满足时读 `workflows/fast-window.md`，不满足则 `workflows/global-rules-lite.md` → `workflows/quick-window.md`；未给 N 时默认按最近 20 个交易日
 4. 时间锚点是"最近报告期"且字段属于财务类 → Fast Path 条件满足时读 `workflows/fast-report-period.md`，不满足则 `workflows/global-rules.md` → `workflows/quick-report-period.md`
-5. 用户明确要“K线 / K 线 / 蜡烛图 / OHLC / 开高低收” → 直接加载 `workflows/render-kline.md`；普通多指标同图已由步骤 0 截止
+5. 用户明确要“K线 / K 线 / 蜡烛图 / OHLC / 开高低收”：有活页意图时加载 `workflows/kline-page-fast-path.md`；只有明确只要PNG/图片时才加载 `workflows/render-kline.md`
 6. 其余（明确是最近完成交易日或当日的行情/估值/多资产对比，且**不含** 排名/筛选/全市场 语义）→ Fast Path 条件满足时读 `workflows/fast-snapshot.md`，不满足则 `workflows/global-rules.md` → `workflows/quick-snapshot.md`
    > **说明**：含"今天/今日/当日/当前/现在/实时/盘中"但仅查单资产行情字段，属于日内刷新场景，`fast_query snapshot` 已自动启用盘中刷新（等效 `use_minute_data: true`），应直接走 Fast Path；上方"路由硬排除"已拦截"今天 + 全市场/板块 + 排名/筛选"，此处无需重复排除。
 
@@ -468,7 +473,7 @@ SKILL_ROOT/
 - 营收 / 净利润 / ROE / 总资产 / 总负债 / 资产负债率 → `quick-report-period`
 
 禁止：
-- 优先调用 `scanDimensions`、`renderKLine`（除非用户明确要看图）
+- 普通K线活页不得优先调用 `renderKLine`；先读 `kline-page-fast-path.md` 并用 `fast_query(window)` 取得OHLCV。只有用户明确只要PNG/图片时才调用 `renderKLine`
 - 先做分析性扩写，再补充结构化数值
 - **在读取对应 leaf workflow 之前**直接调用 `runMultiFormulaBatchStream` / `renderKLine` / `scanDimensions` / `stockProfile` / 输出“无法联网”或“无法获取实时数据”
 - 资产已唯一命中 `presets/assets_db/future.yaml` 时，静态输出“平台不支持期货/期权”或“期货无法查询”；应先按行情/窗口序列工具链尝试，失败后只按工具返回说明当前品种或字段暂不可得
@@ -583,7 +588,7 @@ SKILL_ROOT/
 - 上一轮工具调用已出现 401 / 402 / 明确认证错误
 - workflow 明确要求执行脚本链（如本地 Python 脚本渲染）
 
-对已命中 leaf workflow 的简单查数题（quick-snapshot / quick-window / quick-report-period / render-kline）：
+对已命中 leaf workflow 的简单查数题（quick-snapshot / quick-window / quick-report-period / kline-page-fast-path / render-kline）：
 - 不要为了形式完整额外读取 `config.json`
 - 优先直接按 leaf workflow 执行
 - 仅当工具调用出现明确认证问题时，再回到认证向导

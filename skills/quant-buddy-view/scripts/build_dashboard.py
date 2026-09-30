@@ -27,7 +27,7 @@ r"""
           "output": "单个公式包产出名；多序列图改用 outputs",
           "outputs": ["多个公式包产出名；line/bar 叠加对比时使用"],
           "grant_id": "数据授权面板：dg_... （与 output/outputs 互斥，构建期自动补 signature、运行时走 queryDataGrant），可与公式包面板同页混用",
-          "type":   "line | bar | table | number | text | raw（默认 table）",
+          "type":   "candlestick | line | bar | table | number | text | raw（默认 table）",
           "transform": "line/bar 可选 cumulative_return_pct | drawdown_pct",
           "x":      "line/bar 横轴字段名（数据为对象数组时）",
           "y":      ["line/bar 纵轴字段名，可多条"],
@@ -388,6 +388,31 @@ function normalizeGrantData(kind, data) {
   }
   if (k === 'fast_query') {
     var results = data.results || [];
+    if (!Array.isArray(results)) {
+      const entries=Object.entries(results), records=[];
+      for(const [name,payload] of entries) {
+        if (!payload || typeof payload!=='object') continue;
+        const byDate=new Map(); let hasSequence=false;
+        for(const [field,value] of Object.entries(payload)) {
+          if(['ticker','_intent','dates'].includes(field)) continue;
+          const dates=Array.isArray(value)?payload.dates:value?.dates;
+          const values=Array.isArray(value)?value:value?.values;
+          if (!Array.isArray(values)) continue;
+          hasSequence=true;
+          if (!Array.isArray(dates) || dates.length!==values.length) throw new Error('FastQuery字段日期与数值长度不一致: '+field);
+          const seen=new Set();
+          dates.forEach((raw,i)=>{const date=fmtDate(raw);if(seen.has(date))throw new Error('FastQuery字段日期重复: '+field);seen.add(date);if(!byDate.has(date))byDate.set(date,entries.length>1?{标的:name,日期:date}:{日期:date});byDate.get(date)[field]=values[i];});
+        }
+        if(hasSequence) { records.push(...[...byDate].sort(([a],[b])=>a.localeCompare(b)).map(([,row])=>row));continue; }
+        const row={标的:name};if(payload.ticker)row.代码=payload.ticker;
+        for(const [field,value] of Object.entries(payload)) {
+          if(['ticker','_intent','dates'].includes(field))continue;
+          if(value && typeof value==='object' && 'v' in value){row[field]=value.v;if(value.d && !row.日期)row.日期=fmtDate(value.d);}else row[field]=value;
+        }
+        const date=Object.values(data.dates || {}).find(Boolean);if(date && !row.日期)row.日期=fmtDate(date);records.push(row);
+      }
+      return records.length?records:data;
+    }
     var hasSeries = results.some(function (r) {
       return (r.fields || []).some(function (f) { return Array.isArray(f.series); });
     });
@@ -471,12 +496,19 @@ function renderTable(el, tab, panel) {
   };
   let rows = tab.rows.slice();
   const ranked = ['asc','desc'].includes(panel.rank_order);
-  const rankColumn = tab.columns.includes(panel.rank_by) ? panel.rank_by : (panel.output_labels || {})[panel.rank_by];
+  const rankColumn = tab.columns.includes(panel.rank_by) ? panel.rank_by : tab.columns.find(c => label(c) === panel.rank_by || c === (panel.output_labels || {})[panel.rank_by]);
   const ri = colIdx(tab,rankColumn);
   el.dataset.qbRankError = ranked && ri == null ? '排序字段不存在' : '';
+  const sortValue = v => {
+    if (typeof v === 'number' && Number.isFinite(v)) return v;
+    if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}(?:[T ]|$)/.test(v)) {
+      const n=Date.parse(v); return Number.isFinite(n) ? n : null;
+    }
+    return null;
+  };
   if (ranked && ri != null) rows.sort((a,b)=>{
-    const av=a[ri],bv=b[ri],an=typeof av==='number'&&Number.isFinite(av),bn=typeof bv==='number'&&Number.isFinite(bv);
-    return an&&bn ? (panel.rank_order==='asc'?1:-1)*(av-bv) : an?-1:bn?1:0;
+    const av=sortValue(a[ri]),bv=sortValue(b[ri]);
+    return av!=null&&bv!=null ? (panel.rank_order==='asc'?1:-1)*(av-bv) : av!=null?-1:bv!=null?1:0;
   });
   const table = data => '<table'+(ranked?' data-qb-rank-order="'+panel.rank_order+'"':'')+'><thead><tr>' + cols.map(c => '<th scope="col">' + esc(label(c)) + '</th>').join('') + '</tr></thead><tbody>' + data.map(r=>
     '<tr'+(ranked&&ri!=null&&typeof r[ri]==='number'?' data-qb-rank-value="'+esc(r[ri])+'"':'')+'>'+idx.map((i,n)=>'<td>'+esc(cell(i==null?null:r[i],cols[n]))+'</td>').join('')+'</tr>').join('')+'</tbody></table>';
@@ -682,6 +714,59 @@ function renderChart(el, tab, panel) {
   window.addEventListener('resize', () => chart.resize());
 }
 
+// Strict daily calendar key: no locale guessing or accidental epoch parsing.
+function dailyKey(raw) {
+  const m = String(raw ?? '').match(/^(\d{4})-?(\d{2})-?(\d{2})$/);
+  if (!m) throw new Error('K线日期无效');
+  const value = m[1]+'-'+m[2]+'-'+m[3];
+  const parsed = new Date(value+'T00:00:00Z');
+  if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0,10) !== value) throw new Error('K线日期无效');
+  return value;
+}
+function dateColumn(tab, requested) {
+  return requested != null ? tab.columns.indexOf(requested) : tab.columns.findIndex(c=>['日期','date','dates','观察日','x'].includes(c));
+}
+function candleColumns(tab, panel) {
+  const select = (key, aliases) => panel[key] != null ? tab.columns.indexOf(panel[key]) : tab.columns.findIndex(c=>aliases.includes(c));
+  const cols = {date:dateColumn(tab,panel.x),open:select('open',['开盘价','open','Open']),close:select('close',['收盘价','close','Close']),low:select('low',['最低价','low','Low']),high:select('high',['最高价','high','High']),volume:select('volume',['成交量','volume','Volume'])};
+  if (['date','open','close','low','high'].some(k=>cols[k]<0) || panel.volume != null && cols.volume<0) throw new Error('K线字段缺失');
+  return cols;
+}
+function renderCandlestickChart(el, tab, panel) {
+  const ix=candleColumns(tab,panel), seen=new Set();
+  // Reject invalid data explicitly; do not silently delete a trading day.
+  const rows=tab.rows.map(row=>{
+    const copy=row.slice(), date=dailyKey(row[ix.date]);
+    if (seen.has(date)) throw new Error('K线日期重复，检查是否混入多个资产');
+    seen.add(date);copy[ix.date]=date;
+    if (!['open','close','low','high'].every(k=>typeof row[ix[k]]==='number' && Number.isFinite(row[ix[k]]))) throw new Error('K线OHLC缺值或非有限数值');
+    if (row[ix.low]>Math.min(row[ix.open],row[ix.close]) || row[ix.high]<Math.max(row[ix.open],row[ix.close]) || row[ix.low]>row[ix.high]) throw new Error('K线OHLC高低价关系无效');
+    if (ix.volume>=0 && row[ix.volume]!=null && (typeof row[ix.volume]!=='number' || !Number.isFinite(row[ix.volume]) || row[ix.volume]<0)) throw new Error('K线成交量无效');
+    return copy;
+  }).sort((a,b)=>a[ix.date].localeCompare(b[ix.date]));
+  if (!rows.length) throw new Error('K线展示窗口内无数据');
+  const dates=rows.map(r=>r[ix.date]);
+  const series=[{type:'candlestick',name:panel.candlestick_label || 'K线',data:rows.map(r=>[r[ix.open],r[ix.close],r[ix.low],r[ix.high]]),itemStyle:{color:'#c03d3d',color0:'#16845b',borderColor:'#c03d3d',borderColor0:'#16845b'}}];
+  for (const name of panel.overlays || []) {
+    const label=(panel.output_labels || {})[name] || name;
+    const index=tab.columns.indexOf(label);
+    if (index<0) throw new Error('K线叠加字段缺失: '+name);
+    const values=rows.map(r=>r[index] ?? null);
+    if (!values.some(v=>typeof v==='number' && Number.isFinite(v)) || values.some(v=>v!=null && (typeof v!=='number' || !Number.isFinite(v)))) throw new Error('K线叠加序列在展示窗口无有效数值: '+name);
+    series.push({type:'line',name:label,data:values,showSymbol:false,smooth:false,connectNulls:false,yAxisIndex:0,lineStyle:{width:1.5}});
+  }
+  const hasVolume=ix.volume>=0 && panel.show_volume!==false;
+  if (hasVolume) series.push({type:'bar',name:(panel.output_labels||{})[tab.columns[ix.volume]]||'成交量',data:rows.map(r=>r[ix.volume] ?? null),xAxisIndex:1,yAxisIndex:1,itemStyle:{color:'#9ab6cc'}});
+  const chart=echarts.init(el);
+  const grids=[{left:56,right:24,top:34,bottom:hasVolume?'30%':'14%'}];
+  const xs=[{type:'category',data:dates,axisLabel:{color:'#697586'}}];
+  const ys=[{type:'value',name:panel.unit || '',scale:true,axisLabel:{color:'#697586'},splitLine:{lineStyle:{color:'#e8edf4'}}}];
+  if (hasVolume) {grids.push({left:56,right:24,height:'18%',bottom:'8%'});xs.push({type:'category',gridIndex:1,data:dates,axisLabel:{show:false}});ys.push({type:'value',gridIndex:1,name:panel.volume_unit || '',scale:true,axisLabel:{color:'#697586'},splitLine:{show:false}});}
+  chart.setOption({tooltip:{trigger:'axis'},legend:{data:series.map(v=>v.name),top:0,type:'scroll'},grid:grids,xAxis:xs,yAxis:ys,dataZoom:[{type:'inside',xAxisIndex:hasVolume?[0,1]:[0]},{type:'slider',xAxisIndex:hasVolume?[0,1]:[0],bottom:0}],series});
+  if (el.dataset) el.dataset.qbKlineEvidence=JSON.stringify({start:dates[0],end:dates.at(-1),count:dates.length,series:series.map(v=>({name:v.name,last:v.data.at(-1)}))});
+  window.addEventListener('resize',()=>chart.resize());
+}
+
 // 雷达图：tab 第一列是维度名、第二列（或唯一列）是 0..max 的得分。panel.max 缺省 1（比例型分数）。
 function renderRadarChart(el, tab, panel) {
   const chart = echarts.init(el);
@@ -715,7 +800,7 @@ let OUTPUT_INDEX = {};
 function panelOutputNames(panel) {
   if (panel.binding) return [...new Set(Object.values(panel.binding.values || {}).map(ref => ref.output))];
   if (Array.isArray(panel.outputs) && panel.outputs.length) return panel.outputs;
-  if (panel.output) return [panel.output];
+  if (panel.output) return [panel.output].concat(Array.isArray(panel.overlays) ? panel.overlays : []);
   return [];
 }
 
@@ -735,6 +820,30 @@ function mergeOutputTables(names, received, labels = {}, panelType = '', fields 
     if (data && data.last_value) data = data.last_value;
     return data && !Array.isArray(data) && 'value' in Object(data) && 'date' in Object(data) ? data : null;
   };
+  if (panelType === 'candlestick') {
+    const failed=names.find(name=>!received[name] || received[name].error);
+    if (failed) return {tab:null,out:{error:String(received[failed]?.error || 'K线依赖缺失: '+failed)}};
+    try {
+      const base=normalize(received[names[0]].data);
+      const xi=dateColumn(base,fields[names[0]]?.x);
+      if (xi<0) throw new Error('K线主序列缺少日期字段');
+      const columns=base.columns.slice(),seen=new Set();
+      const rows=base.rows.map(row=>{const copy=row.slice();copy[xi]=dailyKey(row[xi]);if(seen.has(copy[xi]))throw new Error('K线日期重复，检查资产');seen.add(copy[xi]);return copy;});
+      for (const name of names.slice(1)) {
+        const extra=normalize(received[name].data),ex=dateColumn(extra,fields[name]?.x);
+        const ys=fields[name]?.y;
+        const valueName=Array.isArray(ys)?ys[0]:ys;
+        const ey=valueName!=null ? extra.columns.indexOf(valueName) : extra.columns.findIndex((c,i)=>i!==ex && ['value','values',name,(labels||{})[name]].includes(c));
+        if (ex<0 || ey<0) throw new Error('K线叠加序列缺少明确日期/数值字段: '+name);
+        const label=(labels||{})[name] || name;
+        if (columns.includes(label)) throw new Error('K线叠加字段重名: '+label);
+        const byDate=new Map();
+        for(const row of extra.rows){const date=dailyKey(row[ex]);if(byDate.has(date))throw new Error('K线叠加日期重复: '+name);byDate.set(date,row[ey] ?? null);}
+        columns.push(label);for(const row of rows)row.push(byDate.get(row[xi]) ?? null);
+      }
+      return {tab:{columns,rows},out:null};
+    } catch(error) { return {tab:null,out:{error:error.message}}; }
+  }
   if (panelType === 'table' && present.length && present.every(name => scalar(name))) {
     return {tab: {columns:['指标','数值','观察日'], rows:present.map(name=>{const value=scalar(name); return [labels[name] || name, value.value, fmtDate(value.date)];})}, out:null};
   }
@@ -827,9 +936,16 @@ function createCard(panel) {
 // 展示层裁剪：panel.x_range.start_date（chart_edit.py set_window 在"目标窗口已在已取数范围内"时写入）
 // 只影响这张图从第几天开始画，不影响实际取数范围——不用重新验证/注册公式包就能收窄可视窗口。
 function applyXRange(tab, panel) {
-  const startDate = panel.x_range && panel.x_range.start_date;
-  if (!startDate || !tab || !tab.rows || !tab.rows.length) return tab;
-  return {columns: tab.columns, rows: tab.rows.filter(r => r[0] == null || String(r[0]) >= startDate)};
+  const range=panel.x_range || {}, start=range.start_date, end=range.end_date;
+  if ((!start && !end) || !tab?.rows?.length) return tab;
+  const inferred=dateColumn(tab,panel.x),xi=inferred<0 && !panel.x ? 0 : inferred;
+  if (xi<0) throw new Error('展示窗口日期字段不存在');
+  const first=start?dailyKey(start):null,last=end?dailyKey(end):null;
+  if(first && last && first>last) throw new Error('展示窗口起止日期颠倒');
+  return {columns:tab.columns,rows:tab.rows.filter(row=>{
+    if(row[xi]==null) {if(panel.type==='candlestick')throw new Error('K线日期缺失');return true;}
+    const key=dailyKey(row[xi]);return (!first || key>=first) && (!last || key<=last);
+  })};
 }
 
 // 标准多资产派生展示：只在浏览器展示层基于实时价格序列计算，不改写或缓存源数据。
@@ -857,18 +973,23 @@ function transformPanelTable(tab, panel) {
 function renderPanelBody(body, panel, span, merged) {
   const type = panel.type || 'table';
   const out = merged.out;
+  if (out && out.error) { body.innerHTML = '<p class="empty err">取数失败：' + esc(out.error) + '</p>'; if(body.dataset)body.dataset.qbRenderError=String(out.error); return; }
   if (!merged.tab) { body.innerHTML = '<p class="empty">无产出：' + (panel.output || (panel.outputs || []).join('、') || '') + '</p>'; return; }
   if (out && out.error) { body.innerHTML = '<p class="empty err">取数失败：' + out.error + '</p>'; return; }
-  const transformed = transformPanelTable(merged.tab, panel);
-  const tab = (type === 'line' || type === 'bar') ? applyXRange(transformed, panel) : transformed;
   try {
+    if(body.dataset)delete body.dataset.qbRenderError;
+    const transformed = transformPanelTable(merged.tab, panel);
+    const tab = (type === 'line' || type === 'bar' || type === 'candlestick') ? applyXRange(transformed, panel) : transformed;
     if (type === 'raw') body.innerHTML = '<pre>' + JSON.stringify((merged.rawData !== undefined ? merged.rawData : tab), null, 2) + '</pre>';
     else if (type === 'number') renderNumber(body, tab, panel);
     else if (type === 'table') renderTable(body, tab, panel);
+    else if (type === 'candlestick') { body.style.height = (panel.height || (span === 'full' ? 560 : 420)) + 'px'; renderCandlestickChart(body, tab, panel); }
     else if (type === 'radar') { body.style.height = (panel.height || (span === 'full' ? 360 : 300)) + 'px'; renderRadarChart(body, tab, panel); }
     else { body.style.height = (panel.height || (span === 'full' ? 360 : 300)) + 'px'; renderChart(body, tab, panel); }
   } catch (e) {
-    body.innerHTML = '<p class="empty">渲染失败: ' + e + '</p>';
+    const chart=typeof echarts!=='undefined' && echarts.getInstanceByDom?.(body); if(chart)chart.dispose();
+    if(body.dataset){body.dataset.qbRenderError=String(e);delete body.dataset.qbKlineEvidence;}
+    body.innerHTML = '<p class="empty err">渲染失败: ' + esc(e) + '</p>';
   }
 }
 
@@ -989,7 +1110,7 @@ function parseSSE(text) {
 function markPackagePanelsError(msg) {
   PANEL_REG.forEach(reg => {
     if (reg.filled) return;
-    if (reg.panel._source === 'grant') return;
+    if (reg.panel._source === 'grant' && !(reg.panel.overlays || []).length) return;
     if ((reg.panel.type || 'table') === 'text') return;
     renderPanelBody(reg.body, reg.panel, reg.span, {tab: null, out: {error: msg}});
   });
@@ -1246,7 +1367,7 @@ def _evidence_first_panels(spec, panels):
         numbers = []
     number_ids = {id(p) for p in numbers}
     remaining = [p for p in remaining if id(p) not in number_ids]
-    main = next((p for p in remaining if p.get('type') in ('line', 'bar', 'radar', 'image')), None)
+    main = next((p for p in remaining if p.get('type') in ('line', 'bar', 'candlestick', 'radar', 'image')), None)
     if main is None:
         main = next((p for p in remaining if p.get('type', 'table') == 'table'), None)
     primary = [main] if main is not None else []
@@ -1339,8 +1460,8 @@ def _render_html(spec, *, title, subtitle, panels, endpoint, package_id, signatu
     mode_note = "数据：打开时实时取最新" if page_mode == "live" else "内容：静态展示"
     mode_label = "Live HTML" if page_mode == "live" else "Static HTML"
     if snapshots:
-        mode_note = "数据：部分实时、部分静态快照" if page_mode == "live" else "数据：已验证静态快照，不会自动更新"
-        mode_label = "Mixed Live / Snapshot" if page_mode == "live" else "Verified Snapshot"
+        mode_note = "数据：部分实时、部分静态数据" if page_mode == "live" else "数据：已验证静态数据，不会自动更新"
+        mode_label = "部分实时 / 静态" if page_mode == "live" else "已验证静态"
     mode_label_esc = html_escape(mode_label)
     poster_target_attr = " data-qb-poster-target" if any(
         isinstance(panel, dict) and (panel.get("type") or "").lower() == "image"
@@ -1604,25 +1725,49 @@ def _normalize_grant_data(kind, data):
         # table panels and build-time health checks can consume it safely.
         if isinstance(results, dict):
             rows = []
-            dates = data.get("dates") or {}
-            default_date = next((value for value in dates.values() if value), None) if isinstance(dates, dict) else None
+            dates = data.get('dates') or {}
+            default_date = next((v for v in dates.values() if v), None) if isinstance(dates, dict) else None
+            def date_key(value):
+                raw = str(value)
+                return raw[:4]+'-'+raw[4:6]+'-'+raw[6:] if len(raw)==8 and raw.isdigit() else raw
             for asset_name, payload in results.items():
                 if not isinstance(payload, dict):
                     continue
-                row = {"标的": asset_name}
-                if payload.get("ticker"):
-                    row["代码"] = payload.get("ticker")
-                for field_name, raw_value in payload.items():
-                    if field_name == "ticker":
+                by_date = {}
+                has_sequence = False
+                for field, value in payload.items():
+                    if field in ('ticker','_intent','dates'):
                         continue
-                    if isinstance(raw_value, dict) and "v" in raw_value:
-                        row[field_name] = raw_value.get("v")
-                        if raw_value.get("d"):
-                            row.setdefault("日期", raw_value.get("d"))
-                    else:
-                        row[field_name] = raw_value
-                if default_date:
-                    row.setdefault("日期", default_date)
+                    series_dates = payload.get('dates') if isinstance(value, list) else value.get('dates') if isinstance(value, dict) else None
+                    values = value if isinstance(value, list) else value.get('values') if isinstance(value, dict) else None
+                    if not isinstance(values, list):
+                        continue
+                    has_sequence = True
+                    if not isinstance(series_dates,list) or len(series_dates)!=len(values):
+                        raise ValueError('FastQuery字段日期与数值长度不一致: '+field)
+                    seen = set()
+                    for raw, item in zip(series_dates,values):
+                        date = date_key(raw)
+                        if date in seen:
+                            raise ValueError('FastQuery字段日期重复: '+field)
+                        seen.add(date)
+                        if date not in by_date:
+                            by_date[date] = {'标的':asset_name,'日期':date} if len(results)>1 else {'日期':date}
+                        by_date[date][field] = item
+                if has_sequence:
+                    rows.extend(by_date[k] for k in sorted(by_date))
+                    continue
+                row = {'标的':asset_name}
+                if payload.get('ticker'):
+                    row['代码']=payload['ticker']
+                for field, value in payload.items():
+                    if field in ('ticker','_intent','dates'):
+                        continue
+                    if isinstance(value,dict) and 'v' in value:
+                        row[field]=value['v']
+                        if value.get('d'): row.setdefault('日期',date_key(value['d']))
+                    else: row[field]=value
+                if default_date: row.setdefault('日期',date_key(default_date))
                 rows.append(row)
             return rows or data
         has_series = any(
@@ -1736,6 +1881,10 @@ def _panel_output_names(panel):
         return []
     if panel.get('binding'):
         return list(dict.fromkeys(ref['output'] for ref in panel['binding']['values'].values()))
+    if panel.get("_source") == "grant" and (panel.get('type') or '').lower() == 'candlestick':
+        base = str(panel.get('grant_id') or panel.get('output') or '').strip()
+        overlays = panel.get('overlays') or []
+        return [base] + [str(name).strip() for name in overlays if str(name).strip() and str(name).strip() != base]
     if panel.get("_source") != "grant":
         names = panel.get("outputs")
         if isinstance(names, list) and names:
@@ -1744,8 +1893,17 @@ def _panel_output_names(panel):
     return [str(name).strip()] if name is not None and str(name).strip() else []
 
 
+def _panel_formula_output_names(panel):
+    if not isinstance(panel, dict) or panel.get('_source') == 'snapshot':
+        return []
+    names = _panel_output_names(panel)
+    if panel.get('_source') == 'grant':
+        return [name for name in names if name != (panel.get('grant_id') or panel.get('output'))]
+    return names
+
+
 def _panel_uses_formula(panel):
-    return isinstance(panel, dict) and panel.get("_source") not in ("grant", "snapshot") and bool(_panel_output_names(panel))
+    return bool(_panel_formula_output_names(panel))
 
 
 def _inspect_outputs(panels, outputs):
@@ -2015,7 +2173,7 @@ def _validate_panel_transforms(panels):
 
 def _validate_table_presentation(panels, title=''):
     """Require an authored ranking/scale contract; never guess a financial unit."""
-    data_panels = [p for p in panels if (p.get('type') or 'table') in ('table', 'bar', 'line')]
+    data_panels = [p for p in panels if (p.get('type') or 'table') in ('candlestick', 'table', 'bar', 'line')]
     rankable = [p for p in data_panels if (p.get('type') or 'table') in ('table', 'bar')]
     ranking_page = bool(re.search(r'排名|强弱|榜单', title))
     if ranking_page and rankable and not any(p.get('rank_order') in ('asc', 'desc') and p.get('rank_by') for p in rankable):
@@ -2041,6 +2199,58 @@ def _validate_table_presentation(panels, title=''):
             missing = [k for k in required if k not in formats and labels.get(k) not in formats]
             if missing:
                 return {'code': 1, 'error': 'TABLE_PERCENT_SCALE_REQUIRED', 'message': '百分比列必须声明column_formats及真实scale，避免比例小数裸显或重复乘100。', 'columns': missing}
+    return None
+
+
+def _validate_csv_percent_references(panels, outputs):
+    """CSV raw magnitudes can differ from compact QBS JSON; verify a dated anchor.
+
+    A declared unit '%' alone does not prove whether 0.001 means 0.001% or 0.1%.
+    Reject mismatches rather than infer scale from magnitude or silently rescale.
+    """
+    import math
+    for panel in panels:
+        output = outputs.get(panel.get('grant_id'), {})
+        if (panel.get('type') or 'table') != 'table' or output.get('source_mode') != 'csv':
+            continue
+        rows = output.get('data')
+        labels = panel.get('output_labels') or {}
+        for column, fmt in (panel.get('column_formats') or {}).items():
+            if fmt.get('style') != 'percent':
+                continue
+            sample = fmt.get('verified_sample')
+            if not isinstance(sample, dict) or not sample.get('date') or type(sample.get('percent_value')) not in (float, int) or not math.isfinite(sample['percent_value']):
+                return {'code': 1, 'error': 'TABLE_PERCENT_REFERENCE_REQUIRED', 'column': column,
+                        'message': 'CSV百分比列必须用本轮QBS已验证的同日期结果校准：column_formats列内增加verified_sample:{date:"YYYY-MM-DD",percent_value:0.10}，0.10表示0.10%。不能把源CSV值抄作验证值；先核对源值，再选择scale=1或100。'}
+            key = next((k for k, v in labels.items() if v == column), column)
+            matches = [r for r in rows or [] if isinstance(r, dict) and str(r.get('日期') or r.get('date')) == str(sample['date'])
+                       and (not sample.get('asset') or sample['asset'] in (r.get('标的'), r.get('代码')))]
+            raw = matches[0].get(key) if len(matches) == 1 else None
+            tolerance = 0.5 * 10 ** -fmt.get('decimals', 2) + 1e-10
+            if type(raw) not in (int, float) or not math.isfinite(raw) or abs(raw * fmt['scale'] - sample['percent_value']) > tolerance:
+                return {'code': 1, 'error': 'TABLE_PERCENT_REFERENCE_MISMATCH', 'column': column,
+                        'date': sample['date'], 'source_value': raw, 'scale': fmt['scale'],
+                        'verified_percent_value': sample['percent_value'],
+                        'message': 'CSV显示值与同日期业务首答不符或样本不唯一。核对来源/资产/日期及scale；比例小数0.001显示0.10%需要scale:100；已是百分数0.10用scale:1。禁止改验证值来迁就错误缩放。'}
+    return None
+
+
+def _validate_candlestick_panels(panels):
+    candlesticks = [p for p in (panels or []) if (p.get('type') or '').lower() == 'candlestick']
+    for index, panel in enumerate(candlesticks):
+        if panel.get('grant_id') is None and not panel.get('output') and not panel.get('outputs'):
+            return {'code': 1, 'error': 'CANDLESTICK_SOURCE_REQUIRED', 'message': 'candlestick面板必须绑定一个grant_id或结构化输出。'}
+        if panel.get('outputs') and len(panel.get('outputs')) != 1:
+            return {'code': 1, 'error': 'CANDLESTICK_SINGLE_SOURCE_REQUIRED', 'message': 'candlestick面板主OHLCV必须使用一个结构化来源；均线等额外序列请使用overlays绑定并按日期合并。'}
+        x_range = panel.get('x_range') or {}
+        if not isinstance(x_range, dict) or not str(x_range.get('start_date') or '').strip():
+            return {'code': 1, 'error': 'CANDLESTICK_DISPLAY_WINDOW_REQUIRED', 'message': 'candlestick面板必须声明x_range.start_date；数据授权可以包含均线预热，但公开图表必须裁剪到首答实际展示窗口。'}
+    if candlesticks:
+        overlays = {str(x) for p in candlesticks for x in (p.get('overlays') or [])}
+        if not overlays:
+            separate_ma = [p for p in (panels or []) if (p.get('type') or '').lower() in ('line','number') and re.search(r'均线|MA\d+', str(p.get('title') or ''))]
+            if separate_ma:
+                return {'code': 1, 'error': 'CANDLESTICK_OVERLAY_REQUIRED', 'message': 'MA/均线必须作为candlestick面板的overlays按日期叠加，不能拆成独立图表或数字卡片。'}
     return None
 
 
@@ -2167,6 +2377,9 @@ def _build_authorized(params):
     presentation_error = _validate_table_presentation(panels, str(title))
     if presentation_error:
         return presentation_error
+    candlestick_error = _validate_candlestick_panels(panels)
+    if candlestick_error:
+        return candlestick_error
     image_panel_error = _validate_image_panels(panels)
     if image_panel_error:
         return image_panel_error
@@ -2225,7 +2438,15 @@ def _build_authorized(params):
         if gr.get("code") != 0:
             return {"code": 1, "message": f"构建期取数失败（数据授权 grant_id={g['grant_id']}），拒绝生成看板",
                     "grant_id": g["grant_id"], "query_result": gr}
-        verify_outputs[g["grant_id"]] = {"data": _normalize_grant_data(gr.get("kind"), gr.get("data")), "error": None}
+        try:
+            normalized = _normalize_grant_data(gr.get("kind"), gr.get("data"))
+        except ValueError as exc:
+            return {"code": 1, "error": "GRANT_DATA_SHAPE_INVALID", "message": str(exc), "grant_id": g["grant_id"]}
+        verify_outputs[g["grant_id"]] = {"data": normalized, "error": None,
+                                         "source_mode": (gr.get("data") or {}).get("source_mode")}
+    percent_error = _validate_csv_percent_references(panels, verify_outputs)
+    if percent_error:
+        return percent_error
     # P0-1 数据体检：取数即便 code:0，也逐 panel 校验产出结构，杜绝「假成功看板」
     problems = _inspect_outputs(panels, verify_outputs)
     if problems:
@@ -2267,7 +2488,7 @@ def _build_authorized(params):
                     output
                     for p in panels
                     if _panel_uses_formula(p)
-                    for output in _panel_output_names(p)
+                    for output in _panel_formula_output_names(p)
                 )),
             }
         } if pkg else {}),

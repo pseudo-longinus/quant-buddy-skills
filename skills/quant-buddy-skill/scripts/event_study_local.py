@@ -156,107 +156,95 @@ def overlap_warning(dates: list[int], windows: list[int]) -> list[str]:
     return []
 
 
-def build_single_formulas(prefix: str, asset: str, dates: list[int], windows: list[int]) -> list[str]:
-    formulas = [
-        f"{prefix}_事件日=选取日期({','.join(str(d) for d in dates)})",
-        f"{prefix}_收盘=收盘价({asset})",
-        f"{prefix}_日收益=涨跌幅(\"{prefix}_收盘\")",
-    ]
-    for window in windows:
-        formulas.append(
-            f"{prefix}_后{window}日路径=某天后累加(\"{prefix}_日收益\",\"{prefix}_事件日\",{window})"
-        )
-        formulas.append(f"{prefix}_后{window}日收益=分段最终值(\"{prefix}_后{window}日路径\")")
-    return formulas
-
-
-def build_compare_formulas(
-    prefix: str,
-    asset: str,
-    group_a_name: str,
-    group_a_dates: list[int],
-    group_b_name: str,
-    group_b_dates: list[int],
-    windows: list[int],
-) -> list[str]:
-    formulas = [
-        f"{prefix}_{group_a_name}=选取日期({','.join(str(d) for d in group_a_dates)})",
-        f"{prefix}_{group_b_name}=选取日期({','.join(str(d) for d in group_b_dates)})",
-        f"{prefix}_收盘=收盘价({asset})",
-        f"{prefix}_日收益=涨跌幅(\"{prefix}_收盘\")",
-    ]
-    for name in (group_a_name, group_b_name):
-        for window in windows:
-            formulas.append(
-                f"{prefix}_{name}后{window}日路径=某天后累加(\"{prefix}_日收益\",\"{prefix}_{name}\",{window})"
-            )
-            formulas.append(
-                f"{prefix}_{name}后{window}日收益=分段最终值(\"{prefix}_{name}后{window}日路径\")"
-            )
-    return formulas
-
-
-def sanitize_group_name(name: str, fallback: str) -> str:
-    cleaned = re.sub(r"[^0-9A-Za-z\u4e00-\u9fff]", "", name or "")
-    return cleaned or fallback
-
-
 def build_event_study(params: dict[str, Any]) -> dict[str, Any]:
-    mode = str(params.get("mode") or _EVENT_DEFAULTS["default_mode"])
-    prefix = str(params.get("prefix") or "ES")
+    """Compute independent endpoint returns from an unmodified daily price CSV.
+
+    No return is inferred from a segmented formula's last non-null value.
+    CSV provenance is carried, not authenticated: callers must retain the query
+    response linking this asset/field/adjustment to the downloaded file.
+    """
+    import csv
+    import hashlib
+    import math
+    import statistics
+
+    mode = params.get("mode", "single")
+    asset = str(params.get("asset") or "").strip()
+    if not asset or mode not in ("single", "compare"):
+        raise ValueError("需要 asset，mode 仅支持 single/compare")
     windows = parse_windows(params.get("windows"))
-
-    if mode == "single":
-        dates = parse_dates(params.get("dates") or [])
-        asset = str(params.get("asset") or "")
-        if not dates:
-            raise ValueError("single 模式需要 dates。")
-        if not asset:
-            raise ValueError("single 模式需要 asset。")
-
-        return {
-            "mode": "single",
-            "asset": asset,
-            "dates": dates,
-            "windows": windows,
-            "warnings": overlap_warning(dates, windows),
-            "formulas": build_single_formulas(prefix=prefix, asset=asset, dates=dates, windows=windows),
-        }
-
-    if mode == "compare":
-        asset = str(params.get("asset") or "")
-        if not asset:
-            raise ValueError("compare 模式需要 asset。")
-
-        group_a_name = sanitize_group_name(str(params.get("group_a_name") or "A组"), "A组")
-        group_b_name = sanitize_group_name(str(params.get("group_b_name") or "B组"), "B组")
-        group_a_dates = parse_dates(params.get("group_a_dates") or [])
-        group_b_dates = parse_dates(params.get("group_b_dates") or [])
-        if not group_a_dates or not group_b_dates:
-            raise ValueError("compare 模式需要 group_a_dates 和 group_b_dates。")
-
-        warnings = []
-        warnings.extend(overlap_warning(group_a_dates, windows))
-        warnings.extend(overlap_warning(group_b_dates, windows))
-
-        return {
-            "mode": "compare",
-            "asset": asset,
-            "group_a_name": group_a_name,
-            "group_a_dates": group_a_dates,
-            "group_b_name": group_b_name,
-            "group_b_dates": group_b_dates,
-            "windows": windows,
-            "warnings": warnings,
-            "formulas": build_compare_formulas(
-                prefix=prefix,
-                asset=asset,
-                group_a_name=group_a_name,
-                group_a_dates=group_a_dates,
-                group_b_name=group_b_name,
-                group_b_dates=group_b_dates,
-                windows=windows,
-            ),
-        }
-
-    raise ValueError(f"不支持的 mode: {mode}")
+    if any(type(w) is not int or w <= 0 for w in windows) or len(set(windows)) != len(windows):
+        raise ValueError("windows 必须是互不重复的正整数")
+    groups = [("single", params.get("dates") or [])] if mode == "single" else [
+        (str(params.get("group_a_name") or "A组"), params.get("group_a_dates") or []),
+        (str(params.get("group_b_name") or "B组"), params.get("group_b_dates") or [])]
+    if len({g for g, _ in groups}) != len(groups):
+        raise ValueError("组名称必须唯一")
+    groups = [(g, parse_dates(ds)) for g, ds in groups]
+    for _, ds in groups:
+        if not ds or len(set(ds)) != len(ds):
+            raise ValueError("每组事件日期不能为空或重复")
+        for d in ds:
+            int_to_date(d)
+    out = {"mode": mode, "asset": asset, "windows": windows, "formulas": [],
+           "window_basis": "valid_daily_price_observations",
+           "return_method": "end_close / anchor_close - 1",
+           "warnings": ["窗口按有效日行情观察数计算，1月=21、1年=252仅为近似；不是自然月/自然年。缺失或停牌数据不能冒充交易所日历。事件可重叠，但独立计算，不代表独立统计样本。"]}
+    price_file = params.get("price_file")
+    if not price_file:
+        out.update(status="price_series_required", next_action="获取本资产完整日收盘序列，以 readData(mode=csv) 返回的原始CSV保存到本地，再传 price_file 和 as_of 重调 buildEventStudy。保留取数响应、资产、复权口径；不手写价格，不使用某天后累加/分段最终值替代。",
+                   start_date=min(d for _, ds in groups for d in ds), end_date=int(date.today().strftime("%Y%m%d")))
+        return out
+    as_of = int(str(params.get("as_of") or date.today().strftime("%Y%m%d")).replace("-", ""))
+    int_to_date(as_of)
+    path = Path(price_file)
+    raw = path.read_bytes()
+    records = list(csv.DictReader(raw.decode("utf-8-sig").splitlines()))
+    if not records or set(records[0]) != {"date", "value"}:
+        raise ValueError("需要单资产单字段原始CSV列 date,value；不可猜测多列数据或重写价格")
+    points = []
+    previous = None
+    for r in records:
+        d = int(str(r["date"]).replace("-", ""))
+        int_to_date(d)
+        value = float(r["value"])
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError("价格必须为有限正数；缺失值需核实原始数据，不能补零或填充")
+        if previous is not None and d <= previous:
+            raise ValueError("价格日期必须严格递增且唯一")
+        previous = d
+        if d <= as_of:
+            points.append((d, value))
+    indexes = {d: i for i, (d, _) in enumerate(points)}
+    rows = []
+    for group, dates in groups:
+        for event in dates:
+            for window in windows:
+                row = {"group": group, "event_date": event, "window": window,
+                       "anchor_date": None, "end_date": None, "return": None,
+                       "observations_after_anchor": 0, "status": "anchor_missing"}
+                i = indexes.get(event)
+                if i is not None:
+                    available = len(points) - i - 1
+                    row.update(anchor_date=event, anchor_close=points[i][1],
+                               observations_after_anchor=min(window, available),
+                               status="insufficient_observations")
+                    if available >= window:
+                        end, close = points[i + window]
+                        row.update(status="complete", end_date=end, end_close=close,
+                                   **{"return": close / points[i][1] - 1})
+                rows.append(row)
+    summary = []
+    for group, _ in groups:
+        for window in windows:
+            values = [r["return"] for r in rows if r["group"] == group and r["window"] == window and r["status"] == "complete"]
+            summary.append({"group": group, "window": window, "sample_count": len(values),
+                            "mean_return": statistics.mean(values) if values else None,
+                            "median_return": statistics.median(values) if values else None,
+                            "up_count": sum(v > 0 for v in values), "down_count": sum(v < 0 for v in values)})
+    out.update(status="evaluated", as_of=as_of, rows=rows, summary=summary,
+               source={"file": str(path.resolve()), "sha256": hashlib.sha256(raw).hexdigest(),
+                       "provenance": "caller_must_verify_asset_field_and_adjustment_from_query_receipt",
+                       "first_date": points[0][0] if points else None,
+                       "last_date": points[-1][0] if points else None, "points": len(points)})
+    return out

@@ -236,7 +236,7 @@ class Publication:
         if result.get('page_id') != (page_id or self.state.get('page_id')):
             raise PublishError('FILE_PUBLISH_REMOTE_ID_MISMATCH')
         # is_live describes QBS runtime bindings, not publication availability.
-        # An accessible all-Snapshot page is intentionally is_live=False.
+        # An accessible 全部静态 page is intentionally is_live=False.
         if result.get('sha256_match') is False or result.get('status') in {'revoked','expired','deleted','inactive'}:
             raise PublishError('FILE_PUBLISH_REMOTE_INVALID')
         return result
@@ -265,7 +265,7 @@ class Publication:
         delivered = bool(state.get('last_good'))
         result = {
             'code': 0 if delivered else 1,
-            'task_completed': state.get('stage') == 'enhanced' and not (problem or state.get('problem')),
+            'task_completed': (state.get('stage') == 'enhanced' or state.get('source_assessment', {}).get('status') == 'snapshot_only') and not (problem or state.get('problem')),
             'page_id': state.get('page_id'), 'public_url': state.get('public_url'),
             'delivery_stage': state.get('stage', 'not_published'),
             'page_delivered': delivered,
@@ -293,29 +293,36 @@ class Publication:
         if delivered:
             result['static_delivery_confirmed'] = bool(state.get('static_delivery'))
             if state.get('stage') == 'static_snapshot' and not state.get('static_delivery'):
-                result['required_user_message'] = '原始静态版本已托管并验收：[查看活页](' + str(state.get('public_url')) + ')。当前为Snapshot。'
+                result['required_user_message'] = '原始静态版本已托管并验收：[查看活页](' + str(state.get('public_url')) + ')。当前为静态版本。'
                 result['next_action'] = 'emit_required_user_message_before_next_tool_then_file_confirm_delivery'
                 result['continuation'] = {
+                    'next_action': 'send_user_visible_message_now',
                     'message_channel': 'intermediate',
                     'message': result['required_user_message'],
                     'after_message_tool': {'name': 'file_confirm_delivery', 'params': {
                         'task_id': self.task, 'file_publish_dir': str(self.root),
-                        'page_id': state['page_id'], 'public_url': state['public_url'],
-                        'delivery_message': result['required_user_message']}},
-                    'instruction': '这只是首版交付检查点。用户要求增强时，在同一助手消息中先发上述文字，再调用after_message_tool；不能以无工具的最终回复结束。参数中的delivery_message仅在实际发出该文字后有效。仅要求静态托管时可交付后结束。'
+                        'page_id': state['page_id'], 'public_url': state['public_url']}},
+                    'instruction': '现在先输出message为用户可见的非终止回复，必须包含链接；进度说明、工具描述和参数中的文字都不算发送。发送后才可调用after_message_tool，并自行添加delivery_message为刚才实际发送的消息原文。工具故意不预填这项确认；不可仅复制工具结果假称已交付。用户要求增强时继续同页增强，不以首链结束。仅要求静态托管时可交付后结束。'
                 }
             self.sp._attach_agent_reply_contract(result, operation='update')
             contract = result.get('agent_reply_contract', {})
             if isinstance(contract, dict):
-                contract['terminal'] = state.get('stage') == 'enhanced'
+                contract['terminal'] = result['task_completed']
                 contract['file_publication_schema'] = 'qbv_file_publication_v1'
                 contract['delivery_link_label'] = '可分享活页'
                 contract['file_delivery_label'] = ('原始静态版本' if state.get('stage') == 'static_snapshot'
                                                    else '同页增强版本')
-            result['file_delivery_hint'] = '本文件流程所有版本链接统一称可分享活页，按实际数据另说明Snapshot/Live，不套用可分享实时活页固定措辞。若有required_user_message，下一次工具调用前先把这句话发给用户，再运行file_confirm_delivery。不得把工具返回的URL当成用户已收到；确认后继续已授权增强。'
+            result['file_delivery_hint'] = '本文件流程所有版本链接统一称可分享活页，按实际数据另说明静态/实时，不套用可分享实时活页固定措辞。若有required_user_message，下一次工具调用前先把这句话发给用户，再运行file_confirm_delivery。不得把工具返回的URL当成用户已收到；确认后继续已授权增强。'
             if isinstance(contract, dict) and result.get('required_user_message'):
                 contract['reply_instruction'] = result['file_delivery_hint']
                 contract['required_user_message'] = result['required_user_message']
+        if result['task_completed']:
+            result['next_action'] = 'deliver_verified_result'
+            if isinstance(result.get('agent_reply_contract'), dict):
+                result['agent_reply_contract']['next_action'] = 'deliver_verified_result'
+            if state.get('source_assessment'):
+                result['source_assessment'] = state['source_assessment']
+                result['agent_reply_contract']['reply_instruction'] = '来源适用性评估已记录；交付现有链接，说明保留静态版本的原因与未接入实时数据，不称为Live。'
         # Put the actionable continuation before metadata in truncated tool UIs.
         if result.get('continuation'):
             ordered = {key: result[key] for key in ('code', 'task_completed', 'continuation')}
@@ -455,8 +462,42 @@ class Publication:
                 'message_sha256': digest(message), 'url_sha256': digest(url), 'evidence_kind': 'agent_attestation'}
             self.save()
         result = self.response()
-        result['enhancement_instruction'] = '确认已记录。若用户要求纠错/重做，生成自包含主体HTML，沿用第一版参数、file_publish_dir和page_id，设置snapshot_only:false、file_enhancement_mode:content、html_file，直接调用update。update内部先编译分享壳并验收再写入，不需要手工retrofit，也不要把未编译主体的ui-refinement/额外字号门槛作为前置。仅接QBS时保留preserve口径门禁；无可接入指标时如实保留Snapshot。'
-        return result
+        if not result['task_completed']:
+            source_file = self.state.get('source_html_file') or self.state.get('source', {}).get('file')
+            result['continuation'] = {
+                'next_action': 'read_source_and_assess_applicability',
+                'source_file': source_file,
+                'instruction': '首链已确认，不要再次交付就结束。下一步用Read/read_skill_file读取source_file，评估资产、字段和数据来源。可映射来源才查QBS并同页增强；合成教学数据或无明确来源时不要查无关行情，调用file_assess_source记录原因和原文摘录，再向用户说明保留静态版本。',
+                'snapshot_completion_tool': {'name':'file_assess_source', 'params':{
+                    'task_id':self.task, 'file_publish_dir':str(self.root)}},
+                'assessment_schema': {'status':'snapshot_only', 'reason':'填写实际评估原因', 'excerpts':['填写源文件中支持结论的原文片段']},
+            }
+            result['agent_reply_contract'].update(terminal=False,
+                next_action='read_source_and_assess_applicability',
+                reply_instruction='首链已交付；先读取来源并完成适用性评估，不得以重复首链结束。')
+        result['enhancement_instruction'] = '确认已记录。若用户要求纠错/重做，生成自包含主体HTML，沿用第一版参数、file_publish_dir和page_id，设置snapshot_only:false、file_enhancement_mode:content、html_file，直接调用update。update内部先编译分享壳并验收再写入，不需要手工retrofit，也不要把未编译主体的ui-refinement/额外字号门槛作为前置。仅接QBS时保留preserve口径门禁；无可接入指标时如实保留静态版本。'
+        return {'code':result['code'], 'task_completed':result['task_completed'],
+                'continuation':result.get('continuation'), **result}
+
+    def assess_source(self):
+        if not self.state.get('static_delivery'):
+            return self.response('FILE_STATIC_LINK_DELIVERY_REQUIRED')
+        if self.state.get('stage') != 'static_snapshot' or self.state.get('problem') or self.state.get('operation', {}).get('status') != 'verified':
+            return self.response('FILE_SOURCE_ASSESSMENT_NOT_APPLICABLE')
+        assessment = self.params.get('source_assessment')
+        source = self.read_artifact(self.state['source'])
+        if (not isinstance(assessment, dict) or assessment.get('status') != 'snapshot_only'
+                or not str(assessment.get('reason') or '').strip()
+                or not isinstance(assessment.get('excerpts'), list) or not assessment['excerpts']
+                or any(not isinstance(x, str) or not x.strip() or x not in source for x in assessment['excerpts'])):
+            return self.response('FILE_SOURCE_ASSESSMENT_INVALID')
+        # This records an evidenced agent assessment, not a claim of independent
+        # semantic validation. No source/page rewrite or arbitrary QBS query.
+        self.state['source_assessment'] = {**assessment, 'source_sha256':digest(source),
+            'assessed_at':time.time(), 'evidence_kind':'agent_assessment_with_source_excerpts'}
+        self.state['transformation_status'] = 'snapshot_only'
+        self.save()
+        return self.response()
 
     def repair_snapshot(self):
         """Repair display on a known written first page without being trapped by its failed QA."""
@@ -497,11 +538,13 @@ class Publication:
         self.save()
         return self.finish_written()
 
-    def run(self, *, status_only=False, confirm_delivery=False):
+    def run(self, *, status_only=False, confirm_delivery=False, assess_source=False):
         with locked(self.root.parent / '.task-locks' / digest(self.task)), locked(self.root):
             self.load()
             if self.state:
                 register_binding(self.state, self.root)
+            if assess_source:
+                return self.assess_source()
             if confirm_delivery:
                 return self.confirm_delivery()
             if status_only:
@@ -532,6 +575,7 @@ class Publication:
                     return error
                 self.state = {'schema': 'qbv_file_publication_v1', 'task_id': self.task, 'endpoint': self.endpoint,
                               'source_sha256': self.params.get('source_html_sha256'),
+                              'source_html_file': self.params.get('source_html_file'),
                               'original_sha256': self.params.get('source_original_sha256'),
                               'page_id': self.params.get('page_id'), 'stage': 'prepared',
                               'source': self.artifact(snapshot['html']), 'publish_sequence': []}
@@ -631,9 +675,9 @@ class Publication:
                 return self.fail('FILE_PUBLISH_CANDIDATE_PREPARATION_FAILED')
 
 
-def run(sp, params, endpoint, api_key, *, status_only=False, confirm_delivery=False):
+def run(sp, params, endpoint, api_key, *, status_only=False, confirm_delivery=False, assess_source=False):
     try:
-        return Publication(sp, params, endpoint, api_key).run(status_only=status_only, confirm_delivery=confirm_delivery)
+        return Publication(sp, params, endpoint, api_key).run(status_only=status_only, confirm_delivery=confirm_delivery, assess_source=assess_source)
     except PublishError as exc:
         return {'code': 1, 'error': str(exc)}
     except (OSError, ValueError):

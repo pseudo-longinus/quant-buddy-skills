@@ -2,16 +2,16 @@
 name: quant-buddy-view
 slug: quant-buddy-view
 author: guanzhao
-version: 0.6.84
+version: 0.6.85
 description: |
   将量化分析或已有 JPG/PNG、HTML、PDF 发布为 Quant Buddy 可分享活页或实时看板，并支持创建、更新、复用、验收和公开链接交付。适用于个股画像、估值财务、指数异动、多因子筛选、商品日报、模板、分享壳及卡片等页面。
   用户提供 QuantBuddy 活页 URL 并要求解读时也使用。显式调用 /quant-buddy-view、/qbv、qbv 或 QBV，且请求并非纯咨询、代码维护或文档解释时，默认按可分享活页任务处理。
   输入可唯一识别的 A 股名称、简称或代码，或简单要求单股综合分析（如“贵州茅台”“600519”“分析一下贵州茅台”）均默认请求个股快页；先通过 QBS 验证并回复完整个股分析，再同轮 new_asset_page，无需用户补说“生成页面”。
-  不用于一次性行情、涨跌幅、估值或概念解释。每日/定期复盘、行情监控、画线画图、执行回测、查看K线等操作请求默认具有活页意图，先由QBS完成验证与业务首答再交接本技能；明确不要网页时只回答。
+  WebAgent 宿主要求金融问题统一交付问答与活页时，一次性行情、涨跌幅、估值、概念解释和口语近况问题也在 QBS 首答后交接本技能。无此宿主约定时一次性问题由 QBS 回答；复盘、监控、画图、回测、K线等操作仍默认有活页意图。明确不要网页或只回复文字时不建页。
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 0.6.84
+  version: 0.6.85
   author: guanzhao
   category: quant-finance
   tags: [quant, dashboard, formula-package, static-page, publish, visualization]
@@ -65,6 +65,10 @@ runtimeRequirements:
 ---
 
 # quant-buddy-view · 量化看板发布
+
+**公开范围与能力边界**：当前活页凭链接公开访问，不能承诺未经验证的私有权限。发布个人持仓、成本或交易记录前，须说明公开范围并取得相应授权；已明确授权则不重复确认，普通公开行情页面无需额外确认。页面打开/刷新取数不等于已启用每日定时任务、主动通知或自动交易；只有实际能力与创建/执行成功证据齐备，才能报告这些状态。缺少能力时如实说明，继续完成已授权且可实现的部分。
+
+**宿主约定优先于独立路由**：WebAgent 的金融问题默认在 QBS 完整首答后继续本技能，不因“只查一个字段”“最近如何”或概念解释而取消建页。下文一次性查询只用 QBS 的规则仅适用于无此约定的独立使用。页面沿答案范围与结构生成，保留显式不要网页、原页身份和发布验收规则；详见 [先答后建页](guides/answer-first.md)。
 
 把「已验证的量化数据与公式」沉淀成一个**公开可分享、实时取数**的网页看板/落地页。一次性行情与概念解释由 QBS 回答；执行回测、每日复盘、监控、画线画图和看 K 线默认先 QBS 后本技能，不要求用户另说“做网页”。默认执行路线是：
 > **已有文件交付例外（含增强后版本）**：本流程链接统一称“可分享活页”，不强制称“实时”；数据状态另外如实说明。file_prepare 可恢复流程的原始静态版验收后立即交付，不套用终态“实时活页”固定结尾，也不调用要求terminal=true的终态回复validator；说明静态性质并继续已授权增强。feishu-group使用playground链接。
@@ -132,7 +136,7 @@ python scripts/static_page.py interpret '{"url":"用户提供的页面 URL"}'
 
 ```bash
 # 身份走环境变量（exec 日志里会脱敏）；不要把 key 拼进命令串，命令是原样记录的
-QBV_API_KEY=<本次任务的 key> python scripts/trace_context.py begin '{"user_query":"那和五粮液比呢？","agent_intent":"延续上一轮贵州茅台分析，对比五粮液的盈利能力、估值水平与主要风险。","agent_model":"当前真实运行模型（明确知道时才传）"}'
+QBV_API_KEY=<本次任务的 key> python scripts/trace_context.py begin '{"user_query":"那和五粮液比呢？","agent_intent":"延续上一轮贵州茅台分析，对比五粮液的盈利能力、估值水平与主要风险。"}'
 ```
 
 `agent_intent` 与本轮 `user_query` 绑定：首问、每次追问分别保存，追问要展开“它/上一个/继续”等指代；缺失、空白或旧 Trace 文件均按 `null`，不能从 `user_query` 伪造。QBS Handoff 继续使用 `qbs_qbv_handoff_v1`，可选携带同一 Intent；Intent 差异不得制造第二个 Turn、拒绝 Handoff 或改变 Job 身份。
@@ -427,3 +431,11 @@ npx skills update pseudo-longinus/quant-buddy-skills -y
 ## 配置
 
 `config.json`：填入 `api_key`（从 https://www.quantbuddy.cn/login 获取）。可建 `config.local.json` 覆盖 `endpoint` / `api_key` 等（不入库）。环境变量 `QUANT_BUDDY_API_KEY` 仅在 config.json / config.local.json 都没有 api_key 时兜底，不是常规配置方式。本技能所有脚本的 `main()` 都支持工具调用参数里的 `api_key` 字段临时覆盖（仅当次调用生效，优先级最高，见 `scripts/common.py::configure_trace_context`）；同一优先级还有环境变量 `QBV_API_KEY`，用于"手上是一份现成的 `@file` 参数（比如 `publish_workflow.py @publish-plan.json`，该 plan 文件按设计不含凭证）、不想现改这份文件塞 api_key"的场景——**不要**为了临时换 key 去设 `QUANT_BUDDY_API_KEY`，那个只在 config.json 为空时才生效，config.json 已有默认 key 时设它不会有任何效果。
+
+
+## K线活页
+
+普通K线活页使用 `build_dashboard` 的 `type:candlestick` 面板，直接绑定同一份OHLCV Grant，绘制蜡烛、成交量和均线；只有明确只要PNG/图片时才接受 `renderKLine` 图片artifact。
+
+
+K线页若包含MA/均线，必须放在同一个 `candlestick` 面板的 `overlays` 中，按日期与OHLCV对齐；禁止用独立 line/number 面板冒充K线叠加。

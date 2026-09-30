@@ -33,7 +33,7 @@ python scripts/live_page_routing.py route --user-query "用户本轮原话"
 }
 ```
 
-时间口径：一年默认 250 个交易日；半年 120；三个月 60；用户给 N 日则用 N（1～2500）。不要传 `result_mode`。
+查询窗口参数：一年默认 250；半年 120；三个月 60；用户给 N 日则用 N（1～2500）。不要传 `result_mode`。这些是请求参数，不证明返回了恰好 N 个有效交易日；首答必须使用 receipt 中每个字段的实际 count/date_range，相关性使用 aligned_points/direction_pairs，不能把请求的 250 写成已核验的样本数。不同字段可能包含非交易日记录，未校验交易日历时称“有效观测”，不擅自称全部为交易日。
 
 6. 若返回 `mode:"csv"`，把 `csv_fields[].csv_url` 按原顺序交给受控脚本；`--labels` 必须对应 `csv_fields[].intent`。**无需预建目录**，脚本会安全创建 `--output` 的父目录；禁止额外调用 `mkdir`：
 
@@ -55,7 +55,7 @@ python scripts/live_page_routing.py prepare-fast-query-page --task-id "<task_id>
 
 QBV 未提供或读取被拒绝时，直接执行 `python scripts/live_page_routing.py update --qbv-job-id "<返回ID>" --status failed --failure-code QBV_SKILL_UNAVAILABLE --retryable true`，确认返回 failed 后说明页面未完成。不得留 queued。本文的只读及调用预算只约束 QBS 取数阶段，不禁止首答后读取 QBV 和执行页面/失败收尾。
 
-8. 首答已经发出，后续执行页面构建、验收并补链接。不得终止本轮后假设后台继续。
+8. 首答已经发出，后续执行页面构建、验收并补链接。不得终止本轮后假设后台继续。用户明确要求“同一张图”时，交接保留全部字段与共同时间轴要求；不能把成交量改成表格、其他字段各画一张图就宣称完成同图比较。不同单位用明确标注的归一化或支持的多轴/共享时间轴子图处理，保留原始值与各自日期。页面验收需实际检查所有请求序列已画出，不能只看公开链接和 runtime ready。
 
 9. QBS 首答必须回答用户的分析问题：给出区间、价格/估值变化、相关系数与方向一致率的谨慎解释。**禁止**写“价格主要由估值驱动”“PE 导致股价变化”等因果结论；PE 指标通常包含价格项，高相关可能带有定义上的机械关系，必须明确写出“同步不等于因果，不能据此判断驱动因素”。页面完成后由终态消息补公开链接。
 

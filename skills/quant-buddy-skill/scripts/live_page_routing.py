@@ -244,7 +244,8 @@ def _match_any(text: str, patterns: Iterable[str]) -> bool:
 
 
 def _is_explicit_static_request(text: str) -> bool:
-    return _match_any(text, _EXPLICIT_STATIC_PATTERNS) or bool(_NO_PAGE_RE.search(text))
+    text_only = re.search(r'(?:^|[，,。；;！？\s])(?:只|仅)(?:回复|返回|要)(?:文字|文本)(?:即可|就行|就好)?(?=$|[，,。；;！？\s])', text)
+    return _match_any(text, _EXPLICIT_STATIC_PATTERNS) or bool(_NO_PAGE_RE.search(text)) or bool(text_only)
 
 
 def _is_explicit_visual_request(text: str) -> bool:
@@ -349,6 +350,11 @@ def route_live_page(
     query = _compact_text(user_query)
     if type(page_requested) is not bool:
         raise LivePageRoutingError('INVALID_PAGE_INTENT', 'page_requested 必须是 boolean，来自真实建页意图')
+    # WebAgent calls this router for finance tasks. Its delivery policy is a
+    # page request even for one-field questions or conversational analysis.
+    # Standalone QBS keeps its own default; an explicit user opt-out wins below.
+    host_page_policy = os.environ.get('QBS_DEFAULT_PAGE_REQUESTED') == '1'
+    page_requested = page_requested or host_page_policy
     if _is_explicit_static_request(query):
         return {'route': 'none', 'route_reason': ['static_image_only'],
                 'page_reference': None, 'requires_persistence_confirmation': False}
@@ -406,6 +412,8 @@ def route_live_page(
             reasons.append("visualization_required")
         if strong_page:
             reasons.append("durable_interactive_page")
+        if host_page_policy:
+            reasons.append('host_finance_page_policy')
         if durable_factor_screen:
             reasons.append("structured_factor_screening_ranking")
         reasons.extend(scenarios)

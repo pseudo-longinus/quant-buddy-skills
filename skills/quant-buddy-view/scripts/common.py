@@ -741,7 +741,10 @@ def headers(api_key=None, accept=None):
         h["x-task-id"] = _TRACE_TASK_ID
     if _TRACE_TURN_ID:
         h["x-turn-id"] = _TRACE_TURN_ID
-    if _TRACE_AGENT_MODEL:
+    # Optional telemetry must never prevent the business request from being sent.
+    # urllib rejects non-Latin header values and CR/LF; preserve Unicode metadata
+    # in the JSON trace context, but only send printable ASCII model identifiers.
+    if _TRACE_AGENT_MODEL and all(32 <= ord(ch) <= 126 for ch in _TRACE_AGENT_MODEL):
         h["x-agent-model"] = _TRACE_AGENT_MODEL
     if api_key:
         h["Authorization"] = f"Bearer {api_key}"

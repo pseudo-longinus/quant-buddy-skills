@@ -4422,6 +4422,26 @@ def _existing_page_update_error(params):
         source_template_id = str(reference.get("source_template_id") or "").strip()
         actual_page_id = str(params.get("page_id") or "").strip()
         decision = (cred or {}).get("routing_decision")
+        # Compose is also a fork: its sealed receipt replaces the inheritance
+        # manifest. Accept only this task's newly created target, never its source.
+        if (isinstance(decision, dict) and decision.get("mode") == "fork"
+                and decision.get("borrow_mode") == "compose"
+                and source_template_id
+                and decision.get("source_template_id") == source_template_id
+                and actual_page_id and actual_page_id != source_template_id
+                and actual_page_id == str((cred or {}).get("page_id") or "")):
+            compose, compose_error = _compose_binding_publish_state(cred, actual_page_id)
+            if compose_error:
+                return compose_error
+            if compose and compose.get("source_template_id") == source_template_id:
+                try:
+                    plan = EP.require(task_id)
+                    if (plan.get("build_mode") == "compose_page"
+                            and plan.get("target_page_id") == actual_page_id
+                            and plan.get("source_page_id") == source_template_id):
+                        return None
+                except EP.PlanError as exc:
+                    return exc.as_dict()
         binding, _, binding_error = _read_fork_task_binding(task_id)
         if binding_error:
             return binding_error
@@ -5041,6 +5061,20 @@ def _routing_next_step(task_id, page_id, decision):
     return {"action": "build_dashboard_or_bespoke", "publish_command": "publish_final"}
 
 
+def _snapshot_only_request(user_query):
+    """Reject clear quote/field requests from the fixed full-profile publisher."""
+    text = str(user_query or "").strip()
+    field = r"(?:价格|股价|最新价|收盘价|涨跌幅|成交量|PE(?![A-Za-z])|PB(?![A-Za-z])|市盈率|市净率)"
+    only_fields = re.search(r"(?:只|仅)(?:查|看|要|回复|显示|展示|保留)(?:最新|当前|现在|今日|今天)?" + field, text, re.I)
+    comprehensive = re.search(r"综合分析|全面分析|完整画像|个股画像|全景分析", text)
+    if comprehensive and not only_fields:
+        return False
+    return bool(only_fields or re.search(r"多少钱", text) or (
+        re.search(field, text, re.I)
+        and re.search(r"多少|查询|查一下|查下|查一查|最新|当前|现在|今天|今日|列.*表|" + field + r"[？?。.！!\s]*$", text, re.I)
+    ))
+
+
 def cmd_new_asset_page(params):
     params = dict(params or {})
     reply_mode = params.get("reply_mode", "full_answer")
@@ -5068,6 +5102,14 @@ def cmd_new_asset_page(params):
         return route_error
 
     user_query = str(params.get("user_query") or trace_context.get("user_query") or "").strip()
+    if _snapshot_only_request(user_query):
+        return {
+            "code": 1,
+            "error": "NEW_ASSET_PAGE_SCOPE_MISMATCH",
+            "message": "本题只查询行情或估值字段，固定综合画像快页会扩大请求范围；尚未创建页面。",
+            "continue_page_workflow": True,
+            "next_action": "复用首答已验证结果与 answer_structure，按模板/自建路由生成对应字段的页面并继续验收；不要重新查询综合画像或把此路由错误当最终失败。",
+        }
     cfg = C.load_config_require_key()
     endpoint, api_key = C.endpoint_of(cfg), cfg.get("api_key", "")
     body = {"task_id": task_id, "asset": asset}
@@ -5468,7 +5510,8 @@ def _compose_binding_publish_state(cred, page_id):
         )
     try:
         material = json.loads(Path(path).read_text(encoding="utf-8"))
-        if material.get("task_id") != cred.get("task_id") or material.get("page_id") != page_id:
+        if (material.get("task_id") != cred.get("task_id") or material.get("page_id") != page_id
+                or material.get("source_template_id") != binding.get("source_template_id")):
             return None, _routing_publish_error("COMPOSE_BINDING_IDENTITY_CONFLICT", "Compose绑定身份不一致", page_id=page_id)
         plan = EP.load(str(cred.get("task_id") or ""))
         if plan and plan.get("compose_binding_sha256") != expected:
@@ -9196,6 +9239,12 @@ def cmd_file_confirm_delivery(params):
     cfg = C.load_config()
     return file_publication.run(sys.modules[__name__], params, C.endpoint_of(cfg), cfg.get("api_key", ""), confirm_delivery=True)
 
+def cmd_file_assess_source(params):
+    import file_publication
+    cfg = C.load_config()
+    return file_publication.run(sys.modules[__name__], params, C.endpoint_of(cfg), cfg.get("api_key", ""), assess_source=True)
+
+
 def cmd_materialize_snapshot(params):
     import verified_snapshot
     return verified_snapshot.materialize_registered(params)
@@ -9268,6 +9317,7 @@ _COMMANDS = {
     "file_prepare": cmd_file_prepare,
     "file_status": cmd_file_status,
     "file_confirm_delivery": cmd_file_confirm_delivery,
+    "file_assess_source": cmd_file_assess_source,
     "new_asset_page": cmd_new_asset_page,
     "new_page": cmd_new_page,
     "update_progress": cmd_update_progress,
@@ -9309,7 +9359,7 @@ _COMMANDS = {
 }
 
 _TRACE_REQUIRED_COMMANDS = {
-    "prepare_maintenance", "file_prepare", "file_status", "file_confirm_delivery",
+    "prepare_maintenance", "file_prepare", "file_status", "file_confirm_delivery", "file_assess_source",
     "new_asset_page", "new_page", "update_progress", "publish_final", "publish_verified", "upload", "update", "direct_deliver", "direct_finalize", "fork_validate", "image_upload",
     "templates", "intent_profile", "research_templates", "fork_prepare", "fork_compose", "fork_review_update", "execution_plan", "compose_page", "materialize_snapshot", "recover_snapshot",
 }

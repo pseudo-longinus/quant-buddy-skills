@@ -1,5 +1,9 @@
 # 根据首答结构生成活页
 
+WebAgent 宿主明确金融问题统一交付“问答＋活页”时，一次性查数、金融概念和口语个股近况也进入本流程；不以“未要求网页”退回纯 QBS。完整首答后复用同一证据继续，页面内容与答案规模相称，不把简单价格查询扩大成综合画像。概念页沿用首答解释和真实来源，不为建页虚构量化数据。明确不要网页/只回复文字/暂不发布优先；已有页遵循原页规则，纯只读解读不重复建页。独立 QBS 的默认不建页规则不覆盖宿主交付约定，详见 QBS `workflows/answer-first.md`。
+
+单字段短答、无结构的概念解释，终态仍保留完整业务答案并附验收链接，不采用只含链接的 `page_followup`；宿主目前只对带日期的结构化金融报告自动保留前文。下述完整个股报告快页仍可使用已验证短补链模式。
+
 量化查询型建页先通过 QBS 查询和验证，发送包含结果、日期和口径的完整非终止业务回复，再进入模板搜索、注册、构建和发布。默认同轮继续，不以宿主有后台能力为前提。已有文件静态托管、只读解读和纯展示维护沿原入口。若宿主只展示最终消息，继续完成任务但不宣称首答已提前可见。
 
 直接进入 QBV 的建页任务：先建立 trace context，用 qbs_bridge 执行 QBS 查询；此阶段不要创建进度页。取得有效答案后先回复，再继续本 Skill 默认路由。上下游复用同一 task_id/turn_id。已有真实 QBS Handoff 则 beginHandoff，不重复 begin/beginTurn。
@@ -13,8 +17,8 @@
 裸 A 股名称/简称/代码及“分析一下/全面分析/个股画像”单只 A 股也是已确定的个股快页意图（由 QBS 本地目录分类器确认唯一资产）；保留原始 user_query，按下面简单个股路径先答后 `new_asset_page`，不要以只读 stockProfile 回答结束，也不问是否需要网页。若 QBS 已交付同一任务的有效画像首答，则复用证据直接继续快页，跳过下面 bridge 取数示例；即使尚未调用 QBV trace begin，也只绑定原 task/turn，不能以“进入 QBV”为由重新取数。具体查数、禁止网页、重名未澄清不由此扩大为建页。
 
 - 尚无本轮有效画像的个股综合分析（含裸 A 股默认画像）：写一份 `{"task_id":"本轮ID","user_query":"原话","asset":"分类器返回的标准 ticker","page_workflow":"single_a_stock_fast","required_roles":{"profile":["dimensions"]}}`，运行 `python scripts/qbs_bridge.py resolve_asset_data @params.json`。示例中的 `page_workflow` 仅用于满足单只 A 股快页条件的请求；其他资产或定制页省略它，取证后沿原页面路由。直接消费 `answer_evidence` 的完整画像及 variants；财务章复用其中 `answer_financial_table.markdown` 与 `notes`，不手工挑漏变体，按 QBS `workflows/stock-profile.md` 的六章完整分析合同回复，保留实际日期、单位、财务口径、估值分位和综合观察。不能只取四个 snapshot 字段充作综合分析，也不能用“每维度 2～4 项”压缩已返回的核心内容。已有同任务有效画像则直接复用，不重查；画像缺失或警告要明确披露，不将少量行情伪装成完整画像。
-- 明确只问少数行情字段：按请求使用 `required_roles.snapshot`（如 `["close","pct_chg","pe_ttm","pb"]`），消费已验证 `answer_evidence`，不要为读取收据重复 fast_query。需要页面时保留页面意图，但不因此扩成综合画像。综合分析仅在用户另需画像未覆盖的实时或历史字段时补对应角色。
-- 完整业务回复后才调用 `new_asset_page`，不能用页面生成后的草稿冒充提前首答。快指减少模板、重复查询和布局等待，不是减少分析内容；成功 bridge 返回 `after_business_answer.params`，首答后原样使用该参数调用 `static_page.py new_asset_page`，不要凭记忆重写参数。完整首答已通过非终止消息实际发出后，调用参数增加 `reply_mode:"page_followup"`，使用工具生成的短草稿补一句页面说明和链接，不重复六章。该参数只选呈现方式，不证明首答送达；必须用真实消息时间线验证。宿主不支持中途可见首答时用默认 `full_answer`，不可只交链接。无论哪种模式，仍须通过同一公开验收和实际回复校验，禁止自行删改草稿。
+- 明确只问少数行情字段：按请求使用 `required_roles.snapshot`（如 `["close","pct_chg","pe_ttm","pb"]`），消费已验证 `answer_evidence`，不要为读取收据重复 fast_query。首答后按模板/自建路由生成对应字段的页面，禁止使用固定综合画像 `new_asset_page`。`NEW_ASSET_PAGE_SCOPE_MISMATCH` 只表示选错建页入口：复用答案和 `answer_structure` 继续正确路由，不停止任务。综合分析仅在用户另需画像未覆盖的实时或历史字段时补对应角色。
+- 仅上述完整个股画像快页在完整业务回复后调用 `new_asset_page`；其他请求继续各自页面路由，不能用页面生成后的草稿冒充提前首答。快指减少模板、重复查询和布局等待，不是减少分析内容；成功 bridge 返回 `after_business_answer.params`，首答后原样使用该参数调用 `static_page.py new_asset_page`，不要凭记忆重写参数。完整首答已通过非终止消息实际发出后，调用参数增加 `reply_mode:"page_followup"`，使用工具生成的短草稿补一句页面说明和链接，不重复六章。该参数只选呈现方式，不证明首答送达；必须用真实消息时间线验证。宿主不支持中途可见首答时用默认 `full_answer`，不可只交链接。无论哪种模式，仍须通过同一公开验收和实际回复校验，禁止自行删改草稿。
 - 多资产：同一参数文件使用 `assets:[...]`，不能把多个资产或行业集合塞进单个 asset。
 - 行业全截面挑模板时，先检查候选是否支持多行业排名。个股模板只借布局时选择 `compose`，不选 `inherit/inherit_augment` 后才改路；无合适范式则按真实能力缺口选择 `unmatched`。`INDUSTRY_UNIVERSE_TEMPLATE_MISMATCH` 在建页前返回，修正路由后仍需遵守原有授权、数据绑定与发布门禁。
 - 申万一级行业全截面不是一只资产。不要向 `resolve_asset_data` 传“申万一级行业指数”。通过 bridge 的 `runMultiFormulaBatchStream` 执行 `行业近N日涨跌幅=成分平均汇总(涨跌幅("全市场每日收盘价",N),"申万资产所属指数")`，用 `readData` 的 `last_column_full` 验证全部行业，再按原值排序给前后榜。当前盘中截面使用 `use_minute_data:true`，N=1 表示日涨跌幅，不是最近一分钟收益。历史区间保持日频。说明成分股算术平均口径，不称为行业指数涨幅。
@@ -40,9 +44,11 @@
 | comparison / table | table |
 | timeseries | line |
 
-把 role_refs 解析为 adapter 已验证的 reusable_outputs/reusable_contracts，再绑定当前页面的 output 或 grant。多字段时保持真实单位和缩放，可拆分面板；不要把任意 role 名直接当数据输出名。
+把 role_refs 解析为 adapter 已验证的 reusable_outputs/reusable_contracts，再绑定当前页面的 output 或 grant。多字段时保持真实单位和缩放，可拆分面板；但用户明确要求同图比较时，全部请求字段必须出现在同一图表或共享时间轴的联动子图中，不能用独立卡片、缺少成交量的折线图加数据表替代。同单位可直接多序列，不同单位使用已支持的多轴或明确标注的归一化，保留原值与实际日期；公开验收核对真实渲染的序列及图例。模板附加的无关指标不能扩大原题范围并阻塞所需图表。不要把任意 role 名直接当数据输出名。
 
 covered 不重复取数或重算相同 role；partial 仅补缺失部分。完整行业表和前后榜共用完整截面。结构不是新事实来源，不从回复原文推导缺失公式或数据。
+
+**时间窗口同口径**：沿用胶囊中原始查询/渲染合同的 begin_date 和窗口规则，核对首答与页面的实际首末日期、有效观察数。尤其 K 线半年窗口不能把首答的 row_count 再作为 fast_query.window_days 并直接展示全部返回；接口多取的数据应按原窗口裁切，OHLC、成交量、均线展示和区间统计共用同一窗口。均线可在窗口前额外取预热数据，但不扩大可见区间；历史快照不能被无说明地换成另一统计区间。
 
 dynamic 的图表、数字与正文必须消费同一轮运行数据；dynamic 摘要需要现有受支持的数据驱动正文绑定，否则作为注明原日期的 historical 观察展示，不伪装实时分析。fixed 只用于稳定的方法解释。允许合并或折叠内容，不改变口径或漏掉核心答案。
 

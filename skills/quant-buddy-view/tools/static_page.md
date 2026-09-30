@@ -587,10 +587,10 @@ python scripts/publish_workflow.py '@output/forks/page_xxx/page_xxx.publish-plan
 异步来源优先使用 file_prepare 的只读响应回放；确实只能视觉冻结时，旧捕获器仍可用于显式适配：
 
 ```powershell
-node scripts/capture_rendered_html.mjs C:\path\source.html --output C:\path\source.snapshot.html --wait-ms 1500
+node scripts/capture_rendered_html.mjs C:\path\source.html --output C:\path\source.静态.html --wait-ms 1500
 ```
 
-也可以把第一个参数换成本地服务 URL。捕获器等待页面渲染后保存当前 DOM，固化 canvas、表单和 details 状态，并把旧 script/inline handler 冻结，避免快照托管后再次调用非 QBS 接口。调用方随后计算快照 SHA256 并传入上述两个 snapshot 字段。
+也可以把第一个参数换成本地服务 URL。捕获器等待页面渲染后保存当前 DOM，固化 canvas、表单和 details 状态，并把旧 script/inline handler 冻结，避免快照托管后再次调用非 QBS 接口。调用方随后计算快照 SHA256 并传入上述两个 静态 字段。
 
 **固定写入顺序**：
 
@@ -847,3 +847,7 @@ python scripts/static_page.py unpublish_community '{"page_id":"page_xxx"}'
 `compose_page` 返回 `publication_ready:false` 时不得发布；根据诊断补齐既有路由/证据或迁移内容后重新构建，不重查已验证数据或重注册。只有预检通过才给出 publish_verified 下一步。
 
 `update_progress` 的 failed/waiting 输出保持非终态，使用 progress_link 的失败/未完成标签；上传进度HTML只改变写入收据，不改变业务失败/等待状态。
+
+### `file_assess_source`：无法接入QBS时记录静态评估终态
+
+先完成file_confirm_delivery，再读取原文件并评估。传task_id、file_publish_dir、source_assessment（status固定snapshot_only、reason实际原因、excerpts为原文件原文片段数组）。仅适用于静态首版已确认、无可映射来源且不需要授权内容重做的分支；核对摘录后记录source_sha256，task_completed为true。没有页面写入，也不证明金融语义正确。可映射来源或用户要求纠错/重做仍走同页update完成实际增强。
