@@ -18,19 +18,25 @@
   <img alt="Market" src="https://img.shields.io/badge/A%E8%82%A1-quant-orange">
 </p>
 
-## 🔥 3 秒快速安装
+## 🔥 30 秒安装
 
-如果你熟悉 Agent 工具（Claude Code、Cursor、OpenClaw 等），可以直接对 AI Agent 说：
+### 首选：把 GitHub 链接和下面这段话发给你正在使用的 AI Agent
 
-> 帮我安装这个 skill：
+如果你使用 Codex、Claude Code、Cursor、WorkBuddy、OpenClaw 或其他支持 Agent Skills 的工具，优先尝试自然语言安装：
 
-```bash
-npx skills add pseudo-longinus/quant-buddy-skills -g -a claude-code --all -y
-```
+> 请从这个 GitHub 仓库安装 QuantBuddy Skills：
+>
+> https://github.com/pseudo-longinus/quant-buddy-skills
+>
+> 请安装：
+> - `quant-buddy-skill`：行情、估值、财务、选股、因子和回测
+> - `quant-buddy-view`：可分享、可持续更新的研究活页
+>
+> 请先检查仓库中的 `README.md` 和两个 `SKILL.md`，再选择当前 Agent 支持的安装方式。
+> 安装完成后检查 Skill 是否已经加载，并告诉我如何配置 API Key。
+> 不要猜测 API Key，也不要把密钥写入聊天记录或公开文件。
 
-推荐同时安装 `quant-buddy-skill`（数据与量化能力）和 `quant-buddy-view`（可分享实时网页）。如果只安装 QBS，支持 companion 的新版本会在首次 `newSession` 时按服务端灰度策略自动补装或更新 QBV；QBV 安装失败不会影响 QBS 的行情、财务、公式、筛选和回测。
-
-如果你不懂如何使用 Agent 和 skill，可以按照[小白图文教程](https://tcn8bvcbyokw.feishu.cn/wiki/E1zswck3oiiJjJkP07QcmSG3nle?from=from_copylink)一步步展开。
+如果你不懂如何使用 Agent 和 Skill，可以按照[小白图文教程](https://tcn8bvcbyokw.feishu.cn/wiki/E1zswck3oiiJjJkP07QcmSG3nle?from=from_copylink)一步步展开。
 
 ---
 
@@ -395,31 +401,46 @@ quant-buddy-skills 的模式是：
 
 > 港股和美股支持行情价格类数据，例如收盘价、开盘价、最高价、最低价、涨跌幅、成交量和成交额；估值和财务字段以接口实际返回为准。期货目前仅对本地资产库可识别品种尝试行情/窗口序列，不承诺期货估值、财务或 K 线图。
 
-## 安装
+## 安装与更新
 
-### npx（Node.js 包执行工具，推荐）
+### Agent 兼容性
 
-建议新用户**只安装到自己正在使用的 AI Agent（智能代理）**，不要默认使用 `--all`。`--all` 等价于安装全部 skill 到全部支持的 agent，可能在本机创建多处目录或符号链接。
+QuantBuddy Skills 使用通用的 Agent Skills 目录约定。对于能够识别 `SKILL.md` 目录的 Agent，通常可以直接发送本仓库的 GitHub 链接，并让 Agent 完成安装、加载和验证。
 
-| 你使用的 Agent | 推荐命令 |
-|---|---|
-| Claude Code | `npx skills add pseudo-longinus/quant-buddy-skills -g -a claude-code -s quant-buddy-skill -y` |
-| Cursor | `npx skills add pseudo-longinus/quant-buddy-skills -g -a cursor -s quant-buddy-skill -y` |
-| OpenClaw | `npx skills add pseudo-longinus/quant-buddy-skills -g -a openclaw -s quant-buddy-skill -y` |
+如果需要精确指定安装位置、固定版本或同时安装到多个 Agent，再使用 CLI。不同 Agent 和 CLI 版本支持的名称可能不同；未经确认时，不要猜测 `-a` 后面的 Agent ID。
 
-如果你使用其他支持的 Agent，把 `-a` 后面的值替换为对应 agent id；不要省略 `-a`，避免 CLI 自动安装到多个 Agent。
+### 使用 `npx skills`
 
-如果你同时使用多个 Agent，可以重复指定 `-a`：
-
-```bash
-npx skills add pseudo-longinus/quant-buddy-skills -g -s quant-buddy-skill -a claude-code -a cursor -y
-```
-
-先查看仓库里有哪些 skill（只列出，不安装）：
+先查看仓库里有哪些 Skill（只列出，不安装）：
 
 ```bash
 npx skills add pseudo-longinus/quant-buddy-skills --list
 ```
+
+只安装量化研究能力：
+
+```bash
+npx skills add pseudo-longinus/quant-buddy-skills \
+  -g -a <agent-id> -s quant-buddy-skill -y
+```
+
+同时安装量化研究和可分享研究活页：
+
+```bash
+npx skills add pseudo-longinus/quant-buddy-skills \
+  -g -a <agent-id> \
+  -s quant-buddy-skill -s quant-buddy-view -y
+```
+
+如果你同时使用多个、且已经确认支持的 Agent，可以重复指定 `-a`：
+
+```bash
+npx skills add pseudo-longinus/quant-buddy-skills \
+  -g -s quant-buddy-skill \
+  -a claude-code -a cursor -y
+```
+
+Windows 用户如果遇到 symlink（符号链接）或权限错误，可以在对应命令后追加 `--copy`。
 
 已安装用户更新：
 
@@ -427,22 +448,45 @@ npx skills add pseudo-longinus/quant-buddy-skills --list
 npx skills update quant-buddy-skill -g -y
 ```
 
-Windows（微软桌面操作系统）用户如果遇到 symlink（符号链接）或权限错误，可以在对应 Agent 命令后追加 `--copy`，例如：
+查看当前安装位置：
 
 ```bash
-npx skills add pseudo-longinus/quant-buddy-skills -g -a claude-code -s quant-buddy-skill -y --copy
+npx skills list -g --json
 ```
 
-只有在你明确希望安装到所有支持的 Agent 时，才使用：
+### 使用 GitHub CLI（可选）
+
+如果你的 GitHub CLI 版本支持 `gh skill`，可以指定 Skill 和目标 Agent：
+
+```bash
+gh skill install pseudo-longinus/quant-buddy-skills \
+  quant-buddy-skill --agent <agent-id> --scope user
+```
+
+### 安装全部 Skill 到全部支持的 Agent
+
+仅当你明确希望批量安装，并且已经了解当前机器上的 Agent 目录时，才使用：
 
 ```bash
 npx skills add pseudo-longinus/quant-buddy-skills -g --all
 ```
 
-查看当前安装位置：
+不建议新用户把 `--all` 作为默认命令，因为它可能在本机创建多个 Skill 目录或符号链接。
 
-```bash
-npx skills list -g --json
+### 安装后验证
+
+在你的 Agent 中发送：
+
+```text
+请确认 quant-buddy-skill 已经成功加载。
+然后查询贵州茅台最近一个完整交易日的收盘价、涨跌幅、成交额、PE、PB 和 ROE。
+请同时返回每个字段的数据日期或报告期。
+```
+
+如果还安装了 `quant-buddy-view`，可以继续发送：
+
+```text
+把刚才的研究结果发布成一个可分享、可持续更新的 QuantBuddy 研究活页。
 ```
 
 ## 配置 API Key（接口密钥）

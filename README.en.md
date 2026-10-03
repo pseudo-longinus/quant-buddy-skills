@@ -18,17 +18,23 @@
   <img alt="Market" src="https://img.shields.io/badge/A%E8%82%A1-quant-orange">
 </p>
 
-## 🔥 Quick Install
+## 🔥 30-Second Install
 
-If you're familiar with AI agent tools (Claude Code, Cursor, OpenClaw, etc.), just tell your agent:
+### First choice: send the GitHub URL and this prompt to the AI agent you use
 
-> Install this skill for me:
+If you use Codex, Claude Code, Cursor, WorkBuddy, OpenClaw, or another agent that supports Agent Skills, try natural-language installation first:
 
-```bash
-npx skills add pseudo-longinus/quant-buddy-skills -g -a claude-code --all -y
-```
-
-We recommend installing both `quant-buddy-skill` (data and quantitative workflows) and `quant-buddy-view` (shareable real-time pages). If only QBS is installed, companion-aware versions can install or update QBV on the first `newSession`, subject to the server rollout policy. A QBV installation failure does not block QBS market-data, financial, formula, screening, or backtest workflows.
+> Please install QuantBuddy Skills from this GitHub repository:
+>
+> https://github.com/pseudo-longinus/quant-buddy-skills
+>
+> Install:
+> - `quant-buddy-skill`: market data, valuation, fundamentals, screening, factors, and backtesting
+> - `quant-buddy-view`: shareable and refreshable research pages
+>
+> First inspect the repository's `README.md` and both `SKILL.md` files, then choose the installation method supported by the current agent.
+> After installation, verify that the skills are loaded and tell me how to configure the API key.
+> Do not guess an API key or write secrets into chat logs or public files.
 
 Not sure how to use agents or skills? Follow the [step-by-step beginner guide](https://tcn8bvcbyokw.feishu.cn/wiki/E1zswck3oiiJjJkP07QcmSG3nle?from=from_copylink).
 
@@ -395,25 +401,15 @@ The difference is that computation is not improvised inside the LLM context with
 
 > Hong Kong and US stocks support market price data such as close, open, high, low, return, volume, and turnover; valuation and financial fields depend on actual API results. Futures are currently limited to recognized assets in the local asset database and may be attempted for market/window series only; futures valuation, financials, and candlestick rendering are not promised.
 
-## Installation
+## Installation and Updates
 
-### npx Recommended
+### Agent compatibility
 
-New users should install the skill only into the AI agent they actually use. Avoid using `--all` by default: it installs all skills into all supported agents and may create multiple directories or symlinks on the machine.
+QuantBuddy Skills follows the common Agent Skills directory convention. Agents that can discover `SKILL.md` directories can usually install this repository by receiving its GitHub URL and an installation request.
 
-| Agent you use | Recommended command |
-|---|---|
-| Claude Code | `npx skills add pseudo-longinus/quant-buddy-skills -g -a claude-code -s quant-buddy-skill -y` |
-| Cursor | `npx skills add pseudo-longinus/quant-buddy-skills -g -a cursor -s quant-buddy-skill -y` |
-| OpenClaw | `npx skills add pseudo-longinus/quant-buddy-skills -g -a openclaw -s quant-buddy-skill -y` |
+Use a CLI when you need exact placement, version pinning, or multi-agent installation. Supported agent IDs can vary across agents and CLI versions; do not guess the value after `-a`.
 
-If you use another supported agent, replace the value after `-a` with that agent id. Do not omit `-a`, otherwise the CLI may auto-install into multiple agents.
-
-If you use multiple agents, repeat `-a`:
-
-```bash
-npx skills add pseudo-longinus/quant-buddy-skills -g -s quant-buddy-skill -a claude-code -a cursor -y
-```
+### Using `npx skills`
 
 List the skills in this repository without installing anything:
 
@@ -421,28 +417,77 @@ List the skills in this repository without installing anything:
 npx skills add pseudo-longinus/quant-buddy-skills --list
 ```
 
+Install only the quantitative research skill:
+
+```bash
+npx skills add pseudo-longinus/quant-buddy-skills \
+  -g -a <agent-id> -s quant-buddy-skill -y
+```
+
+Install both quantitative research and shareable research pages:
+
+```bash
+npx skills add pseudo-longinus/quant-buddy-skills \
+  -g -a <agent-id> \
+  -s quant-buddy-skill -s quant-buddy-view -y
+```
+
+If you use multiple agents whose IDs you have confirmed, repeat `-a`:
+
+```bash
+npx skills add pseudo-longinus/quant-buddy-skills \
+  -g -s quant-buddy-skill \
+  -a claude-code -a cursor -y
+```
+
+On Windows, add `--copy` if you encounter symlink or permission errors.
+
 Update an existing installation:
 
 ```bash
 npx skills update quant-buddy-skill -g -y
 ```
 
-If Windows users encounter symlink or permission errors, add `--copy` to the command for the target agent, for example:
+Check the current install location:
 
 ```bash
-npx skills add pseudo-longinus/quant-buddy-skills -g -a claude-code -s quant-buddy-skill -y --copy
+npx skills list -g --json
 ```
 
-Use this only when you explicitly want to install into every supported agent:
+### Using GitHub CLI (optional)
+
+If your GitHub CLI version supports `gh skill`, you can specify a Skill and target agent:
+
+```bash
+gh skill install pseudo-longinus/quant-buddy-skills \
+  quant-buddy-skill --agent <agent-id> --scope user
+```
+
+### Install all skills into all supported agents
+
+Use this only when you explicitly want a batch installation and understand the agent directories on your machine:
 
 ```bash
 npx skills add pseudo-longinus/quant-buddy-skills -g --all
 ```
 
-Check the current install location:
+New users should not use `--all` as the default because it may create multiple Skill directories or symlinks.
 
-```bash
-npx skills list -g --json
+### Verify the installation
+
+Send this prompt to your agent:
+
+```text
+Confirm that quant-buddy-skill is loaded.
+Then query the latest complete trading day's close, change percentage, turnover,
+PE, PB, and ROE for Kweichow Moutai. Return the market-data date or reporting
+period for every field.
+```
+
+If you also installed `quant-buddy-view`, continue with:
+
+```text
+Publish the research result as a shareable, refreshable QuantBuddy research page.
 ```
 
 ## Configure API Key

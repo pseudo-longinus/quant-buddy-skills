@@ -84,12 +84,14 @@ QBS_IMPORT_CRED_DIR='D:/.../quant-buddy-skill/output/formula_packages' \
 
 | read_mode | 适用 | `mode_params` | `data` 关键结构 | 建议 panel.type |
 |-----------|------|---------------|----------------|----------------|
-| `last_day_stats` | 2维截面 / 1维序列 | `date` 或 `offset`（互斥，可选） | 2维：`last_day_stats.{date,top_values[],valid_count,...}`；1维：`last_value.{date,value}` | 2维→`table`；1维→`number` |
-| `last_column_full` | 完整截面列（2维）/ 截止日序列（1维） | `date` 或 `offset`（互斥，可选）、`max_rows`、`allow_zero_values` | 2维：`last_column_full.{date,values[],returned_rows,valid_rows,is_truncated,...}`；1维：截至目标日的有效时间序列 | `table` / `list` |
+| `last_day_stats` | **1维最新值**；2维摘要/有限 Top | `date` 或 `offset`（互斥，可选）；2维 `top_values` 数量不是注册参数 | 2维：`last_day_stats.{date,top_values[],valid_count,...}`；1维：`last_value.{date,value}` | 2维→`table`；1维→`number` |
+| `last_column_full` | **2维完整截面列**；不要用于1维单值 | `date` 或 `offset`（互斥，可选）、`max_rows`、`allow_zero_values` | 2维：`last_column_full.{date,values[],returned_rows,valid_rows,is_truncated,...}`；1维：截至目标日的有效时间序列 | `table` / `list` |
 | `last_valid_per_asset` | 2维截面 | `max_rows`(默认8000) | `last_valid_per_asset[]`（每资产末值）；不支持 `date`/`offset` | `table` |
 | `range_data`（滚动窗口）| 1维序列 / 2维 | `lookback_days`✅（回溯天数，区间=`[今天-N, 今天]`）、`assets`、`max_cells`、`nan_handling`(`keep`/`fill_forward`/`drop_rows`) | `range_data.{dates[],values[],series_name,valid_count,null_count,zero_count,first_valid_date,last_valid_date}`；不支持 `date`/`offset` | `line` |
 
 > **单列日期参数**：`date` 接受 `YYYYMMDD` 或 `YYYY-MM-DD`，读取不晚于该日的最近有效数据；`offset` 是相对每次查询当天的自然日偏移（`0`=截至今天，`1`=截至昨天），不是第 N 个交易日，也不是相对注册日。两者不能同时传。不传时继续按原模式读取最新数据，旧请求与返回结构不变。
+> **注册选择规则**：二维选股/截面完整名单使用 `last_column_full`，必须设置 `max_rows`（默认 8000，可按语义设置更小），并检查返回的 `is_truncated`；一维最新值使用 `last_day_stats`，取 `last_value`。读取模式只用于其声明的场景，不可把摘要模式当作完整表格数据源。服务端会对二维 `last_day_stats` 和一维 `last_column_full` 自动纠正，并返回 `read_mode_corrections`。
+
 > `build_dashboard` 和 `assets/data-kernel.js` 会自动解包 `last_column_full.values`；自建页优先使用 `QB.topValues()` / `QB.perAsset()`，不必手写 wrapper 路径。
 >
 > **`range_data` 是滚动窗口**：注册只给 `lookback_days`（近一年=365、近半年=180、近一季=90），取数时服务端现算成 `[今天-N, 今天]`。看板是 live 数据源，这样折线才会随时间滚动到最近，而不是停在注册当天。旧版 `start_date`+`end_date` 仍兼容（按跨度滚到今天），但别再指定绝对 `end_date`。

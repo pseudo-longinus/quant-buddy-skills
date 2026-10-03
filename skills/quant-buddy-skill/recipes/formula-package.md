@@ -22,9 +22,13 @@
 
 - 单资产/单序列最新值 → `last_day_stats`（1维序列返回 `last_value{date,value}`）
 - 单序列一段时间走势（画 sparkline / 折线）→ `range_data`（返回 `range_data{dates,values}`）
-- 全市场截面 TopN / 覆盖率 → `last_day_stats`（2维返回 `top_values` 等）
+- 全市场截面完整资产值/选股名单 → `last_column_full`（2维返回 `values[]`，配合 `max_rows`）
+- 二维仅看覆盖率/摘要 → `last_day_stats`（`top_values` 是摘要采样，不是完整名单）
+- 单资产/单序列最新值 → `last_day_stats`（1维返回 `last_value`）
 - 全市场某个截止日的完整截面列 → `last_column_full`（2维返回 `values[]`，适合 table/list）
 - 每资产最后有效值 → `last_valid_per_asset`
+
+**不要混用维度语义**：二维完整截面用 `last_column_full`；一维最新值用 `last_day_stats`。`last_column_full` 对一维返回的是时间序列，不是单个最新值；`last_day_stats` 对二维只返回统计摘要和有限 `top_values`。质量诊断统一使用 `signature` 或 `precheck`。
 
 `last_day_stats` / `last_column_full` 可选传 `mode_params.date` 或 `offset`：`date` 取不晚于指定日的最近有效数据；`offset` 是相对查询当天的自然日偏移。两者互斥，不传时继续使用原来的最新数据模式。
 

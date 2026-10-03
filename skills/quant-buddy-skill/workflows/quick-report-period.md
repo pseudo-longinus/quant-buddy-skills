@@ -148,7 +148,7 @@ runMultiFormulaBatchStream 成功 → readData 读取最后有效值与日期 �
 | 单字段最后有效值 | `last_valid_per_asset` | 默认首选，返回最后有效值+日期 |
 | 上述模式不可用 | `range_data` + `start_date` / `end_date` | 受控降级，读取受限报告期区间后取最后一个有效值 |
 | 多字段需逐一读取 | 每字段单独 `last_valid_per_asset` | 保证各字段独立获取报告期 |
-| 全量历史/采样 | **禁止** | 不使用 `table_data` / 旧 `full` / `smart_sample`；`range_data` 必须限制日期区间 |
+| 全量历史/采样 | **禁止** | 不使用 `table_data` / 旧 `full`；`range_data` 必须限制日期区间 |
 
 说明：
 - 本流程默认不使用 `readData(mode="table_data")` 作为最近报告期财务读取方式

@@ -213,7 +213,6 @@ Step 1 确认资产（见本文档末尾「自包含执行规则」）
 > `range_data` 返回完整连续区间数据，不采样；读取后从 `range_data.dates` / `range_data.values` 末尾取 N 条有效记录。
 > **若日期区间内有效记录不足 N 条**，必须前移 `start_date` 后最多重试 1 次；仍不足则说明可用交易日不足。
 
-- ⛔ 禁止 `smart_sample`（返回均匀采样，无法获取连续尾部数据）
 - ⛔ 禁止 `last_day_stats`（只有末日统计，无序列）
 - ⛔ 禁止 `table_data`（一维数据不支持，会返回错误）
 - ⛔ 禁止旧的 `full` / `last_n_rows` 模式

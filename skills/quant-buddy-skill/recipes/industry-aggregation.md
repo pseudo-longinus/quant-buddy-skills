@@ -165,7 +165,7 @@ python scripts/call.py runMultiFormulaBatchStream '{
 ### Step 5 — 验证结果（必做）
 
 ```bash
-python scripts/call.py readData '{"ids": ["<放量日行业平均涨跌幅的data_id>"], "mode": "smart_sample"}'
+python scripts/call.py readData '{"ids": ["<放量日行业平均涨跌幅的data_id>"], "mode": "signature"}'
 ```
 
 **检查项**：
@@ -211,7 +211,7 @@ python scripts/call.py renderChart '{
 |------|------|------|
 | `成分平均汇总` 返回 assets=0 | `申wx资产所属指数` 的 index_title 写错 | 重新 confirmDataMulti，严格用返回的 index_title |
 | `放量日行业平均涨跌幅` assets=7700+（未聚合） | 公式4写错，误用的是全市场回报率而非行业聚合结果 | 确认公式4的变量名用的是 `申万行业每日回报率` |
-| 区间统计量 dates=0 | 放量日标记全为 False（条件过严或数据期太短） | 检查 begin_date / 阈值倍数；可先用 `readData(mode=smart_sample)` 看 `放量日标记` 的 True 比例 |
+| 区间统计量 dates=0 | 放量日标记全为 False（条件过严或数据期太短） | 检查 begin_date / 阈值倍数；可先用 `readData(mode=signature)` 看 `放量日标记` 的 True 比例 |
 | renderChart 报"仅支持一维数据" | `放量日行业平均涨跌幅` 是二维（31×区间数） | 先用 readData 读出截面均值，整理成一维序列后再图表；或改为 last_day_stats 下载后自行排序呈现文本 |
 | `数据名不存在：申万资产所属指数` | index_title 与实际返回不符 | 以 confirmDataMulti 返回的 index_title 为准，不要凭记忆猜测 |
 

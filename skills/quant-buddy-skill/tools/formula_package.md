@@ -64,8 +64,8 @@ python scripts/formula_package.py refresh '{"package_id":"pkg_xxx","rotate_signa
 
 | read_mode | 适用 | `mode_params` | 取数返回的 `data` 关键字段 |
 |-----------|------|---------------|---------------------------|
-| `last_day_stats` | 截面（2维）/ 单序列（1维）皆可 | `date` 或 `offset`（互斥，可选） | 2维：`last_day_stats.{date,top_values[],valid_count,coverage_rate,...}`；**1维序列：`last_value.{date,value}`** |
-| `last_column_full` | 完整截面列（2维）/ 截止日序列（1维） | `date` 或 `offset`（互斥，可选）、`max_rows`、`allow_zero_values` | 2维：`last_column_full.{date,values[],returned_rows,valid_rows,is_truncated,...}`；1维：截至目标日的有效时间序列 |
+| `last_day_stats` | **1维最新值**；2维仅限统计摘要/有限 Top 值 | `date` 或 `offset`（互斥，可选）；2维 `top_values` 数量不是注册参数 | 2维：`last_day_stats.{date,top_values[],valid_count,...}`；**1维：`last_value.{date,value}`** |
+| `last_column_full` | **2维完整截面列**；不要用于1维单值 | `date` 或 `offset`（互斥，可选）、`max_rows`、`allow_zero_values` | 2维：`last_column_full.{date,values[],returned_rows,valid_rows,is_truncated,...}`；1维原始返回是截至目标日的有效时间序列 |
 | `last_valid_per_asset` | 2维截面 | `max_rows`（默认8000） | 每个资产最后一个有效值（跨市场对齐）；不支持 `date`/`offset` |
 | `range_data`（滚动窗口）| 1维序列 / 2维 | `lookback_days`✅（回溯天数，区间=`[今天-N, 今天]`）、`assets`、`max_cells`、`nan_handling`(`keep`/`fill_forward`/`drop_rows`) | `range_data.{dates[],values[],series_name}`（非交易日为 `null`）；不支持 `date`/`offset` |
 

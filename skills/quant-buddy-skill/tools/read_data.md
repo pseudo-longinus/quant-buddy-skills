@@ -36,8 +36,7 @@
 
 | mode | 用途 | 支持数据类型 | 专用参数 |
 |------|------|-------------|----------|
-| `signature`（默认） | 返回数据签名、轻量预览采样和最后一列统计 | 二维 / 一维 / 表格 | `include_samples`、`preview_assets`、`preview_points`、`sparse_threshold` |
-| `smart_sample` | 智能采样查看具体数值 | 二维 / 一维 / 表格（表格走 `table_data`） | `top_assets`、`sample_points` |
+| `signature`（默认） | 返回数据签名、轻量质量摘要和最后一列统计 | 二维 / 一维 / 表格 | `include_samples`、`preview_assets`、`preview_points`、`sparse_threshold` |
 | `per_asset_sample` | 每个资产单独采样 | 二维 | `top_assets`、`sample_points` |
 | `last_day_stats` | 最后一个有效交易日的截面统计 | 二维 / 一维 | — |
 | `last_column_full` | 最后一个有效列的完整截面；一维数据返回时间序列 | 二维 / 一维 | `max_rows`、`allow_zero_values` |
@@ -45,6 +44,50 @@
 | `range_data` | 指定日期区间内的完整连续原始数据，不采样 | 二维 / 一维 | `start_date`、`end_date`、`assets`、`max_cells`、`nan_handling` |
 | `precheck` | 数据质量预检查，可配合 `expected` 做断言式校验 | 二维 / 一维 | `expected` |
 | `table_data` | 读取 matrixInfo 表格数据，支持排序和分页 | 表格 | `top_n_assets`、`last_m_columns`、`sort_by`、`sort_order` |
+
+## 按场景选择读取模式
+
+| 用户意图/输出类型 | 推荐模式 |
+|---|---|
+| 公式刚执行完，先判断有没有数据、维度是否正确 | `signature` 或 `precheck` |
+| 最新交易日完整选股名单、Top-N、排名、榜单 | `last_column_full` |
+| 只要最新日期的数量、覆盖率、有限 Top | `last_day_stats` |
+| 单个/多个资产最近 N 日走势 | `range_data`，并限制 `assets` |
+| 长期区间趋势、区间收益、回撤识别 | `range_data` |
+| 每个资产最后一个有效值，跨市场或频率不一致 | `last_valid_per_asset` |
+| 财务季度数据、稀疏资产数据 | `per_asset_sample` 或 `last_valid_per_asset` |
+| matrixInfo 选股结果表 | `table_data` |
+| 0/1 掩码、事件信号、连板/涨停/入选标记 | `last_column_full` 或 `last_day_stats` |
+| 页面实时图表/榜单 | QBV Formula Package 的 `range_data` / `last_column_full` / `last_day_stats` |
+
+质量检查建议先使用 `signature` 或 `precheck`，再根据最终输出形态读取精确数据。摘要、预览或局部结果不能替代完整截面、完整区间或表格数据。
+
+## `signature` 返回的后续读取建议
+
+当使用 `signature` 做质量查看时，skill_server 会在每个成功数据项上附加 `recommended_read_modes`。它是面向 Agent 的场景提示，不改变当前读取结果，也不强制后续调用。
+
+示例：
+
+```json
+{
+  "data_type": "two_dimensional",
+  "signature": { "is_bool": true, "shape": { "assets": 5000, "dates": 260 } },
+  "recommended_read_modes": {
+    "primary": "last_column_full",
+    "summary": "last_day_stats",
+    "per_asset": "last_valid_per_asset",
+    "note": "二维掩码/信号优先读取最新完整截面或最新统计。"
+  }
+}
+```
+
+提示字段的含义：
+
+- `primary`：当前数据类型最常用的下一步读取方式；
+- `summary`：只需要最新数量、覆盖率或有限 Top 时使用；
+- `history`：需要连续历史区间时使用；
+- `per_asset` / `sparse`：跨资产或稀疏数据场景使用；
+- `note`：补充说明，不替代用户对目标的判断。
 
 ## mode = `range_data`
 
@@ -168,8 +211,9 @@ python scripts/executor.py readData '{
 
 - `ids` 使用 `runMultiFormulaBatchStream` 返回的 **`data_id`**（非 `expression_id`），或 `confirmDataMulti` 返回的 `_id`。
   > ⚠️ **高频错误**：`runMultiFormulaBatchStream` 每条结果同时含 `expression_id` 和 `data_id` 两个字段，两者相邻但含义不同。`ids` 必须传 **`data_id`**；若误传 `expression_id`，接口会返回 `"error": "IndexInfo {id}"` 并 `status: failed`，此时不要重试相同 id，应重新检查返回体取正确的 `data_id` 字段。
-- 仅验证结果是否合理时，优先用 `signature` / `smart_sample` / `precheck`，避免读取大体量完整数据。
+- 仅验证结果是否合理时，优先用 `signature` / `precheck`，避免读取大体量完整数据。
 - 需要完整连续原始数据时，用 `range_data`，不要用采样结果做精确计算。
 - `range_data` 可能返回大数组；跨多年、全市场二维数据必须设置较窄日期区间、`assets` 子集或 `max_cells`。
 - 需要最新截面排名时用 `last_column_full`；需要每个资产最新有效值时用 `last_valid_per_asset`。
+- 读取模式按用户意图选择：最新完整名单/Top-N/排名用 `last_column_full`，最新数量/覆盖率/有限 Top 用 `last_day_stats`，连续历史用 `range_data`，财务季度等稀疏数据用 `per_asset_sample` 或 `last_valid_per_asset`，matrixInfo 表格用 `table_data`。
 - `table_data` 仅适用于 matrixInfo 表格数据；二维矩阵和一维时间序列不要使用 `table_data`。

@@ -332,7 +332,7 @@ B 级证据中附带的任何数值（如 description 里的 last_value）不得
 
 ### readData
 - 各场景的 readData 模式选择**以对应 leaf workflow 为准**（quick-snapshot / quick-window / quick-report-period 各有明确规定）
-- **全局禁止**：`full` 模式（任何 workflow 均不得使用）、`smart_sample`（短窗场景禁用）
+- **全局禁止**：`full` 模式（任何 workflow 均不得使用）；质量检查统一使用 `signature` / `precheck`，精确数据按 leaf workflow 选择
 - `last_column_full` 仅在 leaf workflow 明确允许时才可使用（目前：quick-window、quant-standard、event-study）
 
 ---

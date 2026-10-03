@@ -15,7 +15,7 @@
     # 上游编排：api.new_session(task_id="...", task_mode="inherit", task_source="quant-buddy-view")
     r = api.run_multi_formula(formulas=["X=收盘价(贵州茅台)"], begin_date=20160101)
     ids = api.extract_obj_ids(r)      # {"X": "60f..."}
-    d = api.read_data(ids=list(ids.values()), mode="smart_sample")
+    d = api.read_data(ids=list(ids.values()), mode="signature")
 
 依赖：仅 Python 标准库（json, os, re, sys, uuid）。
 """
@@ -895,7 +895,7 @@ class QuantAPI:
             )
         return self._unwrap(self._call("refreshSnapshotTime", {"task_id": task_id}))
 
-    def read_data(self, ids: list, mode: str = "smart_sample",
+    def read_data(self, ids: list, mode: str = "signature",
                   sample_points: int = None, **kwargs) -> dict:
         """读取数据。
 
@@ -904,9 +904,9 @@ class QuantAPI:
         ids : list[str]
             data_id 数组（来自 run_multi_formula 返回的 _id）
         mode : str
-            smart_sample / last_day_stats / signature / precheck
+            signature / precheck / last_day_stats / last_column_full / range_data
         sample_points : int, optional
-            采样点数（mode=smart_sample 时有效）
+            采样参数仅由对应模式使用
         """
         params = {"ids": ids, "mode": mode}
         if sample_points:

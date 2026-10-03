@@ -159,7 +159,7 @@ Step 0  确认资产与阈值条件
 4. 把 LLM 对历史走势的"常识"包装成工具计算结论
 5. **以"数据被截断"或"脚本无输出"为由，改用历史记忆填充区间**（见下方 T-025 iter-013 反例）
 
-**判断标准**：若最终输出的区间起止日期**无法追溯到本次 readData 返回的时间序列中的精确数据点**，则该区间属于"人工编造"，违反本规则。`smart_sample`（50点采样）的日期只能用作覆盖率验证，**不能作为区间参考起止点**。
+**判断标准**：若最终输出的区间起止日期**无法追溯到本次 readData 返回的时间序列中的精确数据点**，则该区间属于"人工编造"，违反本规则。采样摘要中的日期只能用作质量检查，**不能作为区间参考起止点**。
 
 **安全失败模板**：
 ```
@@ -232,7 +232,7 @@ write_skill_file({
 1. **确认数据项**：用 `confirmDataMulti` 确认所需的度量指标（如收盘价；用户要 PE(TTM) 时按全局口径规则优先查询 `市盈率 TTM`，不得把 `PE(TTM)` 原样当查询词）
 2. **取回序列**：用 `runMultiFormulaBatchStream` 计算基准序列
    - begin_date 需覆盖足够历史区间（通常 ≥ 15 年）
-3. **验证**：用 `readData(mode="smart_sample")` 检查 NaN 率和覆盖率（仅验证用，不得用 50 个采样点作为区间识别依据）
+3. **验证**：用 `readData(mode="signature")` 检查维度、NaN 率和覆盖率
 4. **读取完整序列**：用 `readData(mode="range_data", start_date={history_start}, end_date={history_end})` 读取完整连续时间序列
 5. **保存为文件（必须）**：用 `write_skill_file` 将第 4 步 readData 返回的数据保存为 JSON 文件到 `output/_working/{task_id}/full_series.json`，然后通过 `run_skill_script` 读取该文件来执行区间识别，**禁止在脚本中用 print 说明"已知历史区间"替代实际计算**
 

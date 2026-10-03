@@ -303,7 +303,7 @@
 当公式已通过 `取前(排序值, N, 返回数值)` 生成了带数值的 TopN 结果时：
 
 1. **必须**对该数值结果执行 `readData(mode="last_column_full")` 获取精确排名数值
-2. **禁止**用 `smart_sample` 作为 TopN 最终数值来源——`smart_sample` 返回的是采样摘要，不保证包含全部 TopN 条目的精确值
+2. **禁止**用采样摘要作为 TopN 最终数值来源——摘要不保证包含全部 TopN 条目的精确值
 3. **禁止**从 `description` 中提取近似值作为最终排名数值——`description` 的 `其中十个分别名称` 仅用于名单确认和资产范围排查，不是精确数值来源
 
 **数值提取后排序校验（强制）**：
@@ -312,7 +312,7 @@
 - 逐行验证单调性（降序：每行值 ≥ 下一行值）
 - 不满足单调性 → 以重排后结果为准，不得沿用 readData 原始顺序
 
-**实测反例（T-028，iter-012）**：模型对成交额 Top10 使用 `smart_sample` 读取，结果中部分股票的成交额值来自采样而非完整截面，导致排名顺序与真实排名不一致。正确做法：对 `取前("成交额排序值", 10, 返回数值)` 的结果执行 `readData(mode="last_column_full")`。
+**实测反例（T-028，iter-012）**：模型对成交额 Top10 使用采样摘要读取，结果中部分股票的成交额值来自采样而非完整截面，导致排名顺序与真实排名不一致。正确做法：对 `取前("成交额排序值", 10, 返回数值)` 的结果执行 `readData(mode="last_column_full")`。
 
 ### 条件筛选 / TopN 名单提取合同（强制）
 
@@ -860,7 +860,7 @@ PE数据="A股市盈率（PE, TTM）〔估值数据〕"
 | 2 | `searchFunctions` | `{"query": "函数关键词", "top_k": 3}` | 确认函数参数格式 | — |
 | 4 | `confirmDataMulti` | `{"data_desc": "换手率,市盈率"}` — **逗号分隔字符串** | 确认平台数据项，获取 index_title | — |
 | 5 | `runMultiFormulaBatchStream` | `{"formulas": ["变量名=公式", ...]}` — **字符串数组**。begin_date **整数** YYYYMMDD。`use_minute_data` 按频率选择：仅盘中/当前分钟请求设为 true；历史日频计算传 false 或省略。**多公式（≥ 2 条）必须同步评估并按需传 `force_reusable_array`**（字符串数组，元素是公式左侧变量名）：把会被 `readData` 读取或后续 batch 引用的变量名写进数组，纯中间变量不要写。⚠️ **每条公式必须独占数组的一个元素**，禁止用逗号把多条公式拼在同一个字符串中（如 `"A=X","B=Y"` 写成 `"A=X,B=Y"` 会导致 PARTIAL_SUCCESS）。多批回测/策略任务须按 global-rules 规则 15 每批带 `execution_profile`+`user_query`，收到 `deferred` 须 `resumeJob` 续传（规则 16） | 执行公式；同批必须同一 task_id | 公式语法报错 → `tools/run_multi_formula.md` |
-| 6 | `readData` | `{"ids": ["hex_id", ...], "mode": "smart_sample"}` — **hex data_id**，最多 10 个 | **不可跳过**：验证 NaN率、净值方向、覆盖率。⚠️ `ids` 必须是 `runMultiFormulaBatchStream` 返回的 hex `_id`，**不能传中文变量名**（如 `"A股收盘价"`） | mode 不是 smart_sample → **必读 `tools/read_data.md`** |
+| 6 | `readData` | `{"ids": ["hex_id", ...], "mode": "signature"}` — **hex data_id**，最多 10 个 | **不可跳过**：先验证维度、NaN率和覆盖率；再按用户场景选择截面、区间或表格模式。⚠️ `ids` 必须是 `runMultiFormulaBatchStream` 返回的 hex `_id`，**不能传中文变量名**（如 `"A股收盘价"`） | 具体模式见 `tools/read_data.md` |
 | 7 | `renderChart` | `{"lines": [{"id":"hex_id","name":"图例名"}]}` — 双轴加 `"axis":"right"` | 渲染图表，自动保存 PNG 到 output/。**仅一维数据** | 画 K线/面积图/多轴 → **必读 `tools/render_chart.md`** |
 | 7b | `renderKLine` | `{"ticker": "SH600519", "begin_date": 20240101}` — **SH/SZ 前缀6位** | K线图快捷工具，无需 runMultiFormulaBatchStream | 叠加技术指标 → **必读 `tools/render_kline.md`** |
 | 7c | `getChartSpec` | `{"task_id": "uuid"}` | 检索已保存图表 spec | — |
@@ -1056,7 +1056,7 @@ Top10股息率 = 取前("排序值", 10, 返回数值)
 Top10PE = 取前("排序值", 10) * "PE数据"
 
 # Step D: readData 两步读取（先验证，再取结果）
-#   D-1 验证：readData(ids=[Top10股息率._id, Top10PE._id], mode="smart_sample")
+#   D-1 验证：readData(ids=[Top10股息率._id, Top10PE._id], mode="signature")
 #        → 检查 NaN 率、覆盖率是否合理，不合理则回查公式
 #   D-2 展示：readData(ids=[...], mode="last_column_full")
 #        → 获取最新截面完整数据，用于最终回答
@@ -1068,7 +1068,7 @@ Top10PE = 取前("排序值", 10) * "PE数据"
 - 两种写法可在同一批 `runMultiFormulaBatchStream` 中共存，无需分批
 
 **Step D 规则**：
-- `smart_sample`（验证）不可跳过——即使 `runMultiFormulaBatchStream` 返回 success，数据也可能全 NaN 或覆盖率异常
+- `signature`（质量验证）不可跳过——即使 `runMultiFormulaBatchStream` 返回 success，数据也可能全 NaN 或覆盖率异常
 - 验证通过后，再用 `last_column_full` 获取最新截面用于回答
 - 若仅需最新截面数值且不需要历史趋势，两步可合并为 `last_column_full`（但仍需检查返回的覆盖率）
 
@@ -1080,8 +1080,8 @@ Top10PE = 取前("排序值", 10) * "PE数据"
 
 每次 `runMultiFormulaBatchStream` 后必须 `readData` 确认结果合理，再进入最终回答。
 
-**通用场景**：`readData(mode=smart_sample)` 检查 NaN 率、覆盖率、净值起止值。  
-**TopN 选股场景**：按四步模板 Step D 执行——先 `smart_sample` 验证，再 `last_column_full` 取最新截面。若验证发现 NaN 率过高或结果为空，先回查公式条件是否过于严格。
+**通用场景**：`readData(mode=signature)` 检查 NaN 率、覆盖率和结果摘要；需要连续净值序列时再读取 `range_data`。
+**TopN 选股场景**：按四步模板 Step D 执行——先 `signature` 验证，再 `last_column_full` 取最新截面。若验证发现 NaN 率过高或结果为空，先回查公式条件是否过于严格。
 
 ### ⑥ `runMultiFormulaBatchStream` 返回 PARTIAL_SUCCESS 时的最小增量重试
 

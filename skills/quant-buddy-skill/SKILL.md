@@ -2,7 +2,7 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.25.48
+version: 4.25.49
 description: |
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据；支持查询 A 股股票所属行业。
   显式日期的单值快照可同时返回按实际更新日对齐的日频行情与估值；字段日期不同时按字段自身日期展示，不将较晚刷新字段误判为无数据。
@@ -18,7 +18,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.25.48
+  version: 4.25.49
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -491,7 +491,7 @@ SKILL_ROOT/
 3. **leaf workflow**：当前任务的具体执行流程（checkpoint、模板、停止条件、格式化）
 
 **冲突解决**：
-- leaf workflow 中的具体规则（如 readData 模式选择）优先于 global-rules 的一般规则
+- leaf workflow 中的具体规则（如 readData 模式选择（见 `tools/read_data.md` 的场景表））优先于 global-rules 的一般规则
 - 但 leaf workflow 不得**放宽** global-rules 的红线（如证据分级门槛、不补精度原则）
 - 不得从其他 leaf workflow 借用模板、fallback 或回答格式
 

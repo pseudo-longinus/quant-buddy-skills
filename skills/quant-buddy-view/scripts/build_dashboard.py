@@ -2543,6 +2543,14 @@ def _build_authorized(params):
         plan = EP.load(task_id)
         if plan and (params.get("upload") or params.get("update_page_id")):
             EP.require(task_id, page_id=str(params.get("update_page_id") or plan["target_page_id"]))
+            if result["data_mode"] == "live" and not str(params.get("route_receipt_file") or "").strip():
+                return {
+                    "code": 1,
+                    "error": "LIVE_DATA_ROUTE_RECEIPT_REQUIRED",
+                    "message": "实时看板发布前必须先完成 resolve_asset_data 并传入 route_receipt_file；请补齐发布证据后重新构建候选",
+                    "page_id": plan["target_page_id"],
+                    "data_mode": result["data_mode"],
+                }
             publish_params = {key: params[key] for key in ("title", "description", "asset", "turn_id", "live_data_mode", "market_data_required", "route_receipt_file", "validation_receipt_files", "grant_validation_receipt_files", "page_context", "agent_reply_template") if key in params}
             publish_params.update(task_id=task_id, page_id=plan["target_page_id"], html_file=out_file, plan_hash=plan["plan_hash"])
             if not str(publish_params.get("description") or "").strip():
