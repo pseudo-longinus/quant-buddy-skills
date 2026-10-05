@@ -125,7 +125,7 @@ QBV 支持把 RSI、RSRS、选股逻辑或回测研究提交给自动进化。�
 
 <p align="center">
   <a href="https://www.quantbuddy.cn/videos/quantbuddy-research-demo.mp4">
-    <img src="assets/demo_market_bubble.png" alt="点击播放 QuantBuddy 官网研究活页演示视频" width="86%" />
+    <img src="assets/banner.jpg" alt="点击播放 QuantBuddy 官网研究活页演示视频" width="86%" />
   </a>
   <br/>
   <sub>GitHub README 不稳定支持外部 MP4 播放，因此使用仓库内截图作海报；点击图片即可在 quantbuddy.cn 打开官网主视频（国内可访问）。</sub>
