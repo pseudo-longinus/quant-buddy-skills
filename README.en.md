@@ -1,7 +1,11 @@
 # quant-buddy-skills
 
 <p align="center">
-  <img src="assets/banner.jpg" alt="quant-buddy-skills" width="100%" />
+  <a href="https://www.quantbuddy.cn/videos/quantbuddy-research-demo.mp4">
+    <img src="assets/quantbuddy-infrastructure.png" alt="QuantBuddy: one-stop AI infrastructure for investment research" width="100%" />
+  </a>
+  <br/>
+  <sub>Click the hero image to open the official QuantBuddy research-page demo video.</sub>
 </p>
 
 <p align="center">
@@ -15,43 +19,152 @@
   <a href="https://github.com/pseudo-longinus/quant-buddy-skills/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/pseudo-longinus/quant-buddy-skills?style=social"></a>
   <a href="https://github.com/pseudo-longinus/quant-buddy-skills/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-green"></a>
   <img alt="Python" src="https://img.shields.io/badge/Python-3.8%2B-blue">
-  <img alt="Market" src="https://img.shields.io/badge/A%E8%82%A1-quant-orange">
+  <img alt="Markets" src="https://img.shields.io/badge/Markets-A%E8%82%A1%20%2F%20%E6%B8%AF%E8%82%A1%20%2F%20%E7%BE%8E%E8%82%A1%20%2F%20%E6%9C%9F%E8%B4%A7-orange">
 </p>
 
-## 🔥 30-Second Install
+## 🔥 Quick Install
 
-### First choice: send the GitHub URL and this prompt to the AI agent you use
+If you use an AI agent such as Claude Code, Cursor, Codex, or OpenClaw, ask it to install:
 
-If you use Codex, Claude Code, Cursor, WorkBuddy, OpenClaw, or another agent that supports Agent Skills, try natural-language installation first:
+> Install this skill for me:
 
-> Please install QuantBuddy Skills from this GitHub repository:
->
-> https://github.com/pseudo-longinus/quant-buddy-skills
->
-> Install:
-> - `quant-buddy-skill`: market data, valuation, fundamentals, screening, factors, and backtesting
-> - `quant-buddy-view`: shareable and refreshable research pages
->
-> First inspect the repository's `README.md` and both `SKILL.md` files, then choose the installation method supported by the current agent.
-> After installation, verify that the skills are loaded and tell me how to configure the API key.
-> Do not guess an API key or write secrets into chat logs or public files.
+```bash
+npx skills add pseudo-longinus/quant-buddy-skills -g -a claude-code -s quant-buddy-skill -y
+```
+
+When `quant-buddy-skill` (QBS) is installed, companion-aware versions check QBV (`quant-buddy-view`) during the first `newSession` and install or update it when needed. QBS handles research intent, data queries, and computation; QBV turns verified results into shareable research pages. A QBV installation failure does not block QBS market-data, financial, formula, screening, or backtesting workflows.
+
+To install QBV explicitly:
+
+```bash
+npx skills add pseudo-longinus/quant-buddy-skills -g -a claude-code -s quant-buddy-view -y
+```
+
+Replace `claude-code` with the agent id you use. Use `--all` only when you intentionally want every skill installed into every supported agent.
 
 Not sure how to use agents or skills? Follow the [step-by-step beginner guide](https://tcn8bvcbyokw.feishu.cn/wiki/E1zswck3oiiJjJkP07QcmSG3nle?from=from_copylink).
 
 ---
 
-> **Run formulas, stock screens, factors, and backtests across the full A-share market from an AI Agent.**  
-> A-share quant execution layer for Claude Code, Cursor, Codex, GitHub Copilot, Windsurf, and other AI agents.
+> **QuantBuddy Skills is foundational quantitative-research infrastructure for AI agents.**
+> Give the research idea to the agent; let the platform handle data, definitions, computation, and delivery.
 
-quant-buddy-skills is not a generic stock data API. It packages **market data, valuation data, financial data, a formula engine, full-market screening, factor calculation, strategy backtesting, NAV comparison, and chart rendering** into agent-callable research workflows.
+It is more than a market-data chat skill or a raw-data API. It packages **data access, indicator definitions, formula computation, cross-sectional screening, factor research, backtesting, result verification, and research-page delivery** into callable agent capabilities.
 
-Data coverage includes common research datasets such as A-share financials, HK/US financials, LHB tags, and GICS industry classifications.
+Coverage includes A-shares, Hong Kong stocks, US stocks, indices, ETFs, domestic futures, macro strategy data, A-share options implied volatility, US options market data, LHB labels, and GICS classifications. Exact fields depend on the data contract returned by the service.
 
-Traditional data APIs only get raw data out. quant-buddy-skills helps an AI agent turn natural-language research ideas into **executable formulas, platform-side computation, structured results, and reusable tasks**.
+Traditional data APIs retrieve raw values. quant-buddy-skills lets an agent turn a natural-language research idea into **executable formulas, platform-side computation, structured evidence, and reusable tasks**.
 
 Official site: https://www.quantbuddy.cn
 
 > This project is for financial data analysis, quantitative research, strategy validation, and educational use only. It is not investment advice, trading advice, a return guarantee, or an automated trading service.
+
+## The Foundation: A Runnable Research Stack
+
+QuantBuddy Skills separates research into four layers:
+
+| Layer | What it provides | Why it matters |
+|---|---|---|
+| **Data** | Market, financial, valuation, money-flow, sentiment, futures supply/demand, macro, and alternative data | No need to rebuild data sources for every question |
+| **Indicators** | 18 research dimensions, 280+ landed indicators, explicit windows, definitions, and scoring | The same concept can be compared and audited |
+| **Computation** | Formulas, rolling windows, cross-sectional screens, factors, event studies, backtests, NAVs, and charts | Large matrices are computed on the platform; the agent receives evidence |
+| **Delivery** | Formula packages, Data Grants, QBV pages, free hosting, and continuous updates | A validated research idea can be shared, reused, downloaded, and rerun |
+
+The official product story is “a thousand-indicator plan × a paradigm library”: the indicator system defines how to calculate; the paradigm library defines how to apply validated research methods.
+
+The stack provides transparent evidence, lower token usage, cross-market comparison, reusable formulas and pages, daily refreshes, and free evolution runs when spare compute is available.
+
+## QBS + QBV: From A Question To A Living Research Page
+
+QBS turns a natural-language research question into data queries, formulas, screens, or backtests. QBV publishes verified results as a page that can be reopened, shared, downloaded, and refreshed.
+
+| Stage | Component | Result |
+|---|---|---|
+| Ask | `quant-buddy-skill` | Market data, financials, valuation, screens, factors, backtests, and charts |
+| Build the method | QBS → QBV | Formula packages, data contracts, and reusable research structure |
+| Publish and update | `quant-buddy-view` | A shareable `pages.quantbuddy.cn` page with the same data definition |
+
+<p align="center">
+  <img src="assets/quantbuddy-two-layer-workflow.png" alt="QuantBuddy two-layer research workflow: QBS computation layer and QBV page runtime layer" width="100%" />
+  <br/>
+  <sub>QBS computes and structures the research; QBV validates, publishes, and keeps the page running.</sub>
+</p>
+
+## Official Capability Path: From One Question To Continuous Research
+
+The official product path is a single flow: ask a question, connect the right data, run transparent computation, reuse professional paradigms, publish a living page, and continue iterating with free hosting and spare-compute evolution.
+
+The diagrams below use the official Chinese product artwork so product names, figures, and market labels remain faithful; the English captions describe each stage.
+
+<p align="center">
+  <img src="assets/quantbuddy-one-question-live-page.png" alt="QuantBuddy AI generates a research page from one question" width="100%" />
+  <br/>
+  <sub>Start with one natural-language question and generate an interactive, shareable, continuously updated research page.</sub>
+</p>
+
+### 01 | Full Research-Data Coverage
+
+<p align="center">
+  <img src="assets/quantbuddy-data-coverage.png" alt="QuantBuddy research-data coverage across A-shares, Hong Kong stocks, US stocks, futures, and macro data" width="88%" />
+  <br/>
+  <sub>Market data, financial reports, valuation, money flow, sentiment, macro, and alternative datasets enter one research workflow.</sub>
+</p>
+
+### 02 | Transparent, Extensible Low-Code Computation
+
+<p align="center">
+  <img src="assets/quantbuddy-transparent-low-code-compute.png" alt="QuantBuddy transparent low-code computation with platform-side calculation and verifiable results" width="88%" />
+  <br/>
+  <sub>Compose data, window statistics, conditions, factors, and backtests with formulas; return structured, auditable results to the agent.</sub>
+</p>
+
+### 03 | Professional Paradigm Library
+
+<p align="center">
+  <img src="assets/quantbuddy-paradigm-library.png" alt="QuantBuddy professional paradigm library for trend, valuation, money flow, futures supply and demand, and sentiment research" width="88%" />
+  <br/>
+  <sub>Turn experienced investment methods into agent-callable research paradigms that can be discovered, saved, derived, and reused.</sub>
+</p>
+
+### 04 | Research Pages Keep Running
+
+<p align="center">
+  <img src="assets/quantbuddy-live-page-continuous-run.png" alt="QuantBuddy continuously running research page with self-contained HTML, network refresh, sharing, and download" width="88%" />
+  <br/>
+  <sub>A page is more than a screenshot: bind a formula package, open it for current data, share it, or download a self-contained HTML file.</sub>
+</p>
+
+### 05 | Start Free And Evolve
+
+<p align="center">
+  <img src="assets/quantbuddy-free-start.png" alt="QuantBuddy free start with free data quota, research space, and automatic evolution" width="88%" />
+  <br/>
+  <sub>Free research space, spare-compute queueing, and comparable new versions turn a one-off experiment into an iterative research process.</sub>
+</p>
+
+QBV provides free research hosting without requiring you to deploy a backend or purchase a web server. A page can also be downloaded as self-contained HTML; when opened online, its bound formulas can continue to retrieve current data.
+
+QBV supports automatic evolution for RSI, RSRS, screening logic, and backtests. Pages can enter an L1–L5 evolution path; registration records the intent to evolve, not an immediately running job. Longer jobs run free when spare compute is available, with results queued in the background and delivered as comparable versions.
+
+## Capability Map: Markets, Assets, And Research Actions
+
+QBS is not limited to A-shares. It identifies the asset and market first, then returns fields, dates, and coverage status from the actual data contract.
+
+| Market / asset | Direct queries | Research actions | Boundary |
+|---|---|---|---|
+| A-share stocks and ETFs | Market, valuation, report-period financials, industries, money flow, LHB, sentiment | Formulas, cross-sectional screens, factors, backtests, industry aggregation, K-lines, minute tasks | Broadest field coverage |
+| Hong Kong stocks | Market data, window returns, selected valuation / financial fields, southbound holdings | Cross-sectional selection on materialized indicators; formulas and pages for available fields | Do not apply A-share-only fields |
+| US stocks and overseas ETFs | Market data, window returns, selected valuation / financial fields | Cross-sectional selection, formulas, factors, comparisons, and pages for available fields | Coverage depends on asset and API |
+| Indices | A-share, sector/theme, and overseas index series | Benchmark comparison, return ranking, event studies, page charts | Minute coverage varies by market |
+| Domestic futures | Main/continuous/nearby contracts, windows, spot, inventory, roll events | Futures screens, supply/demand research, continuous-contract comparison, selected minute tasks | No stock-style valuation or financials |
+| Macro, options, and research datasets | Macro strategy data, A-share option IV, US options, GICS classifications | Macro context, volatility, classification aggregation, strategy research | Dataset-specific coverage |
+
+### Screening Across Four Markets
+
+1. **Current cross-section:** `selectByComposition` supports `A股`, `港股`, `美股`, and `期货` through `universe.asset_scope`, combining materialized score/screen indicators into TopN, rankings, and condition intersections.
+2. **Formula screening and factor ranking:** generate multi-condition formulas, rolling statistics, masks, ranks, and composite factors; the platform computes the large matrix and returns names, metrics, or charts.
+3. **Price + financial conditions:** align report-period / publication dates with price, moving-average, breakout, and turnover conditions. A-share examples in this repository describe one contract; they do not limit the workflow to A-shares.
+4. **Historical research:** separate current TopN selection from historical screening, factor IC, grouped returns, strategy backtests, NAV curves, and benchmark comparisons.
 
 ## 30-Second Demo
 
@@ -68,51 +181,53 @@ No need to push thousands of rows into the LLM context. No need to manually writ
 
 ## Why Install It
 
-- **Not just data lookup**: formulas, rolling-window statistics, condition filters, factor ranking, and strategy backtesting.
-- **Built for full-market A-share cross-sectional computation**: heavy computation runs on the platform side; only results are returned to the agent.
+- **Not just data lookup**: formulas, window statistics, condition filters, factor ranking, and backtesting.
+- **Works across markets**: A-shares, Hong Kong stocks, US stocks, indices, ETFs, and domestic futures follow their own supported data contracts.
 - **Reusable by design**: formulas explored today can be scheduled and rerun tomorrow.
+- **QBS + QBV delivery**: install QBS, let it check QBV, then publish verified results to free hosting as shareable research pages.
+- **Research can evolve**: RSI / RSRS, screening, and backtest pages can enter free spare-compute evolution.
 - **Designed for agent workflows**: works with Claude Code, Cursor, Codex, GitHub Copilot, Windsurf, and similar environments.
-- **Deepest coverage for A-shares**: market data, valuation, financials, screening, factors, backtesting, and charts. HK and US stocks support market data plus selected valuation and financial fields, subject to API results. Recognized futures can be queried conditionally for market/window series.
-- **Broader research-data coverage**: supports common datasets such as A-share financials, HK/US financials, LHB tags, and GICS industry classifications.
+- **Lower token cost**: large computation stays on the platform side; the agent receives structured evidence instead of raw matrices.
 
-## What Can You Do In One Sentence
+## What You Can Do In One Sentence
 
-| What You Tell The Agent | What quant-buddy-skills Does |
+| What you tell the agent | What quant-buddy-skills does |
 |---|---|
 | “Check Kweichow Moutai's latest close, return, and turnover” | Queries market data and returns structured results |
-| “Find the top 10 A-shares breaking above 60-day highs with volume expansion” | Runs full-market formulas, filters, and ranking on the platform side |
+| “Screen all A-shares for a volume-expanded 60-day breakout” | Runs full-market formulas, filters, and ranking on the platform side |
+| “Rank Hong Kong stocks, US stocks, or futures by a materialized momentum or volatility indicator” | Uses the market-specific asset scope and returns names, scores, and data dates |
 | “Backtest a low PE + high ROE portfolio and compare it with CSI 300” | Runs strategy backtesting, benchmark comparison, and NAV chart output |
 | “Run this screen every day at 14:30” | Saves validated formulas as reusable tasks |
-| “Publish this set of computed metrics as a data pack a web page can read directly” | Registers a formula package, returns credentials, and lets a front end / third party stream the latest values without an API Key |
+| “Publish this set of computed metrics as a data pack a web page can read directly” | Registers a formula package for API-key-free front-end queries |
 | “Upload my CSV factor and rank it together with ROE” | Uploads custom factors and uses them in formulas, screening, and charts |
 
-## Skill Matrix
+## Capability Matrix
 
-| Capability | Coverage | Example Prompt |
+| Capability | Coverage | Example prompt |
 |---|---|---|
-| Fast market data lookup | A-shares / HK stocks / US stocks / indices / recognized futures, subject to API results | “Check Kweichow Moutai's latest close, return, and turnover” |
+| Fast market data lookup | A-shares / HK stocks / US stocks / indices / recognized futures | “Check Kweichow Moutai's latest close, return, and turnover” |
 | Valuation and financials | A-shares plus selected HK / US fields, subject to API results | “List CATL's latest ROE, net profit, and debt ratio” |
-| Common research datasets | A-share financials, HK/US financials, LHB tags, GICS industry classifications, etc. | “Check net profit attributable, EBITDA, LHB net buy amount, or GICS industry” |
-| Full-market formula computation | Mainly A-shares | “Calculate 20-day and 60-day returns for all A-shares and rank by momentum” |
-| Multi-condition stock screening | Mainly A-shares | “Screen non-ST stocks with low PE, high ROE, and expanding turnover” |
-| Factor analysis | Mainly A-shares | “Build a composite factor from dividend yield, ROE, and momentum” |
-| Strategy backtesting | Mainly A-shares | “Backtest a low PE + high ROE portfolio against CSI 300” |
-| Intraday tasks | A-share minute-data capability, subject to actual API support | “At 14:30 today, screen the top 30 stocks breaking above 60-day highs with volume expansion” |
-| Chart rendering | Candlestick, NAV, benchmark comparison | “Plot the strategy NAV and CSI 300 benchmark” |
-| Formula packages | Register a formula set as a long-lived package, served to the outside via SSE without an API Key | “Publish this screen as a data page the front end can read directly” |
-| Custom data | CSV factor upload | “Upload my factor CSV and rank it together with ROE” |
+| Cross-market formulas | A-shares, HK stocks, US stocks, indices, ETFs, and domestic futures by field | “Calculate 20-day and 60-day returns in the selected market and rank momentum” |
+| Multi-condition screening | Materialized indicators for A-shares / HK stocks / US stocks / futures, plus formula screening | “Screen the selected market for valuation, quality, momentum, or volatility conditions” |
+| Factor analysis | 18 dimensions, materialized score/screen indicators, and uploaded CSV factors | “Build a composite factor from dividend yield, ROE, and momentum” |
+| Strategy backtesting | A-share workflow is deepest; other markets depend on formulas and history | “Backtest a low PE + high ROE portfolio against CSI 300” |
+| Minute data | A/US stocks, HK stocks, domestic futures, and domestic indices by coverage date | “Read the latest complete-day minute OHLCVA or a historical 1-minute CSV” |
+| Asset profiles | Valuation, financials, money flow, volatility, macro win-rate context, and price dimensions | “Build a current profile for Tencent, Apple, or a gold future” |
+| Industry, theme, and event research | Industry/theme constituents, return ranking, event windows, and scenarios | “Compare sector performance over the last 20 sessions” |
+| Options and macro | A-share option IV, US options, macro strategy data, and GICS | “Organize options by expiry, strike, IV, or macro scenario” |
+| Research pages and hosting | QBS results published by QBV to free hosting with sharing, download, and refresh | “Turn this research into a page I can reopen tomorrow” |
 
 ## Who Is This For
 
-- **A-share quant researchers** who want to validate screening, factor, event-study, and backtesting ideas quickly.
+- **A-share, Hong Kong, US, and futures researchers** who want to validate screens, factors, event studies, backtests, or supply/demand ideas.
 - **AI agent and coding-tool users** who want Claude Code, Cursor, Codex, or GitHub Copilot to complete research tasks directly.
 - **Research automation developers** who want daily review, intraday screens, and strategy monitoring as repeatable jobs.
-- **Financial data analysts and content creators** who want structured data, TopN lists, and charts from natural language.
+- **Financial data analysts and content creators** who want structured data, TopN lists, charts, and shareable pages from natural language.
 
 ## Who Is This Not For
 
 - Users who need a fully custom low-level data pipeline.
-- Users focused mainly on crypto, options, futures valuation/financials, or deep US fundamental valuation.
+- Users who need crypto data, stock-style futures valuation/financials, or a complete US fundamental database.
 - Users expecting automated order execution, return guarantees, or personalized investment advice.
 
 ## Real Invocation Examples
@@ -383,33 +498,44 @@ The difference is that computation is not improvised inside the LLM context with
 | Dimension | News / Research-Report Finance Skill | Quant Framework Documentation Skill | Data API | quant-buddy-skills |
 |---|---|---|---|---|
 | Core value | Interpret news, generate views | Help agents find docs and write code | Pull raw data | Run research computation on the platform side |
-| Full-market A-share screening | Weak | Requires custom code | Requires data stitching | Strong |
+| Cross-market cross-sectional screening | Weak | Requires custom code | Requires data stitching | Materialized indicators support A-shares / HK / US stocks / futures |
 | Factors / backtesting | Usually external | Helps write frameworks | User implements it | Built-in workflows |
 | Token usage | Medium | Medium / high | High when raw data enters context | Low, returns only results |
 | Best users | Content, reports, event tracking | Quant developers | Data engineering, custom pipelines | Quant researchers, research automation, agent users |
-| Best scenario | “What does this news affect?” | “How do I call the QMT API?” | “I need raw data” | “A-share screening / factors / backtesting / charts” |
+| Best scenario | “What does this news affect?” | “How do I call the QMT API?” | “I need raw data” | “Cross-market screening / factors / backtesting / charts / research pages” |
 
 ## Data Coverage
 
-| Market | Market Data | Valuation | Financial Data | Screening / Backtesting |
-|---|---|---|---|---|
-| A-shares | Supported | Supported | Supported | Supported |
-| Hong Kong stocks | Supported | Selected TTM valuation fields, subject to API results | Selected report-period fields, subject to API results | Not supported |
-| US stocks | Supported | Selected TTM valuation fields, subject to API results | Selected report-period fields, subject to API results | Not supported |
-| Major broad-based indices | Supported | Partially supported | - | Can be used as benchmarks or universes |
-| Recognized futures | Conditional market/window series support, subject to API results | Not supported | Not supported | Limited formula/strategy scenarios may be attempted |
+| Market / asset | Market and window data | Valuation / financials | Screening / research |
+|---|---|---|---|
+| A-share stocks / ETFs | Supported | Broadest coverage | Screens, factors, backtests, industry aggregation, K-lines, and minute tasks |
+| Hong Kong stocks | Supported | Selected fields, subject to API results | Materialized-indicator selection, formulas, comparisons, and pages |
+| US stocks / overseas ETFs | Supported | Selected fields, subject to API results | Materialized-indicator selection, formulas, factors, comparisons, and pages |
+| A-share, sector/theme, and overseas indices | Supported | Dataset-specific | Benchmark comparison, return ranking, event studies, and page charts |
+| Domestic futures | Main/continuous/nearby contracts, spot, inventory, and roll events | No stock-style valuation or financials | Futures screens, supply/demand research, continuous-contract comparison, and selected minute tasks |
+| Macro / options / research datasets | Dataset-specific | Dataset-specific | Macro context, option IV, US options, GICS classification, and strategy research |
 
-> Hong Kong and US stocks support market price data such as close, open, high, low, return, volume, and turnover; valuation and financial fields depend on actual API results. Futures are currently limited to recognized assets in the local asset database and may be attempted for market/window series only; futures valuation, financials, and candlestick rendering are not promised.
+> Hong Kong and US price fields commonly include close, open, high, low, return, volume, and turnover; valuation and financial fields depend on the actual API response. Futures do not promise stock-style valuation, financials, or candlestick rendering.
 
-## Installation and Updates
+## Installation
 
-### Agent compatibility
+### npx Recommended
 
-QuantBuddy Skills follows the common Agent Skills directory convention. Agents that can discover `SKILL.md` directories can usually install this repository by receiving its GitHub URL and an installation request.
+New users should install the skill only into the AI agent they actually use. Avoid using `--all` by default: it installs all skills into all supported agents and may create multiple directories or symlinks on the machine.
 
-Use a CLI when you need exact placement, version pinning, or multi-agent installation. Supported agent IDs can vary across agents and CLI versions; do not guess the value after `-a`.
+| Agent you use | Recommended command |
+|---|---|
+| Claude Code | `npx skills add pseudo-longinus/quant-buddy-skills -g -a claude-code -s quant-buddy-skill -y` |
+| Cursor | `npx skills add pseudo-longinus/quant-buddy-skills -g -a cursor -s quant-buddy-skill -y` |
+| OpenClaw | `npx skills add pseudo-longinus/quant-buddy-skills -g -a openclaw -s quant-buddy-skill -y` |
 
-### Using `npx skills`
+If you use another supported agent, replace the value after `-a` with that agent id. Do not omit `-a`, otherwise the CLI may auto-install into multiple agents.
+
+If you use multiple agents, repeat `-a`:
+
+```bash
+npx skills add pseudo-longinus/quant-buddy-skills -g -s quant-buddy-skill -a claude-code -a cursor -y
+```
 
 List the skills in this repository without installing anything:
 
@@ -417,77 +543,28 @@ List the skills in this repository without installing anything:
 npx skills add pseudo-longinus/quant-buddy-skills --list
 ```
 
-Install only the quantitative research skill:
-
-```bash
-npx skills add pseudo-longinus/quant-buddy-skills \
-  -g -a <agent-id> -s quant-buddy-skill -y
-```
-
-Install both quantitative research and shareable research pages:
-
-```bash
-npx skills add pseudo-longinus/quant-buddy-skills \
-  -g -a <agent-id> \
-  -s quant-buddy-skill -s quant-buddy-view -y
-```
-
-If you use multiple agents whose IDs you have confirmed, repeat `-a`:
-
-```bash
-npx skills add pseudo-longinus/quant-buddy-skills \
-  -g -s quant-buddy-skill \
-  -a claude-code -a cursor -y
-```
-
-On Windows, add `--copy` if you encounter symlink or permission errors.
-
 Update an existing installation:
 
 ```bash
 npx skills update quant-buddy-skill -g -y
 ```
 
-Check the current install location:
+If Windows users encounter symlink or permission errors, add `--copy` to the command for the target agent, for example:
 
 ```bash
-npx skills list -g --json
+npx skills add pseudo-longinus/quant-buddy-skills -g -a claude-code -s quant-buddy-skill -y --copy
 ```
 
-### Using GitHub CLI (optional)
-
-If your GitHub CLI version supports `gh skill`, you can specify a Skill and target agent:
-
-```bash
-gh skill install pseudo-longinus/quant-buddy-skills \
-  quant-buddy-skill --agent <agent-id> --scope user
-```
-
-### Install all skills into all supported agents
-
-Use this only when you explicitly want a batch installation and understand the agent directories on your machine:
+Use this only when you explicitly want to install into every supported agent:
 
 ```bash
 npx skills add pseudo-longinus/quant-buddy-skills -g --all
 ```
 
-New users should not use `--all` as the default because it may create multiple Skill directories or symlinks.
+Check the current install location:
 
-### Verify the installation
-
-Send this prompt to your agent:
-
-```text
-Confirm that quant-buddy-skill is loaded.
-Then query the latest complete trading day's close, change percentage, turnover,
-PE, PB, and ROE for Kweichow Moutai. Return the market-data date or reporting
-period for every field.
-```
-
-If you also installed `quant-buddy-view`, continue with:
-
-```text
-Publish the research result as a shareable, refreshable QuantBuddy research page.
+```bash
+npx skills list -g --json
 ```
 
 ## Configure API Key
