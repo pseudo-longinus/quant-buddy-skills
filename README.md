@@ -1,7 +1,11 @@
 # quant-buddy-skills
 
 <p align="center">
-  <img src="https://www.quantbuddy.cn/home/use-cases/research-companion.webp" alt="QuantBuddy 官网研究活页场景：让系统持续跟踪投资逻辑" width="100%" />
+  <a href="https://www.quantbuddy.cn/videos/quantbuddy-research-demo.mp4">
+    <img src="https://www.quantbuddy.cn/videos/quantbuddy-research-demo-poster.jpg" alt="QuantBuddy 官网首页主视频：从研究问题生成持续更新的活页" width="100%" />
+  </a>
+  <br/>
+  <sub>点击海报播放官网首页主视频：从一句研究问题，到可交互、可分享、持续更新的研究活页。</sub>
 </p>
 
 <p align="center">
@@ -77,6 +81,12 @@ QuantBuddy Skills 把一次投研拆成四层。每层都能被 Agent 调用，�
 - **结果会继续更新**：活页按交易日刷新；RSI、RSRS、选股和回测研究还可以在富余算力时申请免费自动进化。
 - **端侧足够轻**：数据和计算在云端，页面可以分享、下载为自包含 HTML，并嵌入网站、课程、桌面屏幕或自己的应用。
 
+<p align="center">
+  <img src="https://www.quantbuddy.cn/home/use-cases/research-companion.webp" alt="QuantBuddy 官网研究伴侣场景截图" width="88%" />
+  <br/>
+  <sub>官网场景：研究逻辑、数据和页面结构沉淀在同一张可持续运行的活页中。</sub>
+</p>
+
 ## QBS + QBV：从问题到持续更新的研究活页
 
 QBS 和 QBV 是一条完整链路：QBS 把自然语言投研问题转成数据查询、公式、筛选或回测；QBV 把经过验证的结果发布成可以反复打开、分享和更新的研究活页。
@@ -98,6 +108,8 @@ QBV 提供免费的研究空间和托管地址，不需要自己部署后端或�
 QBV 支持把 RSI、RSRS、选股逻辑或回测研究提交给自动进化。活页会按内容成熟度进入 L1–L5 研究进化路径；登记的是进化意愿，不是立即创建任务。平台会在有富余算力时不定期免费运行较长的研究任务，用来补充数据、做历史比较、检查计算口径或改进页面呈现。进化按后台资源排队，不承诺立即完成；结果生成后可以查看独立版本变化和 RU 变化，再决定是否采用。
 
 ### 先看官网演示视频
+
+视频展示的重点是一条完整链路，而不是某个单独行情接口：用户提出想跟踪的问题，Agent 组织数据、指标、公式和研究范式，平台侧完成计算，再生成可以交互、分享、下载并持续更新的研究活页。
 
 <p align="center">
   <video controls preload="metadata" poster="https://www.quantbuddy.cn/videos/quantbuddy-research-demo-poster.jpg" src="https://www.quantbuddy.cn/videos/quantbuddy-research-demo.mp4" width="86%">
