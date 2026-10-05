@@ -81,12 +81,6 @@ QuantBuddy Skills 把一次投研拆成四层。每层都能被 Agent 调用，�
 - **结果会继续更新**：活页按交易日刷新；RSI、RSRS、选股和回测研究还可以在富余算力时申请免费自动进化。
 - **端侧足够轻**：数据和计算在云端，页面可以分享、下载为自包含 HTML，并嵌入网站、课程、桌面屏幕或自己的应用。
 
-<p align="center">
-  <img src="assets/quantbuddy-one-question-live-page.png" alt="宽宝 AI：一问生成研究活页" width="100%" />
-  <br/>
-  <sub>从一句自然语言问题开始，自动生成可交互、可分享、持续更新的研究活页。</sub>
-</p>
-
 ## QBS + QBV：从问题到持续更新的研究活页
 
 QBS 和 QBV 是一条完整链路：QBS 把自然语言投研问题转成数据查询、公式、筛选或回测；QBV 把经过验证的结果发布成可以反复打开、分享和更新的研究活页。
@@ -105,6 +99,56 @@ QBS 和 QBV 是一条完整链路：QBS 把自然语言投研问题转成数据�
   <sub>QBS 负责查数据、写公式、选股 / 因子 / 回测；QBV 负责验证、注册数据接口、发布与更新活页。</sub>
 </p>
 
+## 官网能力路径：从一问到持续运行
+
+官网展示的是一条连续路径：先提出研究问题，再接入数据、执行透明计算、复用专业范式，最后得到可以持续更新的研究活页，并在免费空间和富余算力中继续迭代。
+
+<p align="center">
+  <img src="assets/quantbuddy-one-question-live-page.png" alt="宽宝 AI：一问生成研究活页" width="100%" />
+  <br/>
+  <sub>从一句自然语言问题开始，自动生成可交互、可分享、持续更新的研究活页。</sub>
+</p>
+
+### 01｜投研数据全覆盖
+
+<p align="center">
+  <img src="assets/quantbuddy-data-coverage.png" alt="QuantBuddy 投研数据全覆盖：A 股、港股、美股、期货与宏观等研究数据" width="88%" />
+  <br/>
+  <sub>一站式接入行情、财务报告期、估值分位、主力资金、市场情绪和宏观另类数据，统一进入同一套研究入口。</sub>
+</p>
+
+### 02｜透明、可拓展的低代码计算
+
+<p align="center">
+  <img src="assets/quantbuddy-transparent-low-code-compute.png" alt="QuantBuddy 透明可拓展的低代码计算：平台侧计算并返回可复核结果" width="88%" />
+  <br/>
+  <sub>低代码公式把数据、窗口统计、条件筛选、因子 / 回测串起来；平台侧完成大规模计算，只返回结构化结果给 Agent。</sub>
+</p>
+
+### 03｜专业范式库
+
+<p align="center">
+  <img src="assets/quantbuddy-paradigm-library.png" alt="QuantBuddy 专业范式库：趋势、估值、资金流、期货供需和市场情绪等研究范式" width="88%" />
+  <br/>
+  <sub>把专业投资经验沉淀为 Agent 可调用的研究方法：发现、收藏、派生，并形成自己的研究活页。</sub>
+</p>
+
+### 04｜活页持续运行
+
+<p align="center">
+  <img src="assets/quantbuddy-live-page-continuous-run.png" alt="QuantBuddy 活页持续运行：单 HTML、联网取数、每日更新、可分享可下载" width="88%" />
+  <br/>
+  <sub>活页不是截图：公式任务包绑定数据后，打开即可联网取最新值，也可以分享或下载自包含 HTML。</sub>
+</p>
+
+### 05｜免费开始与自动进化
+
+<p align="center">
+  <img src="assets/quantbuddy-free-start.png" alt="QuantBuddy 免费开始：免费数据额度、研究空间和自动进化" width="88%" />
+  <br/>
+  <sub>免费研究空间、富余算力排队运行和可对比的新版本，让研究从一次尝试变成持续迭代。</sub>
+</p>
+
 QBV 提供免费的研究空间和托管地址，不需要自己部署后端或购买网页服务器。活页也可以下载为自包含 HTML；联网打开时仍能按页面绑定的公式继续取最新数据。
 
 官网当前展示的能力进展包括 **18 个研究维度、280+ 个已落地指标、A 股 / 港股 / 美股 / 期货 4 类市场**，以及按交易日自动更新的研究活页；具体字段和可用范围以实际接口返回为准。
@@ -113,33 +157,9 @@ QBV 提供免费的研究空间和托管地址，不需要自己部署后端或�
 
 QBV 支持把 RSI、RSRS、选股逻辑或回测研究提交给自动进化。活页会按内容成熟度进入 L1–L5 研究进化路径；登记的是进化意愿，不是立即创建任务。平台会在有富余算力时不定期免费运行较长的研究任务，用来补充数据、做历史比较、检查计算口径或改进页面呈现。进化按后台资源排队，不承诺立即完成；结果生成后可以查看独立版本变化和 RU 变化，再决定是否采用。
 
-<p align="center">
-  <img src="assets/quantbuddy-free-start.png" alt="QuantBuddy 免费开始：免费数据额度、研究空间和自动进化" width="88%" />
-  <br/>
-  <sub>免费研究空间、富余算力排队运行和可对比的新版本，让研究从一次尝试变成持续迭代。</sub>
-</p>
-
-### 先看官网演示视频
-
-视频展示的重点是一条完整链路，而不是某个单独行情接口：用户提出想跟踪的问题，Agent 组织数据、指标、公式和研究范式，平台侧完成计算，再生成可以交互、分享、下载并持续更新的研究活页。
-
-<p align="center">
-  <a href="https://www.quantbuddy.cn/videos/quantbuddy-research-demo.mp4">
-    <img src="assets/banner.jpg" alt="点击播放 QuantBuddy 官网研究活页演示视频" width="86%" />
-  </a>
-  <br/>
-  <sub>GitHub README 不稳定支持外部 MP4 播放，因此使用仓库内截图作海报；点击图片即可在 quantbuddy.cn 打开官网主视频（国内可访问）。</sub>
-</p>
-
 ## 能力全景：市场、资产与研究动作
 
 QBS 的市场范围不是“只有 A 股”。它会先识别资产和市场，再按工具实际返回的字段、日期和覆盖状态交付结果。A 股的估值、财务、资金流和公式目录最完整；港股、美股、指数、ETF、期货、宏观和期权数据按各自数据合同提供能力。
-
-<p align="center">
-  <img src="assets/quantbuddy-data-coverage.png" alt="QuantBuddy 投研数据全覆盖：A 股、港股、美股、期货与宏观等研究数据" width="88%" />
-  <br/>
-  <sub>一站式接入行情、财务报告期、估值分位、主力资金、市场情绪和宏观另类数据，统一进入同一套研究入口。</sub>
-</p>
 
 | 资产 / 市场 | 可直接查询的内容 | 可做的研究动作 | 需要知道的边界 |
 |---|---|---|---|
@@ -163,12 +183,6 @@ QBS 的市场范围不是“只有 A 股”。它会先识别资产和市场，�
 
 这些指标可以用于单资产画像、跨市场筛选、因子组合、行业/主题聚合、事件研究、回测和研究活页。指标是否已物化、支持哪个市场和哪个日期，以服务端的 `selection_ready`、`asset_scope`、`as_of` 和实际返回为准。
 
-<p align="center">
-  <img src="assets/quantbuddy-paradigm-library.png" alt="QuantBuddy 专业范式库：趋势、估值、资金流、期货供需和市场情绪等研究范式" width="88%" />
-  <br/>
-  <sub>把专业投资经验沉淀为 Agent 可调用的研究方法：发现、收藏、派生，并形成自己的研究活页。</sub>
-</p>
-
 ### 数据粒度与分钟覆盖
 
 - 快照、窗口、报告期查询单次最多处理 1000 个资产；大结果会走 CSV/数据授权通道，避免把原始大表塞进 LLM 上下文。
@@ -180,12 +194,6 @@ QBS 的市场范围不是“只有 A 股”。它会先识别资产和市场，�
 QBV 可以把 QBS 的验证结果或已有 JPG、PNG、HTML、PDF 先发布到免费托管空间，再按需接入公式包或 Data Grant（数据授权）成为可持续更新的活页。常见交付包括：个股画像、估值/财务页、指数异动、跨资产比较、行业/主题机会、资金流信号、基金/ETF/债券画像、商品日报、K 线和策略净值看板。
 
 活页使用页面绑定的数据合同和签名取数，不把 API Key 放到浏览器；可以分享、下载自包含 HTML，并在联网打开时刷新到最新数据。QBV 还支持保留已有页面结构、追加基准序列、编辑图表、复用页面壳、页面质量验收和结果版本管理。
-
-<p align="center">
-  <img src="assets/quantbuddy-live-page-continuous-run.png" alt="QuantBuddy 活页持续运行：单 HTML、联网取数、每日更新、可分享可下载" width="88%" />
-  <br/>
-  <sub>活页不是截图：公式任务包绑定数据后，打开即可联网取最新值，也可以分享或下载自包含 HTML。</sub>
-</p>
 
 ## 一套底层框架，承载不同的研究产品
 
@@ -199,12 +207,6 @@ QBV 可以把 QBS 的验证结果或已有 JPG、PNG、HTML、PDF 先发布到�
 | 网站 / 小程序 / App | 自己的方法页或选股页 | 组合低估值、盈利质量、趋势观察，持续跟踪候选变化 |
 | 金融顾问 / 资产配置 | 面向客户的交互式方案页 | 把期限、风险和流动性偏好接进可更新的配置逻辑 |
 | 投资教育 | 可实验的课程活页 | 学生调整条件、查看公式、比较有效与失效情景 |
-
-<p align="center">
-  <img src="assets/quantbuddy-transparent-low-code-compute.png" alt="QuantBuddy 透明可拓展的低代码计算：平台侧计算并返回可复核结果" width="88%" />
-  <br/>
-  <sub>低代码公式把数据、窗口统计、条件筛选、因子 / 回测串起来；平台侧完成大规模计算，只返回结构化结果给 Agent。</sub>
-</p>
 
 ## 30 秒示例
 
