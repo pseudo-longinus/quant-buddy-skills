@@ -2,10 +2,10 @@
 
 <p align="center">
   <a href="https://www.quantbuddy.cn/videos/quantbuddy-research-demo.mp4">
-    <img src="https://www.quantbuddy.cn/videos/quantbuddy-research-demo-poster.jpg" alt="QuantBuddy 官网首页主视频：从研究问题生成持续更新的活页" width="100%" />
+    <img src="assets/banner.jpg" alt="QuantBuddy Skills：把投研想法交给 Agent，把算力留给判断" width="100%" />
   </a>
   <br/>
-  <sub>点击海报播放官网首页主视频：从一句研究问题，到可交互、可分享、持续更新的研究活页。</sub>
+  <sub>点击首图打开官网首页主视频：从一句研究问题，到可交互、可分享、持续更新的研究活页。</sub>
 </p>
 
 <p align="center">
@@ -82,9 +82,9 @@ QuantBuddy Skills 把一次投研拆成四层。每层都能被 Agent 调用，�
 - **端侧足够轻**：数据和计算在云端，页面可以分享、下载为自包含 HTML，并嵌入网站、课程、桌面屏幕或自己的应用。
 
 <p align="center">
-  <img src="https://www.quantbuddy.cn/home/use-cases/research-companion.webp" alt="QuantBuddy 官网研究伴侣场景截图" width="88%" />
+  <img src="assets/demo_market_bubble.png" alt="QuantBuddy 研究活页示例：全球市场温度与估值泡沫看板" width="88%" />
   <br/>
-  <sub>官网场景：研究逻辑、数据和页面结构沉淀在同一张可持续运行的活页中。</sub>
+  <sub>研究活页示例：研究逻辑、数据和页面结构沉淀在同一张可持续运行的活页中。仓库内置图片，GitHub 可直接渲染。</sub>
 </p>
 
 ## QBS + QBV：从问题到持续更新的研究活页
@@ -112,14 +112,11 @@ QBV 支持把 RSI、RSRS、选股逻辑或回测研究提交给自动进化。�
 视频展示的重点是一条完整链路，而不是某个单独行情接口：用户提出想跟踪的问题，Agent 组织数据、指标、公式和研究范式，平台侧完成计算，再生成可以交互、分享、下载并持续更新的研究活页。
 
 <p align="center">
-  <video controls preload="metadata" poster="https://www.quantbuddy.cn/videos/quantbuddy-research-demo-poster.jpg" src="https://www.quantbuddy.cn/videos/quantbuddy-research-demo.mp4" width="86%">
-    <source src="https://www.quantbuddy.cn/videos/quantbuddy-research-demo.mp4" type="video/mp4" />
-    <a href="https://www.quantbuddy.cn/videos/quantbuddy-research-demo.mp4">播放 QuantBuddy 研究活页演示视频</a>
-  </video>
+  <a href="https://www.quantbuddy.cn/videos/quantbuddy-research-demo.mp4">
+    <img src="assets/demo_market_bubble.png" alt="点击播放 QuantBuddy 官网研究活页演示视频" width="86%" />
+  </a>
   <br/>
-  <a href="https://www.quantbuddy.cn/videos/quantbuddy-research-demo.mp4"><img src="https://www.quantbuddy.cn/videos/quantbuddy-research-demo-poster.jpg" alt="点击播放 QuantBuddy 研究活页演示视频" width="86%" /></a>
-  <br/>
-  <sub>如果当前 GitHub 客户端不显示播放器，请点击<a href="https://www.quantbuddy.cn/videos/quantbuddy-research-demo-poster.jpg">视频海报</a>或<a href="https://www.quantbuddy.cn/videos/quantbuddy-research-demo.mp4">直接打开 MP4</a>。视频和海报均托管在 quantbuddy.cn，方便国内用户访问。</sub>
+  <sub>GitHub README 不稳定支持外部 MP4 播放，因此使用仓库内截图作海报；点击图片即可在 quantbuddy.cn 打开官网主视频（国内可访问）。</sub>
 </p>
 
 ## 能力全景：市场、资产与研究动作
@@ -174,9 +171,9 @@ QBV 可以把 QBS 的验证结果或已有 JPG、PNG、HTML、PDF 先发布到�
 | 投资教育 | 可实验的课程活页 | 学生调整条件、查看公式、比较有效与失效情景 |
 
 <p align="center">
-  <img src="https://www.quantbuddy.cn/home/use-cases/course-campus.webp" alt="QuantBuddy 官网课程与研究场景截图" width="78%" />
+  <img src="assets/demo_hs300_monitor.png" alt="QuantBuddy 研究活页示例：沪深300 个股异动监控" width="78%" />
   <br/>
-  <sub>官网场景图：研究方法可以作为 HTML 活页嵌入课程、内容和产品。</sub>
+  <sub>研究活页示例：方法可以作为 HTML 活页嵌入课程、内容和产品。仓库内置图片，GitHub 可直接渲染。</sub>
 </p>
 
 ## 30 秒示例
