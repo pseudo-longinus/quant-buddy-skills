@@ -92,7 +92,7 @@ QBS turns a natural-language research question into data queries, formulas, scre
 
 ## Five Project Modules: From One Question To Continuous Research
 
-This repository connects five modules into one research workflow: ask a question, connect data, compute transparently, reuse research methods, then publish and keep the result running. Each diagram below is followed by the project capability it represents; the supplied product artwork stays in its original form so names, figures, and market labels remain faithful.
+This repository connects one entry point with five capability modules: start with a question, then move through data, computation, paradigms, research pages, and free evolution. Each diagram below is followed by the project capability it represents; the supplied product artwork stays in its original form so names, figures, and market labels remain faithful.
 
 ### Starting Point | One Question To A Research Page
 
@@ -125,6 +125,17 @@ QBS identifies the asset and market first, then follows the returned data contra
 
 `selectByComposition` supports `A股`, `港股`, `美股`, and `期货` through `universe.asset_scope` for current cross-sectional screens. Formula screening, factor ranking, and historical backtests follow each market's available fields. Report-period financial conditions can be aligned with price, moving-average, breakout, and turnover conditions. Snapshot and window queries process up to 1,000 assets per call; minute coverage follows the platform contract and returns an explicit notice when unavailable.
 
+**Representative data experiment (QBS `fast_query`, run on 2026-10-06)**
+
+One request queried close, return, turnover, and PE(TTM) for Kweichow Moutai in A-shares and Tencent in Hong Kong stocks. Each field keeps its own effective date:
+
+| Asset | Close (date) | Return (date) | PE(TTM) (date) |
+|---|---:|---:|---:|
+| Kweichow Moutai (600519.SH) | 1,258.62 (2026-09-30) | 1.8647% (2026-09-30) | 19.3209 (2026-09-30) |
+| Tencent (0700.HK) | 427.80 (2026-10-06) | 1.5670% (2026-10-06) | 16.2627 (2026-10-05) |
+
+This is the useful behavior of the data layer: one cross-market request, units supplied by field metadata, and no false “single as-of date” when market data and valuation data refresh on different schedules.
+
 ### 02 | Transparent, Extensible Low-Code Computation
 
 <p align="center">
@@ -134,6 +145,21 @@ QBS identifies the asset and market first, then follows the returned data contra
 </p>
 
 Low-code formulas preserve data dates, report periods, windows, and the calculation chain, with adjustable parameters, historical replay, and verifiable results. Large matrices stay on the platform side; the agent receives TopN lists, statistics, charts, or other structured evidence instead of raw tables.
+
+**Representative computation experiment (QBS `runMultiFormulaBatchStream` + `readData`)**
+
+Question: screen all A-shares for a 60-trading-day high, turnover above twice the past 20-day average, then rank by return. The platform executed seven formulas and the final read returned ten rows; the 2026-09-30 result included Shanshui Technology, Nanom Bio, Nearshore Protein, GuangKang Biotech, and Zhonghong Medical. `readData` reported `returned_rows=10`, `is_truncated=false`, and a cost of 2 RU.
+
+The formulas state the research definition; the platform expands the asset matrix:
+
+```text
+60日高基准 = 昨天(最大("全市场每日最高价", 60))
+放量突破Top10 = 取前("突破60日新高" * "成交额放量" * 涨跌幅("全市场每日收盘价"), 10, 返回数值)
+```
+
+```text
+Natural-language condition → seven-formula chain → platform-side full-market computation → Top10 + returns → 2 RU read
+```
 
 ### 03 | Professional Paradigm Library
 
@@ -147,6 +173,10 @@ The project separates “how to calculate” from “how to apply” by keeping 
 
 These indicators support asset profiles, cross-market screens, factor portfolios, industry/theme aggregation, event studies, backtests, and research pages. Whether an indicator is materialized, for which market, and for which date is determined by `selection_ready`, `asset_scope`, `as_of`, and the actual service response.
 
+**Representative paradigm-reuse experiment (online catalog + `selectByComposition`)**
+
+The online catalog first finds two RSI-related candidates among 18 research dimensions. The selector then combines `A股_RSI强而不过热` as a score with `A股_短期高低点抬升` as a screen, and requires the RSI score to be positive. On the 2026-09-30 snapshot, the selector confirmed an A-share universe of 443 members and returned ten results; the leading names included 古越龙山, 泉阳泉, 复星医药, 华发股份, and 恒丰纸业. The reusable path is: discover an indicator → inspect its output type and snapshot date → put score/screen inputs in the correct slots → read a dated, explainable TopN result.
+
 ### 04 | Research Pages Keep Running
 
 <p align="center">
@@ -155,7 +185,25 @@ These indicators support asset profiles, cross-market screens, factor portfolios
   <sub>A page is more than a screenshot: bind a formula package, open it for current data, share it, or download a self-contained HTML file.</sub>
 </p>
 
-QBV publishes QBS results, or existing JPG, PNG, HTML, and PDF assets, to **free hosted research space** without requiring a backend or web-server purchase. Pages can be shared, downloaded as self-contained HTML, and refreshed online from their bound data contract. They can also preserve an existing layout, add benchmark series, edit charts, reuse a page shell, and pass page-quality checks. Typical deliveries include asset profiles, valuation/financial pages, index anomalies, cross-asset comparisons, industry/theme opportunities, money-flow signals, fund/ETF/bond profiles, commodity reports, K-line pages, and strategy NAV dashboards.
+QBV has two distinct delivery paths: existing JPG, PNG, HTML, and PDF files can be published first as readable, shareable static pages in **free hosted research space**; a QBS result becomes continuously refreshable only after it is bound to a formula package or Data Grant. Dynamic pages can be downloaded as self-contained HTML, preserve an existing layout, add benchmark series, edit charts, reuse a page shell, and pass page-quality checks. Typical deliveries include asset profiles, valuation/financial pages, index anomalies, cross-asset comparisons, industry/theme opportunities, money-flow signals, fund/ETF/bond profiles, commodity reports, K-line pages, and strategy NAV dashboards.
+
+**Two concrete delivery pages**
+
+The two screenshots below show the formula-package page shape: the browser reads structured outputs with a public credential and renders the table/chart itself. They are not raw QBS tables, and the API key never enters the front end.
+
+<p align="center">
+  <img src="assets/demo_market_bubble.png" alt="Global market temperature and valuation-bubble dashboard" width="78%" />
+  <br/>
+  <sub><b>Global market temperature dashboard</b> · seven index returns, valuation-bubble temperature, commodities, and bonds.</sub>
+</p>
+
+<p align="center">
+  <img src="assets/demo_hs300_monitor.png" alt="CSI 300 constituent anomaly monitor" width="78%" />
+  <br/>
+  <sub><b>CSI 300 constituent anomaly monitor</b> · return ranking, turnover/volume anomalies, and six-month price paths.</sub>
+</p>
+
+> The numbers are historical/example data for demonstrating delivery shape; they are not investment or trading advice.
 
 ### 05 | Start Free And Evolve
 
@@ -166,6 +214,14 @@ QBV publishes QBS results, or existing JPG, PNG, HTML, and PDF assets, to **free
 </p>
 
 QBV can submit RSI, RSRS, screening logic, or backtests to an L1–L5 evolution path. Registration records the intent to evolve, not an immediately running job. Longer jobs run free at irregular intervals when spare compute is available, to add data, compare history, check definitions, or improve presentation. Jobs queue behind available resources; when a new version is ready, compare its changes and RU usage before adopting it.
+
+**A reusable evolution request**
+
+```text
+Continue checking this RSI / RSRS page: add a longer history window and compare signal stability across L1–L3 versions. Queue it when spare compute is available, keep the original version, and report changes and RU usage when a candidate is ready.
+```
+
+“Submit” records the research objective; entering the execution queue still depends on spare capacity. Adopt a new page only after comparing its definitions, results, and resource usage with the original.
 
 ## Reusable Research Delivery Scenarios
 
@@ -179,19 +235,6 @@ The same data, indicator, and computation foundation can support different resea
 | Website / mini-program / app | Custom method or screening page | Track valuation, quality, and trend candidates over time |
 | Adviser / allocation workflow | Interactive client page | Connect horizon, risk, and liquidity preferences to updateable logic |
 | Investment education | Experiment page | Adjust conditions, inspect formulas, and compare outcomes |
-
-## 30-Second Demo
-
-Tell your AI agent:
-
-```text
-Screen all A-shares at 14:30 today. Find companies hitting a 60-trading-day high,
-with turnover above 2x the past 20-day average, ranked by intraday return.
-```
-
-The agent generates a formula chain. quant-buddy runs the full-market computation on the platform side, then returns only the TopN stock list, metrics, ranking, and charts.
-
-No need to push thousands of rows into the LLM context. No need to manually write data cleaning, field joins, or backtesting code.
 
 ## Why Install It
 
@@ -246,7 +289,7 @@ No need to push thousands of rows into the LLM context. No need to manually writ
 
 ## Real Invocation Examples
 
-The following examples were generated by actual quant-buddy-skill calls on 2026-05-18. Market data changes over time, but the examples show the core workflow: natural language enters the AI agent, formulas are computed on the platform side, and only structured results are returned to the LLM.
+The following examples are historical call records from 2026-05-18, so market values will change. The current reproducible experiments are placed under the five modules above; this section keeps the full parameter and reuse patterns.
 
 ### Example 1: Ask In Natural Language, Return Multiple Indicators
 
@@ -370,23 +413,7 @@ Register once (needs an API Key) and you get a pair of credentials, `package_id`
 - **Embed into an existing site / Notion / Feishu / a wall display**: anywhere `fetch` runs, you can pipe quant-buddy's computed results into your own page.
 - **Third-party / lightweight integration**: hand a precomputed metric package to a partner for read-only access with zero config.
 
-**What you can build: two real pages powered by formula packages**
-
-Both pages below are **plain static HTML** — no backend, no database. They just `fetch` a formula package in the browser and render the returned `outputs` into tables and charts. Whenever the underlying data updates, a page refresh shows today's latest values, and the **API Key never touches the front end**.
-
-<p align="center">
-  <img src="assets/demo_market_bubble.png" alt="Global market temperature / valuation bubble dashboard" width="78%" />
-  <br/>
-  <sub><b>Global market-temperature dashboard</b> · seven major indices, a market-wide valuation "bubble temperature", plus commodity and bond trends — the whole page comes from a single formula-package query.</sub>
-</p>
-
-<p align="center">
-  <img src="assets/demo_hs300_monitor.png" alt="CSI 300 single-stock anomaly monitor" width="78%" />
-  <br/>
-  <sub><b>CSI 300 anomaly monitor</b> · gainers / losers, turnover &amp; volume anomalies, and six-month price tracks — rendered from the same single <code>fetch</code>.</sub>
-</p>
-
-> ⚠️ These pages are **illustrative demos** of formula packages. All figures are historical / sample data and **do not constitute any investment or trading advice**.
+The two formula-package screenshots and their delivery explanation are under “04 | Research Pages Keep Running”; this section continues with registration, querying, and front-end integration code.
 
 **Two-step usage**
 
@@ -517,19 +544,6 @@ The difference is that computation is not improvised inside the LLM context with
 | Token usage | Medium | Medium / high | High when raw data enters context | Low, returns only results |
 | Best users | Content, reports, event tracking | Quant developers | Data engineering, custom pipelines | Quant researchers, research automation, agent users |
 | Best scenario | “What does this news affect?” | “How do I call the QMT API?” | “I need raw data” | “Cross-market screening / factors / backtesting / charts / research pages” |
-
-## Data Coverage
-
-| Market / asset | Market and window data | Valuation / financials | Screening / research |
-|---|---|---|---|
-| A-share stocks / ETFs | Supported | Broadest coverage | Screens, factors, backtests, industry aggregation, K-lines, and minute tasks |
-| Hong Kong stocks | Supported | Selected fields, subject to API results | Materialized-indicator selection, formulas, comparisons, and pages |
-| US stocks / overseas ETFs | Supported | Selected fields, subject to API results | Materialized-indicator selection, formulas, factors, comparisons, and pages |
-| A-share, sector/theme, and overseas indices | Supported | Dataset-specific | Benchmark comparison, return ranking, event studies, and page charts |
-| Domestic futures | Main/continuous/nearby contracts, spot, inventory, and roll events | No stock-style valuation or financials | Futures screens, supply/demand research, continuous-contract comparison, and selected minute tasks |
-| Macro / options / research datasets | Dataset-specific | Dataset-specific | Macro context, option IV, US options, GICS classification, and strategy research |
-
-> Hong Kong and US price fields commonly include close, open, high, low, return, volume, and turnover; valuation and financial fields depend on the actual API response. Futures do not promise stock-style valuation, financials, or candlestick rendering.
 
 ## Installation
 
