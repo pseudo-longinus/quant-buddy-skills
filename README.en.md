@@ -5,13 +5,13 @@
     <img src="assets/quantbuddy-infrastructure.png" alt="QuantBuddy: one-stop AI infrastructure for investment research" width="100%" />
   </a>
   <br/>
-  <sub>Click the hero image to open the official QuantBuddy research-page demo video.</sub>
+  <sub>Click the hero image to open the QuantBuddy research-page workflow demo.</sub>
 </p>
 
 <p align="center">
   <a href="README.md">中文</a> ·
   <a href="README.en.md">English</a> ·
-  <a href="https://www.quantbuddy.cn">Official Site</a> ·
+  <a href="https://www.quantbuddy.cn">QuantBuddy</a> ·
   <a href="https://tcn8bvcbyokw.feishu.cn/wiki/E1zswck3oiiJjJkP07QcmSG3nle?from=from_copylink">Beginner Guide</a>
 </p>
 
@@ -55,7 +55,7 @@ Coverage includes A-shares, Hong Kong stocks, US stocks, indices, ETFs, domestic
 
 Traditional data APIs retrieve raw values. quant-buddy-skills lets an agent turn a natural-language research idea into **executable formulas, platform-side computation, structured evidence, and reusable tasks**.
 
-Official site: https://www.quantbuddy.cn
+Project site and demo: https://www.quantbuddy.cn
 
 > This project is for financial data analysis, quantitative research, strategy validation, and educational use only. It is not investment advice, trading advice, a return guarantee, or an automated trading service.
 
@@ -70,7 +70,7 @@ QuantBuddy Skills separates research into four layers:
 | **Computation** | Formulas, rolling windows, cross-sectional screens, factors, event studies, backtests, NAVs, and charts | Large matrices are computed on the platform; the agent receives evidence |
 | **Delivery** | Formula packages, Data Grants, QBV pages, free hosting, and continuous updates | A validated research idea can be shared, reused, downloaded, and rerun |
 
-The official product story is “a thousand-indicator plan × a paradigm library”: the indicator system defines how to calculate; the paradigm library defines how to apply validated research methods.
+The project organizes this foundation as an indicator system × a paradigm library: the indicator system defines how to calculate; the paradigm library defines how to apply validated research methods.
 
 The stack provides transparent evidence, lower token usage, cross-market comparison, reusable formulas and pages, daily refreshes, and free evolution runs when spare compute is available.
 
@@ -90,25 +90,40 @@ QBS turns a natural-language research question into data queries, formulas, scre
   <sub>QBS computes and structures the research; QBV validates, publishes, and keeps the page running.</sub>
 </p>
 
-## Official Capability Path: From One Question To Continuous Research
+## Five Project Modules: From One Question To Continuous Research
 
-The official product path is a single flow: ask a question, connect the right data, run transparent computation, reuse professional paradigms, publish a living page, and continue iterating with free hosting and spare-compute evolution.
+This repository connects five modules into one research workflow: ask a question, connect data, compute transparently, reuse research methods, then publish and keep the result running. Each diagram below is followed by the project capability it represents; the supplied product artwork stays in its original form so names, figures, and market labels remain faithful.
 
-The diagrams below use the official Chinese product artwork so product names, figures, and market labels remain faithful; the English captions describe each stage.
+### Starting Point | One Question To A Research Page
 
 <p align="center">
   <img src="assets/quantbuddy-one-question-live-page.png" alt="QuantBuddy AI generates a research page from one question" width="100%" />
   <br/>
-  <sub>Start with one natural-language question and generate an interactive, shareable, continuously updated research page.</sub>
+  <sub>Start with a natural-language question and generate an interactive, shareable, continuously updated research page.</sub>
 </p>
+
+QBS interprets what you want to study and organizes the query, formula, screen, or backtest. QBV receives the verified structured result and turns it into a page that can be reopened and updated. The hero image above links to a full workflow demo, from the research question to the living page.
 
 ### 01 | Full Research-Data Coverage
 
 <p align="center">
   <img src="assets/quantbuddy-data-coverage.png" alt="QuantBuddy research-data coverage across A-shares, Hong Kong stocks, US stocks, futures, and macro data" width="88%" />
   <br/>
-  <sub>Market data, financial reports, valuation, money flow, sentiment, macro, and alternative datasets enter one research workflow.</sub>
+  <sub>Market, financial, valuation, money-flow, sentiment, futures supply/demand, macro, and alternative data enter one workflow.</sub>
 </p>
+
+QBS identifies the asset and market first, then follows the returned data contract for fields, dates, and coverage. Current scope includes A-shares, Hong Kong stocks, US stocks, indices, ETFs, domestic futures, macro strategy data, A-share option IV, US options, LHB labels, and GICS classifications; exact fields depend on the service response.
+
+| Market / asset | Direct queries | Research actions | Boundary |
+|---|---|---|---|
+| A-share stocks and ETFs | Market, valuation, report-period financials, industries, money flow, LHB, sentiment | Formulas, cross-sectional screens, factors, backtests, industry aggregation, K-lines, minute tasks | Broadest field coverage |
+| Hong Kong stocks | Market data, window returns, selected valuation / financial fields, southbound holdings | Materialized-indicator screens; formulas, comparisons, and pages for available fields | Do not apply A-share-only fields |
+| US stocks and overseas ETFs | Market data, window returns, selected valuation / financial fields | Screens, formulas, comparisons, factors, and pages for available fields | Coverage depends on asset and API |
+| Indices | A-share, sector/theme, and overseas index series | Benchmark comparison, return ranking, event studies, page charts | Minute coverage varies by market |
+| Domestic futures | Main/continuous/nearby contracts, windows, spot, inventory, roll events | Futures screens, supply/demand research, continuous-contract comparison, selected minute tasks | No stock-style valuation or financials |
+| Macro, options, and research datasets | Macro strategy data, A-share option IV, US options, GICS classifications | Macro context, volatility, classification aggregation, strategy research | Dataset-specific coverage |
+
+`selectByComposition` supports `A股`, `港股`, `美股`, and `期货` through `universe.asset_scope` for current cross-sectional screens. Formula screening, factor ranking, and historical backtests follow each market's available fields. Report-period financial conditions can be aligned with price, moving-average, breakout, and turnover conditions. Snapshot and window queries process up to 1,000 assets per call; minute coverage follows the platform contract and returns an explicit notice when unavailable.
 
 ### 02 | Transparent, Extensible Low-Code Computation
 
@@ -118,13 +133,19 @@ The diagrams below use the official Chinese product artwork so product names, fi
   <sub>Compose data, window statistics, conditions, factors, and backtests with formulas; return structured, auditable results to the agent.</sub>
 </p>
 
+Low-code formulas preserve data dates, report periods, windows, and the calculation chain, with adjustable parameters, historical replay, and verifiable results. Large matrices stay on the platform side; the agent receives TopN lists, statistics, charts, or other structured evidence instead of raw tables.
+
 ### 03 | Professional Paradigm Library
 
 <p align="center">
   <img src="assets/quantbuddy-paradigm-library.png" alt="QuantBuddy professional paradigm library for trend, valuation, money flow, futures supply and demand, and sentiment research" width="88%" />
   <br/>
-  <sub>Turn experienced investment methods into agent-callable research paradigms that can be discovered, saved, derived, and reused.</sub>
+  <sub>Turn experienced investment methods into agent-callable paradigms that can be discovered, saved, derived, and reused.</sub>
 </p>
+
+The project separates “how to calculate” from “how to apply” by keeping an indicator system and a reusable paradigm library. It currently covers **18 research dimensions and 280+ landed indicators** (the local catalog records 327 candidates): trend structure, momentum and reversal, relative strength, volume and liquidity, money flow, pattern/volatility/risk, valuation, profitability, growth, cash-flow quality, financial safety, operating efficiency, financial distress, futures supply/demand, anomaly monitoring, LHB seats, market sentiment, and individual-stock sentiment.
+
+These indicators support asset profiles, cross-market screens, factor portfolios, industry/theme aggregation, event studies, backtests, and research pages. Whether an indicator is materialized, for which market, and for which date is determined by `selection_ready`, `asset_scope`, `as_of`, and the actual service response.
 
 ### 04 | Research Pages Keep Running
 
@@ -134,37 +155,30 @@ The diagrams below use the official Chinese product artwork so product names, fi
   <sub>A page is more than a screenshot: bind a formula package, open it for current data, share it, or download a self-contained HTML file.</sub>
 </p>
 
+QBV publishes QBS results, or existing JPG, PNG, HTML, and PDF assets, to **free hosted research space** without requiring a backend or web-server purchase. Pages can be shared, downloaded as self-contained HTML, and refreshed online from their bound data contract. They can also preserve an existing layout, add benchmark series, edit charts, reuse a page shell, and pass page-quality checks. Typical deliveries include asset profiles, valuation/financial pages, index anomalies, cross-asset comparisons, industry/theme opportunities, money-flow signals, fund/ETF/bond profiles, commodity reports, K-line pages, and strategy NAV dashboards.
+
 ### 05 | Start Free And Evolve
 
 <p align="center">
   <img src="assets/quantbuddy-free-start.png" alt="QuantBuddy free start with free data quota, research space, and automatic evolution" width="88%" />
   <br/>
-  <sub>Free research space, spare-compute queueing, and comparable new versions turn a one-off experiment into an iterative research process.</sub>
+  <sub>Free data quota, free research space, spare-compute queueing, and comparable new versions support iteration.</sub>
 </p>
 
-QBV provides free research hosting without requiring you to deploy a backend or purchase a web server. A page can also be downloaded as self-contained HTML; when opened online, its bound formulas can continue to retrieve current data.
+QBV can submit RSI, RSRS, screening logic, or backtests to an L1–L5 evolution path. Registration records the intent to evolve, not an immediately running job. Longer jobs run free at irregular intervals when spare compute is available, to add data, compare history, check definitions, or improve presentation. Jobs queue behind available resources; when a new version is ready, compare its changes and RU usage before adopting it.
 
-QBV supports automatic evolution for RSI, RSRS, screening logic, and backtests. Pages can enter an L1–L5 evolution path; registration records the intent to evolve, not an immediately running job. Longer jobs run free when spare compute is available, with results queued in the background and delivered as comparable versions.
+## Reusable Research Delivery Scenarios
 
-## Capability Map: Markets, Assets, And Research Actions
+The same data, indicator, and computation foundation can support different research products or embed into an existing site, course, desktop screen, or application:
 
-QBS is not limited to A-shares. It identifies the asset and market first, then returns fields, dates, and coverage status from the actual data contract.
-
-| Market / asset | Direct queries | Research actions | Boundary |
-|---|---|---|---|
-| A-share stocks and ETFs | Market, valuation, report-period financials, industries, money flow, LHB, sentiment | Formulas, cross-sectional screens, factors, backtests, industry aggregation, K-lines, minute tasks | Broadest field coverage |
-| Hong Kong stocks | Market data, window returns, selected valuation / financial fields, southbound holdings | Cross-sectional selection on materialized indicators; formulas and pages for available fields | Do not apply A-share-only fields |
-| US stocks and overseas ETFs | Market data, window returns, selected valuation / financial fields | Cross-sectional selection, formulas, factors, comparisons, and pages for available fields | Coverage depends on asset and API |
-| Indices | A-share, sector/theme, and overseas index series | Benchmark comparison, return ranking, event studies, page charts | Minute coverage varies by market |
-| Domestic futures | Main/continuous/nearby contracts, windows, spot, inventory, roll events | Futures screens, supply/demand research, continuous-contract comparison, selected minute tasks | No stock-style valuation or financials |
-| Macro, options, and research datasets | Macro strategy data, A-share option IV, US options, GICS classifications | Macro context, volatility, classification aggregation, strategy research | Dataset-specific coverage |
-
-### Screening Across Four Markets
-
-1. **Current cross-section:** `selectByComposition` supports `A股`, `港股`, `美股`, and `期货` through `universe.asset_scope`, combining materialized score/screen indicators into TopN, rankings, and condition intersections.
-2. **Formula screening and factor ranking:** generate multi-condition formulas, rolling statistics, masks, ranks, and composite factors; the platform computes the large matrix and returns names, metrics, or charts.
-3. **Price + financial conditions:** align report-period / publication dates with price, moving-average, breakout, and turnover conditions. A-share examples in this repository describe one contract; they do not limit the workflow to A-shares.
-4. **Historical research:** separate current TopN selection from historical screening, factor IC, grouped returns, strategy backtests, NAV curves, and benchmark comparisons.
+| Scenario | Delivery | Example |
+|---|---|---|
+| Report reproduction / strategy testing | Replayable formula and backtest page | Recheck assumptions and keep signals/NAVs recalculating |
+| Financial content / sector brief | Embeddable research page | Sector crowding, TopN definitions, and charts update with data |
+| Desktop agent / finance screen | Condition-monitoring page | Show only meaningful changes, with evidence behind each signal |
+| Website / mini-program / app | Custom method or screening page | Track valuation, quality, and trend candidates over time |
+| Adviser / allocation workflow | Interactive client page | Connect horizon, risk, and liquidity preferences to updateable logic |
+| Investment education | Experiment page | Adjust conditions, inspect formulas, and compare outcomes |
 
 ## 30-Second Demo
 
