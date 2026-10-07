@@ -138,6 +138,35 @@ def _unusable(reason: str, detail: Optional[str] = None) -> Dict[str, Any]:
     return result
 
 
+def _normalize_display_contract(value: Any) -> Optional[Dict[str, Any]]:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError("display_contract_invalid")
+    try:
+        universe_count = int(value.get("universe_count", 0))
+        display_count = int(value.get("display_count", 20))
+        rank_limit = int(value.get("rank_limit", display_count))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("display_contract_counts_invalid") from exc
+    if universe_count < 0 or display_count < 1 or rank_limit < 1 or display_count > rank_limit:
+        raise ValueError("display_contract_counts_invalid")
+    render_mode = str(value.get("render_mode") or "dynamic").strip()
+    artifact_scope = str(value.get("artifact_scope") or "full_universe").strip()
+    if render_mode not in {"validated_snapshot", "dynamic"}:
+        raise ValueError("display_contract_render_mode_invalid")
+    if artifact_scope not in {"full_universe", "top_n"}:
+        raise ValueError("display_contract_artifact_scope_invalid")
+    return {
+        **value,
+        "universe_count": universe_count,
+        "display_count": display_count,
+        "rank_limit": rank_limit,
+        "render_mode": render_mode,
+        "artifact_scope": artifact_scope,
+    }
+
+
 def evaluate_handoff(handoff: Any, required_roles: Any = None) -> Dict[str, Any]:
     if not isinstance(handoff, dict):
         return _unusable("handoff_invalid")
@@ -149,6 +178,10 @@ def evaluate_handoff(handoff: Any, required_roles: Any = None) -> Dict[str, Any]
     for field in ("task_id", "turn_id"):
         if str(capsule.get(field) or "").strip() != str(handoff.get(field) or "").strip():
             return _unusable("capsule_lineage_mismatch", field)
+    try:
+        display_contract = _normalize_display_contract(handoff.get("display_contract"))
+    except ValueError as exc:
+        return _unusable("display_contract_invalid", str(exc))
 
     formula_runtime_contract = None
     if capsule.get("formula_runtime_contract") is not None:
@@ -269,7 +302,11 @@ def evaluate_handoff(handoff: Any, required_roles: Any = None) -> Dict[str, Any]
         "reusable_outputs": [outputs_by_role[role] for role in covered],
         "validated_insights": list(capsule.get("validated_insights") or []) if isinstance(capsule.get("validated_insights"), list) else [],
         "validation_receipts": list(capsule.get("validation_receipts") or []) if isinstance(capsule.get("validation_receipts"), list) else [],
+        "next_step": "templates" if coverage == "covered" else "qbs_bridge_missing_roles",
     }
+    if display_contract is not None:
+        result["display_contract"] = display_contract
+        result["delivery_mode"] = display_contract["render_mode"]
     if formula_runtime_contract is not None:
         result["formula_runtime_action"] = ('unsupported_minute_package'
             if formula_runtime_contract.get('use_minute_data') else 'register_exact')

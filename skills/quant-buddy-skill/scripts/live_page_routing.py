@@ -20,7 +20,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
-from answer_structure import structure_from_roles
+from answer_structure import DEFAULT_RANK_LIMIT, structure_from_roles
 from task_context import adopt_host_context, host_managed_lifecycle, TaskContextError
 
 from qbv_computation_capsule import (
@@ -473,6 +473,82 @@ def _json_list(value: Any, name: str) -> list:
     return value
 
 
+def _normalize_display_contract(value: Any) -> Optional[Dict[str, Any]]:
+    """Validate presentation scope separately from computation scope.
+
+    ``universe_count`` may describe thousands of computed rows while
+    ``display_count``/``rank_limit`` keep the first page bounded.  This is a
+    presentation contract and must never be used as a data-computation limit.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise LivePageRoutingError("INVALID_DISPLAY_CONTRACT", "display_contract 必须是 JSON object")
+    result = dict(value)
+    try:
+        universe_count = int(result.get("universe_count", 0))
+        display_count = int(result.get("display_count", DEFAULT_RANK_LIMIT))
+        rank_limit = int(result.get("rank_limit", display_count))
+    except (TypeError, ValueError) as exc:
+        raise LivePageRoutingError("INVALID_DISPLAY_CONTRACT", "display_contract 的数量字段必须是整数") from exc
+    if universe_count < 0 or display_count < 1 or rank_limit < 1:
+        raise LivePageRoutingError("INVALID_DISPLAY_CONTRACT", "display_contract 的数量字段不合法")
+    if display_count > rank_limit:
+        raise LivePageRoutingError("INVALID_DISPLAY_CONTRACT", "display_count 不能大于 rank_limit")
+    render_mode = _compact_text(result.get("render_mode") or "dynamic")
+    if render_mode not in {"validated_snapshot", "dynamic"}:
+        raise LivePageRoutingError("INVALID_DISPLAY_CONTRACT", "render_mode 只能是 validated_snapshot 或 dynamic")
+    artifact_scope = _compact_text(result.get("artifact_scope") or "full_universe")
+    if artifact_scope not in {"full_universe", "top_n"}:
+        raise LivePageRoutingError("INVALID_DISPLAY_CONTRACT", "artifact_scope 只能是 full_universe 或 top_n")
+    result.update({
+        "universe_count": universe_count,
+        "display_count": display_count,
+        "rank_limit": rank_limit,
+        "render_mode": render_mode,
+        "artifact_scope": artifact_scope,
+    })
+    return result
+
+
+def _infer_display_contract(capsule: Dict[str, Any], page_intent: Any) -> Optional[Dict[str, Any]]:
+    """Bound ranking display to Top20 while keeping the page live by default."""
+    structure = capsule.get("answer_structure") if isinstance(capsule, dict) else None
+    blocks = structure.get("blocks", []) if isinstance(structure, dict) else []
+    ranking_blocks = [item for item in blocks if isinstance(item, dict) and item.get("type") == "ranking"]
+    role_text = json.dumps(capsule.get("validated_outputs", []), ensure_ascii=False)
+    intent_text = json.dumps(page_intent, ensure_ascii=False)
+    ranking_requested = bool(ranking_blocks) or bool(re.search(r"排名|排序|选股|筛选|ranking|score|top", role_text + intent_text, re.IGNORECASE))
+    if not ranking_requested:
+        return None
+    limits = []
+    for block in ranking_blocks:
+        try:
+            limits.append(int(block.get("rank_limit") or DEFAULT_RANK_LIMIT))
+        except (TypeError, ValueError):
+            limits.append(DEFAULT_RANK_LIMIT)
+    rank_limit = max(limits or [DEFAULT_RANK_LIMIT])
+    universe_count = 0
+    for item in capsule.get("validated_outputs", []):
+        if not isinstance(item, dict):
+            continue
+        try:
+            universe_count = max(universe_count, int(item.get("row_count") or item.get("asset_count") or 0))
+        except (TypeError, ValueError):
+            continue
+    intent = page_intent if isinstance(page_intent, dict) else {}
+    requested_mode = _compact_text(intent.get("render_mode"))
+    if requested_mode not in {"validated_snapshot", "dynamic"}:
+        requested_mode = "dynamic"
+    return _normalize_display_contract({
+        "universe_count": universe_count,
+        "display_count": rank_limit,
+        "rank_limit": rank_limit,
+        "render_mode": requested_mode,
+        "artifact_scope": "full_universe",
+    })
+
+
 def _has_explicit_validation_receipt(validated_roles: Any, validation_receipts: Any) -> bool:
     if isinstance(validation_receipts, list) and validation_receipts:
         return True
@@ -601,6 +677,7 @@ def build_qbv_handoff(
     validated_outputs: Any = None,
     validation_receipts: Any = None,
     computation_capsule: Any = None,
+    display_contract: Any = None,
     requires_persistence_confirmation: bool = False,
     persistence_confirmed: bool = False,
 ) -> Dict[str, Any]:
@@ -652,6 +729,7 @@ def build_qbv_handoff(
             expected_turn_id=turn_value,
             expected_user_query=query_value,
         )
+    normalized_display_contract = _normalize_display_contract(display_contract)
     handoff = {
         "schema_version": SCHEMA_VERSION,
         "task_id": task_value,
@@ -672,6 +750,8 @@ def build_qbv_handoff(
     }
     if capsule is not None:
         handoff["computation_capsule"] = capsule
+    if normalized_display_contract is not None:
+        handoff["display_contract"] = normalized_display_contract
     return handoff
 
 
@@ -698,6 +778,7 @@ def validate_qbv_handoff(payload: Any) -> Dict[str, Any]:
         validated_outputs=payload.get("validated_outputs"),
         validation_receipts=payload.get("validation_receipts"),
         computation_capsule=payload.get("computation_capsule"),
+        display_contract=payload.get("display_contract"),
         requires_persistence_confirmation=payload.get("requires_persistence_confirmation", False),
         persistence_confirmed=payload.get("persistence_confirmed", False),
     )
@@ -705,11 +786,29 @@ def validate_qbv_handoff(payload: Any) -> Dict[str, Any]:
 
 def idempotency_key_for(handoff: Dict[str, Any]) -> str:
     valid = validate_qbv_handoff(handoff)
+    capsule = valid.get("computation_capsule") or {}
+    lineage = {
+        "display_contract": valid.get("display_contract"),
+        "outputs": [
+            {
+                "role": item.get("role"),
+                "data_hash": item.get("data_hash"),
+                "reference_hash": item.get("reference_hash"),
+                "contract_fingerprint": item.get("contract_fingerprint"),
+                "row_count": item.get("row_count"),
+            }
+            for item in capsule.get("validated_outputs", [])
+            if isinstance(item, dict)
+        ],
+        "formula_runtime_contract": (capsule.get("formula_runtime_contract") or {}).get("contract_fingerprint"),
+    }
+    lineage_hash = hashlib.sha256(json.dumps(lineage, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
     source = "\n".join((
         valid["task_id"],
         valid["turn_id"],
         valid["route"],
         normalize_page_reference(valid.get("page_reference")) or "",
+        lineage_hash,
     ))
     return hashlib.sha256(source.encode("utf-8")).hexdigest()
 
@@ -1094,6 +1193,7 @@ def prepare_validated_page(
     validation_receipts: Any = None,
     formula_runtime_contract: Any = None,
     answer_structure: Any = None,
+    display_contract: Any = None,
     page_requested: bool = False,
     execution_mode: str = 'same_turn',
     source_skill_id: Any = None,
@@ -1167,6 +1267,9 @@ def prepare_validated_page(
         formula_runtime_contract=formula_runtime_contract,
         answer_structure=answer_structure,
     )
+    effective_display_contract = _normalize_display_contract(display_contract)
+    if effective_display_contract is None:
+        effective_display_contract = _infer_display_contract(capsule, page_intent)
     handoff = build_qbv_handoff(
         task_id=task_id,
         turn_id=turn_id,
@@ -1180,6 +1283,7 @@ def prepare_validated_page(
         validated_outputs=capsule["validated_outputs"],
         validation_receipts=capsule["validation_receipts"],
         computation_capsule=capsule,
+        display_contract=effective_display_contract,
         requires_persistence_confirmation=False,
         persistence_confirmed=bool(persistence_confirmed),
     )
@@ -1212,6 +1316,7 @@ def prepare_validated_page(
         "formula_execution_contracts": capsule.get('formula_execution_contracts', []),
         "answer_structure_status": capsule.get('answer_structure_status', 'absent'),
         "answer_structure": capsule.get('answer_structure'),
+        "display_contract": effective_display_contract,
         **(
             {"discovered_validation_receipt_file": discovered_receipt_file}
             if discovered_receipt_file

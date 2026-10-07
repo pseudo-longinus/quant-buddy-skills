@@ -5,6 +5,7 @@ Vendored identically in QBS and QBV so either Skill can be installed alone.
 import copy
 
 SCHEMA = 'qbs_answer_structure_v1'
+DEFAULT_RANK_LIMIT = 20
 PANEL_TYPES = {'summary': 'text', 'metric': 'number', 'ranking': 'bar',
                'comparison': 'table', 'timeseries': 'line', 'table': 'table', 'note': 'text'}
 
@@ -51,7 +52,9 @@ def normalize_answer_structure(value, outputs, insights):
             if block['type'] == 'ranking':
                 if raw.get('rank_order') not in {'asc', 'desc'}:
                     raise ValueError('invalid_rank_order')
-                limit = raw.get('rank_limit')
+                # Keep ranking output bounded by default. This controls the
+                # page's visible rows, not the size of the computed universe.
+                limit = DEFAULT_RANK_LIMIT if 'rank_limit' not in raw else raw.get('rank_limit')
                 if type(limit) is not int or limit < 1:
                     raise ValueError('invalid_rank_limit')
                 block.update(rank_order=raw['rank_order'], rank_limit=limit)

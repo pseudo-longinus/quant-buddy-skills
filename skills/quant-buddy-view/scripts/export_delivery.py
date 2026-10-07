@@ -17,7 +17,8 @@ def _url(value):
 
 
 def export(task, turn, reply_text='', *, finalize_reply=False):
-    result = {'schema_version': 1, 'task_id': task, 'turn_id': turn, 'status': 'unknown'}
+    result = {'schema_version': 1, 'task_id': task, 'turn_id': turn, 'status': 'unknown',
+              'page_delivery_required': False}
     try:
         if not all(re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,159}', v) for v in (task, turn)):
             return result
@@ -29,6 +30,7 @@ def export(task, turn, reply_text='', *, finalize_reply=False):
         if state.get('turn_id') != turn:
             return result
         result['page_id'] = plan['target_page_id']
+        result['page_delivery_required'] = True
         execution = state.get('execution_status')
         public = state.get('delivery_state')
         write = state.get('last_write') or {}

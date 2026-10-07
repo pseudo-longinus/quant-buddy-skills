@@ -2,7 +2,7 @@
 name: quant-buddy-view
 slug: quant-buddy-view
 author: guanzhao
-version: 0.6.87
+version: 0.6.88
 description: |
   将量化分析或已有 JPG/PNG、HTML、PDF 发布为 Quant Buddy 可分享活页或实时看板，并支持创建、更新、复用、验收和公开链接交付。适用于个股画像、估值财务、指数异动、多因子筛选、商品日报、模板、分享壳及卡片等页面。
   用户提供 QuantBuddy 活页 URL 并要求解读时也使用。显式调用 /quant-buddy-view、/qbv、qbv 或 QBV，且请求并非纯咨询、代码维护或文档解释时，默认按可分享活页任务处理。
@@ -11,7 +11,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 0.6.87
+  version: 0.6.88
   author: guanzhao
   category: quant-finance
   tags: [quant, dashboard, formula-package, static-page, publish, visualization]
@@ -98,6 +98,8 @@ python scripts/static_page.py interpret '{"url":"用户提供的页面 URL"}'
 > **多轮追问**：首次用户消息运行 `scripts/trace_context.py begin`；同一 `task_id` 的每条后续用户消息先运行 `scripts/trace_context.py beginTurn`。正常 Agent 必须同时传本轮可选 `agent_intent`：简洁展开上下文指代并写清对象、动作、约束和期望页面/产物，推荐 20～160 字；不得复制用户原话、输出内部推理或提前编造结论。老调用方可省略并按 `null` 继续。一轮内所有 QBV/QBS 工具共享同一 `turn_id`。Turn 是审计旁路：服务端记录失败会返回 `tracking_recorded:false`，但不得阻断建页、更新、取数或发布；业务上下文继续切换到真实 `user_query` / `agent_intent`，attempted `turn_id` 不保存、不传播，后续按无 Turn 模式继续。更新既有活页必须继续复用原 `page_id` 与公开 URL。
 
 > **QBS 先答 Handoff（默认同轮）**：收到 `qbs_qbv_handoff_v1` 时运行 `scripts/trace_context.py beginHandoff`（兼容 `begin-handoff`），传入 Handoff object 或绝对 `handoff_file`。必须原样复用其中真实 `task_id + turn_id + source_skill_id`，不得再次 `begin/beginTurn`、不得在 QBV 重做 QBS 路由分类。`create/existing_page` 之后仍进入本 Skill 完整 SOP，由 QBV 判断 direct/fork/unmatched、查询 ownership 并执行本人原位更新或他人复制；高风险持久状态未确认时 `beginHandoff` 必须拒绝。
+
+> **大样本排名的展示合同**：`universe_count` 只表示参与计算的股票数，不表示页面需要渲染的行数。Handoff 没有明确展示数量时，排名页面默认 `rank_limit=20`，页面只渲染 Top20。默认消费 `render_mode=dynamic`：Formula Package/Data Grant 在服务端缓存和取数，浏览器只展示 Top20；不要因为参与计算的股票多就降级为静态页。只有用户明确要求固定快照，或动态数据路由经过验证确实不可用并已如实说明时，才消费 `render_mode=validated_snapshot`。
 
 
 ## 量化建页先答
@@ -199,12 +201,12 @@ python scripts/qbs_handoff_adapter.py evaluate '{"handoff_file":"D:/.../handoff.
 
 `trace_context.py` 原样复用 QBS 的 `task_id + turn_id`；Adapter 校验可选 `qbs_computation_capsule_v1`，并在发现对应 `qbs_qbv_job_v2` 时确定性把 Job 从 `queued` 写为 `running`。QBV standalone 没有该 Job 时为无副作用 no-op：
 
-- `coverage=covered`：禁止再次调用 `resolve_asset_data` 或其它 QBS 工具重算 `covered_roles`；直接消费胶囊里的资产映射、合同、artifact、字段映射、结论和收据，然后继续 QBV 页面 SOP。
+- `coverage=covered`：禁止再次调用 `resolve_asset_data` 或其它 QBS 工具重算 `covered_roles`；直接消费胶囊里的资产映射、合同、artifact、字段映射、结论和收据，然后继续 QBV 页面 SOP。若返回 `next_step=templates`，下一次工具调用必须是 `templates`，不能回到 QBS 重算或以无工具的最终消息结束。
 - `coverage=partial`：只允许通过 `qbs_bridge.py` 补 `missing_roles`，不得重复已覆盖 role。
 - `coverage=unusable`：无损回退本节原有 Trace → `qbs_bridge` → 路由流程，不得降低验证门禁。
 - Adapter 返回 `formula_runtime_action=register_exact` 时：把 `formula_runtime_contract.formulas` 按原顺序、原字面注册为 Formula Package，并按合同中的 `reads` 首次查询；禁止缩写指标名、合并公式、重新推导或再次调用 QBS 验证 covered 公式。fingerprint、左值或 reads 校验失败时按 `coverage=unusable` 安全回退，不得注册被篡改合同。旧 Handoff 没有 `formula_runtime_contract` 时保持原 standalone/兼容流程。
 
-这里跳过的只是**本轮重复计算**。direct/fork/unmatched、本人原位更新/他人复制、Grant/Package 注册、运行时首次查询、页面构建、Card Runtime、发布和公网验收仍由 QBV 完整执行。QBS Job 只做旁路审计：`publish_verified` 同时取得 `published=true + verified=true + page_id + public_url`，或 `direct_deliver` 取得字段一致的强终态 `direct_finalize` contract 后，会自动写回 `completed`；无法继续且确定终止时执行 `python scripts/qbs_handoff_adapter.py fail-job '{"qbv_job_id":"qbvjob_xxx","qbv_job_file":"D:/.../job.json","failure_code":"<CODE>","retryable":true}'`，不得手改 Job JSON。用户直接使用 QBV 时没有 Handoff，继续走原 SOP，不依赖 QBS 胶囊。`source_skill_id=null + source_skill_id_status=unavailable` 是合法审计状态，不得阻断页面流程，也不得猜测历史 `skill_*`。
+这里跳过的只是**本轮重复计算**。若 Handoff 带有 `render_mode=validated_snapshot`，缺少实时 formula runtime contract 不构成阻断：继续 `templates → recover_snapshot/compose_page → publish_verified → 公网验收`。direct/fork/unmatched、本人原位更新/他人复制、Grant/Package 注册、运行时首次查询、页面构建、Card Runtime、发布和公网验收仍由 QBV 完整执行。QBS Job 只做旁路审计：`publish_verified` 同时取得 `published=true + verified=true + page_id + public_url`，或 `direct_deliver` 取得字段一致的强终态 `direct_finalize` contract 后，会自动写回 `completed`；无法继续且确定终止时执行 `python scripts/qbs_handoff_adapter.py fail-job '{"qbv_job_id":"qbvjob_xxx","qbv_job_file":"D:/.../job.json","failure_code":"<CODE>","retryable":true}'`，不得手改 Job JSON。用户直接使用 QBV 时没有 Handoff，继续走原 SOP，不依赖 QBS 胶囊。`source_skill_id=null + source_skill_id_status=unavailable` 是合法审计状态，不得阻断页面流程，也不得猜测历史 `skill_*`。
 
 ### 单一 A 股简单分析快速通道
 

@@ -61,6 +61,10 @@
 - 旧胶囊不含结构仍可用；结构损坏会返回 invalid 和原因并丢弃该可选结构，数据与公式合同继续沿原 SOP 验证。禁止为修结构重算已验证结果。
 - 新建 `validated_roles` 按首答顺序排列，并带实际 `date/unit/description`。省略结构时，准备器按这些字段生成保守的有序数据表，标记 `answer_structure_source=validated_role_order`；未知元数据标未核验，不猜图形、TopN 或文字结论。要保留前五/后五、摘要/图表等完整首答结构，应显式传上面的 blocks。旧胶囊读取不自动补结构，损坏结构不自动修补。
 
+### 排名页面的计算规模与展示规模
+
+排名/选股/排序的全量股票只用于计算覆盖率、百分位和排序；它不代表页面要把全量行渲染到浏览器。用户没有指定展示数量时，`ranking` block 默认 `rank_limit=20`，用户明确的 TopN/前N 优先。页面交接必须区分 `universe_count`、`display_count` 和 `rank_limit`。默认使用 `render_mode=dynamic`：Formula Package/Data Grant 在服务端完成缓存和取数，浏览器只展示 Top20，不重新计算整个股票池。只有用户明确要求固定快照，或动态路由验证失败且已如实说明时，才使用 `render_mode=validated_snapshot`。
+
 ## 分钟边界
 
 行情截面“最新”按最新可得行情处理；依据市场/交易日历和数据证据判定盘中或最近收盘。明确盘中使用受支持的 `use_minute_data:true`，历史/收盘/财务不误开启。行业日涨跌的当前截面不是最近一分钟收益。实际日期早于预期时先如实披露，不用 description 的“应更新到”替代 readData 日期，也不额外调用 refreshSnapshotTime 代替模式选择。

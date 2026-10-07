@@ -5,6 +5,14 @@
 
 ---
 
+## [4.25.50] — 2026-10-07
+
+- 排名任务分离全量计算范围与页面展示范围：未指定数量时默认只展示 Top20，参与全市场计算的数据仍保留用于覆盖率、百分位和排序。
+- 排名活页默认使用动态 `Formula Package/Data Grant` 运行时，不因股票池较大而降级为静态快照；仅在明确要求快照或动态路由验证失败且已说明时使用快照。
+- Handoff 新增并校验 `universe_count`、`display_count`、`rank_limit`、`render_mode` 和 `artifact_scope`，避免大样本计算阻断活页生成。
+
+---
+
 ## [4.25.49] — 2026-10-03
 
 - read_data 指引按场景补齐：质量检查使用 `signature` / `precheck`，最新完整截面使用 `last_column_full`，最新摘要使用 `last_day_stats`，连续区间使用 `range_data`，稀疏资产使用 `per_asset_sample` / `last_valid_per_asset`；新版指引不再展示旧的抽样模式。

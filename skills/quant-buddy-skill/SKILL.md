@@ -2,7 +2,7 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.25.49
+version: 4.25.50
 description: |
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据；支持查询 A 股股票所属行业。
   显式日期的单值快照可同时返回按实际更新日对齐的日频行情与估值；字段日期不同时按字段自身日期展示，不将较晚刷新字段误判为无数据。
@@ -18,7 +18,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.25.49
+  version: 4.25.50
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -191,7 +191,7 @@ runtimeRequirements:
    5. **禁止**询问用户"是否继续"或解释版本升级过程——直接静默完成自愈并返回结果。
 11. **CHANGELOG / skill-changelog 仅作为审计，不作为规则源**：`CHANGELOG.md`、`skill-changelog/**` 是按时间叠加的变更记录，包含已被后续版本反转或废弃的旧口径。任何「执行顺序、字段名、协议块语义、工具签名、参数格式」相关的判断，**必须**以 `SKILL.md` + `workflows/**` + `tools/**` + `references/troubleshooting.md` 为唯一权威；CHANGELOG 描述与上述文件冲突时，以上述文件为准。CHANGELOG 仅可用于：① 排查问题时回看「哪一版动过什么」；② 升级成功后做 5 条以内的版本上下文摘要。**禁止**：把 CHANGELOG 某条历史叙述当作当前执行规则、依据 CHANGELOG 推断现行参数格式、或在 CHANGELOG 与 SKILL.md 冲突时偏向 CHANGELOG。
 12. **判断工具成败看返回 body 的 `code`/`success`，不看 HTTP 状态码**：HTTP 200 不代表业务成功——body 里出现 `"code": -1` / `"success": false` 即为**业务错误**，必须按失败处理（读 `error`/`message` 再决定重试/改参/走排查表），禁止「HTTP 通了就当成功」继续往下走。另：`call.py` 返回 `"error": "INVALID_TOOL_NAME"` 表示工具名写错或缺失（工具名必须排在命令最前、且为已注册工具名），属可立即修正的本地错误。详见 `references/troubleshooting.md` 顶部「成败判定通则」。
-13. **先答后建页**：每日/定期复盘、行情监控、画线/画图、执行回测、看 K 线等操作请求，以及已登记的稳定榜单（低 PE + 高 ROE + 选股/排名 + TopN）必须实际执行 `scripts/live_page_routing.py route`，不能把普通 TopN 全部升级为活页。上述操作本身构成活页意图，不要求用户另说“网页”；纯概念解释不建页。上下文中的真实建页意图可传 `--page-requested`，明确不要网页/暂不发布仍优先；不要画图只约束表现形式，不能否决表格型活页。按 [先答后建页](workflows/answer-first.md) 执行：QBS 查询验证后先发完整非终止业务答案，再准备 Capsule/Handoff/Job，默认 `same_turn` 进入 QBV；可靠内部委派是可选分支，不得重复执行。`prepare-validated-page` 接受 `answer_structure`；未传时按首答顺序的 validated_roles 生成保守表格结构。成功后按 next_action 继续，不重复 handoff/prepare。prepare 不是图表或页面完成，QBV 不可访问时必须用本 Skill 的 update 写回返回的 on_unavailable 失败字段，不得留 queued 或假称后台执行。路由/页面失败不撤销正常首答；无中途可见消息能力时如实记录限制。页面路由、权限、同页更新和公开验收仍由 QBV 负责。单资产多标准字段同图、近N日行业排名分别沿专用快路径，快路径也必须先答后准备页面。
+13. **先答后建页**：每日/定期复盘、行情监控、画线/画图、执行回测、看 K 线等操作请求，以及已登记的稳定榜单（低 PE + 高 ROE + 选股/排名 + TopN）必须实际执行 `scripts/live_page_routing.py route`，不能把普通 TopN 全部升级为活页。上述操作本身构成活页意图，不要求用户另说“网页”；纯概念解释不建页。上下文中的真实建页意图可传 `--page-requested`，明确不要网页/暂不发布仍优先；不要画图只约束表现形式，不能否决表格型活页。按 [先答后建页](workflows/answer-first.md) 执行：QBS 查询验证后先发完整非终止业务答案，再准备 Capsule/Handoff/Job，默认 `same_turn` 进入 QBV；可靠内部委派是可选分支，不得重复执行。`prepare-validated-page` 接受 `answer_structure`；未传时按首答顺序的 validated_roles 生成保守表格结构。**全量计算规模与页面展示规模分离：排名未指定数量时默认 Top20，页面只渲染 Top20；Formula Package/Data Grant 负责服务端缓存和动态取数，不能因为参与计算的股票多就把页面降级成静态快照。只有用户明确要求固定快照，或动态数据路由经过验证确实不可用时，才使用 `validated_snapshot`，并在回复中如实说明不会自动更新。**成功后按 next_action 继续，不重复 handoff/prepare。prepare 不是图表或页面完成，QBV 不可访问时必须用本 Skill 的 update 写回返回的 on_unavailable 失败字段，不得留 queued 或假称后台执行。路由/页面失败不撤销正常首答；无中途可见消息能力时如实记录限制。页面路由、权限、同页更新和公开验收仍由 QBV 负责。单资产多标准字段同图、近N日行业排名分别沿专用快路径，快路径也必须先答后准备页面。
 
 14. **QBS→QBV 只复用本轮已经算完的部分，不把 QBV 改成 QBS 专用渲染器**：`create|existing_page` 在 Handoff 前优先运行 `scripts/qbv_computation_capsule.py build @capsule-input.json`，生成 `qbs_computation_capsule_v1`。胶囊必须同时包含用户核心问题/主图意图、资产规范化结果、可复现查询或公式合同及 fingerprint、结果快照或 artifact SHA256、字段映射、结论与验证收据；禁止只交 PNG 或一句总结。 同一业务 role 对应多个已物化结果时可传 `data_ids`；构建器按原顺序展开为 `role__01`、`role__02`…，保留原始 ID 字符串并同步 `required_roles`，禁止 Agent 手工改写或复制 ID。QBV 的 thin adapter 判定 `covered` 时不得重复识别资产或重算相同 role，`partial` 时只补 `missing_roles`，`unusable` 时无损回退原 QBV→QBS bridge；direct/fork/unmatched、ownership、构建、运行时注册、发布和验收仍完全归 QBV。用户直接使用 QBV 的量化建页同样先答；无胶囊时保留原查询能力，已有文件/解读/展示维护例外不变。
 15. **已跑通的公式执行合同必须原样交给 QBV，禁止二次改写**：`runMultiFormulaBatchStream` 成功后，原始执行以 Validation Receipt 的 `execution_contract` 为证，安全页面读取另用 `qbs_formula_runtime_contract_v1`（可能缺省），不可混同，保留 `formulas` 的条数、顺序、完整指标名、引号、`begin_date`、`include_description`、`use_minute_data`、`force_reusable_array`、`reads` 和 fingerprint。`prepare-validated-page` 必须把该合同写入 computation capsule；不得把平台已确认的 `"A股市盈率（PE, TTM）〔估值数据〕"` / `"A股净资产收益率ROE"` 缩写成 `PE(TTM)` / `ROE` 后交给 QBV，也不得把多条已验证公式合并成一条新公式。显式合同与 Receipt 不一致、fingerprint 不一致或输出左值不完整时必须失败关闭，不得猜测修复。准备交接 JSON 时，Receipt 已含原始公式就不要在 `validated_roles[].formula` 手抄第二份，也不要在每个 role 重复同一 Receipt；优先在顶层 `validation_receipts` 传一次 Receipt 对象或 Receipt 文件路径字符串，也可以让 `prepare-validated-page` 按同任务全部 `data_id` 自动发现，避免引号转义失败和无效重试。
