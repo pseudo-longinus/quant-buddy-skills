@@ -2,7 +2,7 @@
 
 <p align="center">
   <a href="https://www.quantbuddy.cn/videos/quantbuddy-research-demo.mp4">
-    <img src="assets/quantbuddy-infrastructure.png" alt="QuantBuddy 一站式投研分析 AI 基础设施" width="100%" />
+    <img src="assets/quantbuddy-infrastructure.png" alt="QuantBuddy 一站式投研分析 AI 基础设施：从问题到个人投研系统" width="100%" />
   </a>
   <br/>
   <sub>点击首图打开 QuantBuddy 研究活页演示视频：从一句研究问题，到可交互、可分享、持续更新的研究活页。</sub>
@@ -21,6 +21,12 @@
   <img alt="Python" src="https://img.shields.io/badge/Python-3.8%2B-blue">
   <img alt="Markets" src="https://img.shields.io/badge/Markets-A%E8%82%A1%20%2F%20%E6%B8%AF%E8%82%A1%20%2F%20%E7%BE%8E%E8%82%A1%20%2F%20%E6%9C%9F%E8%B4%A7-orange">
 </p>
+
+> **QuantBuddy 把量化和实证分析变成每个人都能使用的投研基础设施。**
+>
+> - **可以直接做：** 查数据、做比较、算指标、构造公式、选股、找因子、回测、发布活页
+> - **覆盖主要市场：** A 股、港股、美股、期货、指数、ETF、宏观数据
+> - **研究结果可持续使用：** 公式可改、口径可查、结果可复核，研究可以沉淀为个人投研系统
 
 ## 🔥 3 秒快速安装
 
@@ -113,7 +119,7 @@ QBS 和 QBV 是一条完整链路：QBS 把自然语言投研问题转成数据�
 
 QBS 先理解“想研究什么”，再组织查询、公式、筛选或回测；QBV 接收经过验证的结构化结果，生成可以反复打开的研究活页。顶部首图链接到一段完整演示视频，展示的也是这条从问题到页面的链路。
 
-### 01｜投研数据全覆盖
+### 01｜跨市场投研数据
 
 <p align="center">
   <img src="assets/quantbuddy-data-coverage.png" alt="QuantBuddy 投研数据全覆盖：A 股、港股、美股、期货与宏观等研究数据" width="88%" />
@@ -145,7 +151,7 @@ QBS 会先识别资产和市场，再按实际数据合同返回字段、日期�
 
 这个结果体现了数据层的关键行为：跨市场一次查数、单位由字段元数据给出，行情与估值日期不同也不会被错误合并成同一个“截至日”。
 
-### 02｜透明、可拓展的低代码计算
+### 02｜透明、可验证的低代码计算
 
 <p align="center">
   <img src="assets/quantbuddy-transparent-low-code-compute.png" alt="QuantBuddy 透明可拓展的低代码计算：平台侧计算并返回可复核结果" width="88%" />
@@ -170,7 +176,7 @@ QBS 会先识别资产和市场，再按实际数据合同返回字段、日期�
 自然语言条件 → 7 条公式链 → 平台侧全市场计算 → Top10 名单与涨幅 → 2 RU 读取
 ```
 
-### 03｜专业范式库
+### 03｜专业投研范式
 
 <p align="center">
   <img src="assets/quantbuddy-paradigm-library.png" alt="QuantBuddy 专业范式库：趋势、估值、资金流、期货供需和市场情绪等研究范式" width="88%" />
@@ -214,7 +220,7 @@ QBV 有两条清晰的交付路径：已有 JPG、PNG、HTML、PDF 先原样发�
 
 > 以上数字为历史 / 示例数据，用于说明页面交付形态，不构成投资或交易建议。
 
-### 05｜免费开始与自动进化
+### 05｜免费额度与社区共成长
 
 <p align="center">
   <img src="assets/quantbuddy-free-start.png" alt="QuantBuddy 免费开始：免费数据额度、研究空间和自动进化" width="88%" />
