@@ -12,11 +12,11 @@
 | 单资产历史分钟窗口 | fast_query_minute_range，不提供 fields |
 | 最新标量、日频窗口 | fast_query snapshot/window，保留 fields |
 
-先按资产库规则确认唯一资产。接口不支持多资产、日内时分筛选、5分钟聚合或自动复权。
+先按资产库规则确认唯一资产。接口原始返回1分钟长表，不支持多资产、日内时分筛选、自动复权或在服务端直接请求30分钟。用户需要30分钟K线时，先取1分钟CSV并使用本Skill的受控聚合脚本生成派生30分钟产物；不得修改manifest中的interval字段冒充30分钟原始数据。
 
 ## 分钟历史覆盖（调用前必查）
 
-先阅读 [分钟行情支持范围与越界提示](../references/minute-data-coverage.md)。A股/美股股票与国内期货最早 **2026-05-13**，港股股票 **2026-05-20**，国内指数 **2026-08-13**；美国/香港指数及期货暂不支持。请求早于对应起点时必须先提示：全窗口越界不调用，部分重叠说明缺失区间、保留原请求窗口并如实交付可用部分。不得将返回的首条数据夸大为完整历史覆盖。
+先阅读 [分钟行情支持范围与越界提示](../references/minute-data-coverage.md)。A股/美股股票最早 **2026-05-13**，国内期货最早 **2005-01-04**，港股股票 **2026-05-20**，国内指数 **2026-08-13**；美国/香港指数及期货暂不支持。请求早于对应起点时必须先提示：全窗口越界不调用，部分重叠说明缺失区间、保留原请求窗口并如实交付可用部分。不得将返回的首条数据夸大为完整历史覆盖。
 
 ## 参数
 
@@ -64,6 +64,16 @@ python scripts/fetch_minute_range_csv.py @output/minute-manifest.json --output o
 在 skill 根目录运行；manifest和输出均放在本skill/output内，可为这些文件使用绝对路径。该脚本只消费返回的签名URL，不会重新取数；输出完整数据文件与SHA256收据，不把整份分钟矩阵刷到终端。保留所有列、全空行情行、null及扩展列；不复权、不补0。此产物为 `qb_minute_range_artifact_v1`，不是日频series capsule，不能冒充旧日频胶囊交给活页构建器。
 
 `timestamp` 是UTC秒；显示时按 timezone 转换。`trade_date` 是交易日归属，期货夜盘自然日可能不同，换月必须按 trade_date 匹配。
+
+## 30分钟派生
+
+上游只返回原始1分钟数据。完成 `fetch_minute_range_csv.py` 物化后，如用户需要30分钟K线，使用：
+
+```bash
+python scripts/resample_minute_bars.py @output/minute-data.json --output output/minute-30m.json
+```
+
+聚合按返回的 `timezone` 将UTC时间戳转换为本地时间，并以 `trade_date + 本地半小时桶` 分组；OHLC取首/最高/最低/末，volume/amount求和，open_interest取桶内最后一个有效值，扩展列取最后一个有效值。输出标记 `interval=30min`、`source_interval=1min`、`derived=true`，保留原请求区间和警告。期货夜盘仍按 `trade_date` 归属，不能按UTC自然日重分组。
 
 ## 附加信息与错误
 

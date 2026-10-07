@@ -20,7 +20,7 @@
 
 ## 分钟行情覆盖预检与提示
 
-分钟授权注册、Fork替换资产/修改窗口前必须按 [分钟行情支持范围](../references/minute-data-coverage.md) 检查：A股/美股股票和国内期货从 **2026-05-13**、港股股票从 **2026-05-20**、国内指数从 **2026-08-13** 开始；美国/香港指数及期货暂不支持。全窗口早于起点时先提示且不注册，部分窗口越界时说明缺失区间并在页面标出真实覆盖，不能静默裁剪授权payload或把空数据伪造成完整行情。市场起点不保证单个资产当天就有数据；offset按市场当地自然日折算，绝对窗口/滚动窗口语义不变。
+分钟授权注册、Fork替换资产/修改窗口前必须按 [分钟行情支持范围](../references/minute-data-coverage.md) 检查：A股/美股股票从 **2026-05-13**、国内期货从 **2005-01-04**、港股股票从 **2026-05-20**、国内指数从 **2026-08-13** 开始；美国/香港指数及期货暂不支持。全窗口早于起点时先提示且不注册，部分窗口越界时说明缺失区间并在页面标出真实覆盖，不能静默裁剪授权payload或把空数据伪造成完整行情。市场起点不保证单个资产当天就有数据；offset按市场当地自然日折算，绝对窗口/滚动窗口语义不变。Grant仍返回原始1分钟数据；30分钟图表必须由页面或上游派生，并标注来源间隔。
 
 ## 发布链路能力预检
 
@@ -168,6 +168,7 @@ register携带本地`validation_receipt_file`；返回`registration_receipt_file
 - `QB.queryGrant` 和 Python CSV校验器会识别 query_type=minute_range，下载 `csv_url` 长表并保留全部 `columns/rows`。这不是日频 csv_fields 宽表；columns缺省就读实际表头。
 - 原始第一列 trade_date、第二列 timestamp（UTC秒），后续列按上游配置，不限六列。零/空/null不混淆，不过滤全空行情行；事件/拆股/警告保留在原始 data 中。
 - 图表X轴用 timestamp，显示时转 timezone；trade_date只用于交易日归属和换月标记。不要按自然日验证期货夜盘，不自行复权。
+- Grant 原样提供1分钟数据；若页面需要30分钟K线，先将物化的分钟artifact交给 `scripts/resample_minute_bars.py` 生成 `interval=30min`、`source_interval=1min`、`derived=true` 的派生数据，再交给页面图表。不要修改Grant响应的 `interval` 字段，也不要把派生artifact注册成新的分钟Grant。
 - 页端保存Grant配置，不把临时CSV URL硬编码成长效数据源。每次刷新先queryDataGrant；CSV下载401/403/404最多重新取manifest一次，不循环刷新、不修改签名到期字符串。
 - 行情缓存12小时，事件60秒短缓存。专属每用户12小时10次仅直接调用 fast_query_minute_range 计数，Grant注册试跑/刷新/页面取数不计该专属次数；一般鉴权/计费规则不变。
 

@@ -2,7 +2,7 @@
 name: quant-buddy-view
 slug: quant-buddy-view
 author: guanzhao
-version: 0.6.88
+version: 0.6.89
 description: |
   将量化分析或已有 JPG/PNG、HTML、PDF 发布为 Quant Buddy 可分享活页或实时看板，并支持创建、更新、复用、验收和公开链接交付。适用于个股画像、估值财务、指数异动、多因子筛选、商品日报、模板、分享壳及卡片等页面。
   用户提供 QuantBuddy 活页 URL 并要求解读时也使用。显式调用 /quant-buddy-view、/qbv、qbv 或 QBV，且请求并非纯咨询、代码维护或文档解释时，默认按可分享活页任务处理。
@@ -11,7 +11,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 0.6.88
+  version: 0.6.89
   author: guanzhao
   category: quant-finance
   tags: [quant, dashboard, formula-package, static-page, publish, visualization]
@@ -424,7 +424,7 @@ npx skills update pseudo-longinus/quant-buddy-skills -y
 
 ## 历史分钟与连续期货数据源
 
-- 注册、Fork改资产/窗口前必读 [分钟行情支持范围与越界提示](references/minute-data-coverage.md)：A股/美股股票及国内期货起于2026-05-13，港股股票2026-05-20，国内指数2026-08-13；美国/香港指数及期货暂不支持。全窗口早于起点不注册授权；部分覆盖先提示并在页面标注，不静默裁剪原始payload，不宣称完整覆盖。
+- 注册、Fork改资产/窗口前必读 [分钟行情支持范围与越界提示](references/minute-data-coverage.md)：A股/美股股票起于2026-05-13，国内期货起于2005-01-04，港股股票2026-05-20，国内指数2026-08-13；美国/香港指数及期货暂不支持。全窗口早于起点不注册授权；部分覆盖先提示并在页面标注，不静默裁剪原始payload，不宣称完整覆盖。页面若展示30分钟K线，必须标注其由1分钟Grant派生，不能把页面聚合结果写成上游原始30分钟数据。
 
 - 当前/最近完整日分钟用 `fast_query_minute` Grant（保留 fields）；历史跨日分钟用 `fast_query_minute_range` Grant（全列，无fields/format/remove_nan）。绝对窗口或-70至-1自然日offset二选一，不含市场今天。详见 [tools/data_grant.md](tools/data_grant.md)。
 - 历史分钟CSV是 trade_date/timestamp/行情列长表，内核读取实际表头，不走日频宽表。绝对窗口固定、offset授权滚动；页端持有Grant而不是临时CSV地址，不称历史分钟为“当前盘中”。

@@ -43,12 +43,12 @@
 
 - 仅支持**单资产**。
 - 不传、也不支持 `assets`、`trade_date`、`date`、`start_date`、`end_date`、`window_days` 或任意历史日期/时间区间。
-- 不做分钟聚合；返回原始分钟 bar。
+- 返回原始1分钟bar；不在本工具内做分钟聚合。
 - 服务端根据 `tkrsInfo.market_id` 与市场 `trade_period` 自动选择：
   - `current_session`：当前盘中分钟数据；
   - `latest_completed`：最近完整交易日数据。
 
-用户要求指定历史日/跨日原始分钟时，改用 `fast_query_minute_range`，不能偷换为本工具或日频。多资产、分钟聚合不属于两个单资产分钟工具的能力；按实际需求另行确认支持的路径。
+用户要求指定历史日/跨日原始分钟时，改用 `fast_query_minute_range`，不能偷换为本工具或日频。用户要求30分钟K线时，使用历史分钟工具取1分钟CSV，再按 `tools/fast_query_minute_range.md` 的30分钟派生步骤处理；不要向本工具添加聚合参数。
 
 ## 返回结构
 

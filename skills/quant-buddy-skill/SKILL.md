@@ -2,7 +2,7 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.25.50
+version: 4.25.51
 description: |
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据；支持查询 A 股股票所属行业。
   显式日期的单值快照可同时返回按实际更新日对齐的日频行情与估值；字段日期不同时按字段自身日期展示，不将较晚刷新字段误判为无数据。
@@ -18,7 +18,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.25.50
+  version: 4.25.51
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -443,9 +443,9 @@ SKILL_ROOT/
 
 0. 用户明确要求**一个资产的 2～4 个标准历史字段放在同一张图中**，且未明确只要 PNG → 只读 `workflows/visual-page-fast-path.md`；这是页面主图快路径，不得继续读取 `quant-standard.md` / `render-kline.md`。
 0a. 用户明确要求**申万一级行业最近 N 个交易日涨跌幅排名图/柱状图/可视化**，且未明确只要 PNG → 只读 `workflows/industry-ranking-fast.md`；不得读取 `global-rules.md`、`quant-standard.md` 或行业 recipe，不得调用 `renderChart`。
-**分钟覆盖前置检查**：先确认市场/资产类型并按 [分钟支持范围](references/minute-data-coverage.md) 判断。A股/美股股票、国内期货起于2026-05-13，港股股票起于2026-05-20，国内指数起于2026-08-13；美国/香港指数及期货暂不支持。历史窗口早于边界必须先提示：全窗口越界不查；部分覆盖明确缺失范围，不静默改日期或宣称完整覆盖。此限制不套用于日频行情。
+**分钟覆盖前置检查**：先确认市场/资产类型并按 [分钟支持范围](references/minute-data-coverage.md) 判断。A股/美股股票起于2026-05-13，国内期货起于2005-01-04，港股股票起于2026-05-20，国内指数起于2026-08-13；美国/香港指数及期货暂不支持。历史窗口早于边界必须先提示：全窗口越界不查；部分覆盖明确缺失范围，不静默改日期或宣称完整覆盖。此限制不套用于日频行情。
 
-0. 用户明确要单资产历史/跨日分钟序列或分钟CSV → `tools/fast_query_minute_range.md`；只支持历史日期，完整返回所有列；窗口/offset互斥，不得偷换成日频或当日分钟。
+0. 用户明确要单资产历史/跨日分钟序列或分钟CSV → `tools/fast_query_minute_range.md`；只支持历史日期，完整返回所有列；窗口/offset互斥，不得偷换成日频或当日分钟。用户要求30分钟K线时，先取原始1分钟数据，再按该工具文档的受控聚合步骤生成派生30分钟数据，并同时保留原始区间、时区和来源间隔。
 1. 用户明确要**单资产**完整分钟/分时/逐分钟序列或分钟 OHLCVA，且未指定历史日期、日期区间、分钟聚合或多个资产 → 先按资产库规则确认唯一资产，调用 `fast_query_minute`；按索引配对返回的 `dates[]` 与 `fields.<name>[]`，保留 `data_scope/trade_date/timezone` 语义，成功即停。只问最新标量仍走 snapshot；历史/区间改走 fast_query_minute_range；多资产不能塞进任一单资产工具。连续期货只按所选 trade_date 解读 contract_info，不将 inferred 说成已实时核验；附加 warnings 不影响成功行情。
 2. 整句为一个资产名称/简称/代码，或简单单股综合分析（如“分析一下贵州茅台”）时，先执行 `live_page_routing.py route`；命中 `single_a_stock_fast` 则读取 QBV `guides/answer-first.md`，QBS 验证首答后同轮 `new_asset_page`，不能只输出画像就结束。其他开放式单股综合指标概览（如“分析一下XX个股”“个股画像”“指标概览”），且不是只问单字段/明确窗口/IC 预测力 → `workflows/global-rules.md` → `workflows/stock-profile.md`
 3. 时间锚点是"最近 N 日窗口/序列"，或用户明确给出起止日期要求返回区间序列（如"从X日到X日每日的…走势/序列/数据"），或用户只说"最近走势/看走势"但未明确要图片/K线 → Fast Path 条件满足时读 `workflows/fast-window.md`，不满足则 `workflows/global-rules-lite.md` → `workflows/quick-window.md`；未给 N 时默认按最近 20 个交易日
