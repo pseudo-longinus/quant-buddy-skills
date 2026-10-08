@@ -2,7 +2,7 @@
 
 <p align="center">
   <a href="https://www.quantbuddy.cn/videos/quantbuddy-research-demo.mp4">
-    <img src="assets/quantbuddy-infrastructure.png" alt="QuantBuddy: one-stop AI infrastructure for investment research" width="100%" />
+    <img src="assets/quantbuddy-infrastructure.en.png" alt="QuantBuddy: one-stop AI infrastructure for investment research" width="100%" />
   </a>
   <br/>
   <sub>Click the hero image to open the QuantBuddy research-page workflow demo.</sub>
@@ -85,19 +85,19 @@ QBS turns a natural-language research question into data queries, formulas, scre
 | Publish and update | `quant-buddy-view` | A shareable `pages.quantbuddy.cn` page with the same data definition |
 
 <p align="center">
-  <img src="assets/quantbuddy-two-layer-workflow.png" alt="QuantBuddy two-layer research workflow: QBS computation layer and QBV page runtime layer" width="100%" />
+  <img src="assets/quantbuddy-two-layer-workflow.en.png" alt="QuantBuddy two-layer research workflow: QBS computation layer and QBV page runtime layer" width="100%" />
   <br/>
   <sub>QBS computes and structures the research; QBV validates, publishes, and keeps the page running.</sub>
 </p>
 
 ## Five Project Modules: From One Question To Continuous Research
 
-This repository connects one entry point with five capability modules: start with a question, then move through data, computation, paradigms, research pages, and free evolution. Each diagram below is followed by the project capability it represents; the supplied product artwork stays in its original form so names, figures, and market labels remain faithful.
+This repository connects one entry point with five capability modules: start with a question, then move through data, computation, paradigms, research pages, and free evolution. Each diagram below is followed by the project capability it represents; all diagrams and screenshots in this English README use English-localized artwork while preserving the original figures and data examples.
 
 ### Starting Point | One Question To A Research Page
 
 <p align="center">
-  <img src="assets/quantbuddy-one-question-live-page.png" alt="QuantBuddy AI generates a research page from one question" width="100%" />
+  <img src="assets/quantbuddy-one-question-live-page.en.png" alt="QuantBuddy AI generates a research page from one question" width="100%" />
   <br/>
   <sub>Start with a natural-language question and generate an interactive, shareable, continuously updated research page.</sub>
 </p>
@@ -107,7 +107,7 @@ QBS interprets what you want to study and organizes the query, formula, screen, 
 ### 01 | Full Research-Data Coverage
 
 <p align="center">
-  <img src="assets/quantbuddy-data-coverage.png" alt="QuantBuddy research-data coverage across A-shares, Hong Kong stocks, US stocks, futures, and macro data" width="88%" />
+  <img src="assets/quantbuddy-data-coverage.en.png" alt="QuantBuddy research-data coverage across A-shares, Hong Kong stocks, US stocks, futures, and macro data" width="88%" />
   <br/>
   <sub>Market, financial, valuation, money-flow, sentiment, futures supply/demand, macro, and alternative data enter one workflow.</sub>
 </p>
@@ -139,7 +139,7 @@ This is the useful behavior of the data layer: one cross-market request, units s
 ### 02 | Transparent, Extensible Low-Code Computation
 
 <p align="center">
-  <img src="assets/quantbuddy-transparent-low-code-compute.png" alt="QuantBuddy transparent low-code computation with platform-side calculation and verifiable results" width="88%" />
+  <img src="assets/quantbuddy-transparent-low-code-compute.en.png" alt="QuantBuddy transparent low-code computation with platform-side calculation and verifiable results" width="88%" />
   <br/>
   <sub>Compose data, window statistics, conditions, factors, and backtests with formulas; return structured, auditable results to the agent.</sub>
 </p>
@@ -164,7 +164,7 @@ Natural-language condition → seven-formula chain → platform-side full-market
 ### 03 | Professional Paradigm Library
 
 <p align="center">
-  <img src="assets/quantbuddy-paradigm-library.png" alt="QuantBuddy professional paradigm library for trend, valuation, money flow, futures supply and demand, and sentiment research" width="88%" />
+  <img src="assets/quantbuddy-paradigm-library.en.png" alt="QuantBuddy professional paradigm library for trend, valuation, money flow, futures supply and demand, and sentiment research" width="88%" />
   <br/>
   <sub>Turn experienced investment methods into agent-callable paradigms that can be discovered, saved, derived, and reused.</sub>
 </p>
@@ -180,7 +180,7 @@ The online catalog first finds two RSI-related candidates among 18 research dime
 ### 04 | Research Pages Keep Running
 
 <p align="center">
-  <img src="assets/quantbuddy-live-page-continuous-run.png" alt="QuantBuddy continuously running research page with self-contained HTML, network refresh, sharing, and download" width="88%" />
+  <img src="assets/quantbuddy-live-page-continuous-run.en.png" alt="QuantBuddy continuously running research page with self-contained HTML, network refresh, sharing, and download" width="88%" />
   <br/>
   <sub>A page is more than a screenshot: bind a formula package, open it for current data, share it, or download a self-contained HTML file.</sub>
 </p>
@@ -192,13 +192,13 @@ QBV has two distinct delivery paths: existing JPG, PNG, HTML, and PDF files can 
 The two screenshots below show the formula-package page shape: the browser reads structured outputs with a public credential and renders the table/chart itself. They are not raw QBS tables, and the API key never enters the front end.
 
 <p align="center">
-  <img src="assets/demo_market_bubble.png" alt="Global market temperature and valuation-bubble dashboard" width="78%" />
+  <img src="assets/demo_market_bubble.en.png" alt="Global market temperature and valuation-bubble dashboard" width="78%" />
   <br/>
   <sub><b>Global market temperature dashboard</b> · seven index returns, valuation-bubble temperature, commodities, and bonds.</sub>
 </p>
 
 <p align="center">
-  <img src="assets/demo_hs300_monitor.png" alt="CSI 300 constituent anomaly monitor" width="78%" />
+  <img src="assets/demo_hs300_monitor.en.png" alt="CSI 300 constituent anomaly monitor" width="78%" />
   <br/>
   <sub><b>CSI 300 constituent anomaly monitor</b> · return ranking, turnover/volume anomalies, and six-month price paths.</sub>
 </p>
@@ -208,7 +208,7 @@ The two screenshots below show the formula-package page shape: the browser reads
 ### 05 | Start Free And Evolve
 
 <p align="center">
-  <img src="assets/quantbuddy-free-start.png" alt="QuantBuddy free start with free data quota, research space, and automatic evolution" width="88%" />
+  <img src="assets/quantbuddy-free-start.en.png" alt="QuantBuddy free start with free data quota, research space, and automatic evolution" width="88%" />
   <br/>
   <sub>Free data quota, free research space, spare-compute queueing, and comparable new versions support iteration.</sub>
 </p>
