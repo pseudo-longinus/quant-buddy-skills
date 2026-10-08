@@ -24,9 +24,16 @@ import { parseExtraViewport, resolveVerificationProfile, CORE_ERROR_RE, TRACKER_
 import { staticImageProblems } from './image_verification.mjs';
 import { cardVisualContractProblems } from './card_visual_contract.mjs';
 import { dashboardDesignMetrics } from './dashboard_design_checks.mjs';
+import { pageTitleMetrics, pageTitleProblems } from './page_title_checks.mjs';
 
 const args = process.argv.slice(2);
-const requireBrowser = args.includes('--require-browser');
+const expectedTitleIdx = args.indexOf('--expected-title');
+const expectedTitle = expectedTitleIdx >= 0 ? String(args[expectedTitleIdx + 1] || '').replace(/\s+/g, ' ').trim() : null;
+if (expectedTitleIdx >= 0 && (!expectedTitle || expectedTitle.length > 200 || expectedTitle.startsWith('--'))) {
+  fs.writeSync(1, JSON.stringify({ code: 1, error: 'PAGE_TITLE_INVALID', message: '--expected-title 需要非空且不超过200字符的标题' }) + '\n');
+  process.exit(1);
+}
+const requireBrowser = args.includes('--require-browser') || expectedTitle !== null;
 const profileIdx = args.indexOf('--profile');
 const profileName = profileIdx >= 0 ? args[profileIdx + 1] : 'full';
 const minVisibleFontIdx = args.indexOf('--min-visible-font-px');
@@ -45,6 +52,10 @@ try {
 const cardRuntimeStructureOnly = args.includes('--card-runtime-structure-only');
 const cardRuntimeOnly = !cardRuntimeStructureOnly && (args.includes('--card-runtime-only') || verificationProfile.cardRuntimeOnly);
 const cardRuntime = args.includes('--card-runtime') || cardRuntimeOnly || cardRuntimeStructureOnly;
+if (expectedTitle !== null && (cardRuntimeOnly || cardRuntimeStructureOnly)) {
+  fs.writeSync(1, JSON.stringify({ code: 1, error: 'EXPECTED_TITLE_FULL_PAGE_REQUIRED', message: '标题验收需要整页浏览器检查，不能只验收卡片' }) + '\n');
+  process.exit(1);
+}
 const requireCardVisualContract = args.includes('--require-card-visual-contract');
 const cardScreenshotIdx = args.indexOf('--card-screenshot');
 const cardScreenshotPath = cardScreenshotIdx >= 0 ? args[cardScreenshotIdx + 1] : '';
@@ -59,7 +70,7 @@ try {
   fs.writeSync(1, JSON.stringify({ code: 1, error: err.code || 'INVALID_EXTRA_VIEWPORT', message: err.message }) + '\n');
   process.exit(1);
 }
-const valueFlags = new Set(['--manifest', '--profile', '--card-screenshot', '--extra-viewport', '--min-visible-font-px']);
+const valueFlags = new Set(['--manifest', '--profile', '--card-screenshot', '--extra-viewport', '--min-visible-font-px', '--expected-title']);
 const positionals = [];
 for (let i = 0; i < args.length; i += 1) {
   const arg = args[i];
@@ -759,6 +770,7 @@ async function playwrightBrowserChecks(pw, url, options = {}) {
       const imageMetrics = await page.evaluate(prepareImagesExpression);
       const shareModalMetrics = options.checkShareModal ? await page.evaluate(shareModalChecksExpression) : null;
       const metrics = await page.evaluate(pageMetricsExpression);
+      metrics.pageTitle = await page.evaluate(pageTitleMetrics);
       metrics.dashboardDesign = await page.evaluate(dashboardDesignMetrics, options.requireDashboardDesign === true);
       metrics.images = imageMetrics;
       metrics.shareModal = shareModalMetrics;
@@ -1135,6 +1147,7 @@ function viewportResult(viewport, metrics, options = {}) {
     horizontalOverflow: metrics.scrollWidth > metrics.clientWidth + 2,
     verticalOverflow: metrics.scrollHeight > metrics.clientHeight + 2,
     hasH1: metrics.hasH1,
+    pageTitle: metrics.pageTitle || null,
     placeholderHits: metrics.placeholderHits,
     placeholderOnly: metrics.placeholderOnly,
     runtime: metrics.runtime,
@@ -1511,6 +1524,11 @@ async function cdpBrowserChecks(url, options = {}) {
         continue;
       }
       evaluated.result.value.images = preparedImages.result?.value || {};
+      const titleMetrics = await cdp.send('Runtime.evaluate', {
+        expression: `(${pageTitleMetrics.toString()})()`, returnByValue: true,
+      });
+      if (titleMetrics.exceptionDetails) throw new Error('Page title checks failed to execute');
+      evaluated.result.value.pageTitle = titleMetrics.result?.value || null;
       const designMetrics = await cdp.send('Runtime.evaluate', {
         expression: `(${dashboardDesignMetrics.toString()})(${options.requireDashboardDesign === true})`, returnByValue: true,
       });
@@ -1566,6 +1584,7 @@ function summarize(staticResult, browserResult, options) {
   const warnings = [];
   if (browserResult.checked) {
     for (const r of browserResult.viewports) {
+      for (const problem of pageTitleProblems(r.pageTitle, expectedTitle)) problems.push(`${r.viewport}: ${problem}`);
       if (options.checkLayout !== false && r.horizontalOverflow) problems.push(`${r.viewport}: 存在横向溢出`);
       for (const problem of r.dashboardDesign?.problems || []) problems.push(`${r.viewport}: 自建页设计底线：${problem}`);
       if (!r.hasH1) problems.push(`${r.viewport}: 缺少可见 h1`);

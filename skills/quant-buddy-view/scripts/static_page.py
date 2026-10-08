@@ -50,7 +50,7 @@ upload 参数：
     {
       "html":        "HTML 全文（与 html_file 二选一）",
       "html_file":   "本地 HTML 文件路径（与 html 二选一；常用 build_dashboard 的产物）",
-      "title":       "可选，不传则服务端从 <title> 抽取",
+      "title":       "可选，研究页不传则从正文主标题补齐；显式冲突拒绝发布",
       "description": "可选，页面说明（≤1000 字，列表/详情展示用）",
       "ttl_days":    "可选，默认 365",
       "scene_tags":    "可选，场景标签（数组/逗号串/单值）；只能选已有，查无报 SCENE_TAG_NOT_FOUND",
@@ -178,6 +178,7 @@ import reply_data_evidence as RDE
 import reply_template_registry as RTR
 import share_shell_contract as SSC
 import single_stock_reply as SSR
+import page_title_contract as PTC
 
 _PATH = {
     "upload":    "/skill/uploadStaticPage",
@@ -2605,6 +2606,15 @@ def _cmd_update_preserve(params, *, endpoint, api_key):
 
 _PLANNED_UPDATE_SENTINEL = object()
 
+def _prepare_page_title(params, document, *, immutable=False):
+    """Resolve title before receipts/preflight; never change an already bound HTML."""
+    updated, check = PTC.prepare(document, params)
+    if immutable and updated != document:
+        raise PTC.TitleError('PAGE_TITLE_CANDIDATE_STALE',
+                             '候选标题需同步；请重新构建或prepare_maintenance后再验收', **check)
+    return {**params, 'title': check['title']}, updated, check
+
+
 def cmd_upload(params):
     try:
         if EP.load(_fork_task_id(params)):
@@ -2627,6 +2637,10 @@ def cmd_upload(params):
     html, err = _read_html(params)
     if err:
         return err
+    try:
+        params, html, title_check = _prepare_page_title(params, html)
+    except PTC.TitleError as exc:
+        return exc.as_dict()
     transformation_validation, transformation_error = _validate_transformation_contract(params, html, endpoint=endpoint)
     transformation_fallback = None
     if transformation_error:
@@ -2683,6 +2697,7 @@ def cmd_upload(params):
         body["agent_reply_template"] = None
     out = C.http_json("POST", C.api_url(endpoint, _PATH["upload"]),
                       C.headers(api_key), body, timeout=_UPLOAD_TIMEOUT)
+    out = PTC.acknowledgement(out, title_check['title'])
     if isinstance(out, dict):
         if reply_resolution:
             out["agent_reply_template_resolution"] = reply_resolution
@@ -2741,6 +2756,10 @@ def cmd_update(params):
     html, err = _read_html(params)
     if err:
         return err
+    try:
+        params, html, title_check = _prepare_page_title(params, html, immutable=bool(publication_plan))
+    except PTC.TitleError as exc:
+        return exc.as_dict()
     transformation_validation, transformation_error = _validate_transformation_contract(params, html, endpoint=endpoint)
     transformation_fallback = None
     if transformation_error:
@@ -2804,6 +2823,7 @@ def cmd_update(params):
                        content_kind=params.get("_planned_content_kind", "candidate"))
     else:
         out = C.http_json("POST", C.api_url(endpoint, _PATH["update"]), C.headers(api_key), body, timeout=_UPLOAD_TIMEOUT)
+    out = PTC.acknowledgement(out, title_check['title'])
     route_transition = _transition_existing_page_to_fork(params, out)
     if route_transition:
         return route_transition
@@ -5075,6 +5095,49 @@ def _snapshot_only_request(user_query):
     ))
 
 
+def _sync_fast_page_title(out, *, endpoint, api_key):
+    """Finish this task's new page before sealing any public/delivery evidence."""
+    identity = {'operation': 'new_asset_page', 'page_id': out.get('page_id'), 'url': out.get('url'),
+                'published': True, 'verified': False}
+    record_response = cmd_template({'page_id': out['page_id']})
+    record = _template_record(record_response)
+    if record_response.get('code') != 0 or record.get('page_id') != out['page_id']:
+        return {'code': 1, 'error': 'FAST_PAGE_TITLE_READ_FAILED', **identity}
+    document, error = _fetch_oss(record.get('download_url') or out['url'])
+    if error:
+        return {'code': 1, 'error': 'FAST_PAGE_TITLE_READ_FAILED', **identity}
+    original_hash = hashlib.sha256(document.encode('utf-8')).hexdigest()
+    if record.get('sha256') and record['sha256'] != original_hash:
+        return {'code': 1, 'error': 'FAST_PAGE_TITLE_CANDIDATE_STALE', **identity}
+    try:
+        candidate, check = PTC.prepare_fast_template(document, out.get('asset') or {})
+    except PTC.TitleError as exc:
+        return {**exc.as_dict(), **identity}
+    if candidate != document or PTC.normalize(record.get('title')) != check['title']:
+        latest_response = cmd_template({'page_id': out['page_id']})
+        latest = _template_record(latest_response)
+        if (latest_response.get('code') != 0 or latest.get('page_id') != out['page_id']
+                or any(latest.get(key) != record.get(key) for key in ('current_version_id', 'current_version_no', 'sha256', 'title'))):
+            return {'code': 1, 'error': 'FAST_PAGE_TITLE_CANDIDATE_STALE', **identity}
+        # Narrow update: the heading layout, source template, data contracts and
+        # all unspecified metadata remain intact. Never retry a failed write.
+        body = {'page_id': out['page_id'], 'html': candidate, 'title': check['title'],
+                'change_note': '快页标题同步：以模板正文主标题为准'}
+        if record.get('current_version_id'):
+            body['expected_current_version_id'] = record['current_version_id']
+        written = C.http_json('POST', C.api_url(endpoint, _PATH['update']), C.headers(api_key),
+                              body, timeout=_UPLOAD_TIMEOUT)
+        written = PTC.acknowledgement(written, check['title'])
+        if not isinstance(written, dict) or written.get('code') != 0:
+            failure = written if isinstance(written, dict) else {'code': 1, 'error': 'FAST_PAGE_TITLE_UPDATE_FAILED'}
+            for key in ('agent_reply_contract', 'agent_reply_markdown_draft', 'validated_markdown'):
+                failure.pop(key, None)
+            return {**failure, **identity}
+    return {**out, 'title': check['title'], 'page_title_sync': {
+        **check, 'metadata_title_before': record.get('title'),
+        'candidate_sha256': hashlib.sha256(candidate.encode('utf-8')).hexdigest()}}
+
+
 def cmd_new_asset_page(params):
     params = dict(params or {})
     reply_mode = params.get("reply_mode", "full_answer")
@@ -5139,6 +5202,10 @@ def cmd_new_asset_page(params):
             "page_id": out.get("page_id") or "",
         }
 
+    out = _sync_fast_page_title(out, endpoint=endpoint, api_key=api_key)
+    if out.get('code') != 0:
+        return out
+
     try:
         source_artifact = MNAC.persist_data_sources(task_id, data_sources)
     except Exception:
@@ -5180,6 +5247,7 @@ def cmd_new_asset_page(params):
     safe_fields = (
         "page_id", "url", "title", "description", "asset", "source_page_id",
         "idempotent", "page_context", "expires_at",
+        "page_title_sync",
     )
     result = {key: out[key] for key in safe_fields if key in out}
     result["warnings"] = MNAC.sanitize_warnings(out.get("warnings") or [])
@@ -5294,17 +5362,31 @@ def cmd_new_asset_page(params):
             'evidence_source': '本次已验证页面的交付合同；业务分析已在首答完成',
             'instruction': '仅用一句话说明活页已生成，可在页面查看后续数据；不重复六章，不新增数值、日期或风险结论。保持标题和链接不变。',
         })
+    try:
+        expected_title = PTC.valid(result.get('title'))
+    except PTC.TitleError as exc:
+        return {**exc.as_dict(), 'published': True, 'operation': 'new_asset_page',
+                'page_id': result['page_id'], 'url': result['url']}
     if trace_context.get('turn_id'):
         import fast_page_delivery as FPD
         def observe_fast_page():
             response = C.http_json('GET', C.api_url(endpoint, _PATH['template']) + '?' + urllib.parse.urlencode({'page_id': result['page_id']}), C.headers(api_key), timeout=30)
             return _template_record(response) if response.get('code') == 0 else response
         public_check = FPD.persist_verified(task_id, trace_context['turn_id'], result['page_id'], result['url'], markdown,
-            observe=observe_fast_page, verify=lambda url: _run_page_verifier(url, 'public-smoke'))
+            observe=observe_fast_page, verify=lambda url: _run_page_verifier(url, 'public-smoke', expected_title=expected_title),
+            expected_title=expected_title)
         if public_check.get('code') != 0:
-            return {**public_check, 'operation':'new_asset_page', 'page_id':result['page_id'], 'url':result['url']}
+            return {**public_check, 'published': True, 'verified': False,
+                    'operation':'new_asset_page', 'page_id':result['page_id'], 'url':result['url']}
         result['public_verification'] = public_check
         result['agent_summary_request']['instruction'] += ' 最终回复必须从草稿标题开始，仅替换 summary_marker；不要添加开场白或其他内容，宿主将核对实际回复。'
+    else:
+        public_check = _run_page_verifier(result['url'], 'public-smoke', expected_title=expected_title)
+        if public_check.get('code') != 0:
+            return {'code': 1, 'error': 'PAGE_TITLE_POSTCHECK_FAILED', 'published': True, 'verified': False,
+                    'operation': 'new_asset_page', 'page_id': result['page_id'], 'url': result['url'],
+                    'public_verification': public_check}
+        result['public_verification'] = public_check
     C.cleanup_task_temp_files(task_id)
     for key in ("data_sources_file", "data_sources_sha256", "csv_manifest_file", "csv_evidence_file"):
         result.pop(key, None)
@@ -5668,6 +5750,15 @@ def cmd_publish_final(params):
     final_html, final_html_error = _read_html(params)
     if final_html_error:
         return final_html_error
+    if not _is_preserve_html_qbs_live(params):
+        try:
+            params, final_html, _ = _prepare_page_title(params, final_html, immutable=bool(plan))
+            # Use the same normalized bytes for validation and the final write.
+            params['html'] = final_html
+            if not plan:
+                params.pop('html_file', None)
+        except PTC.TitleError as exc:
+            return exc.as_dict()
     params, template_resolution, template_error = _resolve_publish_agent_reply_template(params, html=final_html)
     if template_error:
         return template_error
@@ -5720,6 +5811,10 @@ def cmd_publish_final(params):
     if final_update_params.get("change_note") is None:
         final_update_params["change_note"] = "完成发布：正式活页内容已发布"
     update_out = cmd_update(final_update_params)
+    if isinstance(update_out, dict) and update_out.get('published') is True and update_out.get('verified') is False:
+        # A confirmed write with failed metadata verification must never be
+        # overwritten by a failure progress page or automatically retried.
+        return update_out
     if isinstance(update_out, dict) and update_out.get("code") == 0:
         validation_error = _publish_final_validation_error(
             params,
@@ -5826,6 +5921,7 @@ def cmd_prepare_maintenance(params):
 
 
 def cmd_publish_verified(params):
+    params = dict(params or {})
     if not params.get("page_id"):
         return {"code": 1, "error": "PAGE_ID_REQUIRED", "message": "publish_verified 需要 page_id"}
     target = params.get("html_file")
@@ -5844,7 +5940,24 @@ def cmd_publish_verified(params):
         import page_quality as PQ
         try:
             candidate_bytes = Path(target).read_bytes()
-            quality_required = PQ.requires_design(EP.load(_fork_task_id(params)), candidate_bytes.decode('utf-8'))
+            original_target, original_bytes = target, candidate_bytes
+            publication_plan = EP.load(_fork_task_id(params))
+            document = candidate_bytes.decode('utf-8')
+            if not _is_preserve_html_qbs_live(params):
+                params, normalized, title_check = _prepare_page_title(params, document, immutable=bool(publication_plan))
+                if normalized != document:
+                    if temp_path is None:
+                        fd, temp_path = tempfile.mkstemp(prefix='qbv_title_candidate_', suffix='.html')
+                        os.close(fd)
+                    Path(temp_path).write_bytes(normalized.encode('utf-8'))
+                    target = temp_path
+                    candidate_bytes = normalized.encode('utf-8')
+                params['html_file'] = target
+                params.pop('html', None)
+                stages['page_title'] = title_check
+            quality_required = PQ.requires_design(publication_plan, candidate_bytes.decode('utf-8'))
+        except PTC.TitleError as exc:
+            return exc.as_dict()
         except (OSError, UnicodeError) as exc:
             return {'code': 1, 'error': 'CANDIDATE_UNREADABLE', 'published': False, 'verified': False,
                     'message': '候选HTML不可读，请重新构建'}
@@ -5883,12 +5996,14 @@ def cmd_publish_verified(params):
         card_runtime = bool(params.get("card_runtime_required") or fork_validation.get("card_runtime_required"))
         started = time.perf_counter()
         local_profile = 'self-built' if quality_required else 'fork-local'
-        stages["local_browser"] = _run_page_verifier(target, local_profile, card_runtime=card_runtime)
+        stages["local_browser"] = _run_page_verifier(target, local_profile, card_runtime=card_runtime,
+                                                    expected_title=(stages.get('page_title') or {}).get('title'))
         timings["local_browser_ms"] = round((time.perf_counter() - started) * 1000)
         if not (isinstance(stages["local_browser"], dict) and stages["local_browser"].get("code") == 0):
             return {"code": 1, "published": False, "verified": False, "stages": stages, "timing": timings}
 
-        if Path(target).read_bytes() != candidate_bytes:
+        if (Path(target).read_bytes() != candidate_bytes
+                or (original_target != target and Path(original_target).read_bytes() != original_bytes)):
             return {'code': 1, 'error': 'VERIFIED_CANDIDATE_CHANGED', 'published': False, 'verified': False,
                     'message': '浏览器验收期间候选HTML发生变化，请重新验收', 'stages': stages}
         stages['page_quality'] = PQ.evidence(params, candidate_bytes, local_profile, stages['local_browser'])
@@ -5905,19 +6020,27 @@ def cmd_publish_verified(params):
         timings["publish_final_ms"] = round((time.perf_counter() - started) * 1000)
         published = isinstance(stages["publish_final"], dict) and stages["publish_final"].get("code") == 0
         if not published:
-            return {"code": 1, "published": False, "verified": False, "stages": stages, "timing": timings}
+            failed = stages['publish_final']
+            return {"code": 1, "published": bool(failed.get('published')), "verified": False,
+                    "page_id": params['page_id'], "public_url": _delivery_public_url(_record_url(failed)),
+                    "error": failed.get('error'), "stages": stages, "timing": timings}
 
         public_url = _record_url(stages["publish_final"])
         started = time.perf_counter()
-        stages["public_smoke"] = _run_page_verifier(public_url, "public-smoke", card_runtime=card_runtime)
+        stages["public_smoke"] = _run_page_verifier(public_url, "public-smoke", card_runtime=card_runtime,
+                                                   expected_title=(stages.get('page_title') or {}).get('title'))
         timings["public_smoke_ms"] = round((time.perf_counter() - started) * 1000)
         verified = isinstance(stages["public_smoke"], dict) and stages["public_smoke"].get("code") == 0
         plan_for_version = EP.load(_fork_task_id(params))
-        if verified and plan_for_version:
+        if verified and (plan_for_version or stages.get('page_title')):
             version_result = cmd_template({"page_id": params["page_id"]})
             observed = _template_record(version_result) if isinstance(version_result, dict) and version_result.get("code") == 0 else {}
-            stages["public_version"] = PT.verify_current(plan_for_version, stages["publish_final"], observed, browser_evidence=stages["public_smoke"])
-            verified = stages["public_version"].get("code") == 0
+            if stages.get('page_title'):
+                stages['metadata_title'] = PTC.acknowledgement({'code': 0, 'title': observed.get('title')}, params['title'])
+                verified = stages['metadata_title']['code'] == 0
+            if verified and plan_for_version:
+                stages["public_version"] = PT.verify_current(plan_for_version, stages["publish_final"], observed, browser_evidence=stages["public_smoke"])
+                verified = stages["public_version"].get("code") == 0
         if not verified:
             stages["publish_final"].pop("agent_reply_contract", None)
         try:
@@ -5935,6 +6058,9 @@ def cmd_publish_verified(params):
             "stages": stages,
             "timing": timings,
         }
+        if ((stages.get('metadata_title') or {}).get('code') == 1
+                or any('PAGE_TITLE_' in str(problem) for problem in stages['public_smoke'].get('problems', []))):
+            result['error'] = 'PAGE_TITLE_POSTCHECK_FAILED'
         if verified:
             contract = stages["publish_final"].get("agent_reply_contract")
             if isinstance(contract, dict):
@@ -8497,6 +8623,12 @@ def cmd_fork_prepare(params):
         params.get("title") or target_record.get("title") or record.get("title"),
         replacements,
     )
+    try:
+        working_html, title_check = PTC.prepare(working_html, {'title': resolved_title}, sync_heading=True)
+        resolved_title = title_check['title']
+    except PTC.TitleError as exc:
+        return exc.as_dict()
+    _atomic_write_bytes(working_html_file, working_html.encode('utf-8'))
     resolved_description = _replace_fork_metadata(
         params.get("description") or record.get("description"),
         replacements,
@@ -8529,6 +8661,7 @@ def cmd_fork_prepare(params):
         "prepared_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
         "source_template_id": str(record.get("template_id") or record.get("page_id") or source_template_id),
         "target_page_id": target_page_id,
+        "page_title": title_check,
         "source_url": source_url,
         "source_html_file": source_html_file,
         "working_html_file": working_html_file,
@@ -8861,7 +8994,7 @@ def _run_card_runtime_verify(
     return data
 
 
-def _run_page_verifier(target, profile, *, card_runtime=False, timeout_sec=180):
+def _run_page_verifier(target, profile, *, card_runtime=False, timeout_sec=180, expected_title=None):
     cmd = [
         "node",
         os.path.join(C.SKILL_ROOT, "scripts", "verify_file_snapshot.mjs" if profile == "file-snapshot" else "verify_page.mjs"),
@@ -8872,6 +9005,8 @@ def _run_page_verifier(target, profile, *, card_runtime=False, timeout_sec=180):
     ]
     if card_runtime:
         cmd.append("--card-runtime")
+    if expected_title is not None:
+        cmd.extend(['--expected-title', expected_title])
     try:
         proc = subprocess.run(
             cmd,

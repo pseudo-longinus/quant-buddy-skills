@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
-  "generated_at": "2026-09-23T05:26:59+00:00",
-  "total_records": 2566,
+  "generated_at": "2026-10-08T10:58:16+08:00",
+  "total_records": 2737,
   "categories": {
     "a_share_financials": {
       "file": "a_share_financials.yaml",
@@ -30,6 +30,10 @@
     "us_option_market_data": {
       "file": "us_option_market_data.yaml",
       "record_count": 48
+    },
+    "macro_indicators": {
+      "file": "macro_indicators.yaml",
+      "record_count": 171
     }
   }
 }

@@ -49,7 +49,7 @@ BD_PARAMS='{"title":"...","panels":[...],"upload":true}' python scripts/build_da
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `task_id` | string | 发布时必填 | `trace_context begin/beginHandoff` 返回的当前任务 ID；`upload/update_page_id` 成功后据此生成 hash-bound 终态回复校验文件 |
-| `title` | string | ✅ | 看板标题（`<title>` + 页头） |
+| `title` | string | ✅ | 看板标题（`<title>` + 带 `data-qb-page-title` 的页头 + 发布元数据共用），非空且最多200字符 |
 | `subtitle` | string | ❌ | 副标题 |
 | `description` | string | 正式自建发布必填 | 页面说明（≤1000 字），描述实际研究范围，禁止进度占位；仅生成候选时可暂不填 |
 | `asset` / `turn_id` | string | 按运行时绑定返回值 | 原样透传 `bind_runtime_route` 的资产与当前轮次，发布时与收据比对 |

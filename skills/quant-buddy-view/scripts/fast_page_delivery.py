@@ -5,12 +5,13 @@ import common as C
 import execution_plan as EP
 import delivery_state as DS
 import publication_transport as PT
+import page_title_contract as PTC
 from single_stock_reply import AGENT_SUMMARY_MARKER
 
 FILE = 'receipts/new-asset-delivery.json'
 
 
-def persist_verified(task, turn, page_id, url, draft, *, observe, verify):
+def persist_verified(task, turn, page_id, url, draft, *, observe, verify, expected_title=None):
     record = dict(schema_version='fast_page_delivery_v1', task_id=task, turn_id=turn,
                   page_id=page_id, url=url, status='failed', error_code='FAST_PAGE_PUBLIC_VERIFICATION_FAILED')
     def save():
@@ -21,16 +22,32 @@ def persist_verified(task, turn, page_id, url, draft, *, observe, verify):
     save()
     try:
         before = observe()
+        if expected_title is not None and PTC.normalize(before.get('title')) != expected_title:
+            record['error_code'] = 'PAGE_TITLE_POSTCHECK_FAILED'
+            save()
+            return {'code': 1, 'error': record['error_code'], 'published': True, 'verified': False}
         remote = DS._remote(before)
         if (before.get('code') not in (None, 0) or remote['page_id'] != page_id or remote['url'] != url
                 or type(remote['version_no']) is not int or remote['version_no'] < 1
                 or not re.fullmatch('[a-f0-9]{64}', str(remote['sha256'] or ''))):
             return {'code': 1, 'error': record['error_code']}
         browser = verify(url)
-        checked = PT.verify_current({'target_page_id': page_id}, before, observe(), browser_evidence=browser)
+        after = observe()
+        if expected_title is not None and PTC.normalize(after.get('title')) != expected_title:
+            record['error_code'] = 'PAGE_TITLE_POSTCHECK_FAILED'
+            save()
+            return {'code': 1, 'error': record['error_code'], 'published': True, 'verified': False}
+        checked = PT.verify_current({'target_page_id': page_id}, before, after, browser_evidence=browser)
         if browser.get('code') != 0 or checked.get('code') != 0:
-            return {'code': 1, 'error': checked.get('error') or record['error_code']}
-        record.update(remote, status='verified', draft=draft)
+            title_failed = expected_title is not None and any(
+                'PAGE_TITLE_' in str(problem) for problem in browser.get('problems') or [])
+            record['error_code'] = ('PAGE_TITLE_POSTCHECK_FAILED' if title_failed
+                                    else checked.get('error') or record['error_code'])
+            record['public_verification'] = browser
+            save()
+            return {'code': 1, 'error': record['error_code'], 'published': True, 'verified': False,
+                    'public_verification': browser}
+        record.update(remote, status='verified', draft=draft, page_title=expected_title)
         record.pop('error_code', None)
         save()
         return {'code': 0, 'version_no': remote['version_no'], 'sha256': remote['sha256']}
@@ -50,7 +67,8 @@ def export(task, turn, reply_text='', *, finalize_reply=False):
                 or record.get('receipt_hash') != EP.digest({k:v for k,v in record.items() if k != 'receipt_hash'})):
             return unknown
         if record.get('status') != 'verified':
-            return {**unknown, 'status':'failed', 'failure_stage':'public_verify', 'error_code':'FAST_PAGE_PUBLIC_VERIFICATION_FAILED'}
+            return {**unknown, 'status':'failed', 'failure_stage':'public_verify',
+                    'error_code':record.get('error_code') or 'FAST_PAGE_PUBLIC_VERIFICATION_FAILED'}
         if type(record.get('version_no')) is not int or record['version_no'] < 1 or not re.fullmatch('[a-f0-9]{64}', record.get('sha256','')):
             return unknown
         draft = record.get('draft', '').strip()

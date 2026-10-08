@@ -10,6 +10,7 @@ from pathlib import Path
 import common as C
 import execution_plan as EP
 import delivery_state as DS
+import page_title_contract as PTC
 
 VERSION = 'qbv_presentation_maintenance_v1'
 
@@ -86,10 +87,16 @@ def prepare(sp, params):
         runtime = contract(source)
         if contract(document) != runtime:
             raise EP.PlanError('MAINTENANCE_DATA_CONTRACT_CHANGED', '此入口仅支持展示层维护；数据源或实时取数合同变化需要重新验证构建')
+        normalized, title_check = PTC.prepare(document, params)
+        if normalized != document:
+            path = path.with_name(path.stem + '-title-candidate.html')
+            path.write_bytes(normalized.encode('utf-8'))
+            document, candidate_hash = normalized, sha(normalized)
         turn = C.current_trace_context().get('turn_id')
         if not turn:
             raise EP.PlanError('MAINTENANCE_TURN_REQUIRED', '维护需要可信的当前用户轮次')
         record = {'version': VERSION, 'task_id': plan['task_id'], 'page_id': plan['target_page_id'],
+                  'page_title': title_check,
                   'plan_hash': plan['plan_hash'], 'turn_id': turn, 'base': base,
                   'html_file': str(path), 'html_sha256': candidate_hash, 'runtime_digest': runtime}
         if params.get('recover_runtime_evidence'):
@@ -102,7 +109,8 @@ def prepare(sp, params):
         EP.atomic_json(receipt, record)
         publish = {k: v for k, v in params.items() if not k.startswith('_')}
         publish.update(maintenance_mode='presentation', maintenance_receipt_file=str(receipt),
-                       maintenance_receipt_sha256=digest, html_file=str(path), plan_hash=plan['plan_hash'], turn_id=turn)
+                       maintenance_receipt_sha256=digest, html_file=str(path), plan_hash=plan['plan_hash'], turn_id=turn,
+                       title=title_check['title'])
         if params.get('recover_runtime_evidence'):
             import runtime_route
             recovered = runtime_route.bind(publish)
@@ -116,6 +124,8 @@ def prepare(sp, params):
                 'maintenance_receipt_file': str(receipt),
                 'next_action': {'command': 'publish_verified', 'params_file': str(publish_path)}}
     except EP.PlanError as exc:
+        return exc.as_dict()
+    except PTC.TitleError as exc:
         return exc.as_dict()
 
 
@@ -141,6 +151,12 @@ def validate(sp, params, plan):
     path, document, candidate_hash = _candidate(params)
     if str(path) != record['html_file'] or candidate_hash != record['html_sha256'] or contract(document) != record['runtime_digest']:
         raise EP.PlanError('MAINTENANCE_CANDIDATE_CHANGED', '维护候选已改变，重新prepare并验收')
+    try:
+        normalized, title_check = PTC.prepare(document, params)
+    except PTC.TitleError as exc:
+        raise EP.PlanError(exc.error, str(exc)) from exc
+    if normalized != document or record.get('page_title', {}).get('title') not in (None, title_check['title']):
+        raise EP.PlanError('MAINTENANCE_CANDIDATE_CHANGED', '维护标题变化，重新prepare并验收')
     base, _ = _context(sp, params, plan)
     if base != record['base']:
         raise EP.PlanError('MAINTENANCE_BASE_CHANGED', '维护基线已改变，停止覆盖')

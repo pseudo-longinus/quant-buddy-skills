@@ -62,6 +62,7 @@ QBV_RENDER_JS_START/END marker，chart_edit.py 之后能对这些嵌入的图表
 import datetime
 import hashlib
 from html import escape as html_escape
+import page_title_contract as PTC
 import json
 import math
 import os
@@ -1484,7 +1485,7 @@ def _render_html(spec, *, title, subtitle, panels, endpoint, package_id, signatu
   {card_runtime_artifacts}
   <section class="std-hero">
     <div class="eyebrow">{page_type_esc}</div>
-    <h1>{title_esc}</h1>
+    <h1 data-qb-page-title>{title_esc}</h1>
     {f"<p class='subtitle'>{subtitle_esc}</p>" if subtitle_esc else ""}
     <div class="meta-row">
       <span class="meta-pill">{mode_note}</span>
@@ -2364,6 +2365,11 @@ def _build_authorized(params):
     title = params.get("title")
     if not title:
         return {"code": 1, "message": "spec 缺少 title"}
+    try:
+        title = PTC.valid(title)
+        params = {**params, 'title': title}
+    except PTC.TitleError as exc:
+        return exc.as_dict()
     panels = params.get("panels")
     if not isinstance(panels, list) or not panels:
         return {"code": 1, "message": "spec.panels 必须是非空数组"}
@@ -2462,6 +2468,10 @@ def _build_authorized(params):
     html = _render_html(params, title=title, subtitle=params.get("subtitle"),
                         panels=panels, endpoint=endpoint, package_id=pkg, signature=sig,
                         generated_at=generated_at, grants=grants, snapshots=snapshots)
+    try:
+        html, title_check = PTC.prepare(html, {'title': title})
+    except PTC.TitleError as exc:
+        return exc.as_dict()
 
     out_file = params.get("out_file")
     if out_file:
@@ -2476,6 +2486,7 @@ def _build_authorized(params):
 
     manifest = {
         "schema_version": 1,
+        "page_title": title_check,
         "page_id": None,
         "url": None,
         "html_file": out_file,

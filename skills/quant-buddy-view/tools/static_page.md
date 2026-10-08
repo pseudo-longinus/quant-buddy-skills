@@ -146,6 +146,8 @@ python scripts/static_page.py verify_card_runtime '{"page_ids":["page_xxx","page
 
 `new_asset_page` 面向“简单分析一只 A 股、港股或美股并给我页面”这类窄场景。先用 `trace_context.py begin` 建立 new session，再调用一次本命令；不查询 templates、不创建进度页、不执行 fork，也不要求 Agent 另跑 quant-buddy-skill 验证或自行注册 Grant。
 
+该入口由服务端生成页面副本后，QBV 在生成交付收据前，以模板正文主标题同步元数据和 HTML `<title>`。已知个股模板的主标题由 `config.asset.name` 渲染；仅同步占位主标题和已识别的 `document.title` 赋值，保留正文布局、数据合同及来源模板。必要时只更新本任务新建的同一页面一次；已一致时不写入。未知运行时标题结构返回 `PAGE_TITLE_REWRITE_REQUIRED`，候选版本变化返回 `FAST_PAGE_TITLE_CANDIDATE_STALE`。随后用确定标题验收公开主标题、`document.title` 和权威元数据；不一致返回 `PAGE_TITLE_POSTCHECK_FAILED`、`published:true`、`verified:false` 及浏览器证据，不自动重发或输出成功合同。
+
 命令返回 `agent_reply_markdown_draft`：前五章是按飞书卡片约束排好的完整可见数据，整篇最多五表；第六章只有唯一 `summary_marker`。同一结果中的 `agent_summary_request` 携带原始 `user_query`，当前 Agent直接依据用户目的和前五章数据撰写综合观察，再替换 marker。无需关键词分类、专用生成器或第二次工具调用；总结只引用草稿已有事实，首句直接回答，后续解释最相关证据，避免机械复述全部字段。走势类请求使用条件式判断，不输出确定涨跌承诺、目标价或精确买卖点。
 
 参数：
@@ -510,7 +512,7 @@ python scripts/publish_workflow.py '@output/forks/page_xxx/page_xxx.publish-plan
 |---|---|---|---|---|
 | `html` | string | 二选一 | — | HTML 全文 |
 | `html_file` | string | 二选一 | — | 本地 HTML 路径（相对则相对 skill 根） |
-| `title` | string | ❌ | 取 `<title>` | 页面标题 |
+| `title` | string | ❌ | 取正文主标题 | 研究页元数据标题；显式值须与正文主标题一致，`<title>` 在候选验收前自动同步 |
 | `description` | string | ❌ | 空 | 页面说明（≤1000 字，列表/详情展示用） |
 | `ttl_days` | number | ❌ | 365 | 有效期，到期链接失效、记录与对象清理 |
 | `scene_tags` | string[] / 逗号串 / 单值 | ❌ | 无 | 场景标签，**只能选已有**；任一项查无即整体报 `SCENE_TAG_NOT_FOUND`。详见下「标签」 |
@@ -538,7 +540,7 @@ python scripts/publish_workflow.py '@output/forks/page_xxx/page_xxx.publish-plan
 | `page_id` | string | ✅ | — | 要替换的页面（来自上次 upload / list） |
 | `html` | string | 二选一 | — | 新的 HTML 全文 |
 | `html_file` | string | 二选一 | — | 本地 HTML 路径（相对则相对 skill 根） |
-| `title` | string | ❌ | 沿用原标题 | 新标题；不传保留原标题 |
+| `title` | string | ❌ | 取正文主标题 | 研究页更新时自动同步元数据，不再保留旧名称；显式值与正文冲突时拒绝发布。原文件保留流程沿用自身合同 |
 | `description` | string | ❌ | 沿用原说明 | 新说明；不传保留原说明，传空串 `""` 则清空 |
 | `ttl_days` | number | ❌ | 不变 | 传了才从此刻顺延有效期；不传保持原到期时间 |
 | `scene_tags` | string[] / 逗号串 / 单值 | ❌ | 沿用原标签 | **仅传入时更新**：传值=覆盖、传 `[]`=清空、不传=保留原标签；只能选已有，查无报 `SCENE_TAG_NOT_FOUND` |
@@ -797,7 +799,7 @@ python scripts/static_page.py unpublish_community '{"page_id":"page_xxx"}'
 
 ## 计费
 
-`new_asset_page` 固定 10 RU（三份固定 Data Grant + 一次页面上传）；上传 / 替换各固定 1 RU；下载 / 列表 / 撤销 / 查标签（tags）/ 发布到社区 / 取消社区发布 / 浏览模板（templates、template）不计费
+服务端 `newAssetPage` 固定 10 RU（三份固定 Data Grant + 一次页面上传）；客户端需要同步快页标题时追加一次更新（1 RU），已经一致时不追加。上传 / 替换各固定 1 RU；下载 / 列表 / 撤销 / 查标签（tags）/ 发布到社区 / 取消社区发布 / 浏览模板（templates、template）不计费
 （下载字节直连 OSS，不经服务端）。替换不占新的活跃页配额。
 
 

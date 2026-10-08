@@ -2,6 +2,7 @@
 import copy
 import hashlib
 import html
+import page_title_contract as PTC
 import json
 import re
 from html.parser import HTMLParser
@@ -196,10 +197,12 @@ def build(params):
         document = document.replace('<div id="grid"></div>', '<div id="grid">' + ''.join(shells) + '</div>', 1)
         css = COMPOSE_LAYOUT_CSS
         document = document.replace('</head>', '<style>' + css + '\n' + '\n'.join(styles) + '</style></head>', 1)
+        document, title_check = PTC.prepare(document, params)
         artifact.write_text(document, encoding='utf-8')
         built['size'] = artifact.stat().st_size
         content_hash = hashlib.sha256(artifact.read_bytes()).hexdigest()
         receipt = {'version': 'qbv_compose_build_v1', 'task_id': task, 'page_id': plan['target_page_id'],
+                   'page_title': title_check,
                    'source_page_id': plan['source_page_id'], 'plan_hash': plan['plan_hash'],
                    'html_file': str(artifact), 'html_sha256': content_hash,
                    'runtime_roles': plan['runtime_roles'], 'registration_bindings': registrations, 'borrow_provenance': provenance,
@@ -215,6 +218,7 @@ def build(params):
                    'live_data_mode', 'route_receipt_file', 'validation_receipt_files', 'grant_validation_receipt_files',
                    'market_data_required', 'agent_intent', 'asset', 'turn_id', 'handoff_validation_receipt_files') if k in params}
         publish.update(page_id=plan['target_page_id'], html_file=str(artifact), plan_hash=plan['plan_hash'], require_live_data=plan.get('require_live_data',False))
+        publish['title'] = title_check['title']
         if receipt['data_mode'] in ('snapshot','mixed'):
             publish['live_data_mode']='verified_snapshot' if receipt['data_mode']=='snapshot' else 'mixed'
         publish, evidence_error = CI.evidence(plan, publish)
@@ -228,6 +232,7 @@ def build(params):
                 'message': '完整Compose候选页已生成；尚未完成浏览器验收和发布',
                 'next_action': {'command': 'publish_verified', 'params_file': str(publish_path)}}
     except EP.PlanError as exc: return exc.as_dict()
+    except PTC.TitleError as exc: return exc.as_dict()
     except (OSError, ValueError, KeyError, TypeError) as exc:
         return {'code': 1, 'error': 'COMPOSE_ARTIFACT_INVALID', 'message': str(exc)}
 
@@ -253,4 +258,11 @@ def validate_candidate(params):
         raise EP.PlanError('COMPOSE_BUILD_STALE', '只能发布当前已绑定的候选文件')
     if hashlib.sha256(path.read_bytes()).hexdigest() != receipt['html_sha256']:
         raise EP.PlanError('COMPOSE_BUILD_STALE', '候选HTML变化，重新构建并验收')
+    import page_title_contract as PTC
+    try:
+        _, check = PTC.prepare(path.read_text(encoding='utf-8'), params)
+    except PTC.TitleError as exc:
+        raise EP.PlanError(exc.error, str(exc)) from exc
+    if receipt.get('page_title', {}).get('title') not in (None, check['title']):
+        raise EP.PlanError('COMPOSE_BUILD_STALE', '候选标题变化，重新构建并验收')
     return receipt

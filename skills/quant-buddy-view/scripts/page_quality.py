@@ -20,10 +20,11 @@ def metadata_error(params):
 def evidence(params, html_bytes, profile, browser):
     scripts = Path(__file__).resolve().parent
     validator_hash = hashlib.sha256(b''.join((scripts / name).read_bytes() for name in (
-        'verify_page.mjs', 'verification_profiles.mjs', 'dashboard_design_checks.mjs'))).hexdigest()
+        'verify_page.mjs', 'verification_profiles.mjs', 'dashboard_design_checks.mjs', 'page_title_checks.mjs'))).hexdigest()
     return {'schema_version': 'page_quality_v1', 'task_id': params.get('task_id'),
             'turn_id': params.get('turn_id'), 'page_id': params.get('page_id'),
             'html_sha256': hashlib.sha256(html_bytes).hexdigest(), 'profile': profile,
+            'page_title': params.get('title'),
             'validator_sha256': validator_hash,
             'browser_verified': browser.get('code') == 0,
             'viewports': [x.get('viewport') for x in (browser.get('browser') or {}).get('viewports', [])]}

@@ -2,7 +2,7 @@
 name: quant-buddy-view
 slug: quant-buddy-view
 author: guanzhao
-version: 0.6.89
+version: 0.6.90
 description: |
   将量化分析或已有 JPG/PNG、HTML、PDF 发布为 Quant Buddy 可分享活页或实时看板，并支持创建、更新、复用、验收和公开链接交付。适用于个股画像、估值财务、指数异动、多因子筛选、商品日报、模板、分享壳及卡片等页面。
   用户提供 QuantBuddy 活页 URL 并要求解读时也使用。显式调用 /quant-buddy-view、/qbv、qbv 或 QBV，且请求并非纯咨询、代码维护或文档解释时，默认按可分享活页任务处理。
@@ -11,7 +11,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 0.6.89
+  version: 0.6.90
   author: guanzhao
   category: quant-finance
   tags: [quant, dashboard, formula-package, static-page, publish, visualization]
@@ -65,6 +65,8 @@ runtimeRequirements:
 ---
 
 # quant-buddy-view · 量化看板发布
+
+**研究页标题合同**：页面主标题、HTML `<title>` 与发布元数据 `title` 必须一致。标准生成、Compose 和 Fork 在构建候选时同步；Fork 保留“显式标题 → 目标页标题 → 替换后的来源标题”顺序。手工候选或原位维护省略 `title` 时从正文主标题补齐，显式冲突返回 `PAGE_TITLE_MISMATCH` 并在任何发布写入前停止。正文用 `data-qb-page-title` 标记唯一主标题文本节点；旧页只允许唯一有效 `<h1>`，不选择章节、卡片、模板及隐藏标题。定位不明返回 `PAGE_TITLE_AMBIGUOUS`；复杂 Fork 标题不能安全替换时保留结构并返回 `PAGE_TITLE_REWRITE_REQUIRED`，由 Agent 修正候选后继续。标题同步必须早于哈希、候选收据和浏览器验收；已绑定候选需重新构建或 `prepare_maintenance`，不能在验收后改字。公开验收检查真实 DOM、浏览器标题及回读元数据；发布后不一致为 `published:true、verified:false`，不得重发或输出成功合同。原文件忠实托管及保留原 HTML 增强沿原有受验证入口，不改源标题；历史页只读和 direct 复用不触发修复。
 
 **公开范围与能力边界**：当前活页凭链接公开访问，不能承诺未经验证的私有权限。发布个人持仓、成本或交易记录前，须说明公开范围并取得相应授权；已明确授权则不重复确认，普通公开行情页面无需额外确认。页面打开/刷新取数不等于已启用每日定时任务、主动通知或自动交易；只有实际能力与创建/执行成功证据齐备，才能报告这些状态。缺少能力时如实说明，继续完成已授权且可实现的部分。
 
@@ -368,6 +370,7 @@ npx skills update pseudo-longinus/quant-buddy-skills -y
 - **两套并存**：探索/验证仍在 quant-buddy-skill 用 api-key 跑三接口（fastQuery / stockProfile / selectByComposition）；本技能只负责把验证过的请求注册成 grant 嵌页。api-key 那套一行不改。
 - **硬门槛同公式包**：注册任何 grant 前，先在 quant-buddy-skill 用 api-key 跑通对应接口、确认命中/出数，再回本技能注册。
 - **固定场景的注册责任**：`new_asset_page` 的三份 Grant payload 由服务端固定生成并校验，Agent 不自行注册 Grant；这不免除首答前的 QBS 业务查数和日期校验。首答后再创建快页，页面打开时按 Grant 实时取数。
+- **快页标题**：以模板正文主标题为准；工具在最终收据及公开验收前同步当前任务页面副本的元数据、HTML `<title>` 和已识别的运行时标题赋值，保留来源模板及正文布局。必要时同页更新一次，已一致时不写入；未知模板结构或版本变化报错，最终标题验收失败不自动重发。
 - **同源约束**：`access_dunhe=false`（页面绝不返回付费/敦和数据）、CORS/https 协议一致、signature 是公开凭证不打印给用户——与公式包完全一致。
 
 ## 硬规则
