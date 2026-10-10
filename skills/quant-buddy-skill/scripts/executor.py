@@ -27,6 +27,7 @@ import json
 import os
 import time
 import re
+from pathlib import Path
 import urllib.request
 import urllib.error
 from datetime import datetime
@@ -156,6 +157,7 @@ def _enrich_error_category(err, fallback_category="server_error"):
 # 工具名 → HTTP 方法 + 路径 映射表
 # ────────────────────────────────────────────────
 TOOL_ROUTES = {
+    "query_option_contracts": ("POST", "/queryOptionContracts"),
     "fast_query":            ("POST", "/fastQuery"),
     "fast_query_minute":     ("POST", "/fastQueryMinute"),
     "fast_query_minute_range": ("POST", "/fastQueryMinuteRange"),
@@ -184,6 +186,8 @@ TOOL_ROUTES = {
 # 部分工具需要覆盖默认超时（单位：秒）
 # 未在此表的工具统一使用 call_post/call_get 的默认值（900s）
 TOOL_TIMEOUTS = {
+    "query_option_contracts": 120,  # 合约映射只读查询；服务端Celery等待30s
+
     "runMultiFormulaBatchStream": 1800,   # SSE 主路径绕开网关 5min，整体上限 30min
     "resumeJob":              1800,   # deferred 任务续传，同等超时
     "scanDimensions":       900,
@@ -1177,6 +1181,39 @@ def main():
             from datetime import date as _date
             params["begin_date"] = int(_date.today().strftime("%Y%m%d"))
 
+    if tool_name == 'selectByComposition':
+        from research_contract import selection_route_error
+        route_error = selection_route_error(params.get('user_query'),params)
+        if route_error:
+            print(json.dumps(route_error,ensure_ascii=False));sys.exit(1)
+
+    research_checks = None
+    research_input = params.pop('research_contract', None)
+    if tool_name == 'runMultiFormulaBatchStream' and research_input is None:
+        from research_contract import load
+        try: research_input = load(params['task_id'])
+        except (ValueError, OSError, TypeError) as exc:
+            print(json.dumps({'code':1,'error':'RESEARCH_CONTRACT_INVALID','message':str(exc)},ensure_ascii=False));sys.exit(1)
+    if research_input is not None and tool_name == 'runMultiFormulaBatchStream':
+        from research_contract import validate, preflight, record_formulas
+        try:
+            if isinstance(research_input, str):
+                research_input = json.loads(Path(research_input).read_text(encoding='utf-8-sig'))
+            research_input = validate(research_input, params['task_id'])
+            research_checks, final_screen = preflight(research_input, params['formulas'])
+            if final_screen and any(i['error'].startswith('CONDITION_') or i['error'] == 'SELECTION_PREDICATE_CHANGED' for i in research_checks['issues']):
+                print(json.dumps({'code': 1, 'error': 'RESEARCH_CONDITION_MISMATCH', 'research_checks': research_checks}, ensure_ascii=False))
+                sys.exit(1)
+        except (ValueError, OSError, KeyError) as exc:
+            print(json.dumps({'code': 1, 'error': 'RESEARCH_CONTRACT_INVALID', 'message': str(exc)}, ensure_ascii=False))
+            sys.exit(1)
+
+    if tool_name in ('runMultiFormulaBatchStream','selectByComposition'):
+        from research_contract import guard_calculation
+        limit_error=guard_calculation(research_input,params.get('task_id'))
+        if limit_error:
+            print(json.dumps(limit_error,ensure_ascii=False));sys.exit(1)
+
     # ── buildEventStudy 参数校验 ──────────────────────────────
     if tool_name == "buildEventStudy":
         def _is_weekday(d):
@@ -1359,6 +1396,10 @@ def main():
         }, indent=2, ensure_ascii=False))
         sys.exit(1)
 
+    if research_checks is not None and isinstance(result, dict):
+        if result.get('code') == 0: record_formulas(research_input, params['formulas'])
+        result['research_checks'] = research_checks
+        result['research_contract'] = research_input
     _write_log(log_tool_name, params, result, elapsed_ms)
     if isinstance(result, str):
         # YAML 响应：直接输出原文

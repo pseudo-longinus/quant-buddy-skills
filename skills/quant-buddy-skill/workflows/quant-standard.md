@@ -1,5 +1,7 @@
 # 量化标准流程
 
+筛选执行前必须先完成 [研究合同](research-contract-delivery.md) 的 freeze，保存同任务合同后再计算；不能仅记在推理中。下面的微流程必须服从用户确认合同。
+
 日行情与季度财务联合选股先读[发布日对齐与筛选合同](daily-financial-screen.md)，保留用户原文与解析口径，验收目标交易日，并分离桥接 stdout JSON 与 stderr 进度。
 
 > **路由排除**：若请求是“单资产 + 2～4 个 `fast_query` 标准历史字段 + 明确放在同一张图”，不得使用本 workflow；返回 `visual-page-fast-path.md`。该场景禁止 `searchFunctions` 和公式引擎。

@@ -65,3 +65,6 @@ bridge 的验证执行与收据保留 use_minute_data；`registration_params` �
 只有已验证同口径的受支持运行时可替代；否则按原静态降级规则或明确未完成，不修改服务端、不新增任意放行开关。`is_live=true`、定时请求、仅有验证成功都不代表页面分钟更新已实现。
 
 模板来源返回 SOURCE_CREDENTIAL_UNPAIRED 时，先按同一 source_template_id 调用 research_templates(include:["layout","style"])，安全提取布局后继续 fork_compose；不要重建任务绕过绑定。注册失败保留已验证结果，按 [同页恢复](../workflows/planned-delivery-recovery.md#同页恢复而非停留在失败页) 执行 recover_snapshot 并继续构建、验收。只有受支持恢复路径确实无法满足请求时才记录最终失败；量化建页仍只在验收成功后补链接。
+
+
+数据查询已完成但返回缺字段时，先发布注明实际日期与缺口的非终止首答，随后按研究合同交付部分研究/方法页。不制造数字以满足首答格式；权限拒绝、失败或取消不能算数据成功。

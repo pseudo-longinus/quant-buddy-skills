@@ -477,7 +477,7 @@
     drawQr(ctx,88,1160,152,options.shareUrl || location.href);
     ctx.fillStyle="#ffc27d"; ctx.font="800 23px Microsoft YaHei, sans-serif"; ctx.fillText("扫码查看完整实时页面",272,1196);
     ctx.fillStyle="#d8c7b4"; ctx.font="500 15px Microsoft YaHei, sans-serif";
-    wrap(ctx,"图表、明细、口径说明和最新数据以页面打开时的实时取数结果为准。",272,1232,W-360,24,2);
+    wrap(ctx,"图表、明细、口径说明与数据以页面标注的观察日期和更新方式为准。",272,1232,W-360,24,2);
     ctx.fillStyle="#928477"; ctx.font="500 13px Microsoft YaHei, sans-serif";
     wrap(ctx,"QuantBuddy · 宽宝 · 页面仅作市场观察与数据展示，不构成投资建议。" + (data.asof ? " 数据截至 " + data.asof : ""),272,1294,W-360,20,2);
     img.src=canvas.toDataURL("image/png");

@@ -61,7 +61,7 @@ def recover(params):
     if not params.get('plan_hash'):
         raise EP.PlanError('PLAN_HASH_REQUIRED', '恢复需要当前计划hash')
     plan = EP.require(task, page_id=params.get('page_id'), plan_hash=params['plan_hash'])
-    if plan.get('require_live_data'):
+    if plan.get('require_live_data') and params.get('delivery_kind') != 'partial_research':
         raise EP.PlanError('PLAN_LIVE_DATA_REQUIRED', '用户要求实时；不能把静态研究页当完整交付，需修复受支持的实时合同')
     roles = params.get('roles') or [r for r in plan['runtime_roles'] if r.get('validation_receipt_file')]
     if not isinstance(roles, list) or not roles or any(not isinstance(r, dict) or not r.get('role_id') or not r.get('validation_receipt_file') for r in roles):
@@ -93,6 +93,8 @@ def recover(params):
     runtime = [r for r in plan['runtime_roles'] if r['role_id'] not in frozen]
     snapshots = list({**existing, **frozen}.values())
     incoming = {k: copy.deepcopy(params[k]) for k in CI.PASS_FIELDS if k in params}
+    if plan.get('require_live_data'):
+        incoming.update(delivery_kind='partial_research', research_status='partial')
     # Preserve the editable research draft; convert only bindings for selected roles.
     prior = CI._prior(plan, CI.editable_root(task))
     panels = copy.deepcopy(params.get('panels', prior.get('panels', [])))

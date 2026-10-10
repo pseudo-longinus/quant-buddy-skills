@@ -157,6 +157,7 @@ def mark_job_running(
     job_file: Any = None,
     job_dir: Any = None,
     target_skill_id: Any = None,
+    resume_failed: bool = False,
 ) -> Dict[str, Any]:
     path, payload, reason = find_job(
         qbv_job_id=qbv_job_id,
@@ -174,6 +175,11 @@ def mark_job_running(
         status = record.get("status")
         if status == "running":
             return _result(False, "already_running", path, record)
+        technical_failure = str(record.get('failure_code') or '').startswith(('PAGE_','COMPOSE_','PUBLIC_','PUBLISH_','LAYOUT_','DESIGN_','REGISTER_','FORMULA_','GRANT_'))
+        unsafe_failure = record.get('failure_code') in {'PUBLISH_OUTCOME_UNKNOWN','PUBLISH_VERSION_CONFLICT','PUBLISH_RESPONSE_STALE'}
+        if status == 'failed' and resume_failed and not unsafe_failure and (record.get('retryable') is True or technical_failure):
+            status = 'queued'
+            record['failure_code'] = None
         if status in {"completed", "failed"}:
             return _result(False, f"already_{status}", path, record)
         if status != "queued":
@@ -231,6 +237,11 @@ def complete_job_from_publish_result(params: Dict[str, Any], publish_result: Dic
                 and record.get("published") is True
                 and record.get("public_verified") is True
             )
+            if same_terminal:
+                metadata={key:params[key] for key in ('research_status','delivery_kind','live_data_mode') if key in params}
+                if any(record.get(key) != value for key,value in metadata.items()):
+                    record.update(metadata,updated_at=_utc_now());_atomic_write(path,record)
+                    return _result(True,'refreshed_delivery_metadata',path,record)
             return _result(False, "already_completed" if same_terminal else "completed_identity_conflict", path, record)
         if record.get("status") == "failed":
             return _result(False, "already_failed", path, record)
@@ -239,6 +250,9 @@ def complete_job_from_publish_result(params: Dict[str, Any], publish_result: Dic
         now = _utc_now()
         record.update({
             "status": "completed",
+            "research_status": params.get('research_status', 'unknown'),
+            "delivery_kind": params.get('delivery_kind', 'result'),
+            "live_data_mode": params.get('live_data_mode'),
             "target_skill_id": target_skill_id,
             "target_page_id": page_id,
             "public_url": public_url,

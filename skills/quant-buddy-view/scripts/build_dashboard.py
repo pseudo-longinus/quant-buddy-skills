@@ -497,7 +497,7 @@ function renderTable(el, tab, panel) {
   };
   let rows = tab.rows.slice();
   const ranked = ['asc','desc'].includes(panel.rank_order);
-  const rankColumn = tab.columns.includes(panel.rank_by) ? panel.rank_by : tab.columns.find(c => label(c) === panel.rank_by || c === (panel.output_labels || {})[panel.rank_by]);
+  const rankColumn = tab.columns.includes(panel.rank_by) ? panel.rank_by : ((panel.output === panel.rank_by || (panel.outputs?.length === 1 && panel.outputs[0] === panel.rank_by)) && tab.columns.includes('value')) ? 'value' : tab.columns.find(c => label(c) === panel.rank_by || c === (panel.output_labels || {})[panel.rank_by]);
   const ri = colIdx(tab,rankColumn);
   el.dataset.qbRankError = ranked && ri == null ? '排序字段不存在' : '';
   const sortValue = v => {
@@ -511,9 +511,10 @@ function renderTable(el, tab, panel) {
     const av=sortValue(a[ri]),bv=sortValue(b[ri]);
     return av!=null&&bv!=null ? (panel.rank_order==='asc'?1:-1)*(av-bv) : av!=null?-1:bv!=null?1:0;
   });
-  const table = data => '<table'+(ranked?' data-qb-rank-order="'+panel.rank_order+'"':'')+'><thead><tr>' + cols.map(c => '<th scope="col">' + esc(label(c)) + '</th>').join('') + '</tr></thead><tbody>' + data.map(r=>
-    '<tr'+(ranked&&ri!=null&&typeof r[ri]==='number'?' data-qb-rank-value="'+esc(r[ri])+'"':'')+'>'+idx.map((i,n)=>'<td>'+esc(cell(i==null?null:r[i],cols[n]))+'</td>').join('')+'</tr>').join('')+'</tbody></table>';
   const limit = ranked ? (Number.isInteger(panel.rank_limit)&&panel.rank_limit>0?panel.rank_limit:10) : rows.length;
+  const memberIndex=colIdx(tab,'name') ?? colIdx(tab,'名称') ?? colIdx(tab,'asset') ?? colIdx(tab,'代码');
+  const table = data => '<table'+(ranked?' data-qb-rank-order="'+panel.rank_order+'" data-qb-rank-by="'+esc(panel.rank_by)+'" data-qb-rank-limit="'+limit+'" data-qb-rank-cell="'+idx.indexOf(ri)+'"':'')+'><thead><tr>' + cols.map(c => '<th scope="col">' + esc(label(c)) + '</th>').join('') + '</tr></thead><tbody>' + data.map(r=>
+    '<tr'+(ranked&&ri!=null&&typeof r[ri]==='number'?' data-qb-rank-value="'+esc(r[ri])+'" data-qb-rank-display="'+esc(cell(r[ri],rankColumn))+'" data-qb-rank-member="'+esc(memberIndex==null?'':r[memberIndex])+'"':'')+'>'+idx.map((i,n)=>'<td>'+esc(cell(i==null?null:r[i],cols[n]))+'</td>').join('')+'</tr>').join('')+'</tbody></table>';
   el.innerHTML = table(rows.slice(0,limit)) + (rows.length>limit?'<details class="qb-ranking-rest"><summary>展开其余 '+(rows.length-limit)+' 项（共 '+rows.length+' 项）</summary>'+table(rows.slice(limit))+'</details>':'');
 }
 
@@ -546,6 +547,13 @@ function lastRealNumber(tab, ci) {
   return null;
 }
 function numberPanelValue(tab, panel) {
+  if (['asc','desc'].includes(panel.rank_order) && panel.rank_limit === 1) {
+    const column = tab.columns.includes(panel.rank_by) ? panel.rank_by : panel.rank_by === panel.output && tab.columns.includes('value') ? 'value' : null;
+    const index = colIdx(tab, column);
+    if (index == null) throw new Error('数字榜首的排序字段不存在');
+    const values = tab.rows.map(row => row[index]).filter(value => typeof value === 'number' && Number.isFinite(value));
+    return values.length ? (panel.rank_order === 'desc' ? Math.max(...values) : Math.min(...values)) : null;
+  }
   // A number panel may use the same single-series selector as its chart.
   // Never replace an explicitly requested field with a different metric.
   let field = panel.value_field;
@@ -607,8 +615,24 @@ function proseMarkdown(text) {
   return blocks.join('');
 }
 function renderText(el, panel) {
+  if (el.dataset) el.dataset.qbProseAsof = panel.as_of_mode || (panel.date_binding ? 'dynamic' : 'fixed');
   const text = panel.text || panel.content || panel.description || '';
   el.innerHTML = '<div class="text-panel" data-qb-text-format="' + (panel.text_format === 'plain' ? 'plain' : 'markdown') + '">' + (panel.text_format === 'plain' ? esc(text).replace(/\n/g, '<br>') : proseMarkdown(text)) + '</div>';
+  if (['asc','desc'].includes(panel.rank_order) && panel.rank_by) {
+    const wanted=(panel.output_labels || {})[panel.rank_by] || panel.rank_by;
+    const table=[...el.querySelectorAll('table')].find(t=>[...t.querySelectorAll('thead th')].some(c=>c.textContent.trim()===wanted));
+    if (!table) throw new Error('静态主榜排序字段不存在');
+    const heads=[...table.querySelectorAll('thead th')].map(c=>c.textContent.trim()), ri=heads.indexOf(wanted);
+    const mi=heads.findIndex(c=>['代码','asset','名称','股票'].includes(c));
+    table.dataset.qbRankOrder=panel.rank_order;table.dataset.qbRankBy=panel.rank_by;
+    table.dataset.qbRankLimit=panel.rank_limit || 10;table.dataset.qbRankCell=ri;
+    for (const row of table.querySelectorAll('tbody tr')) {
+      const cells=[...row.querySelectorAll('td')], display=cells[ri].textContent.trim();
+      const value=Number(display.replaceAll(',','').replace(/[%％]$/,''))*(/[%％]$/.test(display)?0.01:1);
+      if (!Number.isFinite(value)) throw new Error('静态主榜含无效数值');
+      row.dataset.qbRankValue=value;row.dataset.qbRankDisplay=display;row.dataset.qbRankMember=mi<0?'':cells[mi].textContent.trim();
+    }
+  }
 }
 
 function openImageLightbox(src, alt, caption, trigger) {
@@ -656,7 +680,10 @@ function renderChart(el, tab, panel) {
   const chart = echarts.init(el);
   // Rank the original signed values. Never negate returns to obtain a bottom-N.
   if (panel.type === 'bar' && ['asc', 'desc'].includes(panel.rank_order)) {
-    const requested = panel.rank_by || (panel.y || [])[0] || tab.columns[1];
+    el.dataset.qbRankOrder = panel.rank_order;
+    el.dataset.qbRankBy = panel.rank_by;
+    el.dataset.qbRankLimit = panel.rank_limit || 10;
+    const requested = panel.rank_by === panel.output && tab.columns.includes('value') ? 'value' : panel.rank_by || (panel.y || [])[0] || tab.columns[1];
     const column = tab.columns.includes(requested) ? requested : (panel.output_labels || {})[requested];
     const index = colIdx(tab, column);
     el.dataset.qbRankError = index == null ? '排序字段不存在' : '';
@@ -799,6 +826,7 @@ let OUTPUT_INDEX = {};
 
 // 面板依赖的 output 名单：新的 panel.outputs（复数，叠加对比线）优先，兼容旧的 panel.output（单数）。
 function panelOutputNames(panel) {
+  if (panel.date_binding) return panel.date_binding.outputs;
   if (panel.binding) return [...new Set(Object.values(panel.binding.values || {}).map(ref => ref.output))];
   if (Array.isArray(panel.outputs) && panel.outputs.length) return panel.outputs;
   if (panel.output) return [panel.output].concat(Array.isArray(panel.overlays) ? panel.overlays : []);
@@ -1013,7 +1041,7 @@ function buildSkeletons() {
     const names = panelOutputNames(panel);
     const reg = {panel: panel, body: made.body, span: made.span, filled: false, names: names, received: {}};
     PANEL_REG.push(reg);
-    if (type === 'text' && !panel.binding) { renderText(made.body, panel); reg.filled = true; return; }
+    if (type === 'text' && !panel.binding && !panel.date_binding) { renderText(made.body, panel); reg.filled = true; return; }
     if (type === 'image') { renderImage(made.body, panel); reg.filled = true; return; }
     made.body.innerHTML = '<p class="empty">加载中…</p>';
     names.forEach(name => { (OUTPUT_INDEX[name] = OUTPUT_INDEX[name] || []).push(reg); });
@@ -1026,7 +1054,7 @@ function applyOutput(name, out) {
   (OUTPUT_INDEX[name] || []).forEach(reg => {
     reg.received[name] = out;
     // Bound prose is committed only after this complete fetch epoch finishes.
-    if (reg.panel.binding) return;
+    if (reg.panel.binding || reg.panel.date_binding) return;
     if (!reg.names.every(n => Object.prototype.hasOwnProperty.call(reg.received, n))) return;
     const merged = mergeOutputTables(reg.names, reg.received, reg.panel.output_labels, reg.panel.type, reg.panel.output_fields);
     if (reg.names.length === 1 && (reg.panel.type || 'table') === 'raw') merged.rawData = out.data;
@@ -1066,6 +1094,23 @@ function renderBoundProse() {
   visit(LAST_OUTPUTS);
   const designRoot = document.querySelector('[data-qb-page-design]');
   if (designRoot) designRoot.dataset.qbObservationDates = JSON.stringify([...dates].sort());
+  PANEL_REG.filter(reg => reg.panel.date_binding).forEach(reg => {
+    const parts = reg.panel.date_binding.outputs.map(name => {
+      const found = [];
+      const walk = value => {
+        if (!value || typeof value !== 'object') return;
+        for (const [key, item] of Object.entries(value)) {
+          if (['date','d','last_valid_date'].includes(key) && /^20\d{6}$/.test(String(item).replaceAll('-',''))) found.push(String(item).replaceAll('-',''));
+          else if (item && typeof item === 'object') walk(item);
+        }
+      };
+      walk(LAST_OUTPUTS[name]?.data);
+      const last = found.sort().at(-1);
+      return (reg.panel.date_binding.labels?.[name] || name) + '：' + (last ? last.slice(0,4)+'-'+last.slice(4,6)+'-'+last.slice(6) : '本轮未返回可核验日期');
+    });
+    renderText(reg.body, {...reg.panel, text:'本轮数据观察日\n'+parts.join('\n')+'\n各字段按来源返回日期展示；刷新不保证上游已更新。', text_format:'plain'});
+    reg.filled = true;
+  });
   PANEL_REG.filter(reg => reg.panel.binding).forEach(reg => {
     try {
       const text = resolveBoundProse(reg.panel.binding, LAST_OUTPUTS);
@@ -1368,7 +1413,9 @@ def _evidence_first_panels(spec, panels):
         numbers = []
     number_ids = {id(p) for p in numbers}
     remaining = [p for p in remaining if id(p) not in number_ids]
-    main = next((p for p in remaining if p.get('type') in ('line', 'bar', 'candlestick', 'radar', 'image')), None)
+    main = next((p for p in remaining if p.get('rank_by') and p.get('rank_order') in ('asc','desc') and p.get('type') in ('text','table','bar')),None)
+    if main is None:
+        main = next((p for p in remaining if p.get('type') in ('line', 'bar', 'candlestick', 'radar', 'image')), None)
     if main is None:
         main = next((p for p in remaining if p.get('type', 'table') == 'table'), None)
     primary = [main] if main is not None else []
@@ -1421,6 +1468,8 @@ def _render_html(spec, *, title, subtitle, panels, endpoint, package_id, signatu
     }
 
     title_esc = html_escape(title or "看板")
+    delivery_note = {'partial_research':'部分研究成果：未核验条件仍待补齐。',
+                     'methodology':'研究方法页：标的数据尚未取得，研究尚未完成。'}.get(spec.get('delivery_kind'), '')
     subtitle_esc = html_escape(subtitle or "")
     brand_name_esc = html_escape(share["brand_name"])
     brand_cn_esc = html_escape(share["brand_cn"])
@@ -1481,11 +1530,12 @@ def _render_html(spec, *, title, subtitle, panels, endpoint, package_id, signatu
 </head>
 <body>
 {shared_header}
-<main class="qb-dashboard" data-qb-page-design="research-v1"{poster_target_attr}>
+<main class="qb-dashboard" data-qb-page-design="research-v1" data-qb-delivery-kind="{html_escape(str(spec.get('delivery_kind', 'result')))}" data-qb-research-status="{html_escape(str(spec.get('research_status', 'unknown')))}"{poster_target_attr}>
   {card_runtime_artifacts}
   <section class="std-hero">
     <div class="eyebrow">{page_type_esc}</div>
     <h1 data-qb-page-title>{title_esc}</h1>
+    {f"<p class='subtitle'>{html_escape(delivery_note)}</p>" if delivery_note else ""}
     {f"<p class='subtitle'>{subtitle_esc}</p>" if subtitle_esc else ""}
     <div class="meta-row">
       <span class="meta-pill">{mode_note}</span>
@@ -1872,6 +1922,8 @@ def _inspect_output_data(data):
 
 
 def _panel_output_names(panel):
+    if panel.get('date_binding'):
+        return panel['date_binding']['outputs']
     """Return the runtime outputs consumed by one panel.
 
     Formula panels may declare ``outputs`` for a multi-series chart. Grant panels
@@ -2172,15 +2224,43 @@ def _validate_panel_transforms(panels):
     return None
 
 
-def _validate_table_presentation(panels, title=''):
+def _validate_table_presentation(panels, title='', research_contract=None):
     """Require an authored ranking/scale contract; never guess a financial unit."""
     data_panels = [p for p in panels if (p.get('type') or 'table') in ('candlestick', 'table', 'bar', 'line')]
     rankable = [p for p in data_panels if (p.get('type') or 'table') in ('table', 'bar')]
-    ranking_page = bool(re.search(r'排名|强弱|榜单', title))
-    if ranking_page and rankable and not any(p.get('rank_order') in ('asc', 'desc') and p.get('rank_by') for p in rankable):
+    ranking = (research_contract or {}).get('ranking')
+    ranking_page = bool(ranking or re.search(r'排名|强弱|榜单|top\s*\d+', title, re.I))
+    static_ranked=[p for p in panels if p.get('type')=='text' and p.get('rank_by') and p.get('rank_order') in ('asc','desc')]
+    primary=rankable+static_ranked
+    if ranking and primary:
+        if not any(all(p.get(key)==ranking[key] for key in ('rank_by','rank_order','rank_limit')) for p in primary):
+            return {'code':1,'error':'RESEARCH_RANKING_CONFLICT','message':'必须保留一张匹配研究合同的主榜；不能把全部表格标为辅助来删除排序。'}
+        for panel in primary:
+            if panel.get('ranking_scope')=='supporting' and not panel.get('rank_by'): continue
+            if any(panel.get(key) != ranking[key] for key in ('rank_by', 'rank_order', 'rank_limit')):
+                return {'code': 1, 'error': 'RESEARCH_RANKING_CONFLICT', 'message': '主榜表图必须保留研究合同中的排序字段、方向和数量'}
+    if ranking_page and rankable and not any(p.get('rank_order') in ('asc', 'desc') and p.get('rank_by') for p in primary):
         return {'code': 1, 'error': 'RANKING_PRESENTATION_REQUIRED', 'message': '排名页必须明确主榜单的rank_by与rank_order；不能按代码原序展示。table可设置rank_limit:10，剩余记录可展开。'}
-    if ranking_page and sum((p.get('type') or 'table') == 'table' for p in data_panels) > 1 and not any(p.get('type') == 'bar' for p in data_panels):
+    if ranking_page and sum((p.get('type') or 'table') == 'table' for p in data_panels) > 1 and not any(p.get('type') == 'bar' for p in data_panels) and not static_ranked:
         return {'code': 1, 'error': 'RANKING_OVERVIEW_REQUIRED', 'message': '排名页不能堆叠多张全量表；先用最强/最弱原始数值柱图呈现主要证据，再保留一张多窗口完整表。Compose同样适用，保留借鉴外层结构。'}
+    for panel in static_ranked:
+        wanted=(panel.get('output_labels') or {}).get(panel['rank_by'],panel['rank_by'])
+        lines=panel.get('text','').splitlines();values=[];found=False
+        for i,line in enumerate(lines[:-1]):
+            if '|' not in line or not re.match(r'^\s*\|?\s*:?-{3,}:?\s*\|',lines[i+1]):continue
+            heads=[v.strip() for v in line.strip().strip('|').split('|')]
+            if wanted not in heads:continue
+            found=True;index=heads.index(wanted)
+            for row in lines[i+2:]:
+                if not row.strip().startswith('|'):break
+                fields=[v.strip() for v in row.strip().strip('|').split('|')]
+                if index>=len(fields) or not re.fullmatch(r'[+-]?\d+(?:,\d{3})*(?:\.\d+)?[%％]?',fields[index]):return {'code':1,'error':'STATIC_RANK_VALUE_INVALID'}
+                value=float(fields[index].rstrip('%％').replace(',',''))*(0.01 if fields[index].endswith(('%','％')) else 1)
+                values.append(value)
+            break
+        if not found or not values:return {'code':1,'error':'STATIC_RANK_FIELD_MISSING'}
+        if len(values)>panel.get('rank_limit',10) or values!=sorted(values,reverse=panel['rank_order']=='desc'):
+            return {'code':1,'error':'STATIC_RANK_ORDER_CONFLICT'}
     for p in data_panels:
         if 'value_scale' in p and (type(p['value_scale']) not in (int, float) or p['value_scale'] not in (1, 100)):
             return {'code': 1, 'error': 'CHART_SCALE_INVALID', 'message': 'value_scale仅支持1或100，按真实源值声明；已转换为百分数的数据不能再乘100。'}
@@ -2307,6 +2387,7 @@ def _attach_publish_reply_artifacts(params, result, published, static_page_modul
 
 
 def cmd_build(params):
+    params=dict(params or {})
     task_id = str((params or {}).get("task_id") or C.current_trace_context().get("task_id") or "").strip()
     if task_id:
         import static_page as SP
@@ -2318,6 +2399,16 @@ def cmd_build(params):
         )
         if existing_page_error:
             return existing_page_error
+        import execution_plan as EP
+        from research_contract import delivery_metadata
+        try:
+            params.update(delivery_metadata(params,task_id,C.current_trace_context().get('turn_id')))
+            plan=EP.load(task_id)
+            if plan:
+                plan=EP.bind(routing,expected_revision=plan['revision'],revision_reason='inherit_current_research_audit',
+                             **{k:params[k] for k in ('research_contract','research_checks','research_status','delivery_kind') if k in params})
+        except (ValueError,EP.PlanError) as error:
+            return error.as_dict() if isinstance(error,EP.PlanError) else {'code':1,'error':'RESEARCH_RENDER_CONFLICT','message':str(error)}
         decision = (routing or {}).get("routing_decision") if isinstance((routing or {}).get("routing_decision"), dict) else {}
         if decision.get("mode") == "fork":
             borrow_mode = str(decision.get("borrow_mode") or "")
@@ -2374,13 +2465,13 @@ def _build_authorized(params):
     if not isinstance(panels, list) or not panels:
         return {"code": 1, "message": "spec.panels 必须是非空数组"}
     import prose_contract
-    binding_error = prose_contract.validate(panels)
+    binding_error = prose_contract.research_claim_errors(str(params.get('title',''))+'\n'+str(params.get('description','')),params.get('research_status')) or prose_contract.validate(panels,params.get('research_status'))
     if binding_error:
         return binding_error
     transform_error = _validate_panel_transforms(panels)
     if transform_error:
         return transform_error
-    presentation_error = _validate_table_presentation(panels, str(title))
+    presentation_error = _validate_table_presentation(panels, str(title), params.get('research_contract'))
     if presentation_error:
         return presentation_error
     candlestick_error = _validate_candlestick_panels(panels)
@@ -2478,8 +2569,13 @@ def _build_authorized(params):
         if not os.path.isabs(out_file):
             out_file = os.path.join(C.SKILL_ROOT, out_file)
     else:
-        os.makedirs(PAGES_DIR, exist_ok=True)
-        out_file = os.path.join(PAGES_DIR, _slug(title) + ".html")
+        task=str(params.get('task_id') or C.current_trace_context().get('task_id') or '')
+        if task:
+            import compose_inputs as CI
+            out_file=str(CI.editable_root(task)/(_slug(title)+'.html'))
+        else:
+            os.makedirs(PAGES_DIR, exist_ok=True)
+            out_file = os.path.join(PAGES_DIR, _slug(title) + ".html")
     os.makedirs(os.path.dirname(out_file), exist_ok=True)
     with open(out_file, "w", encoding="utf-8") as f:
         f.write(html)
@@ -2562,7 +2658,7 @@ def _build_authorized(params):
                     "page_id": plan["target_page_id"],
                     "data_mode": result["data_mode"],
                 }
-            publish_params = {key: params[key] for key in ("title", "description", "asset", "turn_id", "live_data_mode", "market_data_required", "route_receipt_file", "validation_receipt_files", "grant_validation_receipt_files", "page_context", "agent_reply_template") if key in params}
+            publish_params = {key: params[key] for key in ("title", "description", "asset", "turn_id", "live_data_mode", "market_data_required", "route_receipt_file", "validation_receipt_files", "grant_validation_receipt_files", "page_context", "agent_reply_template", "research_contract", "research_checks", "research_status", "delivery_kind") if key in params}
             publish_params.update(task_id=task_id, page_id=plan["target_page_id"], html_file=out_file, plan_hash=plan["plan_hash"])
             if not str(publish_params.get("description") or "").strip():
                 panel_titles = [str(panel.get("title") or panel.get("output") or panel.get("type") or "") for panel in panels]
@@ -2571,7 +2667,10 @@ def _build_authorized(params):
                 publish_params.setdefault("live_data_mode", "live")
             if result["data_mode"] in ("snapshot", "mixed"):
                 publish_params["live_data_mode"] = "verified_snapshot" if result["data_mode"] == "snapshot" else "mixed"
-            publish_path = os.path.join(C.SKILL_ROOT, "output", "_working", C.safe_task_id(task_id), "dashboard-publish-params.json")
+            import compose_inputs as CI
+            publish_path = (str(CI.editable_root(task_id)/"dashboard-publish-params.json")
+                            if os.environ.get('SESSION_WORKSPACE') or os.environ.get('QBV_OUTPUT_ROOT') else
+                            os.path.join(C.SKILL_ROOT,'output','_working',C.safe_task_id(task_id),'dashboard-publish-params.json'))
             EP.atomic_json(publish_path, publish_params)
             result.update(terminal=False, page_id=plan["target_page_id"],
                           next_action={"command": "publish_verified", "params_file": str(publish_path)},

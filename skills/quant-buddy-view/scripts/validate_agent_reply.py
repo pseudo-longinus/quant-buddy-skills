@@ -423,7 +423,7 @@ def _live_page_delivery_errors(public_url, draft, data_mode=None, *, file_public
     """Require the share link to be the natural final Markdown block."""
     if not public_url or public_url not in draft:
         return []
-    label = "可分享活页" if file_publication else {"verified_snapshot": "可分享静态研究页", "mixed": "可分享活页（部分实时、部分静态）"}.get(data_mode, "可分享实时活页")
+    label = "可分享活页" if file_publication else {"verified_snapshot": "可分享静态研究页", "mixed": "可分享活页（部分实时、部分静态）", "static_content_only": "策略与核验方法研究页"}.get(data_mode, "可分享实时活页")
     expected = f"{label}：[{public_url}]({public_url})\n{_LIVE_PAGE_UPGRADE_HINT}"
     if str(draft).rstrip().endswith(expected):
         return []
@@ -438,6 +438,11 @@ def validate_reply(contract_payload, draft):
     contract_payload = contract_payload if isinstance(contract_payload, dict) else {}
     contract = contract_payload.get("agent_reply_contract") if isinstance(contract_payload.get("agent_reply_contract"), dict) else contract_payload
     errors = []
+    from prose_contract import coverage_errors,research_claim_errors
+    coverage_error=coverage_errors(draft)
+    if coverage_error: errors.append({'code':coverage_error['error'],'message':coverage_error.get('message','覆盖数量无效')})
+    claim_error=research_claim_errors(draft,contract.get('research_status'))
+    if claim_error: errors.append({'code':claim_error['error'],'message':claim_error['message']})
     if contract.get("terminal") is not True:
         errors.append({"code": "TERMINAL_CONTRACT_REQUIRED", "message": "缺少 terminal=true 的终态 contract"})
     public_url = str(contract.get("public_url") or "").strip()

@@ -109,13 +109,25 @@ def _no_secrets(value):
 
 
 def bind(routing, *, target_scope=None, runtime_roles=None, borrow_modules=None,
-         expected_revision=None, revision_reason='', compose_binding_sha256=None, snapshot_roles=None, require_live_data=None):
+         expected_revision=None, revision_reason='', compose_binding_sha256=None, snapshot_roles=None, require_live_data=None,
+         research_contract=None, research_checks=None, research_status=None, delivery_kind=None, module_order=None):
     task = str(routing.get('task_id') or '')
     page = str(routing.get('page_id') or '')
     decision = routing.get('routing_decision') or {}
     if not task or not page: raise PlanError('PLAN_IDENTITY_REQUIRED', '先创建/恢复同任务的目标page_id')
     with locked(task):
         previous = load(task)
+        from research_contract import metadata
+        research = {key: value if value is not None else (previous or {}).get(key, default)
+                    for key, value, default in [('research_contract', research_contract, None),
+                        ('research_checks', research_checks, None), ('research_status', research_status, 'unknown'),
+                        ('delivery_kind', delivery_kind, 'result')]}
+        try:
+            research.update(metadata(research, task))
+        except ValueError as exc:
+            raise PlanError('RESEARCH_CONTRACT_INVALID', str(exc)) from exc
+        if (previous or {}).get('research_contract') and previous['research_contract'] != research['research_contract'] and revision_reason != 'user_research_revision':
+            raise PlanError('RESEARCH_CONTRACT_CHANGED', '技术修复不能替换已确认的研究条件')
         mode = decision.get('mode')
         borrow = decision.get('borrow_mode') if mode == 'fork' else None
         if mode not in ('fork', 'direct', 'unmatched'): raise PlanError('PLAN_ROUTE_INVALID', '需要有效路由')
@@ -126,7 +138,9 @@ def bind(routing, *, target_scope=None, runtime_roles=None, borrow_modules=None,
             'target_scope': target_scope if target_scope is not None else (previous or {}).get('target_scope', {'kind': 'unspecified'}),
             'runtime_roles': runtime_roles if runtime_roles is not None else (previous or {}).get('runtime_roles', []),
             'snapshot_roles': snapshot_roles if snapshot_roles is not None else (previous or {}).get('snapshot_roles', []),
-            'require_live_data': require_live_data if require_live_data is not None else (previous or {}).get('require_live_data', False),
+            'require_live_data': bool((research['research_contract'] or {}).get('require_live_data')) or (require_live_data if require_live_data is not None else (previous or {}).get('require_live_data', False)),
+            **research,
+            'module_order': module_order if module_order is not None else (previous or {}).get('module_order', []),
             'borrow_modules': borrow_modules if borrow_modules is not None else (previous or {}).get('borrow_modules', []),
             'compose_binding_sha256': compose_binding_sha256 if compose_binding_sha256 is not None else (previous or {}).get('compose_binding_sha256'),
             'build_mode': 'compose_page' if borrow == 'compose' else ('inherit' if mode == 'fork' else mode),
@@ -141,6 +155,10 @@ def bind(routing, *, target_scope=None, runtime_roles=None, borrow_modules=None,
                 raise PlanError('ORIGINAL_MODULE_INVALID', '原创模块名称重复')
             content['build_mode'] = 'compose_page'
         if not isinstance(content["require_live_data"],bool):raise PlanError("PLAN_LIVE_REQUIREMENT_INVALID","require_live_data必须为布尔值")
+        order = content['module_order']
+        names = [m.get('module') for m in content['borrow_modules']]
+        if not isinstance(order, list) or not all(isinstance(v,str) for v in order) or (order and (len(order) != len(names) or set(order) != set(names))):
+            raise PlanError('MODULE_ORDER_INVALID', 'module_order必须恰好包含当前计划的全部模块一次')
         if previous and previous.get("require_live_data") and not content["require_live_data"]:
             raise PlanError("PLAN_LIVE_REQUIREMENT_IMMUTABLE","不能用技术性修订取消用户实时要求；快照只能作为部分交付")
         _no_secrets(content)
@@ -164,6 +182,8 @@ def bind(routing, *, target_scope=None, runtime_roles=None, borrow_modules=None,
             stable = {k: v for k, v in previous.items() if k not in ('revision', 'plan_hash', 'revision_reason', 'previous_plan_hash')}
             stable.setdefault('snapshot_roles',[])
             stable.setdefault('require_live_data',False)
+            for key, default in [('research_contract', None), ('research_checks', None), ('research_status', 'unknown'), ('delivery_kind', 'result'), ('module_order', [])]:
+                stable.setdefault(key, default)
             if stable == content:
                 if expected_revision is not None and expected_revision != previous['revision']:
                     raise PlanError('PLAN_REVISION_CONFLICT', '使用了过期计划', actual_revision=previous['revision'])

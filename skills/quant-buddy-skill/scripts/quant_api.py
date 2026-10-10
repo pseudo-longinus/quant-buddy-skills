@@ -683,12 +683,40 @@ class QuantAPI:
         turn_warnings = []
         inject_or_validate_turn_context(session_data, params, warnings=turn_warnings)
 
+        if tool_name == 'selectByComposition':
+            from research_contract import selection_route_error
+            route_error = selection_route_error(session_data.get('current_user_query') or session_data.get('user_query') or params.get('user_query'),params)
+            if route_error: return route_error
+
         if tool_name == "runMultiFormulaBatchStream":
             from sector_scope import validate_formula_scope
             scope_error = validate_formula_scope(
                 session_data.get("current_user_query") or session_data.get("user_query") or params.get("user_query"), params)
             if scope_error:
                 return scope_error
+
+        research_input = params.pop('research_contract', None)
+        research_checks = None
+        if tool_name == 'runMultiFormulaBatchStream' and research_input is None:
+            from research_contract import load
+            try: research_input = load(params['task_id'])
+            except (ValueError, OSError, TypeError) as exc:
+                return {'code':1,'error':'RESEARCH_CONTRACT_INVALID','message':str(exc)}
+        if tool_name == 'runMultiFormulaBatchStream' and research_input is not None:
+            from research_contract import validate, preflight, record_formulas
+            from pathlib import Path
+            try:
+                if isinstance(research_input, str): research_input = json.loads(Path(research_input).read_text(encoding='utf-8-sig'))
+                research_input = validate(research_input, params.get('task_id'))
+                research_checks, final_screen = preflight(research_input, params.get('formulas', []))
+                if final_screen and any(i['error'].startswith('CONDITION_') or i['error'] == 'SELECTION_PREDICATE_CHANGED' for i in research_checks['issues']): return {'code':1,'error':'RESEARCH_CONDITION_MISMATCH','research_checks':research_checks}
+            except (ValueError, OSError, KeyError, TypeError) as exc:
+                return {'code':1,'error':'RESEARCH_CONTRACT_INVALID','message':str(exc)}
+
+        if tool_name in ('runMultiFormulaBatchStream','selectByComposition'):
+            from research_contract import guard_calculation
+            limit_error=guard_calculation(research_input,params.get('task_id'))
+            if limit_error: return limit_error
 
         # ── 确保 executor 在 sys.path 里，然后 import ───────────────
         if self._scripts_dir not in sys.path:
@@ -751,6 +779,10 @@ class QuantAPI:
                 tool_name, params, raw, task_id=self._task_id or params.get("task_id", ""),
                 read_data=lambda read_params: self._call("readData", read_params),
             )
+
+        if research_checks is not None and isinstance(raw, dict):
+            if raw.get('code') == 0: record_formulas(research_input, params['formulas'])
+            raw.update(research_contract=research_input, research_checks=research_checks)
 
         # 服务端有时在响应里带新的 task_id：
         #   - 只更新文件（供 call.py / 外部工具读取）

@@ -140,6 +140,9 @@ def mark_verified(plan, result, *, complete):
             raise EP.PlanError('PUBLISH_RECEIPT_REQUIRED', '公开验收不能替代发布版本收据')
         state.update(execution_status='running', current_step='reply_validation', delivery_state='published',
                      last_good_version=write['remote'], required_input=None, last_error=None)
+        state.update({key: plan.get(key, default) for key, default in
+                      [('research_status', 'unknown'), ('delivery_kind', 'result')]})
+        state['live_data_mode'] = result.get('live_data_mode') or state.get('live_data_mode') or 'unknown'
         return _save(state)
 
 

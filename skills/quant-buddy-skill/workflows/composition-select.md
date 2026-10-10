@@ -1,5 +1,8 @@
 # Composition Select Workflow — 已物化指标组合选股
 
+原始“放量突破 + 主力资金净流入”、涨停基因与累计回落等条件必须按研究合同走公式筛选；不得自动映射为“有效性/强度”分数或等权组合。用户明确要求该分数排名时才使用 score。两个条件的交集不能变成加权得分。
+
+
 > 目标：对已物化、当前可选的指标做当前截面 TopN、排名或名单筛选，调用 `selectByComposition`。本流程不写公式、不调 `confirmDataMulti`、不调 `runMultiFormulaBatchStream`。
 
 ## 1. 命中条件

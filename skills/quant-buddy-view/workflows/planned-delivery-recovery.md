@@ -93,7 +93,7 @@ materialize返回snapshot_receipt_file及snapshot_receipt_sha256。把这两项�
 
 - 页面只有快照：发布参数自动使用`live_data_mode:"verified_snapshot"`，不依赖原Grant/Package持续可用；声明“已验证静态快照，不会自动更新”。
 - 既有动态角色又有快照：使用`mixed`，动态部分仍需完整路由/验证收据，并明确“部分实时、部分静态快照”。
-- 用户要求实时：在计划中保留`require_live_data:true`，不能用技术性计划修订将其改为false。快照不能满足这一完整交付条件；不得冒充终态成品。
+- 用户要求实时：在计划中保留`require_live_data:true`，不能用技术性计划修订将其改为false。快照不能满足完整实时研究条件；仍可按 partial_research/partial 公开交付注明限制的部分成果，研究实时要求保持未完成。
 - captured_at是快照生成时间，不是行情交易日。保留数据本身的日期/报告期，不能自动把生成时间当成数据时点。
 
 快照和mixed的终态回复链接分别使用“可分享静态研究页”和“可分享活页（部分实时、部分静态）”；validator按合同检查，不再强制把快照称作实时活页。
@@ -130,3 +130,6 @@ python scripts/static_page.py recover_snapshot @recovery-params.json
 - 按 next_action 执行 `compose_page → publish_verified → reply_validation_command`，真实验收成功后补链接。恢复成功只表示候选参数已准备，不是发布成功。
 - snapshot 标注实际数据时点和不会自动更新；有效动态角色保留时为 mixed。`require_live_data:true` 不被技术恢复取消，静态部分不能冒充完整实时交付。
 - 相同确定性错误和参数不循环重试。注册未知不重发，公开写入未知按 delivery_status 核对。恢复路径仍缺必要数据/权限或服务持续不可用时，保留原可读页面及研究产物，如实说明缺口，不绕过门禁显示成功。
+
+
+有界恢复、方法页与新增研究状态见 [研究合同与恢复](research-contract-delivery.md)。优先执行 recover_delivery，最多两轮修复后同页交付可读成果。

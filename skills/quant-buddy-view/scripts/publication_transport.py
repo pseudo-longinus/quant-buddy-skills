@@ -34,7 +34,7 @@ def _check_ack(plan, intent, result):
         raise EP.PlanError('PUBLISH_ACK_INVALID', '现有更新接口未返回目标页的有效版本/哈希/链接；不能确认发布成功')
 
 
-def write(plan, body, endpoint, key, observe, content_kind='candidate'):
+def write(plan, body, endpoint, key, observe, content_kind='candidate', read_only=False):
     try:
         with EP.locked(plan['task_id']):
             EP.require(plan['task_id'], page_id=body.get('page_id'), plan_hash=plan['plan_hash'])
@@ -48,6 +48,17 @@ def write(plan, body, endpoint, key, observe, content_kind='candidate'):
                 return _fail('PUBLISH_OUTCOME_UNKNOWN', '上次更新结果不确定；现有接口不能证明请求是否仍会执行，不自动重发或改用新任务绕过',
                              next_action={'command': 'delivery_status'}, write_consistency=CONSISTENCY)
             candidate_hash = hashlib.sha256(body['html'].encode('utf-8')).hexdigest()
+            if read_only:
+                remote = DS._remote(observed)
+                confirmed = previous.get('remote') or {}
+                if (previous.get('status') != 'confirmed' or previous.get('candidate_hash') != candidate_hash
+                        or previous.get('request_body_sha256') != EP.digest(mutation_body(body))
+                        or remote.get('version_no') != confirmed.get('version_no') or remote.get('sha256') != confirmed.get('sha256')):
+                    return _fail('PUBLISH_READBACK_CONFLICT', '只读复验不能更改候选、元数据或远端版本；未写入')
+                result = previous.get('confirmed_result')
+                if not result: return _fail('PUBLISH_RECEIPT_REQUIRED', '只读复验缺少已确认收据')
+                _check_ack(plan, previous, result)
+                return {**result, 'reused_existing_version': True, 'write_consistency': CONSISTENCY}
             prepared = DS.prepare_write(plan, candidate_hash, observed, request_body=mutation_body(body), content_kind=content_kind)
             if prepared.get('reuse_result'):
                 result = previous.get('confirmed_result')

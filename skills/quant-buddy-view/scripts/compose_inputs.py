@@ -12,8 +12,9 @@ import execution_plan as EP
 import runtime_credentials as RC
 
 POINTER='receipts/compose-draft.json'
-PASS_FIELDS=('title','subtitle','description','page_context','agent_reply_template','live_card','agent_intent',
-             'route_receipt_file','validation_receipt_files','grant_validation_receipt_files','handoff_validation_receipt_files','turn_id','asset')
+PASS_FIELDS=('title','subtitle','description','page_context','agent_reply_template','live_card','agent_intent','market_data_required',
+             'route_receipt_file','validation_receipt_files','grant_validation_receipt_files','handoff_validation_receipt_files','turn_id','asset',
+             'research_contract','research_checks','research_status','delivery_kind','live_data_mode','missing_conditions')
 
 
 def editable_root(task):
@@ -208,6 +209,8 @@ def prepare(plan,params=None):
         if not modules:raise EP.PlanError('COMPOSE_MODULES_REQUIRED','先用fork_compose确认目标模块')
         draft={k:copy.deepcopy(v) for k,v in source.items() if k in PASS_FIELDS}
         draft.update(task_id=task,page_id=plan['target_page_id'],plan_hash=plan['plan_hash'])
+        for key in ('research_contract','research_checks','research_status','delivery_kind'):
+            if key in plan: draft[key] = copy.deepcopy(plan[key])
         draft.setdefault('title','');draft.setdefault('live_card',False)
         panels=[];orphans=copy.deepcopy(source.get('unassigned_panels') or [])
         for p in copy.deepcopy(source.get('panels') or []):
@@ -237,6 +240,11 @@ def prepare(plan,params=None):
             draft['panels'].append(_role_panel(role,records[role['role_id']],module))
         draft,error=evidence(plan,draft)
         if error:issues.append(error)
+        ranking = (plan.get('research_contract') or {}).get('ranking')
+        if ranking and not source.get('panels'):
+            for panel in draft['panels']:
+                if panel.get('type') in ('table','bar'):
+                    for key in ('rank_by','rank_order','rank_limit'): panel.setdefault(key,ranking[key])
         _,remaining=normalize_panels(plan,draft);issues+=remaining
         EP._no_secrets(draft)
         data=json.dumps(draft,ensure_ascii=False,indent=2).encode('utf-8')+b'\n'

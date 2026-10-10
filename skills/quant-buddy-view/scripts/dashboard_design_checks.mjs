@@ -1,6 +1,7 @@
 // Serialized into the browser by both verification engines; keep self-contained.
 export function dashboardDesignMetrics(required = false) {
   const problems = [];
+  const rankingGroups = [];
   const metadataKeys = new Set(['total_assets', 'valid_assets', 'returned_assets', 'is_truncated', 'warning']);
   for (const table of document.querySelectorAll('table')) {
     if (!/股票|证券|代码|资产|行业/.test(table.querySelector('tr')?.textContent || '')) continue;
@@ -14,7 +15,7 @@ export function dashboardDesignMetrics(required = false) {
   }
   const root = document.querySelector('[data-qb-page-design]');
   if (!root) return { required, problems: [...problems, ...(required ? ['缺少自建页设计根节点，不能跳过设计验收'] : [])] };
-  if (/排名|强弱|榜单/.test(root.querySelector('h1')?.textContent || '')) {
+  if (/排名|强弱|榜单|top\s*\d+/i.test(root.querySelector('h1')?.textContent || '')) {
     const primaryTables = [...root.querySelectorAll('table')].filter(t=>!t.closest('details,.text-panel'));
     if (primaryTables.length > 1 && !root.querySelector('.body.bar')) problems.push('排名页不能堆叠多张全量表；先呈现强弱柱图，再保留一张可展开的完整对照表');
     if (primaryTables.length && !root.querySelector('table[data-qb-rank-order],.body.bar')) problems.push('排名页缺少明确排序的主榜单，不能按代码原序交付');
@@ -23,9 +24,18 @@ export function dashboardDesignMetrics(required = false) {
     if (el.dataset.qbRankError) problems.push('排名表排序字段不存在；请按实际列名或output_labels映射修正rank_by');
   }
   for (const table of root.querySelectorAll('table[data-qb-rank-order]')) {
-    const values = [...table.querySelectorAll('tbody tr[data-qb-rank-value]')].map(row=>Number(row.dataset.qbRankValue));
+    const rows = [...table.querySelectorAll('tbody tr')];
+    const values = rows.map(row=>Number(row.dataset.qbRankValue));
     const direction = table.dataset.qbRankOrder === 'asc' ? 1 : -1;
+    if (values.some(v=>!Number.isFinite(v))) problems.push('排名表缺少可核验排序数值');
     if (values.some((v,i)=>i && direction*(v-values[i-1]) < 0)) problems.push('排名表未按声明的强弱方向排序');
+    const cellIndex=Number(table.dataset.qbRankCell);
+    if (cellIndex>=0 && rows.some(row=>row.dataset.qbRankDisplay!==row.cells[cellIndex]?.textContent.trim())) problems.push('排名表实际显示值与排序数值不一致');
+    if (!table.closest('details') && table.dataset.qbRankLimit) {
+      const limit=Number(table.dataset.qbRankLimit);
+      if (rows.length>limit) problems.push('排名表超过合同TopN数量');
+      rankingGroups.push({title:table.closest('.card,.qb-compose-panel')?.querySelector('h2,h3')?.textContent.trim()||'',kind:direction===1?'bottom':'top',limit:rows.length,rankBy:table.dataset.qbRankBy,values,members:rows.map(row=>row.dataset.qbRankMember||'')});
+    }
   }
   for (const cell of root.querySelectorAll('table th')) {
     if (/^(asset|value|name|date|close|pct_chg|pe_ttm)$/.test(cell.textContent.trim()))
@@ -44,6 +54,7 @@ export function dashboardDesignMetrics(required = false) {
   try { observationDates = JSON.parse(root.dataset.qbObservationDates || '[]'); } catch {}
   if (Array.isArray(observationDates) && observationDates.length) {
     for (const prose of root.querySelectorAll('.text-panel, [data-qb-prose]')) {
+      if (prose.closest('[data-qb-prose-asof="historical"]')) continue;
       const text = prose.textContent || '';
       for (const claim of text.matchAll(/(?:截至|对应|观察日(?:为)?|完整交易日)[^。；\n]{0,32}?(20\d{2}[-/]\d{2}[-/]\d{2})/g)) {
         const date = claim[1].replaceAll('/', '-');
@@ -51,11 +62,17 @@ export function dashboardDesignMetrics(required = false) {
       }
     }
   }
-  const rankingGroups = [];
   for (const el of root.querySelectorAll('.body.bar')) {
     const chart = window.echarts?.getInstanceByDom(el);
     if (!chart) continue;
     const option = chart.getOption();
+    if (el.dataset.qbRankOrder) {
+      const direction = el.dataset.qbRankOrder === 'asc' ? 1 : -1;
+      for (const series of option.series || []) {
+        const values = series.data?.map(value => Number(typeof value === 'object' ? value.value : value)) || [];
+        if (values.some((value,i) => i && direction*(value-values[i-1]) < 0)) problems.push('排名柱图未按声明方向排序');
+      }
+    }
     for (const series of option.series || []) {
       if (series.type !== 'bar' || !series.data?.length) continue;
       const valueAxis = option.xAxis?.[series.xAxisIndex || 0]?.type === 'value' ? 'xAxis' : 'yAxis';
@@ -65,10 +82,11 @@ export function dashboardDesignMetrics(required = false) {
     const card = el.closest('.card, .qb-compose-panel');
     const copy = card?.textContent || '';
     const title = card?.querySelector('h2,h3')?.textContent?.trim() || '';
-    const kind = /最弱/.test(title) ? 'bottom' : /最强/.test(title) ? 'top' : null;
+    const kind = /最弱/.test(title) ? 'bottom' : /最强/.test(title) ? 'top' : el.dataset.qbRankOrder === 'asc' ? 'bottom' : el.dataset.qbRankOrder === 'desc' ? 'top' : null;
     const axis = option.yAxis?.[0]?.type === 'category' ? option.yAxis[0] : option.xAxis?.[0];
     if (kind && axis?.type === 'category' && Array.isArray(axis.data) && axis.data.length) {
-      rankingGroups.push({title, kind, limit:axis.data.length, members:axis.data.map(v=>String(typeof v==='object'?v.value:v))});
+      if (el.dataset.qbRankLimit && axis.data.length>Number(el.dataset.qbRankLimit)) problems.push('排名柱图超过合同TopN数量');
+      rankingGroups.push({title, kind, rankBy:el.dataset.qbRankBy, limit:axis.data.length, members:axis.data.map(v=>String(typeof v==='object'?v.value:v))});
     }
 
     if (/最弱|弱势|落后|后\s*10/.test(copy) && /跌幅大小|越长.{0,8}越弱/.test(root.textContent))
@@ -76,10 +94,14 @@ export function dashboardDesignMetrics(required = false) {
     if (/最弱|弱势|落后/.test(copy) && /升序.{0,8}(?:后|末|最后)\s*10/.test(copy))
       problems.push('最弱榜应为原始数值升序取前10；升序取末10与最弱的定义矛盾');
   }
+  for (let i=0;i<rankingGroups.length;i++) for (let j=i+1;j<rankingGroups.length;j++) {
+    const a=rankingGroups[i],b=rankingGroups[j];
+    if (a.rankBy && a.rankBy===b.rankBy && a.kind===b.kind && a.limit===b.limit && JSON.stringify(a.members)!==JSON.stringify(b.members)) problems.push('同一排名合同的表格与柱图成员或顺序不一致');
+  }
   const visible = el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden';
   // Measure document positions, not the current scroll position: opening a details
   // table during acceptance must not change what was visible on initial load.
-  const evidence = [...root.querySelectorAll('.body.bar, .body.line, .body.radar, .body.table tbody tr, .card-number .big, [data-qb-metric]')];
+  const evidence = [...root.querySelectorAll('.body.bar, .body.line, .body.radar,  .body.table tbody tr, table[data-qb-rank-order] tbody tr, .card-number .big, [data-qb-metric]')];
   const firstScreenEvidence = evidence.some(el => {
     if (!visible(el) || el.closest('details:not([open])')) return false;
     const rect = el.getBoundingClientRect();
@@ -90,7 +112,17 @@ export function dashboardDesignMetrics(required = false) {
     const minimum = chart ? 120 : Math.min(rect.height, 32);
     return rect.width > 0 && rect.height >= minimum && minimum > 0 && top >= 0 && top + minimum <= window.innerHeight;
   });
-  if (evidence.length && !firstScreenEvidence)
+  const firstScreenDiagnostics = evidence.slice(0, 12).map(el => {
+    const rect = el.getBoundingClientRect();
+    return {selector:el.tagName.toLowerCase()+'.'+String(el.className).replaceAll(' ','.'), top:Math.round(rect.top+window.scrollY), height:Math.round(rect.height), width:Math.round(rect.width), visible:!!visible(el), viewportHeight:window.innerHeight};
+  });
+  const methodology = root.dataset.qbDeliveryKind === 'methodology';
+  const firstScreenSummary = methodology && [...root.querySelectorAll('.text-panel')].some(el => {
+    const rect = el.getBoundingClientRect();
+    return visible(el) && el.textContent.trim().length >= 40 && rect.top+window.scrollY >= 0 && rect.top+window.scrollY+64 <= window.innerHeight;
+  });
+  if (methodology && (root.dataset.qbResearchStatus !== 'unavailable' || evidence.length)) problems.push('方法研究页不能伪装成有数据结果或完整研究');
+  if ((evidence.length || required) && !firstScreenEvidence && !firstScreenSummary)
     problems.push('首屏缺少可读的核心数据证据：将真实关键值、主图或榜单前移，压缩导语并把详细口径后置；Compose 保留借鉴外壳，调整内部面板顺序，不能缩小正文或放置假指标绕过');
   const label = el => (el.textContent || '').trim().slice(0, 36);
   if (![...root.querySelectorAll('h1')].some(visible)) problems.push('缺少可见主标题');
@@ -124,7 +156,7 @@ export function dashboardDesignMetrics(required = false) {
       if (name) assets.add(name);
     }
   }
-  return { required: true, version: root.dataset.qbPageDesign, firstScreenEvidence, problems: [...new Set(problems)],
+  return { required: true, version: root.dataset.qbPageDesign, firstScreenEvidence, firstScreenSummary, firstScreenDiagnostics, problems: [...new Set(problems)],
     rankingEvidence: {version:1, groups:rankingGroups, assets:[...assets], observationDates} };
 
 }

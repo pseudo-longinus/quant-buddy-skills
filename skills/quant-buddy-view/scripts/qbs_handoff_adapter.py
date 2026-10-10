@@ -180,6 +180,8 @@ def evaluate_handoff(handoff: Any, required_roles: Any = None) -> Dict[str, Any]
             return _unusable("capsule_lineage_mismatch", field)
     try:
         display_contract = _normalize_display_contract(handoff.get("display_contract"))
+        from research_contract import metadata
+        research = metadata(handoff, handoff.get('task_id'))
     except ValueError as exc:
         return _unusable("display_contract_invalid", str(exc))
 
@@ -307,6 +309,9 @@ def evaluate_handoff(handoff: Any, required_roles: Any = None) -> Dict[str, Any]
     if display_contract is not None:
         result["display_contract"] = display_contract
         result["delivery_mode"] = display_contract["render_mode"]
+    result.update(research)
+    if handoff.get('research_checks') is not None:
+        result['research_checks'] = handoff['research_checks']
     if formula_runtime_contract is not None:
         result["formula_runtime_action"] = ('unsupported_minute_package'
             if formula_runtime_contract.get('use_minute_data') else 'register_exact')

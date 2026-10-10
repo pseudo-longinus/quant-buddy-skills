@@ -936,7 +936,12 @@ def _attach_reply_data_contract(record, params):
     if not isinstance(contract, dict):
         return record
     mode = params.get("live_data_mode")
-    if mode in ("verified_snapshot", "mixed"):
+    for key in ("research_status", "delivery_kind", "live_data_mode"):
+        if key in params: contract[key] = params[key]
+    if params.get("delivery_kind") == "methodology":
+        contract["delivery_link_label"] = "策略与核验方法研究页"
+        contract["delivery_data_mode"] = mode
+    elif mode in ("verified_snapshot", "mixed"):
         contract["delivery_data_mode"] = mode
         contract["delivery_link_label"] = "可分享静态研究页" if mode == "verified_snapshot" else "可分享活页（部分实时、部分静态）"
     for key in ("reply_data_evidence_file", "reply_data_evidence_sha256", "reply_data_availability"):
@@ -2695,8 +2700,16 @@ def cmd_upload(params):
         body["reply_contract_binding"] = None
     if "agent_reply_template" in params and params.get("agent_reply_template") is None:
         body["agent_reply_template"] = None
-    out = C.http_json("POST", C.api_url(endpoint, _PATH["upload"]),
-                      C.headers(api_key), body, timeout=_UPLOAD_TIMEOUT)
+    if params.get('_bootstrap_creation') is True and _routing_task_id(params):
+        import bootstrap_publication as bootstrap
+        out=bootstrap.write(_routing_task_id(params),body,endpoint,api_key,_PATH['upload'],_UPLOAD_TIMEOUT)
+        if out.get('error') == 'PUBLISH_OUTCOME_UNKNOWN':
+            import delivery_recovery
+            backup=delivery_recovery.backup_html({**params,'task_id':_routing_task_id(params)})
+            out.update({k:v for k,v in backup.items() if k.startswith('artifact_')})
+    else:
+        out = C.http_json("POST", C.api_url(endpoint, _PATH["upload"]),
+                          C.headers(api_key), body, timeout=_UPLOAD_TIMEOUT)
     out = PTC.acknowledgement(out, title_check['title'])
     if isinstance(out, dict):
         if reply_resolution:
@@ -2809,6 +2822,8 @@ def cmd_update(params):
         if params.get(k) is not None:
             body[k] = params[k]
     body.setdefault("change_note", "更新页面内容")
+    if params.get('verify_existing_publication') is True and not publication_plan:
+        return {'code':1,'error':'PUBLISH_PLAN_REQUIRED','message':'只读复验必须有已确认的计划和发布收据；未写入'}
     if "page_context" in params and params.get("page_context") is None:
         body["page_context"] = None
     if "reply_contract_binding" in params and params.get("reply_contract_binding") is None:
@@ -2820,7 +2835,8 @@ def cmd_update(params):
             result = cmd_template({"page_id": params["page_id"]})
             return _template_record(result) if isinstance(result, dict) and result.get("code") == 0 else result
         out = PT.write(publication_plan, body, endpoint, api_key, observe_publication,
-                       content_kind=params.get("_planned_content_kind", "candidate"))
+                       content_kind=params.get("_planned_content_kind", "candidate"),
+                       read_only=params.get('verify_existing_publication') is True)
     else:
         out = C.http_json("POST", C.api_url(endpoint, _PATH["update"]), C.headers(api_key), body, timeout=_UPLOAD_TIMEOUT)
     out = PTC.acknowledgement(out, title_check['title'])
@@ -3250,8 +3266,13 @@ def _validate_publish_data_evidence(params, *, source_credential_count=0, allow_
     try:
         plan = EP.load(_fork_task_id(params))
         if plan and plan.get("require_live_data") and mode not in ("live", "mixed"):
-            return _evidence_error("PLAN_LIVE_DATA_REQUIRED", "用户要求实时，验证快照也只能作为部分成果，不能声明完整交付")
-        if plan and plan.get("target_scope", {}).get("kind") in ("single_asset", "basket", "sector", "index", "market") and mode == "static_content_only":
+            if plan.get('delivery_kind') not in ('partial_research', 'methodology') or plan.get('research_status') not in ('partial', 'unavailable'):
+                return _evidence_error("PLAN_LIVE_DATA_REQUIRED", "用户要求实时，快照只能按注明限制的部分研究交付")
+        if plan:
+            for key in ('research_contract', 'research_status', 'delivery_kind'):
+                if key in params and params[key] != plan.get(key, {'research_status':'unknown','delivery_kind':'result'}.get(key)):
+                    return _evidence_error('RESEARCH_PLAN_CONFLICT', '研究合同/完成状态与当前计划不一致')
+        if plan and plan.get("target_scope", {}).get("kind") in ("single_asset", "basket", "sector", "index", "market") and mode == "static_content_only" and plan.get("delivery_kind") != "methodology":
             return _evidence_error("PLAN_DATA_EVIDENCE_REQUIRED", "金融研究范围不能声明无行情数据；使用验证收据或明确的部分交付路径")
     except EP.PlanError as exc:
         return exc.as_dict()
@@ -4521,6 +4542,16 @@ def _existing_page_mutation_error(params, *, action):
         return None
     expected_source = str(reference.get("source_template_id") or "").strip()
     if _existing_page_route_mode(reference) == "in_place":
+        # A sealed Compose rebuild edits the already-bound target locally;
+        # publication still goes through update and its ownership checks.
+        if action == 'compose_page' and params.get('plan_hash'):
+            try:
+                plan = EP.require(task_id, page_id=params.get('page_id'), plan_hash=params['plan_hash'])
+                expected = str(reference.get('page_id') or expected_source)
+                if plan.get('build_mode') == 'compose_page' and plan.get('target_page_id') == expected and params.get('page_id') == expected:
+                    return None
+            except EP.PlanError as exc:
+                return exc.as_dict()
         return {
             "code": 1,
             "error": "EXISTING_PAGE_UPDATE_REQUIRED",
@@ -5043,7 +5074,9 @@ def _record_routing_decision(params, decision, page_id):
     if write_error:
         return None, write_error
     try:
-        EP.bind(cred, require_live_data=params.get("require_live_data"))
+        from research_contract import delivery_metadata
+        research=delivery_metadata(params,task_id,C.current_trace_context().get('turn_id'))
+        EP.bind(cred, require_live_data=params.get("require_live_data"),**research)
         DS.initialize(task_id, str(page_id))
     except EP.PlanError as exc:
         return None, exc.as_dict()
@@ -5405,6 +5438,7 @@ def cmd_new_page(params):
     state, html = _progress_state_and_html(params)
     payload = _progress_publish_payload(params, html, require_page_id=False, state=state)
     payload["_existing_page_route_bypass"] = _EXISTING_PAGE_ROUTE_BYPASS
+    payload['_bootstrap_creation'] = True
     out = cmd_upload(payload)
     if not (isinstance(out, dict) and out.get("code") == 0):
         return out
@@ -5502,6 +5536,15 @@ def _public_url_page_id(value):
     return name[:-5] if name.endswith(".html") else name
 
 
+def _limited_research_delivery(params):
+    plan = EP.load(_fork_task_id(params))
+    if not plan or params.get('plan_hash') != plan.get('plan_hash'): return False
+    kind,status = plan.get('delivery_kind'),plan.get('research_status')
+    return (params.get('live_data_mode') in ('verified_snapshot','static_content_only')
+            and params.get('delivery_kind') == kind and params.get('research_status') == status
+            and ((kind == 'methodology' and status == 'unavailable') or (kind == 'partial_research' and status == 'partial')))
+
+
 def _publish_final_validation_error(params, update_out, template_resolution, final_html):
     expected_page_id = str(params.get("page_id") or "")
     actual_page_id = str(update_out.get("page_id") or "")
@@ -5539,7 +5582,7 @@ def _publish_final_validation_error(params, update_out, template_resolution, fin
     fork_manifest = (template_resolution or {}).get("fork_manifest") or {}
     minimum_packages = int(fork_manifest.get("minimum_target_package_count") or 0)
     minimum_grants = int(fork_manifest.get("minimum_target_grant_count") or 0)
-    if len(final_packages) < minimum_packages or len(final_grants) < minimum_grants:
+    if not _limited_research_delivery(params) and (len(final_packages) < minimum_packages or len(final_grants) < minimum_grants):
         return (
             "fork 目标实时凭证能力缩水: "
             f"package {len(final_packages)}/{minimum_packages}, "
@@ -5555,7 +5598,7 @@ def _publish_final_validation_error(params, update_out, template_resolution, fin
         and template_ref != "generic_live_page_delivery_v1"
         and html_requires_live_data
     )
-    if professional_live:
+    if professional_live and not _limited_research_delivery(params):
         if not final_packages and not final_grants:
             return "专业实时模板发布后缺少用户页面自己的 package_ids 或 grant_ids"
     return ""
@@ -5920,7 +5963,17 @@ def cmd_prepare_maintenance(params):
     return maintenance_candidate.prepare(sys.modules[__name__], params)
 
 
-def cmd_publish_verified(params):
+def _observe_published_template(page_id):
+    """Retry a failed read, never an update, while checking publication metadata."""
+    result = {}
+    for _ in range(3):
+        result = cmd_template({'page_id': page_id})
+        if isinstance(result, dict) and result.get('code') == 0:
+            return result
+    return result
+
+
+def _publish_verified_once(params):
     params = dict(params or {})
     if not params.get("page_id"):
         return {"code": 1, "error": "PAGE_ID_REQUIRED", "message": "publish_verified 需要 page_id"}
@@ -6033,7 +6086,7 @@ def cmd_publish_verified(params):
         verified = isinstance(stages["public_smoke"], dict) and stages["public_smoke"].get("code") == 0
         plan_for_version = EP.load(_fork_task_id(params))
         if verified and (plan_for_version or stages.get('page_title')):
-            version_result = cmd_template({"page_id": params["page_id"]})
+            version_result = _observe_published_template(params["page_id"])
             observed = _template_record(version_result) if isinstance(version_result, dict) and version_result.get("code") == 0 else {}
             if stages.get('page_title'):
                 stages['metadata_title'] = PTC.acknowledgement({'code': 0, 'title': observed.get('title')}, params['title'])
@@ -6123,6 +6176,17 @@ def _atomic_write_bytes(path, data_bytes):
         raise
 
 
+def cmd_publish_verified(params):
+    import delivery_recovery as recovery
+    try:
+        blocked = recovery.before(params)
+        if blocked: return blocked
+        result = _publish_verified_once(params)
+        return recovery.record(params, result)
+    except (EP.PlanError, OSError, ValueError) as exc:
+        return exc.as_dict() if isinstance(exc, EP.PlanError) else {'code': 1, 'error': 'DELIVERY_RECOVERY_STATE_INVALID', 'message': str(exc)}
+
+
 def _redact_persisted_secrets(value):
     """Return a JSON-safe copy with execution-only validator env values removed.
 
@@ -6177,6 +6241,7 @@ def _publish_verified_cli_result(result, task_id):
             "reply_validation_env", "reply_validation_env_keys",
             "reply_data_evidence_file", "reply_data_evidence_sha256", "reply_data_availability",
             "agent_reply_template_file", "contract_artifact_error", "qbv_job_lifecycle",
+            "repair_attempts_remaining", "recovery_phase", "research_status", "delivery_kind", "live_data_mode", "artifact_file", "artifact_sha256", "artifact_verified", "recovery_result",
         )
         if persisted_result.get(key) is not None
     }
@@ -6204,6 +6269,9 @@ def cmd_fork_validate(params):
     final_html, final_html_error = _read_html(params)
     if final_html_error:
         return final_html_error
+    from prose_contract import research_claim_errors
+    claim_error=research_claim_errors(_html_text(final_html),(plan or {}).get('research_status'))
+    if claim_error: return claim_error
     params, template_resolution, template_error = _resolve_publish_agent_reply_template(params, html=final_html)
     if template_error:
         return template_error
@@ -7016,9 +7084,13 @@ def cmd_templates(params):
 
     # 查询本身失败（网络错误/后端非 0）：原样透传，不进入落盘改造，保持既有失败语义。
     if not (isinstance(normalized, dict) and normalized.get("code") == 0):
+        import bootstrap_publication as bootstrap
+        bootstrap.record_read_failure(_routing_task_id(params),normalized)
         return normalized
 
     items = _extract_template_items(normalized)
+    import bootstrap_publication as bootstrap
+    bootstrap.record_read_failure(_routing_task_id(params),normalized)
     if items is None:
         return {
             "code": 1,
@@ -7533,6 +7605,8 @@ def cmd_fork_compose(params):
     try:
         plan = EP.bind(planned_cred, target_scope=params.get("target_scope") or profile.get("asset_scope"),
                        runtime_roles=params.get("runtime_roles"), snapshot_roles=params.get("snapshot_roles"), require_live_data=params.get("require_live_data"), borrow_modules=provenance,
+                       research_contract=params.get('research_contract'), research_checks=params.get('research_checks'),
+                       research_status=params.get('research_status'), delivery_kind=params.get('delivery_kind'), module_order=params.get('module_order'),
                        compose_binding_sha256=binding_sha, expected_revision=params.get("expected_revision"),
                        revision_reason=params.get("revision_reason") or downgrade_reason)
     except EP.PlanError as exc:
@@ -9432,8 +9506,12 @@ def cmd_execution_plan(params):
         else:
             plan = EP.bind(cred or {}, target_scope=params.get("target_scope"),
                            runtime_roles=params.get("runtime_roles"), snapshot_roles=params.get("snapshot_roles"), require_live_data=params.get("require_live_data"),
+                           borrow_modules=params.get('borrow_modules'),
                            expected_revision=params.get("expected_revision"),
-                           revision_reason=params.get("revision_reason", ""))
+                           revision_reason=params.get("revision_reason", ""),
+                           research_contract=params.get('research_contract'), research_checks=params.get('research_checks'),
+                           research_status=params.get('research_status'), delivery_kind=params.get('delivery_kind'),
+                           module_order=params.get('module_order'))
         handoff = {}
         if not params.get("view") and plan.get("build_mode") == "compose_page":
             import compose_inputs
@@ -9441,6 +9519,12 @@ def cmd_execution_plan(params):
         return {"code": 0, "execution_plan": plan, **handoff}
     except EP.PlanError as exc:
         return exc.as_dict()
+
+
+def cmd_recover_delivery(params):
+    import delivery_recovery
+    try: return delivery_recovery.recover(params)
+    except EP.PlanError as exc: return exc.as_dict()
 
 
 def cmd_compose_page(params):
@@ -9458,6 +9542,7 @@ _COMMANDS = {
     "update_progress": cmd_update_progress,
     "publish_final": cmd_publish_final,
     "publish_verified": cmd_publish_verified,
+    "recover_delivery": cmd_recover_delivery,
     "prepare_maintenance": cmd_prepare_maintenance,
     "upload": cmd_upload,
     "update": cmd_update,

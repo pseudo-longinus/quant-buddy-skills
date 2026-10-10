@@ -136,12 +136,12 @@ def build(params):
         if not params.get('plan_hash'): raise EP.PlanError('PLAN_HASH_REQUIRED', 'Compose构建必须绑定当前plan_hash')
         plan = EP.require(task, page_id=params.get('page_id'), plan_hash=params['plan_hash'])
         if plan['build_mode'] != 'compose_page': raise EP.PlanError('COMPOSE_ROUTING_REQUIRED', '当前计划不是Compose')
-        if plan['target_scope'].get('kind') == 'unspecified': raise EP.PlanError('PLAN_SCOPE_REQUIRED', '先用execution_plan明确资产/研究范围')
+        if plan['target_scope'].get('kind') == 'unspecified' and plan.get('delivery_kind') != 'methodology': raise EP.PlanError('PLAN_SCOPE_REQUIRED', '先用execution_plan明确资产/研究范围')
         routing, _, error = SP._read_routing_credential(task)
         if error: return error
         if (routing or {}).get('page_id') != plan['target_page_id']:
             raise EP.PlanError('PLAN_PAGE_CONFLICT', '路由和计划目标不一致')
-        mutation_error = SP._existing_page_mutation_error(params, action='build_dashboard')
+        mutation_error = SP._existing_page_mutation_error(params, action='compose_page')
         if mutation_error: return mutation_error
         entry = _read_binding(plan, routing, SP)
         modules = plan['borrow_modules']
@@ -164,6 +164,12 @@ def build(params):
                 raise EP.PlanError('COMPOSE_CONTENT_REQUIRED', '不能交付空研究占位内容', module=name)
             by_module[name].append((index, panel))
         if any(not group for group in by_module.values()): raise EP.PlanError('COMPOSE_CONTENT_REQUIRED', '每个计划模块都需要目标内容')
+        order = plan.get('module_order')
+        if order:
+            modules = sorted(modules, key=lambda m: order.index(m['module']))
+        else:
+            # The final shell is grouped by module, not by global panel order.
+            modules = sorted(modules, key=lambda m: all(p.get('type') in ('text', 'image') for _, p in by_module[m['module']]))
         shells, styles, provenance = [], [], []
         for module_index, module in enumerate(modules):
             section_id = 'qb-compose-' + str(module_index)
@@ -188,6 +194,8 @@ def build(params):
                                'source_classes': source_classes})
         artifact = C.task_temp_path(task, 'compose/candidate.html', create_parent=True)
         spec = dict(params, panels=panels, out_file=str(artifact), upload=False, update_page_id=None)
+        for key in ('research_contract', 'research_checks', 'research_status', 'delivery_kind'):
+            spec[key] = plan.get(key, {'research_status': 'unknown', 'delivery_kind': 'result'}.get(key))
         spec.pop('emit', None)
         built = BD._build_authorized(spec)
         if built.get('code') != 0: return built
@@ -218,7 +226,12 @@ def build(params):
                    'live_data_mode', 'route_receipt_file', 'validation_receipt_files', 'grant_validation_receipt_files',
                    'market_data_required', 'agent_intent', 'asset', 'turn_id', 'handoff_validation_receipt_files') if k in params}
         publish.update(page_id=plan['target_page_id'], html_file=str(artifact), plan_hash=plan['plan_hash'], require_live_data=plan.get('require_live_data',False))
+        for key in ('research_contract','research_checks','research_status','delivery_kind'):
+            if key in plan: publish[key] = plan[key]
         publish['title'] = title_check['title']
+        if plan.get('delivery_kind') == 'methodology':
+            publish['market_data_required'] = False
+            publish.pop('asset', None)
         if receipt['data_mode'] in ('snapshot','mixed'):
             publish['live_data_mode']='verified_snapshot' if receipt['data_mode']=='snapshot' else 'mixed'
         publish, evidence_error = CI.evidence(plan, publish)

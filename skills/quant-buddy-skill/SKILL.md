@@ -2,7 +2,7 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.25.52
+version: 4.25.54
 description: |
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据；支持查询 A 股股票所属行业。
   显式日期的单值快照可同时返回按实际更新日对齐的日频行情与估值；字段日期不同时按字段自身日期展示，不将较晚刷新字段误判为无数据。
@@ -18,7 +18,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.25.52
+  version: 4.25.54
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -74,6 +74,11 @@ runtimeRequirements:
       description: Used by scripts/call.py saveChart command to convert chart images to JPEG. Falls back gracefully (writes raw bytes) if not installed; no credential exposure risk.
 ---
 
+## 筛选正确性与交付恢复
+
+涉及选股、TopN、确认后的过滤条件时，先阅读 [研究合同与恢复](workflows/research-contract-delivery.md)。研究与页面状态分开记录；缺数据或结果为空仍交付可读研究页，不得把未验证写成零命中。
+
+
 # 观照量化投研
 
 **WebAgent 宿主交付约定优先**：宿主要求金融问题统一“完整问答＋活页”时，所有金融问题先实际 route，再由 QBS 查询验证并发送非终止首答，同轮继续 QBV。包括具体字段、概念解释和“601137 最近如何？”，不依赖建页关键词。Worker 的 `QBS_DEFAULT_PAGE_REQUESTED=1` 由脚本自动继承；本文件及 leaf workflow 的“只回答/结束/不建页”默认仅适用于独立 QBS。明确不要网页/只回复文字、已有页面只读解读、文件托管与纯维护按各自规则处理。详见 [宿主默认建页](workflows/answer-first.md#webagent-宿主默认建页优先于独立-qbs-路由)。
@@ -103,6 +108,10 @@ runtimeRequirements:
 **口径转换（confirmDataMulti 查询词）**：用户写 `PE(TTM)` / `归母净利润` 等英文或缩写时，查询词应使用**中文规范名**（如 `市盈率 TTM` / `归母净利润`），而不是把用户原文照抄进 `data_desc`。详细规则见 `workflows/global-rules.md#指标口径精确匹配`。
 
 ---
+
+## 美股期权对应合约查询
+
+用户问槽位对应合约、换约/换月，或要解释期权IV、价格、持仓量变化时，读取 [tools/query_option_contracts.md](tools/query_option_contracts.md)，使用独立工具 `query_option_contracts`。日期按行情实际日与选约生效日对齐，不把拼接价格当持有收益、不前填缺失映射。该工具需配套服务端部署；未部署不得假装查询成功。
 
 ## 已有文件转活页：先交 QBV 静态托管
 

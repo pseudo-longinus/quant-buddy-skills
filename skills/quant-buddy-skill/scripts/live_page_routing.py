@@ -679,6 +679,10 @@ def build_qbv_handoff(
     computation_capsule: Any = None,
     display_contract: Any = None,
     requires_persistence_confirmation: bool = False,
+    research_contract: Any = None,
+    research_checks: Any = None,
+    research_status: str = 'unknown',
+    delivery_kind: str = 'result',
     persistence_confirmed: bool = False,
 ) -> Dict[str, Any]:
     route_value = _compact_text(route)
@@ -752,6 +756,16 @@ def build_qbv_handoff(
         handoff["computation_capsule"] = capsule
     if normalized_display_contract is not None:
         handoff["display_contract"] = normalized_display_contract
+    from research_contract import metadata, load_for_delivery
+    try:
+        if research_contract is None:
+            research_contract = load_for_delivery(task_value,research_status,delivery_kind)
+        handoff.update(metadata(dict(research_contract=research_contract, research_checks=research_checks,
+                                     research_status=research_status, delivery_kind=delivery_kind), task_value))
+    except ValueError as exc:
+        raise LivePageRoutingError('RESEARCH_CONTRACT_INVALID', str(exc)) from exc
+    if research_checks is not None:
+        handoff['research_checks'] = research_checks
     return handoff
 
 
@@ -779,6 +793,10 @@ def validate_qbv_handoff(payload: Any) -> Dict[str, Any]:
         validation_receipts=payload.get("validation_receipts"),
         computation_capsule=payload.get("computation_capsule"),
         display_contract=payload.get("display_contract"),
+        research_contract=payload.get('research_contract'),
+        research_checks=payload.get('research_checks'),
+        research_status=payload.get('research_status', 'unknown'),
+        delivery_kind=payload.get('delivery_kind', 'result'),
         requires_persistence_confirmation=payload.get("requires_persistence_confirmation", False),
         persistence_confirmed=payload.get("persistence_confirmed", False),
     )
@@ -788,6 +806,9 @@ def idempotency_key_for(handoff: Dict[str, Any]) -> str:
     valid = validate_qbv_handoff(handoff)
     capsule = valid.get("computation_capsule") or {}
     lineage = {
+        'research_contract': valid.get('research_contract'),
+        'research_status': valid.get('research_status', 'unknown'),
+        'delivery_kind': valid.get('delivery_kind', 'result'),
         "display_contract": valid.get("display_contract"),
         "outputs": [
             {
@@ -936,8 +957,6 @@ def prepare_qbv_job(
                     "failed_at": None,
                     "published": False,
                     "public_verified": False,
-                    "target_page_id": None,
-                    "public_url": None,
                 })
                 _atomic_write_json(handoff_path, valid)
                 _atomic_write_json(job_path, existing)
@@ -1194,6 +1213,10 @@ def prepare_validated_page(
     formula_runtime_contract: Any = None,
     answer_structure: Any = None,
     display_contract: Any = None,
+    research_contract: Any = None,
+    research_checks: Any = None,
+    research_status: str = 'unknown',
+    delivery_kind: str = 'result',
     page_requested: bool = False,
     execution_mode: str = 'same_turn',
     source_skill_id: Any = None,
@@ -1284,6 +1307,8 @@ def prepare_validated_page(
         validation_receipts=capsule["validation_receipts"],
         computation_capsule=capsule,
         display_contract=effective_display_contract,
+        research_contract=research_contract, research_checks=research_checks,
+        research_status=research_status, delivery_kind=delivery_kind,
         requires_persistence_confirmation=False,
         persistence_confirmed=bool(persistence_confirmed),
     )
