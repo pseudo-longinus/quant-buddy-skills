@@ -950,7 +950,39 @@ def _fast_query_target(results, asset):
     return None
 
 
-def _evaluate_fast_query_result(asset, required_fields, optional_fields, result):
+def _fast_query_history_fields(row, field_names):
+    """Read daily history once, without changing the backend response or contract."""
+    if isinstance(row.get('fields'), list):
+        return row['fields']
+    import fast_query_csv as CSV
+    fields = []
+    for name in dict.fromkeys(field_names):
+        value = row.get(name)
+        field = {'intent': name}
+        dates = row.get('dates')
+        if isinstance(value, dict) and 'values' in value:
+            dates = value.get('dates', dates)
+            values = value['values']
+            field.update(value)
+            field['intent'] = name
+        else:
+            values = value
+        if isinstance(values, list) or (isinstance(value, dict) and 'values' in value):
+            try:
+                if (not isinstance(dates, list) or not isinstance(values, list)
+                        or len(dates) != len(values)):
+                    raise ValueError('FastQuery dates/values length mismatch')
+                field['series'] = [{'date': CSV._normalise_date(day), 'value': number}
+                                   for day, number in zip(dates, values)]
+            except ValueError:
+                field = {'intent': name, '_format_invalid': True}
+        else:
+            field['value'] = value
+        fields.append(field)
+    return fields
+
+
+def _evaluate_fast_query_result(asset, required_fields, optional_fields, result, *, query_type=None):
     required_fields = list(required_fields or [])
     optional_fields = list(optional_fields or [])
     if not isinstance(result, dict):
@@ -976,9 +1008,16 @@ def _evaluate_fast_query_result(asset, required_fields, optional_fields, result)
     # Hydrated CSV and native series expose fields[].series, not row.close.
     values = dict(row)
     timeline = None
-    if isinstance(row.get('fields'), list):
+    fields = (_fast_query_history_fields(row, required_fields + optional_fields)
+              if (query_type or body.get('query_type')) == 'window' else row.get('fields'))
+    if isinstance(fields, list):
+        invalid = [f.get('intent') for f in fields if isinstance(f, dict)
+                   and f.get('_format_invalid') and f.get('intent') in required_fields]
+        if invalid:
+            return {'success': False, 'error_class': 'system', 'error_code': 'FAST_QUERY_FORMAT_INVALID',
+                    'missing_fields': invalid, 'warnings': []}
         seen = set()
-        for field in row['fields']:
+        for field in fields:
             if not isinstance(field, dict):
                 continue
             name = field.get('intent') or field.get('field')
@@ -1014,7 +1053,8 @@ def _evaluate_fast_query_result(asset, required_fields, optional_fields, result)
             warnings.append({"field": field, "warning": "OPTIONAL_FIELD_UNAVAILABLE"})
     if missing:
         return {"success": False, "error_class": "data", "error_code": "REQUIRED_FIELD_MISSING", "missing_fields": missing, "warnings": warnings}
-    return {"success": True, "covered_fields": required_fields, "missing_fields": [], "warnings": warnings, "row": row}
+    return {"success": True, "covered_fields": required_fields, "missing_fields": [], "warnings": warnings,
+            "row": row, "fields": fields}
 
 
 def _evaluate_formula_result(required_outputs, result):
@@ -1493,17 +1533,17 @@ def _validate_grant_set(call_script, params, env):
                         renewed, failed = _invoke_payload(call_script, tool_by_kind[kind], validation_payload, env)
                         return failed or renewed
                     result = CSV.hydrate_query_result(query_once)
-                evaluations = [dict(_evaluate_fast_query_result(str(asset), required_fields, optional, result), asset=asset)
+                evaluations = [dict(_evaluate_fast_query_result(str(asset), required_fields, optional, result,
+                                        query_type=payload.get('query_type')), asset=asset)
                                for asset in (assets or [payload.get('asset') or ''])]
                 evaluation = next((e for e in evaluations if not e.get('success')), {'success': True})
                 if evaluation.get('success') and payload.get('query_type') == 'window':
-                    data = result.get('data') if isinstance(result.get('data'), dict) else result
                     import fast_query_csv as CSV
                     start = CSV._normalise_date(payload['start_date']) if payload.get('start_date') else None
                     end = CSV._normalise_date(payload['end_date']) if payload.get('end_date') else None
-                    for asset in assets:
-                        row = _fast_query_target(data.get('results'), asset) or {}
-                        fields = row.get('fields') if isinstance(row.get('fields'), list) else []
+                    for asset_evaluation in evaluations:
+                        asset = asset_evaluation['asset']
+                        fields = asset_evaluation.get('fields') or []
                         by_field = {f.get('intent') or f.get('field'): f for f in fields if isinstance(f, dict)}
                         timeline = None
                         for field in required_fields:
