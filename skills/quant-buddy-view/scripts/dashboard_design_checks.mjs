@@ -116,6 +116,49 @@ export function dashboardDesignMetrics(required = false) {
     const rect = el.getBoundingClientRect();
     return {selector:el.tagName.toLowerCase()+'.'+String(el.className).replaceAll(' ','.'), top:Math.round(rect.top+window.scrollY), height:Math.round(rect.height), width:Math.round(rect.width), visible:!!visible(el), viewportHeight:window.innerHeight};
   });
+  // ── 因子观察台门槛：结论前置 / 因子分组 / 指标自带日期 / 图表分组 / 节奏分层 ──
+  // 触发条件：H1 形如「N因子」或设计根声明 factor-watch。通用看板默认形态（数字卡墙+
+  // full-width 图表纵堆+结论垫底）对因子任务是结构性错误，这里按结构合同硬门槛拦截。
+  const label0 = el => (el.textContent || '').trim().slice(0, 30);
+  const cnDigits = {两:2, 二:2, 三:3, 四:4, 五:5, 六:6, 七:7, 八:8, 九:9, 十:10};
+  const h1Text = root.querySelector('h1')?.textContent || '';
+  const designId = String(root.dataset.qbPageDesign || '');
+  const factorNo = h1Text.match(/([0-9]+|[两二三四五六七八九十])\s*个?\s*因子/);
+  const isFactorPage = !!factorNo || /factor-watch/i.test(designId);
+  if (isFactorPage) {
+    const N = factorNo ? (cnDigits[factorNo[1]] ?? Number(factorNo[1])) : 6;
+    const conclusion = root.querySelector('[data-qb-conclusion], .ev-lead');
+    const inFirstScreen = el => {
+      if (!el || !visible(el)) return false;
+      const rect = el.getBoundingClientRect();
+      return rect.top + window.scrollY >= 0 && rect.top + Math.min(rect.height, 64) <= window.innerHeight;
+    };
+    if (!conclusion) problems.push('因子观察台缺少主结论节点：声明 data-qb-conclusion 并放在首屏，不能把结论垫到页尾');
+    else if (!inFirstScreen(conclusion)) problems.push('主结论不在首屏：结论前置是因子观察台的结构合同，压缩导语或上移结论');
+    else if (conclusion.textContent.trim().length < 30 || /…$|—$/.test(conclusion.textContent.trim()))
+      problems.push('主结论仍是占位文本：等待数据到达后由绑定生成完整判断，或显式标注取数失败');
+    const factorCards = [...root.querySelectorAll('[data-qb-factor-card]')];
+    if (factorCards.length && factorCards.length !== N)
+      problems.push(`因子卡数量（${factorCards.length}）与页面宣称的 ${N} 因子不一致：先归并指标再成卡，不要用指标数冒充因子数`);
+    const navLinks = [...root.querySelectorAll('[data-qb-factor-nav] a, .ev-nav a')].filter(inFirstScreen);
+    const cardsFirstScreen = factorCards.filter(inFirstScreen);
+    if (navLinks.length < N - 1 && cardsFirstScreen.length < Math.min(2, N - 1))
+      problems.push(`首屏看不出 ${N} 组因子：六因子导航（①..${N}）须整体进入首屏，移动端换行不要横向截断`);
+    const dateRe = /20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}/;
+    for (const el of root.querySelectorAll('[data-qb-metric]')) {
+      if (!visible(el)) continue;
+      const text = el.textContent || '';
+      if (/\d/.test(text) && !dateRe.test(text) && !/取数失败|未返回|无产出/.test(text))
+        problems.push(`实时指标缺少自身数据日期：${label0(el)}；每个指标按数据返回日期展示，不从系统时间反推`);
+    }
+    if (!root.querySelector('[data-qb-fresh-cell], [data-cadence], .local-review-cell'))
+      problems.push('缺少数据节奏分层声明：用 data-qb-fresh-cell 按 daily/weekly/snapshot 声明各数据层节奏，实时与研究快照不得混用');
+  }
+  // full-width 图表纵堆上限（全页通用）：非折叠的主宽图超过 3 张必须分组、页签或折叠
+  const fullCharts = [...root.querySelectorAll('[data-qb-chart][data-chart-span="full"], .card.span-full .body.line, .card.span-full .body.bar')]
+    .filter(el => visible(el) && !el.closest('details'));
+  if (fullCharts.length > 3)
+    problems.push(`非折叠 full-width 图表 ${fullCharts.length} 张纵向堆叠：超过 3 张必须双列分组、页签或折叠（研究长图可留 1 张主图全宽）`);
   const methodology = root.dataset.qbDeliveryKind === 'methodology';
   const firstScreenSummary = methodology && [...root.querySelectorAll('.text-panel')].some(el => {
     const rect = el.getBoundingClientRect();

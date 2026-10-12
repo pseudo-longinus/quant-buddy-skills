@@ -32,14 +32,16 @@
 
 `build_dashboard` 中：
 
-- `text/table/line/bar/radar/image` 默认 full，number 默认紧凑；只有有明确并排关系时才显式缩小 span。
+- `text/table/line/bar/radar/image` 默认 full，number 默认紧凑，`half`（6/12）用于图表两列成对；只有有明确并排关系时才显式缩小 span。
 - text 支持受控 Markdown：段落、加粗、行内代码、小标题、列表、简单表格和 http(s) 链接。原始 HTML 会转义；`text_format:"plain"` 可保留字面文本。复杂表格使用数据型 table。
 - 多指标 table 保留每个指标的数值与观察日；多份资产截面按 asset 连接并保留名称。不同 TopN 的缺项不是零，说明清楚集合边界。
 - Compose 自动生成的 table 只是数据绑定起点，不是交付版式。排名页先用最强/最弱柱图呈现差异，再保留一张完整的多窗口表；不要复制同一资产全集为多张长表。可改面板类型并重排内部证据，保留 `runtime_role_id`、必需 outputs 和借鉴外层结构。
 - 排名 table 必填 `rank_by`（源列或 output key）、`rank_order:"desc"|"asc"`。默认首屏十项，余项可展开；可用 `rank_limit` 改首批项数。默认名称在代码前，原始正负号、0和缺失项均保留。
 - 百分比不得裸显比例小数，也不能靠标题猜缩放。实测 `0.05` 表示 5% 时，table 使用 `column_formats:{"output_key":{"style":"percent","scale":100,"decimals":2}}`；实测 5 表示 5% 时用 `scale:1`。单输出截面的数值列通常为 `value`，多输出表用真实 output key；`output_labels` 只改变显示名。图表同理显式声明 `value_scale:100` 或 `1` 与 `unit:"%"`，源数据不变；已经使用百分比派生 transform 时不重复放大。
 - number 默认中性色；仅变化率、盈亏等确有正负含义的指标使用 `color_by:"sign"`，不能把正的价格/市值全标成上涨红色。
-- 标准新页默认先呈现最多四个关键值与主图（无主图则主表），再展开长说明，避免首屏被长导语占满。单段120字以内的导语可保留在前。用户明确指定顺序时用 `layout_order:"authored"`；带 `target_selector` 的 Compose/继承布局不自动重排。
+- 标准新页默认先呈现最多四个关键值与主图（无主图则主表），再展开长说明，避免首屏被长导语占满；number 开头的 spec 同样执行该重排（超过四个的关键值随主图后展开）。单段120字以内的导语可保留在前。用户明确指定顺序时用 `layout_order:"authored"`；带 `target_selector` 的 Compose/继承布局不自动重排。
+- **结论前置**：有明确主判断的页面，给 text 面板加 `"hero": true`，它会渲染到页头标题下方作为主结论导语（`data-qb-conclusion` 标记），自动附"研究快照 · 分析日"注脚；支持 `binding` 动态绑定，数值随取数刷新。一个页面最多一个 hero 面板；因子观察台类页面仍走 [factor-watch-pages.md](factor-watch-pages.md) 的 bespoke 模板，hero 面板不满足因子导航与节奏分层门槛。
+- **图表成对**：默认布局下非折叠折线/柱/雷达图超过 3 张时，第 2 张起自动 `span:"half"`（6/12 两列），与验收的 full-width 纵堆上限对齐；首图保留全宽作主图，显式 `span` 不被覆盖。需要全宽的图显式声明 `span:"full"`，K 线/表格不参与自动成对。
 
 ## 发布前的两个独立验收条件
 

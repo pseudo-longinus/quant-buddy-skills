@@ -65,7 +65,7 @@ python scripts/data_grant.py refresh '{"grant_id":"dg_xxx","rotate_signature":tr
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `kind` | `string` | ✅ | `fast_query` / `fast_query_minute` / `fast_query_minute_range` / `stock_profile` / `composition_select` |
+| `kind` | `string` | ✅ | `option_contracts` / `fast_query` / `fast_query_minute` / `fast_query_minute_range` / `stock_profile` / `composition_select` |
 | `payload` | `object` | ✅ | 冻结的完整请求体，形状随 kind（见下） |
 | `ttl_days` | `number` | ❌ | 有效期（天），默认 365 |
 | `task_id` / `user_query` | `string` | ❌ | 随 audit 落库 |
@@ -102,6 +102,7 @@ python scripts/data_grant.py refresh '{"grant_id":"dg_xxx","rotate_signature":tr
 ## 取数返回（与在线接口同构，build_dashboard/data-kernel 据此渲染）
 
 - `fast_query`：与在线 fastQuery 同构的值/序列结构。固定日期的 `value` 查询中，日频行情和估值刷新时点不同是正常情况：服务端先选请求区间，若 PE/PB 等字段尚未更新才回看 10 个自然日并返回 `{v, d, fallback:true}` + `DATE_RANGE_FALLBACK`。页面必须使用字段自己的 `d` 显示日期，不能把该字段显示为空、也不能用公共 `dates.trade_date` 覆盖；`series` / `window` 仍严格只含请求区间内的数据。
+- `option_contracts`：`data={ticker,records,notes?}`，records为11项扁平合约字段；build_dashboard归一为行数组。按每行真实trade_date展示，不改成刷新时间；changes可带is_baseline。
 - `fast_query_minute`：`data.dates` 为共享分钟时间轴，`data.fields.<field>` 为同索引值数组；自定义活页直接按该列式结构渲染。
 - `stock_profile`：与在线 stockProfile 同构的画像卡结构。
 - `composition_select`：TopN 表（排名/名称/代码/score）+ `composition_used` + `as_of` / `last_date` + `date_alignment_status` + `date_alignment`。`date_alignment_status:"mixed"` 表示组合指标来自不同有效快照，此时全局 `as_of` / `last_date` 为 `null`，页面须逐项展示 `date_alignment`，不能渲染为单一数据日期。
@@ -180,3 +181,31 @@ register携带本地`validation_receipt_file`；返回`registration_receipt_file
 - 附加信息失败仅warnings（范围结果也可含roll_events_error），行情仍有效；不把它误判成必需角色失败/发布失败，不自动删掉行情。页面可用独立提示区显示缺失，不能把失败当作“无换月”。通用图表只归一化行情表格，不自动绘制换月标记；定制页从 `out[grant_id].data` 读取元信息显示。
 
 404 Not Found: POST /skill/fastQueryMinuteRange 是后端接入/版本问题，不是资产无数据。真实后端、OSS CORS、授权有效期仍须联调；本地schema通过不代表上游或部署已就绪。
+
+
+## 美股期权槽位合约授权
+
+仅支持部分美股标的的映射，不是完整期权链或当日行情检查；需部署新版skill_server，dataServer仍使用原日期任务，不需升级query_type。
+QBS先使用 `query_option_contracts` 验证，QBV通过 `qbs_bridge.py validate_grant_set` 获取当前合同收据，再原样注册。
+这是直取映射，不使用公式包，payload使用下列动态查询参数。
+
+```json
+{"kind":"option_contracts","payload":{"asset":"苹果","slots":["E1-ATM-CALL","E1-25C"],"query_type":"snapshot"}}
+```
+
+```json
+{"kind":"option_contracts","payload":{"asset":"苹果","slots":["E1-ATM-CALL"],"query_type":"window","lookback_days":90,"mode":"changes"}}
+```
+
+- asset必填，名称/简称/代码多字段匹配，不强制后缀；query_type必填snapshot/window；slots省略查全部八槽。
+- snapshot禁止lookback_days/mode：每槽最多一条，不晚于America/New_York当地今天；可早于今天，各槽日期可不同。
+- window必须lookback_days整数1～366，含纽约当地今天的自然日；mode默认daily或changes。changes含窗口首条基准，额外保留行is_baseline=true。
+- query_type/lookback_days只在skill_server转换，原Celery只收ticker/日期/slots/mode；snapshot缺当天映射时按baselines给出的实际日期分组补查原daily任务，仍无额外检查任务。
+- 授权冻结标准资产/槽位/查询规则，不冻结日期。之后只发grant_id/signature，每次取数重新计算日期，不允许浏览器覆盖请求。
+- 11项行字段：trade_date、slot、contract、expiration、strike、call_put、changed、previous_date、previous_contract、previous_expiration、previous_strike。无前序相关字段null；strike为精确字符串。
+- changed表示该条相对前序是否换约，不代表“今天换约”；只查询assignment与同表前序，不保证close/IV更新，不把拼接价格当持有收益。
+- 现有build_dashboard grant表格直接展示records，数据内核加载/刷新重新queryDataGrant即可；不需要每次refreshDataGrant，不新增后台推送或定时任务。
+- 页面显示真实trade_date和最近刷新时间；失败保留上次有效内容，不篡改业务日期。需要notes时从授权原始data读取，放简短提示区。
+- 合同错误在本地preflight聚合拒绝；验证器检查方向、日期、合约、精度、前序和snapshot唯一槽位。空records属于数据级不可用，不能生成“已有有效数据”的发布收据。
+- HTTP400按error.parameter/error.usage改正；502协议/数据异常、503服务错误、504超时阻断发布，按明确错误处理，不立即重复提交。
+- 过期、撤销、轮换签名按既有授权规则；授权不意味着数据源每天必有新记录。

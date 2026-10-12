@@ -2,7 +2,7 @@
 name: quant-buddy-view
 slug: quant-buddy-view
 author: guanzhao
-version: 0.6.93
+version: 0.6.95
 description: |
   将量化分析或已有 JPG/PNG、HTML、PDF 发布为 Quant Buddy 可分享活页或实时看板，并支持创建、更新、复用、验收和公开链接交付。适用于个股画像、估值财务、指数异动、多因子筛选、商品日报、模板、分享壳及卡片等页面。
   用户提供 QuantBuddy 活页 URL 并要求解读时也使用。显式调用 /quant-buddy-view、/qbv、qbv 或 QBV，且请求并非纯咨询、代码维护或文档解释时，默认按可分享活页任务处理。
@@ -11,7 +11,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 0.6.93
+  version: 0.6.95
   author: guanzhao
   category: quant-finance
   tags: [quant, dashboard, formula-package, static-page, publish, visualization]
@@ -330,6 +330,7 @@ npx skills update pseudo-longinus/quant-buddy-skills -y
 | 通用流程 | 标准实时看板 | [workflows/dashboard-end-to-end.md](workflows/dashboard-end-to-end.md) | 用户要“做成可分享看板/链接”，但没有指定固定页面模板 |
 | 增量维护 | 单图表增删改查 | [workflows/edit-existing-chart.md](workflows/edit-existing-chart.md) | 自己的已发布页面要加/删一条线、改时间窗口、查真实数据——只改一个图表，不是整页重建 |
 | 开发指南 | 自定义页面 | [guides/bespoke-page.md](guides/bespoke-page.md) | `build_dashboard` 做不出的自定义 HTML/CSS/SVG 页面，或迁移已有 HTML |
+| 页面形态 | 因子观察台 | [guides/factor-watch-pages.md](guides/factor-watch-pages.md) | 「N 因子观察台/涨跌怎么看」类需求：结论前置 + N 因子卡五件套 + 分组图表 + 数据节奏分层；骨架在 `assets/page-templates/commodity-factor-watch-v1.html`，验收含因子页硬门槛 |
 | 迁移工具 | 旧页套公共外壳 | [tools/retrofit_share_shell.md](tools/retrofit_share_shell.md) | 已发布/已生成 HTML 需要去掉旧二维码、旧页头、旧页尾，并保留同一个 `page_id` 更新 |
 | 设计系统 | 活页 UI/UX 系统 | [guides/live-page-ui-ux-system.md](guides/live-page-ui-ux-system.md) | 新建或整体重构活页时，选择页面原型、主题 token、字体/密度、可组合模式和响应式转换；统一体验底线但保留页面身份 |
 | 维护指南 | 浏览器批注与整页 UI refinement | [guides/browser-feedback-refinement.md](guides/browser-feedback-refinement.md) | 用户针对已有自有页面的字体层级、间距、章节导航、sticky/折叠、响应式或分享交互提出修改；保持同一 `page_id`、runtime 合同和页面视觉身份 |
@@ -363,6 +364,7 @@ npx skills update pseudo-longinus/quant-buddy-skills -y
 |---|---|---|
 | 算出来的指标 / 回测净值 / IC / rankIC / 时序 / 自定义公式口径 | **公式包** | `package_id` |
 | 平台白名单直取的行情 / 估值 / 财务 / 资金流（收盘价、涨跌幅、PE/PB…） | 数据授权 `fast_query` | `grant_id` |
+| 部分美股期权槽位当前合约 / 滚动窗口换约表 | 数据授权 `option_contracts`（snapshot/window，动态日期，真实trade_date） | `grant_id` |
 | 个股预计算画像卡（估值/财务质量等维度画像） | 数据授权 `stock_profile` | `grant_id` |
 | 已上线维度分的 TopN / 榜单 / 异动名单（动量反转、趋势结构…） | 数据授权 `composition_select` | `grant_id` |
 
@@ -391,7 +393,7 @@ npx skills update pseudo-longinus/quant-buddy-skills -y
 9. **`templates` 摘要必须覆盖全部候选，落盘失败不能裸奔**：`items_summary` 的条目数量必须等于 `item_count`（完整候选去重后的真实数量，不是服务端可能未重算的 `total`），不允许只看其中一部分候选就判定 `unmatched`；一旦返回 `error:"TEMPLATES_PERSIST_FAILED"` 或 `error:"TEMPLATES_RESPONSE_SHAPE_UNEXPECTED"`（落盘失败或响应结构异常），必须先向用户说明「范式候选未能完整确认，暂缓路由判断」，禁止在这种不完整信息下判定为 `unmatched` 走自建，也**不得通过重复调用 `templates` 来补救**（每个任务仍然只能调用一次这条硬规则不变）；确需重试仅限明确的瞬时网络失败，且只重试一次。
 10. **Card Runtime 先做零副作用结构预检**：含 Card Runtime artifact 的 HTML 必须由 `publish_workflow.py` 在 QBS 验证、注册、图片上传和发布前用假凭证执行 `verify_page.mjs --card-runtime-structure-only`。正文与 Card 共用凭证时用 marker 数组扇出；每个数组元素仍须全局唯一并在 HTML 中恰好出现一次。禁止空 manifest 凭证；普通 `<img>` 必须有非空 `src`，仅显式声明 `data-qb-runtime-src` 且等待运行时赋值的预览图可以暂时为空；同时禁止注册等价的重复 Card package/grant。
 11. **普通建页前必须先查范式卡并显式确认路由**：`new_page` 会校验完整候选并绑定路由。fork 必须声明借鉴度，且一经判定不得改判 unmatched；继承不成立时只能在 fork 内降为 Compose。`build_dashboard` 对 fork/inherit* 禁止整页构建；fork/compose 的完整页面使用 `static_page.py compose_page`；`emit:"panel_block"` 仍仅是局部产物。已绑定Compose不得再次全量fork_prepare。
-12. **本地验收与公网验收分责**：`fork-local` 在本地 `file://`（origin=null）下用放开同源策略的测试浏览器跑真实取数渲染（`security_mode:"disabled-web-security"`），布局/占位符/运行时错误/图片/Card Runtime 门禁照常执行；`public-smoke` 保持浏览器默认安全策略，数据接口 CORS/`Failed to fetch`/运行时失败仍严格拦截。平台注入的 `/webapi/skill/track` 分析埋点是 fire-and-forget，其 CORS/网络失败降为 `non_core_console_warnings`，不再让成功页面发布失败；数据接口（`queryDataGrant`/`queryFormulaPackage`）的失败仍是阻塞性核心错误。
+12. **本地验收与公网验收分责**：`fork-local` 在本地 `file://`（origin=null）下用放开同源策略的测试浏览器跑真实取数渲染（`security_mode:"disabled-web-security"`），布局/占位符/运行时错误/图片/Card Runtime 门禁照常执行；`public-smoke` 保持浏览器默认安全策略，数据接口 CORS/`Failed to fetch`/运行时失败仍严格拦截。平台注入的 `/webapi/skill/track` 分析埋点是 fire-and-forget，其 CORS/网络失败降为 `non_core_console_warnings`，不再让成功页面发布失败；数据接口（`queryDataGrant`/`queryFormulaPackage`）的失败仍是阻塞性核心错误。**`public-smoke` 通过只证明功能结构与运行态，不等价于视觉质量通过**：交付页视觉结论必须来自 `self-built`/`full`/`ui-refinement` 三视口设计检查与截图审阅；「N 因子」类页面另受 [因子观察台硬门槛](guides/factor-watch-pages.md) 约束（首屏主结论、因子分组可见、指标自带日期、图表分组、节奏分层）。
 13. **Fork 数据通道必须继承来源合同**：fork 的目标是替换标的并保持来源范式运行合同，不是重新设计数据层。来源模板某一角色使用公式包，目标页同一角色继续使用公式包；来源使用 `fast_query` / `stock_profile` / `composition_select` 数据授权，目标页继续使用同 kind、同 query_type、同响应形状的数据授权。禁止仅因“财务数据通常可走 fast_query(report)”就在 fork 中把来源财务公式包改成 grant，也禁止反向把来源 grant 改成公式包。只有 `unmatched` / 明确从零重建时才重新做通道选择；此时平台白名单报告期财务优先 `fast_query(query_type="report")`。
 14. **已有文件先原样托管，后同页渐进增强**：所有已有文件转活页先执行 [静态优先工作流](workflows/existing-file-static-first.md)，包括“先纠错、重做后活化”的复合请求。用 file_prepare 及其持久发布参数，不先研究或改写来源。已获准的动态来源优先捕获只读响应并回放，以保留本地交互；只能视觉冻结时明确损失。第一版公网验收后立即交付静态链接，不等用户再催；已授权增强继续执行。保真增强按通道使用 Data Grant/Formula Package，成功区域才声明 `data-qb-live-mode="live"` 与 `data-qb-live-tag="qbs-formula-package|qbs-data-grant"`；未转换内容保留快照，不为静态声明强行注入属性。本地候选验证后仅更新同一 page_id，失败不覆盖最后成功版本、不创建替代链接；未知写入、恢复失败要明确记录，不能说成成功。首次静态不需要模板fork或Handoff；本流程不引入Block Runtime或全局标签改造。
 15. **CHANGELOG 仅作为版本审计**：维护、升级或排查历史行为变化时，先阅读 `CHANGELOG.md` 中最新版本及与问题相关的历史条目；执行页面任务时，当前规则仍以 `SKILL.md` + `workflows/**` + `tools/**` + `guides/**` 为准。CHANGELOG 可能包含已被后续版本反转或废弃的旧口径，禁止用历史条目覆盖当前规则。
@@ -404,7 +406,7 @@ npx skills update pseudo-longinus/quant-buddy-skills -y
 | 脚本 | 命令 | 作用 | 文档 |
 |---|---|---|---|
 | `scripts/formula_package.py` | `register` / `query` / `list` / `revoke` / `refresh` | 公式任务包：注册取数能力；query 支持 `outputs` 与 `result_mode=full|summary|last_values`，direct 使用 summary | [tools/formula_package.md](tools/formula_package.md) |
-| `scripts/data_grant.py` | `register` / `query` / `list` / `revoke` / `refresh` | 数据授权：把一次 fastQuery/stockProfile/selectByComposition 请求钉死成 `grant_id`+`signature`，页面免 key 直取有界数据（取舍见「数据授权 vs 公式包」） | [tools/data_grant.md](tools/data_grant.md) |
+| `scripts/data_grant.py` | `register` / `query` / `list` / `revoke` / `refresh` | 数据授权：把一次 fastQuery/stockProfile/selectByComposition/queryOptionContracts 请求规则钉死成 `grant_id`+`signature`，页面免 key 直取有界数据（取舍见「数据授权 vs 公式包」） | [tools/data_grant.md](tools/data_grant.md) |
 | `scripts/build_dashboard.py` | （单命令，`emit:"panel_block"` 走局部产出） | spec → live 实时取数看板 HTML；局部产出模式只生成带 marker 的图表 `<script>` 片段，供 bespoke 页面内嵌图表用 | [tools/build_dashboard.md](tools/build_dashboard.md) |
 | `scripts/stock_comparison.py` | `apply @params.json` | 为 `stock_analysis_instance_v1` 原生收盘价图并入基准序列、双 Y 轴和数据表；保持 `#priceChart` 单一 owner，拒绝用通用 panel 二次接管 | [tools/stock_comparison.md](tools/stock_comparison.md) |
 | `scripts/stock_window.py` | `apply @params.json` | 为 legacy `stock_analysis_instance_v1` 设置滚动展示窗口；生成受控 HTML 后必须浏览器预检并 update 原 `page_id` | [tools/stock_window.md](tools/stock_window.md) |

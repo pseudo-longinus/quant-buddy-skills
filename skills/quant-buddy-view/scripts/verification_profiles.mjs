@@ -36,6 +36,8 @@ const PROFILES = {
     viewports: [{ name: 'publicSmoke', width: 1280, height: 800, mobile: false }],
     checkLayout: false,
     cardRuntimeOnly: false,
+    // 注意：public-smoke 只验证公网功能结构（运行态、核心错误、CORS），不跑布局/设计检查。
+    // 它通过 ≠ 视觉质量通过；视觉结论必须来自 full / self-built / ui-refinement 的三视口设计检查 + 截图审阅。
   },
   'ui-refinement': {
     viewports: ALL_VIEWPORTS,

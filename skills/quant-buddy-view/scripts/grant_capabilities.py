@@ -6,6 +6,7 @@ import re
 from datetime import datetime
 
 TOOL_BY_KIND = {
+    'option_contracts': 'query_option_contracts',
     'fast_query': 'fast_query',
     'fast_query_minute': 'fast_query_minute',
     'fast_query_minute_range': 'fast_query_minute_range',
@@ -34,6 +35,26 @@ def contract_errors(contract, role_id=''):
     if not isinstance(payload, dict) or not payload:
         add('GRANT_PAYLOAD_INVALID', 'Grant payload必须是非空对象')
         return errors
+    if kind == 'option_contracts':
+        allowed = {'asset', 'query_type', 'slots', 'lookback_days', 'mode'}
+        extra = sorted(set(payload) - allowed)
+        if extra: add('OPTION_PARAMETER_UNSUPPORTED', '合约授权不支持参数：' + ', '.join(extra))
+        if not isinstance(payload.get('asset'), str) or not payload['asset'].strip():
+            add('OPTION_ASSET_REQUIRED', 'asset必须为单个资产名称或代码')
+        query_type = payload.get('query_type')
+        if query_type not in ('snapshot', 'window'): add('OPTION_QUERY_TYPE_INVALID', 'query_type必须为snapshot或window')
+        if query_type == 'snapshot' and any(k in payload for k in ('lookback_days', 'mode')):
+            add('OPTION_SNAPSHOT_SCOPE_INVALID', 'snapshot不支持lookback_days或mode')
+        if query_type == 'window':
+            days = payload.get('lookback_days')
+            if type(days) is not int or not 1 <= days <= 366: add('OPTION_LOOKBACK_INVALID', 'window需要1～366整数lookback_days（自然日）')
+            if payload.get('mode', 'daily') not in ('daily', 'changes'): add('OPTION_MODE_INVALID', 'mode只能为daily或changes')
+        if 'slots' in payload:
+            slots = payload['slots']
+            allowed_slots = {f'{t}-{n}' for t in ('E1','E2') for n in ('ATM-CALL','ATM-PUT','25C','25P')}
+            if (not isinstance(slots, list) or not 1 <= len(slots) <= 8 or
+                any(not isinstance(s,str) or s not in allowed_slots for s in slots) or len(set(slots)) != len(slots)):
+                add('OPTION_SLOTS_INVALID', 'slots需要1～8个不重复合法槽位')
     if kind == 'fast_query_minute':
         extra = sorted(set(payload) - {'asset', 'fields'})
         if extra:
@@ -152,3 +173,54 @@ def evaluate_minute_range(payload, result):
     if not hydrated['rows']: return _failure('MINUTE_RANGE_DATA_EMPTY', 'data')
     return {'success': True, 'start_date': data.get('start_date'), 'end_date': data.get('end_date'),
             'row_count': len(hydrated['rows']), 'columns': hydrated['columns'], 'warnings': data.get('warnings', [])}
+
+
+def evaluate_option_contracts(payload, result):
+    """活页发布前验证合约表；成功空查询不冒充已有有效页面数据。"""
+    if not isinstance(result, dict) or result.get('code') not in (0, None) or result.get('success') is False:
+        return _failure('OPTION_QUERY_FAILED')
+    data = result.get('data')
+    if not isinstance(data, dict) or not isinstance(data.get('ticker'), str) or not data.get('ticker'):
+        return _failure('OPTION_RESPONSE_INVALID')
+    requested = _ticker(payload.get('asset'))
+    if re.fullmatch(r'[A-Z0-9_]+\.[NOA]', requested) and requested != _ticker(data['ticker']):
+        return _failure('OPTION_ASSET_MISMATCH')
+    rows = data.get('records')
+    if not isinstance(rows, list): return _failure('OPTION_RECORDS_INVALID')
+    if not rows: return _failure('OPTION_DATA_EMPTY', 'data')
+    slots = payload.get('slots') or [f'{t}-{n}' for t in ('E1','E2') for n in ('ATM-CALL','ATM-PUT','25C','25P')]
+    seen, snapshot_slots = set(), set()
+    def valid_date(value):
+        if type(value) is not int: return False
+        try: return datetime.strptime(str(value), '%Y%m%d').strftime('%Y%m%d') == str(value)
+        except ValueError: return False
+    for row in rows:
+        if not isinstance(row, dict): return _failure('OPTION_RECORD_INVALID')
+        slot, day = row.get('slot'), row.get('trade_date')
+        if not isinstance(slot,str) or slot not in slots or not valid_date(day): return _failure('OPTION_RECORD_INVALID')
+        key = (slot, day)
+        if key in seen: return _failure('OPTION_DUPLICATE_RECORD')
+        seen.add(key)
+        if payload.get('query_type') == 'snapshot' and slot in snapshot_slots: return _failure('OPTION_SNAPSHOT_MULTIPLE_ROWS')
+        snapshot_slots.add(slot)
+        if not isinstance(row.get('contract'),str) or not row['contract']: return _failure('OPTION_CONTRACT_MISSING')
+        if not valid_date(row.get('expiration')) or row['expiration'] < day: return _failure('OPTION_EXPIRATION_INVALID')
+        if not isinstance(row.get('strike'),str) or not re.fullmatch(r'\d+(\.\d+)?', row['strike']) or not math.isfinite(float(row['strike'])) or float(row['strike']) <= 0: return _failure('OPTION_STRIKE_INVALID')
+        if row.get('call_put') != ('put' if slot.endswith(('PUT','25P')) else 'call'): return _failure('OPTION_DIRECTION_INVALID')
+        required = {'changed', 'previous_date', 'previous_contract', 'previous_expiration', 'previous_strike'}
+        if not required <= set(row): return _failure('OPTION_RECORD_INVALID')
+        if row['changed'] is not None and type(row['changed']) is not bool: return _failure('OPTION_CHANGE_INVALID')
+        pd, pc = row['previous_date'], row['previous_contract']
+        if pd is None:
+            if any(row[k] is not None for k in required): return _failure('OPTION_PREVIOUS_INVALID')
+        else:
+            if not valid_date(pd) or pd >= day or not isinstance(pc, str) or not pc:
+                return _failure('OPTION_PREVIOUS_INVALID')
+            if row['changed'] != (pc != row['contract']): return _failure('OPTION_CHANGE_INVALID')
+            pe, ps = row['previous_expiration'], row['previous_strike']
+            if not valid_date(pe) or pe < pd: return _failure('OPTION_PREVIOUS_INVALID')
+            if not isinstance(ps, str) or not re.fullmatch(r'\d+(\.\d+)?', ps) or not math.isfinite(float(ps)) or float(ps) <= 0:
+                return _failure('OPTION_PREVIOUS_INVALID')
+        if 'is_baseline' in row and (row['is_baseline'] is not True or payload.get('mode') != 'changes'):
+            return _failure('OPTION_BASELINE_INVALID')
+    return {'success': True}

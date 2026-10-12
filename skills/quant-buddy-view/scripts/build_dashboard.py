@@ -34,7 +34,7 @@ r"""
           "value_field": "number 取值字段（也支持单一 y 字段；都未指定时兼容末个数值列）",
           "unit":   "number 单位（可选）",
           "description": "面板说明（可选）",
-          "span":   "full | wide | auto（可选，默认按类型决定）",
+          "span":   "full | wide | half | auto（可选，默认按类型决定；half=6/12 两列，>3 张图时第2张起自动 half）",
           "text":   "text 面板正文（可选）"
         }
       ],
@@ -380,6 +380,10 @@ function normalize(data) {
 function normalizeGrantData(kind, data) {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return data;
   var k = (kind || '').toLowerCase();
+  if (k === 'option_contracts') {
+    if (!Array.isArray(data.records)) throw new Error('合约授权records格式错误');
+    return data.records;
+  }
   if (k === 'fast_query_minute_range') {
     return (data.rows || []).map(row => Object.fromEntries((data.columns || []).map((key, i) => [key, row[i]])));
   }
@@ -948,7 +952,7 @@ function createCard(panel) {
   }
   const card = document.createElement('section');
   const defaultSpan = type === 'number' ? 'auto' : 'full';
-  const span = ['full', 'wide', 'auto'].includes(panel.span) ? panel.span : defaultSpan;
+  const span = ['full', 'wide', 'auto', 'half'].includes(panel.span) ? panel.span : defaultSpan;
   card.className = 'card card-' + type + ' span-' + span;
   card.innerHTML = '<div class="card-head"><h2>' + esc(panel.title || panel.output || '') + '</h2>' +
     (panel.description && type !== 'number' && type !== 'text' ? '<p>' + esc(panel.description) + '</p>' : '') +
@@ -1400,7 +1404,8 @@ def _evidence_first_panels(spec, panels):
     """Keep the default first screen useful without rewriting inherited layouts."""
     if spec.get('layout_order') == 'authored' or any(p.get('target_selector') for p in panels):
         return panels
-    if not panels or panels[0].get('type') != 'text':
+    if not panels or panels[0].get('type') not in ('text', 'number'):
+        # 图表/表格开头的布局已经给出作者意图；仅修复 number 卡墙和 text 导语场景。
         return panels
     remaining = list(panels)
     lead = []
@@ -1408,24 +1413,72 @@ def _evidence_first_panels(spec, panels):
         text = str(remaining[0].get('text') or '').strip()
         if text and len(text) <= 120 and '\n' not in text:
             lead.append(remaining.pop(0))
+    # 首屏最多四个关键值（self-build-quality 合同）：多的不前置，随主图后展开，
+    # 保证极窄屏首屏仍有可读数字证据，同时避免等权卡墙。
     numbers = [p for p in remaining if p.get('type') == 'number']
-    if len(numbers) > 4:
-        numbers = []
-    number_ids = {id(p) for p in numbers}
-    remaining = [p for p in remaining if id(p) not in number_ids]
+    front_numbers = numbers[:4]
+    front_ids = {id(p) for p in front_numbers}
+    remaining = [p for p in remaining if id(p) not in front_ids]
     main = next((p for p in remaining if p.get('rank_by') and p.get('rank_order') in ('asc','desc') and p.get('type') in ('text','table','bar')),None)
     if main is None:
         main = next((p for p in remaining if p.get('type') in ('line', 'bar', 'candlestick', 'radar', 'image')), None)
     if main is None:
         main = next((p for p in remaining if p.get('type', 'table') == 'table'), None)
     primary = [main] if main is not None else []
-    return lead + numbers + primary + [p for p in remaining if p is not main]
+    return lead + front_numbers + primary + [p for p in remaining if p is not main]
+
+
+def _apply_hero_conclusion(spec, panels, generated_at):
+    """text 面板声明 hero:true 时渲染为 std-hero 内的主结论导语。
+
+    复用 target_selector 机制把声明式引擎的 text/binding 渲染指到 hero 容器，
+    页面获得结论前置能力，并自动带研究快照注脚（静态结论不冒充实时）。
+    必须在 _evidence_first_panels 之后调用（它按“无 target_selector”判断可否重排）。
+    """
+    hero_panels = [p for p in panels if p.get('type') == 'text' and p.get('hero')]
+    if not hero_panels:
+        return panels, ""
+    if len(hero_panels) > 1:
+        raise ValueError("hero:true 的结论面板最多一个；多段结论先合成一段或放正文面板")
+    hp = hero_panels[0]
+    if hp.get('target_selector'):
+        raise ValueError("hero 结论面板不能再声明 target_selector")
+    hp.pop('hero', None)
+    hp['target_selector'] = '#qb-hero-conclusion'
+    analysis_date = str(generated_at or '')[:10] or '—'
+    hero_html = (
+        "<div class='std-lead' id='qb-hero-conclusion' data-qb-conclusion></div>"
+        f"<p class='lead-note'>研究快照 · 分析日 {html_escape(analysis_date)}：结论由研究生成，"
+        "数值随页面打开实时取数、按各自数据日期展示。</p>"
+    )
+    return panels, hero_html
+
+
+def _pair_chart_panels(spec, panels):
+    """默认布局下非折叠图表超过 3 张时，第 2 张起自动两列成对。
+
+    与验收门槛（非折叠 full-width 图表 >3 张判失败）对齐：首图保留全宽作主图，
+    其余未显式声明 span 的折线/柱/雷达图降为 half（6/12）两列排布。
+    显式 span、authored 布局与嵌入容器（target_selector）不改。
+    """
+    if spec.get('layout_order') == 'authored':
+        return panels
+    chart_types = ('line', 'bar', 'radar')
+    grid_charts = [p for p in panels if p.get('type') in chart_types and not p.get('target_selector')]
+    if len(grid_charts) <= 3:
+        return panels
+    for i, p in enumerate(panels):
+        if p.get('type') in chart_types and not p.get('target_selector') and p is not grid_charts[0] and not p.get('span'):
+            panels[i] = dict(p, span='half')
+    return panels
 
 
 def _render_html(spec, *, title, subtitle, panels, endpoint, package_id, signature, generated_at, grants=None, snapshots=None):
     """组装 HTML。骨架自包含（样式/内核内联），数据走运行时实时取数：页面内联 endpoint+凭证 + 取数 JS。
     grants：panel 里引用 grant_id 的数据授权列表 [{grant_id,signature}]，与公式包 panel 同页并存。"""
     panels = _evidence_first_panels(spec, panels)
+    panels, hero_conclusion_html = _apply_hero_conclusion(spec, panels, generated_at)
+    panels = _pair_chart_panels(spec, panels)
     share = _share_config(spec)
     page_mode = "live" if package_id or grants else "static"
 
@@ -1536,7 +1589,8 @@ def _render_html(spec, *, title, subtitle, panels, endpoint, package_id, signatu
     <div class="eyebrow">{page_type_esc}</div>
     <h1 data-qb-page-title>{title_esc}</h1>
     {f"<p class='subtitle'>{html_escape(delivery_note)}</p>" if delivery_note else ""}
-    {f"<p class='subtitle'>{subtitle_esc}</p>" if subtitle_esc else ""}
+    {f"<p class='subtitle'>{subtitle_esc}</p>" if subtitle else ""}
+    {hero_conclusion_html}
     <div class="meta-row">
       <span class="meta-pill">{mode_note}</span>
     </div>
@@ -1763,6 +1817,10 @@ def _normalize_grant_data(kind, data):
     if not isinstance(data, dict):
         return data
     k = (kind or "").lower()
+    if k == "option_contracts":
+        if not isinstance(data.get("records"), list):
+            raise ValueError("合约授权records格式错误")
+        return data["records"]
     if k == "fast_query_minute_range":
         return [dict(zip(data.get("columns") or [], row)) for row in data.get("rows") or []]
     if k == "fast_query_minute":

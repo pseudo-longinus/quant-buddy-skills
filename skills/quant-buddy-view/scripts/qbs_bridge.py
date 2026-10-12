@@ -1512,7 +1512,9 @@ def _validate_grant_set(call_script, params, env):
                 "missing_fields": [],
             })
             continue
-        if kind == "fast_query_minute":
+        if kind == "option_contracts":
+            evaluation = GC.evaluate_option_contracts(payload, result)
+        elif kind == "fast_query_minute":
             evaluation = GC.evaluate_minute(payload, result)
         elif kind == "fast_query_minute_range":
             evaluation = GC.evaluate_minute_range(payload, result)

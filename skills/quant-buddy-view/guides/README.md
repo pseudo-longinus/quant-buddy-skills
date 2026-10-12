@@ -5,6 +5,7 @@ Use this directory for implementation guidance and conventions.
 | Guide | Use when |
 |---|---|
 | `bespoke-page.md` | A page needs custom HTML/CSS/SVG or an existing HTML page must be converted to quant-buddy-view data access |
+| `factor-watch-pages.md` | 「N 因子观察台 / 某资产涨跌怎么看」类页面：结论前置、N 因子卡五件套、分组图表与数据节奏分层的结构合同与硬门槛（骨架：`../assets/page-templates/commodity-factor-watch-v1.html`） |
 | `live-page-ui-ux-system.md` | A live page needs an overall typography, theme, layout, interaction, responsive, or state system without flattening its visual identity |
 | `browser-feedback-refinement.md` | An existing owned page needs focused browser-feedback maintenance and exact viewport, font, share, or responsive acceptance |
 | `essence-cover-card.md` | A page needs a 4:3 宽宝活卡 as an independent card runtime artifact (`embedded-card-v1`, hydrated standalone in a blank host) following the official light card system |

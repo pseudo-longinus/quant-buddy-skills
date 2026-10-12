@@ -1,0 +1,767 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>商品因子观察台（模板示例：原油六因子）</title>
+<!--
+  commodity-factor-watch-v1 · 商品因子观察台 bespoke 骨架
+  ─────────────────────────────────────────────────────────────
+  用法（详见 guides/factor-watch-pages.md）：
+  1. 复制本文件，替换：页面标题/H1/眉题、六个因子卡（data-qb-factor-card）、
+     图表容器 id 与 panel_block 面板、口径表、CONFIG 三件套（package_id/signature/endpoint）。
+  2. 图表用 build_dashboard.py emit=panel_block 生成片段，粘到 QBV_CHART_PANEL_BLOCK 占位处；
+     指标组件（分位条/行情卡）用 data-qb-metric / data-qb-pbar 声明式绑定，禁止硬编码数值。
+  3. 结论必须前置（data-qb-conclusion）且数据绑定；每个指标带自身数据日期；
+     实时/周频/快照用 data-qb-fresh-cell data-cadence 声明。
+  4. python scripts/compile_bespoke_page.py 编译，verify_page.mjs --profile self-built 验收。
+  示例内容为原油六因子（sc/brent/wti/usdcny/库存/历史位置），替换时保留结构合同。
+-->
+<!-- QB_SHARED_SHELL_CSS -->
+<style>
+/* commodity-factor-watch-v1 · 商品因子观察台
+   结构合同：结论前置 hero → 数据新鲜度条 → 三地行情 → 六因子导航 → 因子卡网格 → 分组图表 → 口径折叠。
+   数据合同：所有数值经 data-qv / data-qb-metric 绑定实时产出，构建期不写死任何行情数字。 */
+:root { color-scheme:light;
+  --cw-canvas:#f6f4ef; --cw-surface:#ffffff; --cw-surface-2:#faf8f3;
+  --cw-ink:#182430; --cw-ink-strong:#101c26; --cw-muted:#5d6b76; --cw-faint:#8a959e;
+  --cw-line:#e5e1d6; --cw-line-strong:#d5d0c2;
+  --cw-accent:#14524b; --cw-accent-ink:#f3faf8; --cw-num:#b4622d;
+  --cw-up:#b43732; --cw-down:#14754f; --cw-warn:#8a6d1a; --cw-live:#0d7a68;
+}
+* { box-sizing:border-box; }
+html { scroll-behavior:smooth; }
+body { margin:0; background:var(--cw-canvas); color:var(--cw-ink);
+  font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif; }
+.skip { position:absolute; left:-9999px; top:0; z-index:100; }
+.skip:focus { left:12px; top:12px; padding:10px 16px; background:var(--cw-ink-strong); color:#fff; border-radius:8px; }
+.cw-page { max-width:1160px; margin:0 auto; padding:36px 28px 72px; }
+.cw-page :focus-visible { outline:3px solid var(--cw-accent); outline-offset:3px; border-radius:4px; }
+
+/* ── Hero：结论前置 ─────────────────────────── */
+.cw-topline { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:14px;
+  color:var(--cw-accent); font-size:14px; font-weight:700; letter-spacing:.05em; }
+.cw-topline::before { content:""; width:26px; height:3px; background:currentColor; }
+.cw-topline .asof { margin-left:auto; color:var(--cw-muted); font-weight:500; letter-spacing:0; }
+h1 { margin:0; max-width:26em; color:var(--cw-ink-strong); font-size:38px; line-height:1.24;
+  font-weight:750; letter-spacing:-.02em; overflow-wrap:anywhere; text-wrap:balance; }
+.cw-lead { margin:18px 0 0; max-width:46em; font-size:20px; line-height:1.7; color:var(--cw-ink-strong); }
+.cw-lead b { font-weight:750; }
+.cw-lead .up { color:var(--cw-up); } .cw-lead .down { color:var(--cw-down); }
+.cw-lead-note { margin:10px 0 0; max-width:46em; font-size:14px; line-height:1.6; color:var(--cw-muted); }
+.cw-lead-note b { color:var(--cw-warn); font-weight:700; }
+
+/* 数据新鲜度条：每格自带节奏，不冒充同频 */
+.cw-fresh { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:10px; margin:22px 0 0; }
+.cw-fresh-cell { min-width:0; padding:10px 14px; background:var(--cw-surface); border:1px solid var(--cw-line);
+  border-radius:10px; display:flex; flex-direction:column; gap:2px; }
+.cw-fresh-cell .k { font-size:13px; color:var(--cw-muted); }
+.cw-fresh-cell .v { font-size:14px; font-weight:700; color:var(--cw-ink-strong); font-variant-numeric:tabular-nums; }
+.cw-fresh-cell .s { font-size:12.5px; color:var(--cw-faint); }
+.cw-fresh-cell .v .live-dot { display:inline-block; width:7px; height:7px; border-radius:50%;
+  background:var(--cw-live); margin-right:6px; vertical-align:1px; }
+
+/* 三地行情卡：每卡自带数据日期 */
+.cw-quotes { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin:12px 0 0; }
+.cw-quote { min-width:0; padding:14px 18px 12px; background:var(--cw-surface); border:1px solid var(--cw-line);
+  border-radius:12px; }
+.cw-quote .q-head { display:flex; align-items:baseline; gap:8px; }
+.cw-quote .q-name { font-size:14px; font-weight:700; color:var(--cw-muted); }
+.cw-quote .q-date { margin-left:auto; font-size:12.5px; color:var(--cw-faint); font-variant-numeric:tabular-nums; }
+.cw-quote .q-val { margin-top:4px; font:650 30px/1.15 "Segoe UI",Arial,sans-serif; letter-spacing:-.02em;
+  font-variant-numeric:tabular-nums; color:var(--cw-ink-strong); }
+.cw-quote .q-val .unit { margin-left:4px; font-size:13px; font-weight:500; color:var(--cw-muted); letter-spacing:0; }
+.cw-quote .q-val.up { color:var(--cw-up); } .cw-quote .q-val.down { color:var(--cw-down); }
+.cw-quote .q-sub { margin-top:4px; font-size:13px; color:var(--cw-muted); font-variant-numeric:tabular-nums; }
+.cw-quote .q-sub b.up { color:var(--cw-up); } .cw-quote .q-sub b.down { color:var(--cw-down); }
+.cw-live-status { margin:10px 0 0; font-size:13px; color:var(--cw-faint); }
+
+/* ── 六因子导航 ─────────────────────────────── */
+.cw-nav { display:flex; flex-wrap:wrap; gap:8px; margin:18px 0 0; }
+.cw-nav a { display:inline-flex; align-items:center; gap:6px; min-height:38px; padding:6px 14px;
+  background:var(--cw-surface); border:1px solid var(--cw-line-strong); border-radius:999px;
+  color:var(--cw-ink); font-size:14.5px; font-weight:600; text-decoration:none; }
+.cw-nav a:hover { border-color:var(--cw-accent); color:var(--cw-accent); }
+.cw-nav a .no { color:var(--cw-num); font-weight:800; font-variant-numeric:tabular-nums; }
+
+/* ── 章节骨架 ───────────────────────────────── */
+.cw-section { margin-top:52px; }
+.cw-sec-head { margin-bottom:18px; }
+.cw-kicker { display:flex; align-items:center; gap:10px; color:var(--cw-num); font-size:13.5px;
+  font-weight:800; letter-spacing:.1em; }
+.cw-kicker::after { content:""; flex:1; height:1px; background:var(--cw-line-strong); }
+.cw-sec-head h2 { margin:8px 0 0; color:var(--cw-ink-strong); font-size:27px; line-height:1.35;
+  font-weight:750; letter-spacing:-.01em; }
+.cw-sec-head .sec-intro { margin:8px 0 0; max-width:44em; font-size:15.5px; line-height:1.7; color:var(--cw-muted); }
+
+/* ── 六因子卡 ───────────────────────────────── */
+.cw-factor-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
+.cw-factor { min-width:0; padding:18px 20px 16px; background:var(--cw-surface);
+  border:1px solid var(--cw-line); border-radius:14px; display:flex; flex-direction:column; gap:12px; }
+.cw-factor .f-head { display:flex; align-items:baseline; gap:10px; }
+.cw-factor .f-no { font-size:15px; font-weight:800; color:var(--cw-num); font-variant-numeric:tabular-nums; }
+.cw-factor .f-name { font-size:19px; font-weight:750; color:var(--cw-ink-strong); }
+.cw-factor .f-q { margin-left:auto; font-size:13px; color:var(--cw-faint); text-align:right; max-width:12em; }
+.cw-factor .f-metrics { display:flex; flex-direction:column; gap:8px; }
+.fm-row { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; min-width:0; }
+.fm-row .fm-name { flex:0 0 auto; font-size:13.5px; color:var(--cw-muted); }
+.fm-row .fm-val { font:650 21px/1.2 "Segoe UI",Arial,sans-serif; font-variant-numeric:tabular-nums;
+  color:var(--cw-ink-strong); overflow-wrap:anywhere; }
+.fm-row .fm-val .unit { margin-left:3px; font-size:12.5px; font-weight:500; color:var(--cw-muted); letter-spacing:0; }
+.fm-row .fm-val.up { color:var(--cw-up); } .fm-row .fm-val.down { color:var(--cw-down); }
+.fm-row .fm-chg { font-size:13px; font-weight:650; color:var(--cw-muted); font-variant-numeric:tabular-nums; }
+.fm-row .fm-chg.up { color:var(--cw-up); } .fm-row .fm-chg.down { color:var(--cw-down); }
+.fm-row .fm-date { margin-left:auto; font-size:12.5px; color:var(--cw-faint); font-variant-numeric:tabular-nums; }
+
+/* 分位条：位置指示，不是精确刻度 */
+.pbar { display:flex; align-items:center; gap:10px; min-width:0; }
+.pbar .pbar-label { flex:0 0 auto; font-size:12.5px; color:var(--cw-faint); }
+.pbar .pbar-track { position:relative; flex:1 1 auto; height:8px; border-radius:999px;
+  background:linear-gradient(90deg,#d9e6e2,#e8e2d2 55%,#e6d9cb); }
+.pbar .pbar-dot { position:absolute; top:50%; width:15px; height:15px; border-radius:50%;
+  background:var(--cw-surface); border:3.5px solid var(--cw-accent);
+  transform:translate(-50%,-50%); transition:left .4s ease; }
+.pbar .pbar-dot.hi { border-color:var(--cw-up); } .pbar .pbar-dot.lo { border-color:var(--cw-down); }
+.pbar .pbar-note { flex:0 0 auto; font-size:13px; font-weight:700; color:var(--cw-ink-strong);
+  font-variant-numeric:tabular-nums; }
+.cw-factor .f-note { margin:0; font-size:14.5px; line-height:1.66; color:var(--cw-muted); }
+.cw-factor .f-note b { color:var(--cw-ink-strong); font-weight:700; }
+
+/* ── 图表区 ─────────────────────────────────── */
+.cw-chart-anchor { margin:0 0 14px; padding:18px 20px 14px; background:var(--cw-surface);
+  border:1px solid var(--cw-line); border-radius:14px; }
+.cw-chart-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
+.cw-chart { min-width:0; padding:16px 18px 12px; background:var(--cw-surface);
+  border:1px solid var(--cw-line); border-radius:14px; }
+.cw-chart h3, .cw-chart-anchor h3 { margin:0; font-size:18px; font-weight:700; color:var(--cw-ink-strong); }
+.cw-chart .cap, .cw-chart-anchor .cap { margin:4px 0 10px; font-size:13px; line-height:1.55; color:var(--cw-faint); }
+.cw-chart .cw-chart-body, .cw-chart-anchor .cw-chart-body { min-width:0; }
+.cw-chart .empty, .cw-chart-anchor .empty { margin:0; padding:18px 0; color:var(--cw-muted); font-size:14px; }
+.cw-chart-foot { margin:14px 0 0; font-size:13.5px; line-height:1.6; color:var(--cw-muted); }
+
+/* ── 口径与来源折叠 ─────────────────────────── */
+details.cw-deep { margin-top:14px; background:var(--cw-surface); border:1px solid var(--cw-line); border-radius:14px; }
+details.cw-deep > summary { cursor:pointer; padding:16px 20px; font-size:16px; font-weight:700;
+  color:var(--cw-accent); list-style:none; display:flex; align-items:center; gap:8px; }
+details.cw-deep > summary::before { content:"＋"; font-weight:800; color:var(--cw-num); }
+details.cw-deep[open] > summary::before { content:"－"; }
+details.cw-deep > summary::-webkit-details-marker { display:none; }
+.cw-deep-body { padding:2px 20px 20px; }
+.cw-table-wrap { overflow-x:auto; overscroll-behavior-inline:contain; border:1px solid var(--cw-line); border-radius:10px; }
+table.cw-table { width:100%; border-collapse:collapse; font-size:14.5px; line-height:1.5; font-variant-numeric:tabular-nums; }
+.cw-table th, .cw-table td { padding:12px 14px; border-bottom:1px solid #eceae1; text-align:left; white-space:nowrap; }
+.cw-table th { background:#f2f0e9; color:var(--cw-muted); font-size:14px; font-weight:650; }
+.cw-table tbody tr:last-child td { border-bottom:0; }
+.cw-boundary { margin:16px 0 0; padding:14px 16px; background:var(--cw-surface-2); border-left:3px solid var(--cw-warn);
+  border-radius:0 10px 10px 0; font-size:14.5px; line-height:1.7; color:var(--cw-muted); }
+.cw-boundary b { color:var(--cw-ink-strong); }
+.cw-formulas { margin:16px 0 0; font-size:13.5px; line-height:1.9; color:var(--cw-muted); }
+.cw-formulas code { padding:2px 6px; border-radius:5px; background:#efece3; font-size:13px; }
+.cw-disclaimer { margin:18px 0 0; font-size:13px; line-height:1.7; color:var(--cw-faint); }
+
+.err-slot { margin:14px 0 0; padding:14px 18px; border-radius:12px; background:#fdf1ef;
+  border:1px solid #ecc7c0; color:#8c3128; font-size:15px; }
+
+/* ── 响应式 ─────────────────────────────────── */
+@media (max-width:1020px) {
+  .cw-factor-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .cw-fresh { grid-template-columns:repeat(3,minmax(0,1fr)); }
+}
+@media (max-width:680px) {
+  .cw-page { padding:20px 16px 48px; }
+  h1 { font-size:28px; }
+  .cw-topline { margin-bottom:8px; }
+  .cw-lead { font-size:18px; margin-top:12px; }
+  .cw-lead-note { margin-top:8px; }
+  .cw-nav { margin-top:10px; gap:6px; }
+  .cw-nav a { min-height:36px; padding:5px 12px; font-size:14px; }
+  .cw-section { margin-top:36px; }
+  .cw-sec-head h2 { font-size:22px; }
+  .cw-factor-grid, .cw-chart-grid, .cw-quotes { grid-template-columns:1fr; }
+  .cw-fresh { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .cw-nav { gap:6px; }
+  .cw-nav a { min-height:36px; padding:5px 12px; font-size:14px; }
+  .cw-quote .q-val { font-size:26px; }
+  .cw-factor .f-q { display:none; }
+  .cw-table th, .cw-table td { padding:11px 12px; }
+}
+@media (max-width:360px) {
+  .cw-fresh { grid-template-columns:1fr 1fr; }
+  .cw-quote .q-val { font-size:24px; }
+  .cw-lead { font-size:17px; }
+  .cw-lead-note { font-size:13px; }
+}
+@media (prefers-reduced-motion:reduce) {
+  html { scroll-behavior:auto; }
+  .pbar .pbar-dot { transition:none; }
+}
+</style>
+</head>
+<body>
+<!-- QB_SHARED_SHELL_HEADER -->
+<a class="skip" href="#content">跳到研究正文</a>
+
+<main id="content" class="cw-page" data-qb-page-design="commodity-factor-watch-v1"
+      data-qb-delivery-kind="result" data-qb-research-status="ok">
+
+  <!-- ── Hero：结论前置 ── -->
+  <header class="cw-hero">
+    <div class="cw-topline">
+      <span>商品因子观察 · 原油</span>
+      <span class="asof">行情截至 <span data-qv="meta.priceDate">—</span> · 库存截至 <span data-qv="stock.dateText">—</span></span>
+    </div>
+    <h1 data-qb-page-title>原油涨跌怎么看？· 六因子观察台</h1>
+
+    <p class="cw-lead" data-qb-conclusion>
+      <span data-qv="conclusion.main">正在核对六个因子，稍候给出主判断…</span>
+    </p>
+    <p class="cw-lead-note">
+      <b>研究快照 · 分析日 <span data-qv="meta.today">—</span></b>：结论由研究生成，数值随页面打开实时取数、按各自数据日期展示；结论的方向表述仅在数据到达时成立，刷新后以最新值为准。
+    </p>
+
+    <!-- ── 六因子导航：紧跟结论，移动端首屏可见六组因子 ── -->
+    <nav class="cw-nav" data-qb-factor-nav aria-label="六个因子">
+      <a href="#f1"><span class="no">①</span>国际锚</a>
+      <a href="#f2"><span class="no">②</span>内外盘</a>
+      <a href="#f3"><span class="no">③</span>跨区价差</a>
+      <a href="#f4"><span class="no">④</span>美元</a>
+      <a href="#f5"><span class="no">⑤</span>库存</a>
+      <a href="#f6"><span class="no">⑥</span>历史位置</a>
+    </nav>
+
+    <div class="cw-quotes" aria-label="三地原油行情">
+      <div class="cw-quote" data-qb-metric data-metric="sc">
+        <div class="q-head"><span class="q-name">沪原油主连 SC</span><span class="q-date" data-f="date">—</span></div>
+        <div class="q-val" data-f="val">—<span class="unit">元/桶</span></div>
+        <div class="q-sub">日 <b data-f="chg1d">—</b> · 近20日 <b data-f="chg20d">—</b></div>
+      </div>
+      <div class="cw-quote" data-qb-metric data-metric="brent">
+        <div class="q-head"><span class="q-name">布伦特 Brent</span><span class="q-date" data-f="date">—</span></div>
+        <div class="q-val" data-f="val">—<span class="unit">美元/桶</span></div>
+        <div class="q-sub">日 <b data-f="chg1d">—</b> · 近20日 <b data-f="chg20d">—</b></div>
+      </div>
+      <div class="cw-quote" data-qb-metric data-metric="wti">
+        <div class="q-head"><span class="q-name">WTI 轻质原油</span><span class="q-date" data-f="date">—</span></div>
+        <div class="q-val" data-f="val">—<span class="unit">美元/桶</span></div>
+        <div class="q-sub">日 <b data-f="chg1d">—</b> · 近20日 <b data-f="chg20d">—</b></div>
+      </div>
+    </div>
+
+    <div class="cw-fresh" aria-label="本页数据口径概览">
+      <div class="cw-fresh-cell" data-qb-fresh-cell data-cadence="daily">
+        <span class="k">三地价格</span><span class="v"><i class="live-dot"></i>Live · 按实际日期</span>
+        <span class="s"><span data-qv="meta.priceDate">—</span></span>
+      </div>
+      <div class="cw-fresh-cell" data-qb-fresh-cell data-cadence="daily">
+        <span class="k">价差 · 美元</span><span class="v">日频 · 随价格更新</span>
+        <span class="s">与行情同日计算</span>
+      </div>
+      <div class="cw-fresh-cell" data-qb-fresh-cell data-cadence="weekly">
+        <span class="k">SC 原油库存</span><span class="v">周频</span>
+        <span class="s"><span data-qv="stock.dateText">—</span></span>
+      </div>
+      <div class="cw-fresh-cell" data-qb-fresh-cell data-cadence="daily">
+        <span class="k">因子分位</span><span class="v">随各自窗口计算</span>
+        <span class="s">价差/美元近一年 · SC近两年</span>
+      </div>
+      <div class="cw-fresh-cell" data-qb-fresh-cell data-cadence="snapshot">
+        <span class="k">因子结论</span><span class="v">研究快照</span>
+        <span class="s">分析日 <span data-qv="meta.today">—</span></span>
+      </div>
+    </div>
+
+    <p class="cw-live-status" role="status" data-qb-live-status>正在取数…</p>
+    <div class="err-slot" id="factorError" hidden></div>
+  </header>
+
+  <!-- ── 01 六因子现状 ── -->
+  <section class="cw-section" id="sec-factors">
+    <div class="cw-sec-head">
+      <div class="cw-kicker">01 / 先看因子</div>
+      <h2>六个因子，现在各自站在哪？</h2>
+      <p class="sec-intro">每个因子给出当前值、自身数据日期、变化与所处分位；一句解释只说明机制，不预测方向。</p>
+    </div>
+
+    <div class="cw-factor-grid">
+      <!-- 因子卡示例（①国际锚）：替换为当前任务的因子，保留
+           data-qb-factor-card / data-factor-no / data-factor-name / data-qb-metric / data-qb-pbar
+           与“值+自身日期+变化+分位+一句机制解释”五件套。 -->
+      <article class="cw-factor" id="f1" data-qb-factor-card data-factor-no="1" data-factor-name="国际锚">
+        <div class="f-head"><span class="f-no">01</span><span class="f-name">国际锚</span><span class="f-q">国际价格把锚定在哪？</span></div>
+        <div class="f-metrics">
+          <div class="fm-row" data-qb-metric data-metric="brent">
+            <span class="fm-name">布伦特</span>
+            <b class="fm-val" data-f="val">—<span class="unit">美元/桶</span></b>
+            <span class="fm-chg" data-f="chg1d">—</span>
+            <span class="fm-date" data-f="date">—</span>
+          </div>
+          <div class="fm-row" data-qb-metric data-metric="wti">
+            <span class="fm-name">WTI</span>
+            <b class="fm-val" data-f="val">—<span class="unit">美元/桶</span></b>
+            <span class="fm-chg" data-f="chg1d">—</span>
+            <span class="fm-date" data-f="date">—</span>
+          </div>
+        </div>
+        <div class="pbar" data-qb-pbar data-metric="brent">
+          <span class="pbar-label">布伦特近一年分位</span>
+          <div class="pbar-track"><i class="pbar-dot" data-f="dot"></i></div>
+          <span class="pbar-note" data-f="note">—</span>
+        </div>
+        <p class="f-note">国际基准是原油的定价中心：Brent 代表大西洋盆地，WTI 代表美国；两者同向时方向信号最强，背离时先查区域供需，再查汇率与运输。</p>
+      </article>
+
+      <article class="cw-factor" id="f2" data-qb-factor-card data-factor-no="2" data-factor-name="内外盘">
+        <div class="f-head"><span class="f-no">02</span><span class="f-name">内外盘</span><span class="f-q">上海比国际贵还是便宜？</span></div>
+        <div class="f-metrics">
+          <div class="fm-row" data-qb-metric data-metric="sc">
+            <span class="fm-name">沪原油 SC</span>
+            <b class="fm-val" data-f="val">—<span class="unit">元/桶</span></b>
+            <span class="fm-chg" data-f="chg1d">—</span>
+            <span class="fm-date" data-f="date">—</span>
+          </div>
+          <div class="fm-row" data-qb-metric data-metric="spread">
+            <span class="fm-name">SC−Brent×汇率</span>
+            <b class="fm-val" data-f="val">—<span class="unit">元/桶</span></b>
+            <span class="fm-chg" data-f="chg20dAbs">—</span>
+            <span class="fm-date" data-f="date">—</span>
+          </div>
+        </div>
+        <div class="pbar" data-qb-pbar data-metric="spread">
+          <span class="pbar-label">价差近一年分位</span>
+          <div class="pbar-track"><i class="pbar-dot" data-f="dot"></i></div>
+          <span class="pbar-note" data-f="note">—</span>
+        </div>
+        <p class="f-note">价差为正说明人民币计价的 SC 相对国际<b>升水</b>，通常反映亚太现货偏紧或到岸成本抬升；贴水则相反。汇率折算口径见页尾。</p>
+      </article>
+
+      <article class="cw-factor" id="f3" data-qb-factor-card data-factor-no="3" data-factor-name="跨区价差">
+        <div class="f-head"><span class="f-no">03</span><span class="f-name">跨区价差</span><span class="f-q">两个国际市场谁更紧？</span></div>
+        <div class="f-metrics">
+          <div class="fm-row" data-qb-metric data-metric="bw">
+            <span class="fm-name">Brent−WTI</span>
+            <b class="fm-val" data-f="val">—<span class="unit">美元/桶</span></b>
+            <span class="fm-chg" data-f="chg20dAbs">—</span>
+            <span class="fm-date" data-f="date">—</span>
+          </div>
+        </div>
+        <div class="pbar" data-qb-pbar data-metric="bw">
+          <span class="pbar-label">价差近一年分位</span>
+          <div class="pbar-track"><i class="pbar-dot" data-f="dot"></i></div>
+          <span class="pbar-note" data-f="note">—</span>
+        </div>
+        <p class="f-note">价差走扩通常代表大西洋盆地相对美国更紧（或美国出口/管输瓶颈缓解）；处在极端分位时，提示的是<b>区域错配</b>，不是单边方向。</p>
+      </article>
+
+      <article class="cw-factor" id="f4" data-qb-factor-card data-factor-no="4" data-factor-name="美元">
+        <div class="f-head"><span class="f-no">04</span><span class="f-name">美元</span><span class="f-q">计价货币往哪边压？</span></div>
+        <div class="f-metrics">
+          <div class="fm-row" data-qb-metric data-metric="usd">
+            <span class="fm-name">美元兑人民币</span>
+            <b class="fm-val" data-f="val">—</b>
+            <span class="fm-chg" data-f="chg1d">—</span>
+            <span class="fm-date" data-f="date">—</span>
+          </div>
+        </div>
+        <div class="pbar" data-qb-pbar data-metric="usd">
+          <span class="pbar-label">近一年分位</span>
+          <div class="pbar-track"><i class="pbar-dot" data-f="dot"></i></div>
+          <span class="pbar-note" data-f="note">—</span>
+        </div>
+        <p class="f-note">人民币走强（USDCNY 下行）会压低人民币计价原油的折算价，与内外盘价差同向联动；处在低位时对 SC 形成<b>折算压制</b>。</p>
+      </article>
+
+      <article class="cw-factor" id="f5" data-qb-factor-card data-factor-no="5" data-factor-name="库存">
+        <div class="f-head"><span class="f-no">05</span><span class="f-name">库存</span><span class="f-q">供需缓冲变厚还是薄？</span></div>
+        <div class="f-metrics">
+          <div class="fm-row" data-qb-metric data-metric="stock">
+            <span class="fm-name">SC 原油库存</span>
+            <b class="fm-val" data-f="val">—<span class="unit">万吨</span></b>
+            <span class="fm-chg" data-f="wow">—</span>
+            <span class="fm-date" data-f="date">—</span>
+          </div>
+        </div>
+        <div class="pbar" data-qb-pbar data-metric="stock">
+          <span class="pbar-label">统计区间分位</span>
+          <div class="pbar-track"><i class="pbar-dot" data-f="dot"></i></div>
+          <span class="pbar-note" data-f="note">—</span>
+        </div>
+        <p class="f-note">库存是存量结果：去库可能来自需求走强，也可能只是进口减少。低分位说明缓冲偏薄，对利多事件<b>更敏感</b>；周频数据按自身日期展示。</p>
+      </article>
+
+      <article class="cw-factor" id="f6" data-qb-factor-card data-factor-no="6" data-factor-name="历史位置">
+        <div class="f-head"><span class="f-no">06</span><span class="f-name">历史位置</span><span class="f-q">现在处于两年区间哪里？</span></div>
+        <div class="f-metrics">
+          <div class="fm-row" data-qb-metric data-metric="pos">
+            <span class="fm-name">SC 近两年位置</span>
+            <b class="fm-val" data-f="val">—</b>
+            <span class="fm-chg" data-f="range">—</span>
+            <span class="fm-date" data-f="date">—</span>
+          </div>
+        </div>
+        <div class="pbar" data-qb-pbar data-metric="pos">
+          <span class="pbar-label">近两年分位</span>
+          <div class="pbar-track"><i class="pbar-dot" data-f="dot"></i></div>
+          <span class="pbar-note" data-f="note">—</span>
+        </div>
+        <p class="f-note">用滚动两年区间而非固定点位定位当下：高分位不等于会跌，但继续上行需要<b>新增驱动</b>；区间上下沿即图 02 的两条参考线。</p>
+      </article>
+    </div>
+  </section>
+
+  <!-- ── 02 图表取证 ── -->
+  <section class="cw-section" id="sec-charts">
+    <div class="cw-sec-head">
+      <div class="cw-kicker">02 / 再看证据</div>
+      <h2>价格与价差，在图上怎么走？</h2>
+      <p class="sec-intro">主图看 SC 两年区间位置；四张分组图分别对应因子①③②⑤的证据，与因子卡互为印证。</p>
+    </div>
+
+    <article class="cw-chart-anchor" data-qb-chart data-chart-span="full" data-chart-for="f6">
+      <h3>沪原油主连：近两年价格与滚动区间</h3>
+      <p class="cap">上下两条虚线为近两年滚动极值参考线（因子⑥的区间来源）；元/桶。</p>
+      <div class="cw-chart-body" id="chart-sc-band"></div>
+    </article>
+
+    <div class="cw-chart-grid">
+      <article class="cw-chart" data-qb-chart data-chart-span="half" data-chart-for="f1">
+        <h3>国际基准：布伦特 vs WTI</h3>
+        <p class="cap">近一年日线，美元/桶；两线开口对应因子③跨区价差。</p>
+        <div class="cw-chart-body" id="chart-bench"></div>
+      </article>
+      <article class="cw-chart" data-qb-chart data-chart-span="half" data-chart-for="f2">
+        <h3>内外盘价差：SC − 布伦特×汇率</h3>
+        <p class="cap">0 轴上方为升水、下方为贴水，元/桶；对应因子②。</p>
+        <div class="cw-chart-body" id="chart-spread"></div>
+      </article>
+      <article class="cw-chart" data-qb-chart data-chart-span="half" data-chart-for="f3">
+        <h3>跨区价差：布伦特 − WTI</h3>
+        <p class="cap">美元/桶；对应因子③，走扩代表大西洋盆地相对更紧。</p>
+        <div class="cw-chart-body" id="chart-bw"></div>
+      </article>
+      <article class="cw-chart" data-qb-chart data-chart-span="half" data-chart-for="f5">
+        <h3>SC 原油库存（周频）</h3>
+        <p class="cap">万吨，按数据自身日期展示；对应因子⑤。</p>
+        <div class="cw-chart-body" id="chart-stock"></div>
+      </article>
+    </div>
+    <p class="cw-chart-foot">连续合约换月会影响价格水平；价差类序列由两条收盘价按日对齐计算。图表打开页面时实时取数。</p>
+  </section>
+
+  <!-- ── 03 口径与来源 ── -->
+  <section class="cw-section" id="sec-caliber">
+    <div class="cw-sec-head">
+      <div class="cw-kicker">03 / 核对口径</div>
+      <h2>每个因子由什么构成？</h2>
+    </div>
+    <details class="cw-deep">
+      <summary>展开：因子构成、公式、窗口与数据日期</summary>
+      <div class="cw-deep-body">
+        <div class="cw-table-wrap">
+          <table class="cw-table">
+            <thead><tr><th>因子</th><th>构成</th><th>窗口 / 频率</th><th>数据日期</th></tr></thead>
+            <tbody>
+              <tr><td>① 国际锚</td><td>布伦特、WTI 日收盘</td><td>近一年（分位）· 日频</td><td data-qb-caliber-date="brent">—</td></tr>
+              <tr><td>② 内外盘</td><td>SC − 布伦特×USDCNY</td><td>近一年（分位）· 日频</td><td data-qb-caliber-date="spread">—</td></tr>
+              <tr><td>③ 跨区价差</td><td>布伦特 − WTI</td><td>近一年（分位）· 日频</td><td data-qb-caliber-date="bw">—</td></tr>
+              <tr><td>④ 美元</td><td>USDCNY 日收盘</td><td>近一年（分位）· 日频</td><td data-qb-caliber-date="usd">—</td></tr>
+              <tr><td>⑤ 库存</td><td>SC 原油库存</td><td>统计区间（分位）· 周频</td><td data-qb-caliber-date="stock">—</td></tr>
+              <tr><td>⑥ 历史位置</td><td>SC 在近两年滚动区间</td><td>滚动两年 · 日频</td><td data-qb-caliber-date="sc">—</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="cw-boundary">
+          <b>实时与快照的边界：</b>三地价格、价差与美元为页面打开时实时取数（Live，按各自实际返回日期展示，不冒充同频）；SC 库存为周频序列，滞后属正常；首屏结论的<b>方向表述</b>为研究快照，仅代表分析日的判断，数值部分随取数刷新。
+        </div>
+        <p class="cw-formulas">
+          公式（与页面实时取数的公式包一致）：
+          <code>brent_close</code>、<code>wti_close</code>、<code>usdcny_close</code>、<code>sc_close</code> 取各自日收盘；
+          <code>bw_spread = brent_close − wti_close</code>；
+          <code>sc_brent_spread = sc_close − brent_close × usdcny_close</code>；
+          <code>sc_hi / sc_lo</code> 为 SC 近两年滚动极值；<code>sc_stock</code> 为 SC 周频库存。
+          分位 = 当前值在对应窗口内的历史排位（0–100%）。
+        </p>
+        <p class="cw-disclaimer">本页仅作市场观察与数据展示，不构成投资建议；商品期货价格受合约换月、保证金与流动性影响，历史分位不代表未来表现。数据来源：QuantBuddy 行情与公式包。</p>
+      </div>
+    </details>
+  </section>
+</main>
+
+<!-- QB_SHARED_SHELL_FOOTER -->
+<!-- QB_SHARED_SHELL_MODAL -->
+<!-- QB_SHARED_SHELL_JS -->
+<!-- QB_SHARED_QR_MINI -->
+<!-- QBV_CHART_PANEL_BLOCK -->
+
+<script>
+/* commodity-factor-watch-v1 渲染层
+   数据合同：只经 QB 内核取数；所有绑定走 data-qv / data-qb-metric / data-qb-pbar 的 DOM 声明，
+   渲染函数不含具体业务数值。 */
+(function () {
+  'use strict';
+  var CONFIG = {
+    endpoint: 'https://www.quantbuddy.cn/skill',   // 按环境填写
+    package_id: 'pkg_REPLACE_WITH_VERIFIED_PACKAGE',
+    signature: 'sig_REPLACE_WITH_REGISTERED_SIGNATURE'
+  };
+
+  function fmt(v, d) {
+    if (v == null || !isFinite(v)) return '—';
+    return Number(v).toLocaleString('zh-CN', { minimumFractionDigits: d, maximumFractionDigits: d });
+  }
+  function pct(v, d) {
+    if (v == null || !isFinite(v)) return '—';
+    return (v > 0 ? '+' : '') + fmt(v, d == null ? 2 : d) + '%';
+  }
+  function signCls(v) { return v > 0 ? 'up' : v < 0 ? 'down' : ''; }
+  function statsOf(pts, opts) {
+    opts = opts || {};
+    var n = pts.length;
+    if (!n) return { empty: true, last: null, date: null, dateText: '—' };
+    var last = pts[n - 1].v, prev = n > 1 ? pts[n - 1].v : null; // filled below
+    var prevDay = n > 1 ? pts[n - 2].v : null;
+    var p20 = n > 20 ? pts[n - 21].v : null;
+    var vals = pts.map(function (p) { return p.v; }).filter(function (v) { return v != null && isFinite(v); });
+    var below = vals.filter(function (v) { return v <= last; }).length;
+    var pctile = vals.length ? Math.round(below / vals.length * 1000) / 10 : null;
+    var chg1d = prevDay != null ? (last / prevDay - 1) * 100 : null;
+    var chg20d = p20 != null ? (last / p20 - 1) * 100 : null;
+    return {
+      empty: false, n: n, last: last, lo: Math.min.apply(null, vals), hi: Math.max.apply(null, vals),
+      prevDay: prevDay, prev20: p20,
+      chg1d: chg1d, chg20d: chg20d,
+      pctile: pctile, dateText: QB.fmtDate(pts[n - 1].d), dateRaw: pts[n - 1].d
+    };
+  }
+  function wowOf(pts) { // 周频：与上一期比
+    var n = pts.length;
+    if (n < 2) return null;
+    return pts[n - 1].v - pts[n - 2].v;
+  }
+
+  function buildData(out) {
+    var S = function (k, o) { return QB.series(out, k, o); };
+    var sc = statsOf(S('sc_close', { dropZero: true }));
+    var brent = statsOf(S('brent_close', { dropZero: true }));
+    var wti = statsOf(S('wti_close', { dropZero: true }));
+    var usd = statsOf(S('usdcny_close', { dropZero: true }));
+    var stockPts = S('sc_stock', { dropZero: true });
+    var stock = statsOf(stockPts);
+    var bw = statsOf(S('bw_spread'));
+    var spread = statsOf(S('sc_brent_spread'));
+    var wow = wowOf(stockPts);
+    var pos = {
+      empty: sc.empty, last: sc.last, dateText: sc.dateText,
+      pctile: sc.pctile, lo: sc.lo, hi: sc.hi,
+      chg1d: sc.chg1d, chg20d: sc.chg20d, n: sc.n
+    };
+    var D = { sc: sc, brent: brent, wti: wti, usd: usd, stock: stock, bw: bw, spread: spread, pos: pos };
+    D.stock.wow = wow;
+    D.stock.dateText = stock.dateText;
+    // 派生口径元数据
+    var priceDates = [sc, brent, wti].map(function (s) { return s.dateText; }).filter(function (t) { return t && t !== '—'; });
+    D.meta = {
+      priceDate: priceDates.sort()[priceDates.length - 1] || '—',
+      today: new Date().toISOString().slice(0, 10),
+      observationDates: []
+    };
+    [sc, brent, wti, usd, stock].forEach(function (s) {
+      if (s && s.dateText && s.dateText !== '—' && D.meta.observationDates.indexOf(s.dateText) < 0) D.meta.observationDates.push(s.dateText);
+    });
+    return D;
+  }
+
+  function levelWord(p) {
+    if (p == null) return '中性';
+    if (p >= 70) return '偏强'; if (p <= 30) return '偏弱'; return '中性';
+  }
+  function buildConclusion(D) {
+    if (!D.sc || D.sc.empty || !D.brent || D.brent.empty) return '六个因子的取数尚未齐备，稍候重试。';
+    var s20 = D.sc.chg20d, w20 = D.wti.chg20d;
+    var diverge = (s20 != null && w20 != null && s20 > 0 && w20 < 0);
+    var b = function (text, cls) { return '<b' + (cls ? ' class="' + cls + '"' : '') + '>' + text + '</b>'; };
+    var main = '价格与价差结构' + b(levelWord(D.spread.pctile)) + '：内外盘价差 ' + b(fmt(D.spread.last, 1)) +
+      ' 元/桶（近一年 ' + b(fmt(D.spread.pctile, 0) + '%') + ' 分位），跨区价差 ' + b(fmt(D.bw.last, 2)) +
+      ' 美元/桶（' + b(fmt(D.bw.pctile, 0) + '%') + ' 分位）；但美元处近一年 ' + b(fmt(D.usd.pctile, 0) + '%') +
+      ' 分位' + (D.usd.pctile != null && D.usd.pctile <= 30 ? '（低位·折算压制）' : '') +
+      '、库存 ' + b(fmt(D.stock.pctile, 0) + '%') + ' 分位' + (D.stock.pctile != null && D.stock.pctile <= 30 ? '（偏紧）' : '') + '，成本与供需方向相反。';
+    var key = diverge
+      ? '最值得盯的是内外分化：SC 近 20 日 ' + b(pct(s20, 1), 'up') + '，同期 WTI ' + b(pct(w20, 1), 'down') + '。'
+      : 'SC 处近两年 ' + b(fmt(D.pos.pctile, 1) + '%') + ' 分位（区间 ' + fmt(D.pos.lo, 0) + '–' + fmt(D.pos.hi, 0) + ' 元/桶）。';
+    return main + key;
+  }
+
+  function fillMetric(el, st, kind) {
+    var q = function (f) { return el.querySelector('[data-f="' + f + '"]'); };
+    var setVal = function (node, text, cls) {
+      if (!node) return;
+      // 保留 unit span
+      var unit = node.querySelector('.unit');
+      node.textContent = text;
+      if (unit) node.appendChild(document.createTextNode(''));
+      if (unit) node.appendChild(unit);
+      node.classList.remove('up', 'down');
+      if (cls) node.classList.add(cls);
+    };
+    var setChg = function (node, v) {
+      if (!node) return;
+      node.textContent = v == null ? '—' : pct(v);
+      node.classList.remove('up', 'down');
+      if (v != null) node.classList.add(signCls(v));
+    };
+    if (kind === 'quote') {
+      setVal(q('val'), fmt(st.last, st.last >= 100 ? 1 : 3), st.chg1d != null ? signCls(st.chg1d) : '');
+      setChg(q('chg1d'), st.chg1d);
+      setChg(q('chg20d'), st.chg20d);
+    } else {
+      setVal(q('val'), fmt(st.last, st.last >= 100 ? 1 : 3), st.chg1d != null ? signCls(st.chg1d) : '');
+      setChg(q('chg1d'), st.chg1d);
+    }
+    if (kind === 'factor') {
+      var c20 = q('chg20dAbs');
+      if (c20) {
+        var d20 = (st.chg20d != null && st.prev20 != null) ? st.last - st.prev20 : null;
+        c20.textContent = d20 == null ? '—' : '20日前 ' + (d20 > 0 ? '+' : '') + fmt(d20, 1);
+      }
+      var wowEl = q('wow');
+      if (wowEl) {
+        wowEl.textContent = st.wow == null ? '—' : '周环比 ' + (st.wow > 0 ? '+' : '') + fmt(st.wow, 1);
+        wowEl.classList.remove('up', 'down');
+        if (st.wow != null) wowEl.classList.add(signCls(-st.wow)); // 去库=偏多信号，用反向色标记松紧
+      }
+      var rangeEl = q('range');
+      if (rangeEl && st.lo != null) rangeEl.textContent = '区间 ' + fmt(st.lo, 0) + '–' + fmt(st.hi, 0);
+    }
+    var dEl = q('date');
+    if (dEl) dEl.textContent = st.dateText;
+  }
+
+  function fillPbar(el, st) {
+    var dot = el.querySelector('[data-f="dot"]'), note = el.querySelector('[data-f="note"]');
+    if (st.pctile == null) return;
+    if (dot) {
+      dot.style.left = Math.max(2, Math.min(98, st.pctile)) + '%';
+      dot.classList.remove('hi', 'lo');
+      if (st.pctile >= 85) dot.classList.add('hi');
+      if (st.pctile <= 15) dot.classList.add('lo');
+    }
+    if (note) note.textContent = fmt(st.pctile, st.pctile % 1 ? 1 : 0) + '%';
+  }
+
+  function fillProse(root, D) {
+    root.querySelectorAll('[data-qv]').forEach(function (el) {
+      var path = el.getAttribute('data-qv');
+      var val;
+      if (path === 'conclusion.main') {
+        el.innerHTML = buildConclusion(D); // 自产数值模板，无外部 HTML
+        return;
+      }
+      val = path.split('.').reduce(function (o, k) { return o == null ? undefined : o[k]; }, { sc: D.sc, brent: D.brent, wti: D.wti, usd: D.usd, stock: D.stock, bw: D.bw, spread: D.spread, pos: D.pos, meta: D.meta });
+      if (val == null) return;
+      el.textContent = val;
+    });
+  }
+
+  function renderAll(D) {
+    var root = document.querySelector('.cw-page');
+    root.dataset.qbObservationDates = JSON.stringify(D.meta.observationDates);
+    fillProse(root, D);
+    // 全部指标节点统一按 data-metric 绑定（行情卡=quote 形态，因子卡=factor 形态）
+    document.querySelectorAll('[data-qb-metric]').forEach(function (el) {
+      var st = D[el.getAttribute('data-metric')];
+      if (st) fillMetric(el, st, el.closest('.cw-quote') ? 'quote' : 'factor');
+    });
+    document.querySelectorAll('[data-qb-pbar]').forEach(function (el) {
+      var st = D[el.getAttribute('data-metric')];
+      if (st) fillPbar(el, st);
+    });
+    document.querySelectorAll('[data-qb-caliber-date]').forEach(function (el) {
+      var st = D[el.getAttribute('data-qb-caliber-date')];
+      if (st) el.textContent = st.dateText;
+    });
+    var status = document.querySelector('[data-qb-live-status]');
+    if (status) status.textContent = '数据就绪：行情截至 ' + D.meta.priceDate + '，库存截至 ' + D.stock.dateText + '；以上日期由数据源返回，未核实的盘中/收盘状态不作断言。';
+  }
+
+  function showError(msg) {
+    var slot = document.getElementById('factorError');
+    if (!slot) return;
+    slot.textContent = '取数失败：' + msg + '。可点击页头「刷新数据」重试；图表区与因子区的错误各自独立提示。';
+    slot.hidden = false;
+    var status = document.querySelector('[data-qb-live-status]');
+    if (status) status.textContent = '取数失败，等待重试。';
+  }
+
+  var DATA = null;
+  function coreComplete(D) {
+    return D && ['sc', 'brent', 'wti', 'usd', 'spread', 'bw', 'stock'].every(function (k) { return D[k] && !D[k].empty; });
+  }
+  async function loadFactors() {
+    var out = await QB.query(CONFIG);
+    DATA = buildData(out);
+    if (!coreComplete(DATA)) {
+      // 个别产出偶发缺失：等一轮再取一次，第二次仍缺就按现状渲染并提示
+      await new Promise(function (r) { setTimeout(r, 2500); });
+      try {
+        var out2 = await QB.query(CONFIG);
+        var D2 = buildData(out2);
+        if (coreComplete(D2) || countFilled(D2) > countFilled(DATA)) DATA = D2;
+      } catch (e2) { /* 保留第一次结果 */ }
+    }
+    renderAll(DATA);
+    var slot = document.getElementById('factorError');
+    if (slot) slot.hidden = true;
+    if (!coreComplete(DATA)) {
+      var missing = ['sc', 'brent', 'wti', 'usd', 'spread', 'bw', 'stock'].filter(function (k) { return !DATA[k] || DATA[k].empty; });
+      showPartial(missing);
+    }
+  }
+  function countFilled(D) {
+    return ['sc', 'brent', 'wti', 'usd', 'spread', 'bw', 'stock'].filter(function (k) { return D[k] && !D[k].empty; }).length;
+  }
+  function showPartial(missing) {
+    var status = document.querySelector('[data-qb-live-status]');
+    if (status) status.textContent = '部分产出（' + missing.join('、') + '）本轮未返回，数值按已到数据展示；可点击页头「刷新数据」重试。';
+  }
+
+  function refreshAll() {
+    var jobs = [loadFactors().catch(function (e) { showError(e && e.message ? e.message : String(e)); return null; })];
+    if (window.QBV && typeof window.QBV.refresh === 'function') jobs.push(window.QBV.refresh().catch(function () { return null; }));
+    return Promise.all(jobs);
+  }
+
+  function posterData() {
+    var strip = function (html) { return String(html).replace(/<[^>]+>/g, ''); };
+    var metrics = [];
+    if (DATA) {
+      [['国际锚', DATA.brent, '美元/桶'], ['内外盘价差', DATA.spread, '元/桶'], ['跨区价差', DATA.bw, '美元/桶'],
+       ['美元兑人民币', DATA.usd, ''], ['SC 库存', DATA.stock, '万吨'], ['SC 近两年分位', DATA.pos, '%']]
+        .forEach(function (row) {
+          if (row[1] && !row[1].empty) metrics.push({ label: row[0], value: fmt(row[1].last, 1) + (row[1] === DATA.pos ? '%' : ' ' + row[2]).trim(), sub: row[1].dateText });
+        });
+    }
+    return {
+      headline: '原油涨跌怎么看？· 六因子观察台',
+      summary: DATA ? strip(buildConclusion(DATA)) : '六个因子实时观察：内外盘 · 跨区价差 · 美元 · 库存 · 历史位置。',
+      metrics: metrics,
+      asof: DATA ? DATA.meta.priceDate : ''
+    };
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    if (window.QBShareShell) {
+      QBShareShell.init({
+        templateName: '商品因子观察台',
+        title: function () { return document.title; },
+        subtitle: function () { return '内外盘 · 跨区价差 · 美元 · 库存 · 历史位置'; },
+        asof: function () { return DATA ? DATA.meta.priceDate : ''; },
+        onRefresh: refreshAll,
+        getPosterData: posterData
+      });
+    }
+    loadFactors().catch(function (e) { showError(e && e.message ? e.message : String(e)); });
+  });
+})();
+</script>
+
+</body>
+</html>
