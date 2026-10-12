@@ -5,6 +5,14 @@
 
 ---
 
+## [4.25.55] — 2026-10-12
+
+- 参数转换收敛到skill_server：Celery沿用ticker/日期/slots/mode五字段，dataServer不加query_type；snapshot复用已有baselines按实际日分组补查原任务。
+- query_option_contracts使用asset/query_type：snapshot每槽最新已生效，window以lookback_days自然日滚动。
+- 复用既有名称/简称/代码匹配，提示仅覆盖部分美股期权；保留实际trade_date及11项扁平字段，changes含去重首条基准，仅实际缺口返回notes。
+- 支持QBV option_contracts数据授权，冻结标准资产/槽位/查询规则，不冻结日期；纯assignment及同表前序查询，无额外检查。
+- 对齐宿主工具Schema、注册测试和使用说明；需部署新版skill_server，无需升级dataServer协议，未正式发布。
+
 ## [4.25.54] — 2026-10-10
 
 - 在 CLI/Python API 保存 task/turn 计算次数，防止换会话绕过选股重算上限。
@@ -16,12 +24,6 @@
 - 冻结筛选条件并审计公式、名单与日期；缺失条件按部分研究交接，不宣称全部符合。
 - 保留被用户确认的原文，核对严格比较符和单位换算；兼容明确的自然语言比较词与组合单位换算。完整筛选要求逐行股票池覆盖与字段实际日期证据。
 - 增量传递 research_contract、research_status、delivery_kind；旧记录按 unknown 处理，保留实时要求。
-
-## [Unreleased] — 2026-10-09
-
-- 合约查询入参改为asset，复用既有名称/简称/代码多字段匹配，移除后缀强制要求；提示当前仅覆盖部分美股期权。
-- 合约查询对外返回收敛为扁平重点字段；删除重复审计结构和固定警告，只保留实际问题notes。
-- 新增独立 query_option_contracts 工具及使用说明，查询美股期权每日对应合约、切换与缺口；需配套服务端和Celery worker部署，未发布。
 
 ## [4.25.52] — 2026-10-08
 
