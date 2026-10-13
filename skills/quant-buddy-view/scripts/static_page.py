@@ -7604,7 +7604,8 @@ def cmd_fork_compose(params):
     profile = _read_intent_profile(task_id) or {}
     try:
         plan = EP.bind(planned_cred, target_scope=params.get("target_scope") or profile.get("asset_scope"),
-                       runtime_roles=params.get("runtime_roles"), snapshot_roles=params.get("snapshot_roles"), require_live_data=params.get("require_live_data"), borrow_modules=provenance,
+                       runtime_roles=params.get("runtime_roles") if params.get("runtime_roles") is not None else [],
+                       snapshot_roles=params.get("snapshot_roles"), require_live_data=params.get("require_live_data"), borrow_modules=provenance,
                        research_contract=params.get('research_contract'), research_checks=params.get('research_checks'),
                        research_status=params.get('research_status'), delivery_kind=params.get('delivery_kind'), module_order=params.get('module_order'),
                        compose_binding_sha256=binding_sha, expected_revision=params.get("expected_revision"),

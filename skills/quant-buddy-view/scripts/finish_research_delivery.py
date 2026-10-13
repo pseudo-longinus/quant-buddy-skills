@@ -66,9 +66,20 @@ def finish(params):
     prepared=recovery.recover({'task_id':task,'turn_id':turn,'plan_hash':plan['plan_hash'],
                                'force_fallback':True,'user_query':query})
     if prepared.get('code')!=0:return prepared
+    if not prepared.get('next_action'):
+        return {'code':1,'error':'HOST_RECOVERY_CANDIDATE_MISSING','message':'恢复未返回可执行候选参数','recovery':prepared}
     draft=json.loads(Path(prepared['next_action']['params_file']).read_text(encoding='utf-8'))
     built=SP.cmd_compose_page(draft)
     if built.get('code')!=0:return built
+    if not built.get('next_action'):
+        if built.get('artifact_verified') is True:
+            return {'code':0,'delivery':{'status':'local_artifact','artifact_file':built.get('out_file'),
+                                          'artifact_sha256':built.get('html_sha256'),'research_status':'unavailable',
+                                          'delivery_kind':'methodology','live_data_mode':'static_content_only'},
+                    'validated_markdown':'研究尚未完成。公开活页尚未发布；可打开的研究HTML作为备用成果交付。',
+                    'artifact_file':built.get('out_file'),'artifact_sha256':built.get('html_sha256'),
+                    'artifact_verified':True,'task_id':task,'turn_id':turn}
+        return {'code':1,'error':'HOST_RECOVERY_COMPOSE_INCOMPLETE','message':'候选页未返回发布动作','build':built}
     publish_params=json.loads(Path(built['next_action']['params_file']).read_text(encoding='utf-8'))
     published=SP.cmd_publish_verified(publish_params)
     if published.get('code')!=0:

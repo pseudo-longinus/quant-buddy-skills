@@ -98,6 +98,16 @@ materialize返回snapshot_receipt_file及snapshot_receipt_sha256。把这两项�
 
 快照和mixed的终态回复链接分别使用“可分享静态研究页”和“可分享活页（部分实时、部分静态）”；validator按合同检查，不再强制把快照称作实时活页。
 
+## QBS Handoff快照桥
+
+`recover_delivery` 在降级前会查找同task/turn的 `.handoff.json`，并用 `handoff_snapshot_bridge.py` 物化 `validated_outputs[].data_reference.data_id`。Bridge只接受 `read_tool=readData`，读取 `last_column_full` 共同完整截面，校验data reference fingerprint、行数与内容hash后写入现有 `qbv_verified_snapshot_v1` receipt。输出合同为 `qbs_handoff_snapshot_bundle_v1`。
+
+- 有可用输出：绑定`snapshot_roles`并按Handoff保留的`partial_research/partial`或更强已验证状态恢复；不得改写为`methodology/unavailable`。
+- 只有部分角色：继续展示covered roles，页面列出missing roles；缺失角色不是零命中。
+- 完全没有可用输出才进入方法页；Handoff hash、行数或数据ID校验失败时必须返回结构化错误，不能静默降级。
+
+运行角色齐备但继承来源模板证据不完整时，`fork_compose`返回`COMPOSE_ROLE_EVIDENCE_INCOMPLETE`并停止生成候选页。Compose布局借鉴不继承来源模板package role；目标数据角色必须来自当前任务Handoff、显式注册角色或快照角色。
+
 ## 可编辑草稿与恢复诊断
 
 宿主设置 `QBV_OUTPUT_ROOT` 时，草稿必须在 `SESSION_WORKSPACE` 内；否则使用当前会话工作目录的 `output/qbv/<task_id>/`。路径穿越、符号链接越界和写入Skill安装目录均失败关闭。`next_action.params_file` 才是Agent编辑入口，内部计划、凭据和验证收据不是编辑目标。

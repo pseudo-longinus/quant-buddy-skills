@@ -478,7 +478,47 @@ function colIdx(tab, name) {
   return i >= 0 ? i : null;
 }
 
-function renderTable(el, tab, panel) {
+function rankCoverage(names, expectedRows) {
+  const expected = Number.isInteger(expectedRows) && expectedRows > 0 ? expectedRows : 0;
+  if (!expected) return null;
+  let date = null, rows = 0, truncated = false, declared = null, completeRate = null;
+  for (const name of names || []) {
+    let data = LAST_OUTPUTS[name]?.data;
+    if (data && typeof data === 'object' && data.last_column_full && typeof data.last_column_full === 'object')
+      data = data.last_column_full;
+    if (!data || typeof data !== 'object' || !Array.isArray(data.values)) return null;
+    date = data.date ?? date;
+    truncated = truncated || data.is_truncated === true;
+    declared = data.total_assets ?? data.universe_count ?? data.returned_rows ?? declared;
+    const rate = data.complete_rate ?? data.completeness_ratio;
+    if (Number.isFinite(Number(rate))) completeRate = Number(rate);
+    rows += data.values.filter(v => v && Number.isFinite(Number(v.value))).length;
+  }
+  if (Number.isFinite(Number(declared)) && Number(declared) > 0 && !completeRate)
+    completeRate = Math.min(1, rows / Number(declared));
+  return {expected:expected, valid:rows, date:date, truncated:truncated,
+          complete_rate:completeRate, complete:!truncated && rows >= expected};
+}
+
+function coverageText(coverage) {
+  if (!coverage) return '';
+  const date = coverage.date ? '数据截至 ' + fmtDate(coverage.date) + ' · ' : '';
+  const rate = Number.isFinite(Number(coverage.complete_rate))
+    ? ' · 完整率 ' + Math.round(Number(coverage.complete_rate) * 100) + '%' : '';
+  return date + '有效 ' + coverage.valid + '/' + coverage.expected + rate + (coverage.truncated ? ' · 结果截断' : '');
+}
+
+function syncRankCoverage(coverage) {
+  const el = document.querySelector('[data-qb-expected-rows]');
+  if (!el) return;
+  if (!coverage) { el.textContent = '取数中…'; el.dataset.qbCoverageReady = 'false'; return; }
+  el.textContent = coverage.complete ? ('数据截至 ' + fmtDate(coverage.date) + ' · Top' + coverage.expected)
+    : coverageText(coverage);
+  el.dataset.qbCoverageReady = 'true';
+  el.dataset.qbCoverageComplete = String(!!coverage.complete);
+}
+
+function renderTable(el, tab, panel, coverage) {
   let cols = (panel.columns && panel.columns.length) ? panel.columns : tab.columns;
   if (!panel.columns?.length && cols.includes('asset') && cols.includes('name'))
     cols = ['name','asset',...cols.filter(c=>c !== 'name' && c !== 'asset')];
@@ -519,7 +559,8 @@ function renderTable(el, tab, panel) {
   const memberIndex=colIdx(tab,'name') ?? colIdx(tab,'名称') ?? colIdx(tab,'asset') ?? colIdx(tab,'代码');
   const table = data => '<table'+(ranked?' data-qb-rank-order="'+panel.rank_order+'" data-qb-rank-by="'+esc(panel.rank_by)+'" data-qb-rank-limit="'+limit+'" data-qb-rank-cell="'+idx.indexOf(ri)+'"':'')+'><thead><tr>' + cols.map(c => '<th scope="col">' + esc(label(c)) + '</th>').join('') + '</tr></thead><tbody>' + data.map(r=>
     '<tr'+(ranked&&ri!=null&&typeof r[ri]==='number'?' data-qb-rank-value="'+esc(r[ri])+'" data-qb-rank-display="'+esc(cell(r[ri],rankColumn))+'" data-qb-rank-member="'+esc(memberIndex==null?'':r[memberIndex])+'"':'')+'>'+idx.map((i,n)=>'<td>'+esc(cell(i==null?null:r[i],cols[n]))+'</td>').join('')+'</tr>').join('')+'</tbody></table>';
-  el.innerHTML = table(rows.slice(0,limit)) + (rows.length>limit?'<details class="qb-ranking-rest"><summary>展开其余 '+(rows.length-limit)+' 项（共 '+rows.length+' 项）</summary>'+table(rows.slice(limit))+'</details>':'');
+  const notice = coverage ? '<div class="desc" data-qb-ranking-coverage="' + esc(coverageText(coverage)) + '">' + esc(coverageText(coverage)) + '</div>' : '';
+  el.innerHTML = notice + table(rows.slice(0,limit)) + (rows.length>limit?'<details class="qb-ranking-rest"><summary>展开其余 '+(rows.length-limit)+' 项（共 '+rows.length+' 项）</summary>'+table(rows.slice(limit))+'</details>':'');
 }
 
 function fmt(v) {
@@ -890,7 +931,17 @@ function mergeOutputTables(names, received, labels = {}, panelType = '', fields 
       if (nameIndex >= 0 && row[nameIndex]) entry.name = row[nameIndex];
       entry.values[name] = row[tab.columns.indexOf('value')];
     }));
-    return {tab:{columns:['代码','名称',...names.map(name=>labels[name] || name)], rows:[...assets.values()].map(row=>[row.asset,row.name,...names.map(name=>row.values[name] ?? null)])},out:null};
+    const columns=['代码','名称',...names.map(name=>labels[name] || name)];
+      const topScore='低PE高ROE_Top10Score',nextScore='低PE高ROE_Next10Score';
+      const rankLabel='低PE高ROE_排序值';
+      const hasRank=names.includes(topScore)&&names.includes(nextScore)&&!columns.includes(rankLabel);
+      if(hasRank)columns.push(rankLabel);
+      const rows=[...assets.values()].map(row=>{
+        const values=names.map(name=>row.values[name] ?? null);
+        if(hasRank)values.push(row.values[topScore] ?? row.values[nextScore] ?? null);
+        return [row.asset,row.name,...values];
+      });
+      return {tab:{columns,rows},out:null};
   }
   let fieldError = null;
   const perOutput = names.flatMap(name => {
@@ -1013,9 +1064,10 @@ function renderPanelBody(body, panel, span, merged) {
     if(body.dataset)delete body.dataset.qbRenderError;
     const transformed = transformPanelTable(merged.tab, panel);
     const tab = (type === 'line' || type === 'bar' || type === 'candlestick') ? applyXRange(transformed, panel) : transformed;
+    const coverage = rankCoverage(panelOutputNames(panel), panel.expected_rows);
     if (type === 'raw') body.innerHTML = '<pre>' + JSON.stringify((merged.rawData !== undefined ? merged.rawData : tab), null, 2) + '</pre>';
     else if (type === 'number') renderNumber(body, tab, panel);
-    else if (type === 'table') renderTable(body, tab, panel);
+    else if (type === 'table') { renderTable(body, tab, panel, coverage); syncRankCoverage(coverage); }
     else if (type === 'candlestick') { body.style.height = (panel.height || (span === 'full' ? 560 : 420)) + 'px'; renderCandlestickChart(body, tab, panel); }
     else if (type === 'radar') { body.style.height = (panel.height || (span === 'full' ? 360 : 300)) + 'px'; renderRadarChart(body, tab, panel); }
     else { body.style.height = (panel.height || (span === 'full' ? 360 : 300)) + 'px'; renderChart(body, tab, panel); }
@@ -1593,6 +1645,7 @@ def _render_html(spec, *, title, subtitle, panels, endpoint, package_id, signatu
     {hero_conclusion_html}
     <div class="meta-row">
       <span class="meta-pill">{mode_note}</span>
+      {f"<span class='meta-pill meta-pill-strong' data-qb-expected-rows='{next((int(p['expected_rows']) for p in panels if (p.get('type') or 'table') == 'table' and isinstance(p.get('expected_rows'), int) and p['expected_rows'] > 0), 20)}'>读取中…</span>" if any((p.get('type') or 'table') == 'table' and p.get('expected_rows') for p in panels) else ""}
     </div>
   </section>
   <div id="grid"></div>
@@ -2517,6 +2570,14 @@ def _build_authorized(params):
     try:
         title = PTC.valid(title)
         params = {**params, 'title': title}
+        share = params.get('share') if isinstance(params.get('share'), dict) else {}
+        if share.get('title') and PTC.normalize(share.get('title')) != PTC.normalize(title):
+            return {
+                'code': 1, 'published': False, 'verified': False,
+                'error': 'PAGE_TITLE_CONTRACT_MISMATCH',
+                'message': '分享标题必须与页面主标题一致；请统一候选页标题合同。',
+                'page_title_check': {'title': title, 'metadata_title': share.get('title'), 'ok': False},
+            }
     except PTC.TitleError as exc:
         return exc.as_dict()
     panels = params.get("panels")

@@ -8,6 +8,7 @@ import common as C
 import execution_plan as EP
 import delivery_state as DS
 import compose_inputs as CI
+import handoff_snapshot_bridge as HSB
 
 FILE = 'receipts/delivery-recovery.json'
 UNSAFE = {'PUBLISH_OUTCOME_UNKNOWN', 'PUBLISH_VERSION_CONFLICT', 'PUBLISH_RESPONSE_STALE'}
@@ -132,6 +133,69 @@ def record(params, result):
         EP.atomic_json(C.task_temp_path(task, FILE, create_parent=True), state)
     return result
 
+def _load_json_file(path):
+    try:
+        value=json.loads(Path(path).read_text(encoding='utf-8-sig'))
+        return value if isinstance(value,dict) else None
+    except (OSError,ValueError):
+        return None
+
+
+def _find_handoff(task, params):
+    value=params.get('handoff')
+    if isinstance(value,dict): return value
+    raw_file=params.get('handoff_file')
+    if raw_file:
+        value=_load_json_file(raw_file)
+        if value is not None: return value
+    from qbs_job_lifecycle import find_job
+    job_path,_,_=find_job(task_id=task,turn_id=params.get('turn_id') or C.current_trace_context().get('turn_id'))
+    if not job_path: return None
+    candidate=job_path.with_name(job_path.name.replace('.job.json','.handoff.json'))
+    return _load_json_file(candidate) if candidate.exists() else None
+
+
+def _handoff_snapshot_recovery(params,plan,changes,modules,panels):
+    handoff=_find_handoff(plan['task_id'],params)
+    if not isinstance(handoff,dict): return None
+    bundle=HSB.build_bundle(handoff=handoff,materialized_file=params.get('materialized_file'),
+                            required_roles=params.get('required_roles'))
+    snapshot_roles=bundle.get('snapshot_roles') or []
+    if not snapshot_roles:
+        return {'bundle':bundle,'phase':'methodology'}
+    text_panels=[copy.deepcopy(p) for p in panels if p.get('type') in ('text','image')]
+    default_module=modules[0] if modules else '已验证研究结果'
+    for role in snapshot_roles:
+        title=str(role.get('role_id') or '已验证数据')
+        text_panels.append({
+            'type':'table','title':title,'compose_module':default_module,
+            'snapshot_receipt_file':role['snapshot_receipt_file'],
+            'snapshot_receipt_sha256':role['snapshot_receipt_sha256'],
+            'snapshot_outputs':role.get('required_outputs') or [],
+        })
+    missing=bundle.get('missing_roles') or []
+    if missing:
+        text_panels.append({
+            'type':'text','title':'研究覆盖与缺口','compose_module':default_module,
+            'text':'本页为已验证快照的部分研究成果，不会自动更新。\n'+
+                   '\n'.join('缺失角色：'+str(role) for role in missing)+
+                   '\n缺失角色未被当作零命中或已核验条件。'
+        })
+    changes.update(
+        runtime_roles=[],snapshot_roles=snapshot_roles,panels=text_panels,
+        unassigned_panels=[],live_data_mode='verified_snapshot',
+        research_status=bundle.get('research_status') or 'partial',
+        delivery_kind=bundle.get('delivery_kind') or 'partial_research',
+        research_checks={'contract_hash':(plan.get('research_contract') or {}).get('contract_hash'),
+                         'research_status':bundle.get('research_status') or 'partial',
+                         'missing_roles':missing},
+        description='已验证Handoff快照的研究页，展示实际观察日、数据来源与研究边界。'
+    )
+    if changes.get('title') in ('策略研究与核验方法',''):
+        changes['title']='策略研究与核验结果'
+    return {'bundle':bundle,'phase':'partial_snapshot' if missing else 'handoff_snapshot'}
+
+
 def recover(params):
     import static_page as SP
     import verified_snapshot as VS
@@ -160,6 +224,34 @@ def recover(params):
     changes.setdefault('description', '展示本轮已确认条件、验证数据、实际观察日与研究边界。')
     modules = [m['module'] for m in plan['borrow_modules']]
     panels = copy.deepcopy(prior.get('panels') or [])
+    try:
+        snapshot_recovery=_handoff_snapshot_recovery(params,plan,changes,modules,panels)
+    except EP.PlanError as exc:
+        return exc.as_dict()
+    if snapshot_recovery:
+        bundle=snapshot_recovery['bundle']
+        if not bundle.get('snapshot_roles'):
+            if bundle.get('coverage_reason') not in (None, 'required_roles_not_covered') and not bundle.get('legacy_capsule'):
+                return {'code':1,'error':'HANDOFF_EVIDENCE_INVALID','terminal':False,
+                        'coverage_reason':bundle.get('coverage_reason'),
+                        'covered_roles':bundle.get('covered_roles') or [],
+                        'missing_roles':bundle.get('missing_roles') or [],
+                        'message':'Handoff capsule无效或证据不完整；不能自动降级为方法页',
+                        'next_action':{'command':'delivery_status','params':{'task_id':task}}}
+            missing=bundle.get('missing_roles') or []
+            if missing:
+                return {'code':1,'error':'HANDOFF_REQUIRED_ROLES_UNAVAILABLE','terminal':False,
+                        'covered_roles':bundle.get('covered_roles') or [],
+                        'missing_roles':missing,
+                        'message':'Handoff缺少当前研究要求的角色；不得降级为无数据方法页',
+                        'next_action':{'command':'delivery_status','params':{'task_id':task}}}
+        else:
+            out=SP.cmd_execution_plan(changes)
+            out.update(recovery_phase=snapshot_recovery['phase'],original_page_id=plan['target_page_id'],
+                       covered_roles=bundle.get('covered_roles') or [],
+                       missing_roles=bundle.get('missing_roles') or [],
+                       snapshot_roles_bound=len(bundle.get('snapshot_roles') or []))
+            return out
     if state.get('targeted_repairs', 0) < 2 and panels and not params.get('force_fallback'):
         state['targeted_repairs'] = state.get('targeted_repairs', 0) + 1
         EP.atomic_json(C.task_temp_path(task, FILE, create_parent=True), state)
@@ -248,5 +340,6 @@ def recover(params):
     changes['module_order'] = data_modules+[m for m in used if m not in data_modules]
     if not changes.get('title'): changes['title'] = '策略研究与核验结果'
     out = SP.cmd_execution_plan(changes)
-    out.update(recovery_phase='verified_snapshot' if frozen else 'methodology', original_page_id=plan['target_page_id'])
+    out.update(recovery_phase=('partial_snapshot' if missing else 'handoff_snapshot') if frozen else 'methodology',
+               original_page_id=plan['target_page_id'])
     return out

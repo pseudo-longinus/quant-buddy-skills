@@ -62,17 +62,34 @@ def _prior(plan,root):
     return value
 
 
+def _role_evidence_gaps(role):
+    if not isinstance(role,dict):
+        return ['role']
+    missing=[]
+    for field in ('role_id','kind','contract_fingerprint','validation_receipt_file'):
+        if not str(role.get(field) or '').strip(): missing.append(field)
+    kind=role.get('kind')
+    if kind=='grant' and not str(role.get('grant_id') or '').strip(): missing.append('grant_id')
+    if kind=='package' and not str(role.get('package_id') or '').strip(): missing.append('package_id')
+    return missing
+
+
 def registrations(plan):
     records={};issues=[]
     for role in plan['runtime_roles']:
         try:
+            missing=_role_evidence_gaps(role)
+            if missing:
+                raise EP.PlanError('COMPOSE_ROLE_EVIDENCE_INCOMPLETE','运行角色缺少不可伪造的证据字段',
+                                   missing_fields=missing,retryable=False)
             record=RC.verify_binding(plan['task_id'],role['kind'],role.get('grant_id') or role.get('package_id'),role.get('contract_fingerprint',''))
             proof=_read(role.get('validation_receipt_file',''))
             if (proof.get('task_id')!=plan['task_id'] or proof.get('status')!='completed' or proof.get('success') is not True
                     or proof.get('contract_fingerprint')!=role.get('contract_fingerprint')):
                 raise EP.PlanError('COMPOSE_ROLE_EVIDENCE_INVALID','运行角色验证收据身份/合同不一致')
             records[role['role_id']]=record
-        except EP.PlanError as exc:issues.append({'role_id':role['role_id'],'code':exc.code,'message':str(exc)})
+        except EP.PlanError as exc:issues.append({'role_id':role['role_id'],'error':exc.code,'code':exc.code,
+                                                   'message':str(exc),**exc.details})
     return records,issues
 
 
@@ -146,6 +163,12 @@ def evidence(plan,params):
     import static_page as SP
     out=copy.deepcopy(params);task=plan['task_id'];roles=plan['runtime_roles'];snapshots=plan.get('snapshot_roles',[])
     out['task_id']=task
+    incomplete=[{'role_id':role.get('role_id'),'missing_fields':_role_evidence_gaps(role)}
+                for role in roles if _role_evidence_gaps(role)]
+    if incomplete:
+        return None,{'code':1,'error':'COMPOSE_ROLE_EVIDENCE_INCOMPLETE',
+                     'message':'运行角色缺少不可伪造的证据字段','retryable':False,
+                     'roles':incomplete}
     if snapshots and not roles:
         out['live_data_mode']='verified_snapshot'
         return out,SP._validate_publish_data_evidence(out)
@@ -226,6 +249,12 @@ def prepare(plan,params=None):
         draft['panels']=panels
         if orphans:draft['unassigned_panels']=orphans
         records,issues=registrations(plan)
+        fatal_evidence=any(x.get('code')=='COMPOSE_ROLE_EVIDENCE_INCOMPLETE' for x in issues)
+        if fatal_evidence:
+            EP._no_secrets(draft)
+            return {'draft_diagnostics':issues,'draft_ready':False,
+                    'plan_hash':plan['plan_hash'],
+                    'message':'运行角色证据不完整；不得继续生成候选页'}
         normalized,binding_issues=normalize_panels(plan,draft);draft=normalized
         consumed={p.get('runtime_role_id') for p in draft['panels'] if p.get('type') not in ('text','image')}
         for role in plan['runtime_roles']:

@@ -231,6 +231,8 @@ python scripts/static_page.py verify_card_runtime '{"page_ids":["page_xxx","page
 | `fork_manifest_file` / `fork_manifest` | `source_template_id` 存在时必填 | v1/v2 均可读取；新 `fork_prepare` 只生成 v2。发布前 fail-closed 校验来源 HTML、凭证、栏目、输出和 Card Runtime |
 | `require_agent_reply_template` | ❌ | `true` 时启用 fail-closed 门禁；无法解析 Agent 回复模板则不发布正式页 |
 | `routing_override` | ❌ | 不再支持 fork→unmatched。若传入会返回 `ROUTING_OVERRIDE_NOT_ALLOWED`，并提示继续 `fork_prepare` 或 `fork_compose` |
+| `runtime_roles` | ❌ | `fork_compose`省略时固定为空数组，不继承来源模板runtime role；显式目标role必须具备`contract_fingerprint`和`validation_receipt_file`，否则返回`COMPOSE_ROLE_EVIDENCE_INCOMPLETE` |
+| `snapshot_roles` | ❌ | 当前任务已验证快照；QBS Handoff可先经`handoff_snapshot_bridge.py build`物化 |
 
 默认步骤固定为：
 
