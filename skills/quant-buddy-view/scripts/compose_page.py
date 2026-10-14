@@ -56,6 +56,11 @@ def _scoped_styles(entry, classes, section_id):
             for declaration in body.split(';'):
                 key, sep, value = declaration.partition(':')
                 if sep and key.strip().lower() in allowed and '!important' not in value.lower():
+                    # Source sections may be hidden by a tab/cover/media rule.
+                    # Compose does not inherit that source interaction state;
+                    # every selected research module must remain readable.
+                    if key.strip().lower() == 'display' and value.strip().lower() == 'none':
+                        continue
                     declarations.append(key.strip() + ':' + value.strip())
             if declarations: out.append('#' + section_id + '{' + ';'.join(declarations) + '}')
     return '\n'.join(out)
@@ -194,6 +199,11 @@ def build(params):
                                'source_classes': source_classes})
         artifact = C.task_temp_path(task, 'compose/candidate.html', create_parent=True)
         spec = dict(params, panels=panels, out_file=str(artifact), upload=False, update_page_id=None)
+        # A verified Compose plan defines its own modules and data roles. A
+        # title containing "个股画像" does not opt into the fixed factsheet's
+        # unrelated outputs. Explicit single-stock templates still take priority
+        # in build_dashboard._is_single_stock_candidate.
+        spec.setdefault('template_contract', 'custom')
         for key in ('research_contract', 'research_checks', 'research_status', 'delivery_kind'):
             spec[key] = plan.get(key, {'research_status': 'unknown', 'delivery_kind': 'result'}.get(key))
         spec.pop('emit', None)

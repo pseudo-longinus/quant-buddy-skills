@@ -2,7 +2,7 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.25.55
+version: 4.25.56
 description: |
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据；支持查询 A 股股票所属行业。
   显式日期的单值快照可同时返回按实际更新日对齐的日频行情与估值；字段日期不同时按字段自身日期展示，不将较晚刷新字段误判为无数据。
@@ -19,7 +19,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.25.55
+  version: 4.25.56
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -83,6 +83,8 @@ runtimeRequirements:
 # 观照量化投研
 
 **WebAgent 宿主交付约定优先**：宿主要求金融问题统一“完整问答＋活页”时，所有金融问题先实际 route，再由 QBS 查询验证并发送非终止首答，同轮继续 QBV。包括具体字段、概念解释和“601137 最近如何？”，不依赖建页关键词。Worker 的 `QBS_DEFAULT_PAGE_REQUESTED=1` 由脚本自动继承；本文件及 leaf workflow 的“只回答/结束/不建页”默认仅适用于独立 QBS。明确不要网页/只回复文字、已有页面只读解读、文件托管与纯维护按各自规则处理。详见 [宿主默认建页](workflows/answer-first.md#webagent-宿主默认建页优先于独立-qbs-路由)。
+
+**建页意图持续保留**：普通“个股分析”与“综合分析”使用同一分类器；附加日期窗口、指标或展示要求不套固定快页。已有显式 QBV/活页意图时传 `page_requested:true`，查数结束不清除它；非终止首答后执行交接下一步，直至页面与回复验收通过或实际恢复后报告具体阻断。取数 `success` 不代表页面已交付，详见 [先答后建页](workflows/answer-first.md)。
 
 > **首屏优先**：先读本文件前部的「平台工具参数速查」「硬规则」和「场景路由」。简单行情、窗口序列、最近报告期、固定区间收益、K 线图等高频任务命中 Fast Path 时，无需继续整本通读。
 

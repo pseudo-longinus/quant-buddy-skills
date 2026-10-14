@@ -166,6 +166,8 @@ Default brand logo: standard pages inline `assets/logo.svg` into the share heade
 
 单标的画像页必须使用在线模板接口复用合适模板，或自行提供满足契约的 spec，并保留 `template: "single-stock"`。
 
+以上固定契约适用于标准个股快页。经过计划、模块与角色核验的 `compose_page` 使用自身定制研究合同，标题含“个股画像”不会自动引入一年行情或默认 outputs；显式传入 `template:single-stock` 时仍执行固定契约。Compose 的数据证据、内容完整性和发布门禁照常执行，不靠补无关指标满足借鉴模板。
+
 如果标题或 `page_type` 表明是“个股画像”，但 spec 仍是旧版 `1 条价格线 + 少量数字卡`，`build_dashboard` 会返回 `code:1`，并提示补齐：
 
 - 阅读摘要 `text` panel；

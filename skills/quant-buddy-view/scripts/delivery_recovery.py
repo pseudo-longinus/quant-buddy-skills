@@ -94,6 +94,7 @@ def record(params, result):
         turn = params.get('turn_id') or C.current_trace_context().get('turn_id')
         if state.get('turn_id') != turn: state = {'failures': 0}
         state.update(turn_id=turn, last_failed=result.get('code') != 0)
+        state.setdefault('failures', 0)
         if params.get('html_file') and Path(params['html_file']).is_file(): state['last_candidate'] = candidate_key(params)
         if state['last_failed']:
             state['failures'] += 1

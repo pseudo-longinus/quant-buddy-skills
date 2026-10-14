@@ -14,11 +14,15 @@ WebAgent 宿主明确金融问题统一交付“问答＋活页”时，一次�
 
 ## 首答最短调用路径
 
+显式进入 QBV 的建页任务保留 `page_requested:true`；明确不要网页仍优先。`resolve_asset_data` 返回的 `code/success/status` 描述数据验证，`live` 不表示页面已发布。先消费大体积 `answer_evidence` 前的 `page_delivery_required`、`page_route` 与 `after_business_answer`：首答通过非终止消息实际发出后，同轮执行返回的 `tool/params` 或指定 `workflow`。下一步中的收据只证明数据，不证明首答送达或页面验收。
+
+快页适用范围由共享 QBS 分类器复核，不能靠手填 `page_workflow` 扩大。普通“宿迁联盛个股分析”可走快页；“宿迁联盛个股分析，需要分析今日和近三日资金净流入量”含额外历史窗口，使用 `page_requested:true`，不填快页标志，复用画像及资金证据走模板/Compose。页面须保留今日是否有数据、窗口实际交易日、逐日值与累计值；截至前一交易日的替代窗口单独标注。资产不唯一时先澄清，不借快页绕过。
+
 裸 A 股名称/简称/代码及“分析一下/全面分析/个股画像”单只 A 股也是已确定的个股快页意图（由 QBS 本地目录分类器确认唯一资产）；保留原始 user_query，按下面简单个股路径先答后 `new_asset_page`，不要以只读 stockProfile 回答结束，也不问是否需要网页。若 QBS 已交付同一任务的有效画像首答，则复用证据直接继续快页，跳过下面 bridge 取数示例；即使尚未调用 QBV trace begin，也只绑定原 task/turn，不能以“进入 QBV”为由重新取数。具体查数、禁止网页、重名未澄清不由此扩大为建页。
 
 - 尚无本轮有效画像的个股综合分析（含裸 A 股默认画像）：写一份 `{"task_id":"本轮ID","user_query":"原话","asset":"分类器返回的标准 ticker","page_workflow":"single_a_stock_fast","required_roles":{"profile":["dimensions"]}}`，运行 `python scripts/qbs_bridge.py resolve_asset_data @params.json`。示例中的 `page_workflow` 仅用于满足单只 A 股快页条件的请求；其他资产或定制页省略它，取证后沿原页面路由。直接消费 `answer_evidence` 的完整画像及 variants；财务章复用其中 `answer_financial_table.markdown` 与 `notes`，不手工挑漏变体，按 QBS `workflows/stock-profile.md` 的六章完整分析合同回复，保留实际日期、单位、财务口径、估值分位和综合观察。不能只取四个 snapshot 字段充作综合分析，也不能用“每维度 2～4 项”压缩已返回的核心内容。已有同任务有效画像则直接复用，不重查；画像缺失或警告要明确披露，不将少量行情伪装成完整画像。
 - 明确只问少数行情字段：按请求使用 `required_roles.snapshot`（如 `["close","pct_chg","pe_ttm","pb"]`），消费已验证 `answer_evidence`，不要为读取收据重复 fast_query。首答后按模板/自建路由生成对应字段的页面，禁止使用固定综合画像 `new_asset_page`。`NEW_ASSET_PAGE_SCOPE_MISMATCH` 只表示选错建页入口：复用答案和 `answer_structure` 继续正确路由，不停止任务。综合分析仅在用户另需画像未覆盖的实时或历史字段时补对应角色。
-- 仅上述完整个股画像快页在完整业务回复后调用 `new_asset_page`；其他请求继续各自页面路由，不能用页面生成后的草稿冒充提前首答。快指减少模板、重复查询和布局等待，不是减少分析内容；成功 bridge 返回 `after_business_answer.params`，首答后原样使用该参数调用 `static_page.py new_asset_page`，不要凭记忆重写参数。完整首答已通过非终止消息实际发出后，调用参数增加 `reply_mode:"page_followup"`，使用工具生成的短草稿补一句页面说明和链接，不重复六章。该参数只选呈现方式，不证明首答送达；必须用真实消息时间线验证。宿主不支持中途可见首答时用默认 `full_answer`，不可只交链接。无论哪种模式，仍须通过同一公开验收和实际回复校验，禁止自行删改草稿。
+- 仅上述完整个股画像快页在完整业务回复后调用 `new_asset_page`；其他请求继续各自页面路由，不能用页面生成后的草稿冒充提前首答。快指减少模板、重复查询和布局等待，不是减少分析内容；按 bridge 返回的 `after_business_answer.tool/params` 执行，只有工具为 `static_page.py new_asset_page` 才调用快页。模板/Compose 与部分研究页也会返回续执行指引，不能将其当成快页参数。完整首答已通过非终止消息实际发出后，快页使用 `reply_mode:"page_followup"`，工具生成的短草稿补页面说明和链接，不重复六章。该参数只选呈现方式，不证明首答送达；必须用真实消息时间线验证。宿主不支持中途可见首答时继续建页并用默认 `full_answer`，不可只交链接或等待最终回复后自动续跑。无论哪种模式，仍须通过同一公开验收和实际回复校验，禁止自行删改草稿。
 - 多资产：同一参数文件使用 `assets:[...]`，不能把多个资产或行业集合塞进单个 asset。
 - 行业全截面挑模板时，先检查候选是否支持多行业排名。个股模板只借布局时选择 `compose`，不选 `inherit/inherit_augment` 后才改路；无合适范式则按真实能力缺口选择 `unmatched`。`INDUSTRY_UNIVERSE_TEMPLATE_MISMATCH` 在建页前返回，修正路由后仍需遵守原有授权、数据绑定与发布门禁。
 - 申万一级行业全截面不是一只资产。不要向 `resolve_asset_data` 传“申万一级行业指数”。通过 bridge 的 `runMultiFormulaBatchStream` 执行 `行业近N日涨跌幅=成分平均汇总(涨跌幅("全市场每日收盘价",N),"申万资产所属指数")`，用 `readData` 的 `last_column_full` 验证全部行业，再按原值排序给前后榜。当前盘中截面使用 `use_minute_data:true`，N=1 表示日涨跌幅，不是最近一分钟收益。历史区间保持日频。说明成分股算术平均口径，不称为行业指数涨幅。
@@ -68,3 +72,7 @@ bridge 的验证执行与收据保留 use_minute_data；`registration_params` �
 
 
 数据查询已完成但返回缺字段时，先发布注明实际日期与缺口的非终止首答，随后按研究合同交付部分研究/方法页。不制造数字以满足首答格式；权限拒绝、失败或取消不能算数据成功。
+
+页面与回复验收通过后才能报告交付成功；否则必须实际尝试适用的既有恢复流程，并在结束时说明具体阻断。只写“接下来建页”或只有取数成功都不满足收尾条件。Skill 提示不能拦截宿主结束，顺序是否执行仍以真实消息与后续工具日志验收。
+
+Codex 宿主若要求尾部 `<oai-mem-citation>`，它是宿主引用元数据，不是业务附言。回复校验仅分离结构完整的单个标准尾部引用块来检查业务正文，交付及哈希仍保留完整原文，敏感内容检查不豁免。普通技术清单、任意尾注、重复或畸形引用块仍不允许跟在固定业务结尾后；不要为通过校验把业务内容塞入引用块。

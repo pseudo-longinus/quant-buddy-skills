@@ -18,6 +18,7 @@ import common as C
 import fork_runtime_contract as FRC
 import reply_data_evidence as RDE
 import package_contract as PC
+import page_continuation as CONT
 
 QBV_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_FORMULA_BEGIN_DATE = 20150101
@@ -1316,13 +1317,6 @@ def _resolve_single_asset_data(call_script, params, env):
         "task_id": task_id,
         "asset": asset,
         "publication_evidence": _publication_evidence(task_id, receipt_file, grants, formula_packages, asset),
-        **({'after_business_answer': {
-            'precondition': '先从 answer_evidence 发送完整可见非终止业务答案；此对象不是送达证明',
-            'tool': 'static_page.py new_asset_page',
-            'params': {'task_id': task_id, 'asset': asset, 'user_query': user_query,
-                       'reply_mode': 'page_followup'},
-            'fallback': '宿主无法中途显示首答时改用 reply_mode=full_answer，不声称提前交付',
-        }} if params.get('page_workflow') == 'single_a_stock_fast' and complete and answer_evidence else {}),
         "registration_files": [g['registration_params_file'] for g in grants],
         "attempts": attempts,
         "answer_evidence": answer_evidence,
@@ -1336,6 +1330,13 @@ def _resolve_single_asset_data(call_script, params, env):
 
 
 def _resolve_asset_data(call_script, params, env):
+    route = CONT.route_request(params)
+    result = _resolve_asset_data_result(call_script, params, env)
+    # Put the small continuation before evidence even when stdout is bounded.
+    return {**CONT.handoff(params, result, route), **result}
+
+
+def _resolve_asset_data_result(call_script, params, env):
     """Resolve one asset or fan out an explicit multi-asset request.
 
     `asset` remains the backwards-compatible single-asset contract. `assets`

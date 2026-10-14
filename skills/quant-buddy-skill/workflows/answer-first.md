@@ -26,7 +26,7 @@
 2. 完成 QBS 查询、计算、日期/口径/完整性校验。已有上游 task/turn 时继承，不新建第二条任务链。宿主管理生命周期时，newSession/beginTurn 自动采用宿主身份，不重复登记会话；prepare 同样校验身份。直接使用返回的 task_id/turn_id，不读环境、不手改收据或创建第二个 Job 来纠正编号。
 3. **下一条用户可见消息先发完整业务答案**：结果、实际日期、单位、统计口径与限制。使用宿主允许继续工具调用的非终止消息。不能只发“正在查询/生成”，不能先结束本轮再假设后台继续；此时不承诺“已后台启动”。
    个股综合分析沿 `stock-profile.md` 的完整六章合同，不因“先答/快速通道”降为少量指标摘要；用户明确要求简短或限定字段时才按请求缩减。
-4. 首答发出后再准备胶囊、Handoff、Job，执行模板查询、包注册、页面构建与验收。优先 `prepare-validated-page @params.json`；返回 `should_continue=true` 时，当前 Agent 读取 QBV Skill，调用 `beginHandoff` 与 adapter，继续完整 SOP，不再重复业务计算。
+4. 首答发出后再准备胶囊、Handoff、Job，执行模板查询、包注册、页面构建与验收。优先 `prepare-validated-page @params.json`；返回 `should_continue=true` 时，当前 Agent 读取 QBV Skill，调用 `beginHandoff` 与 adapter，继续完整 SOP，不再重复业务计算。直接 QBV bridge 路径按 `after_business_answer` 继续；固定快页仍按既有 standalone 流程，不另建 Job。数据 `success/status:live` 不代表页面交付，附加历史窗口或指标时保留 `page_requested:true` 并走模板/Compose，不能因不适用快页而结束。
 5. 默认 `execution_mode:"same_turn"`。确有可靠的内部委派及回推能力时，可在首次 prepare 指定 `execution_mode:"delegated"`；只消费 `should_spawn=true` 的一次真实委派。不得使用用户可见的新聊天工具代替；委派成功后父流程不得重复建页。
 6. 两个执行标志都为 false 表示已存在任务，读取现有状态，不重复创建/换执行模式。已明确失败且可重试时通过 `retry_failed:true` 重试，沿用原执行模式。
 7. 同轮流程结束前必须得到已验收的页面链接或写回 `failed + failure_code`，失败补充简短说明，不撤销首答。成功按 QBV 的最终回复合同补链接。

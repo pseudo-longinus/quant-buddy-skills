@@ -2,7 +2,7 @@
 name: quant-buddy-view
 slug: quant-buddy-view
 author: guanzhao
-version: 0.6.96
+version: 0.6.97
 description: |
   将量化分析或已有 JPG/PNG、HTML、PDF 发布为 Quant Buddy 可分享活页或实时看板，并支持创建、更新、复用、验收和公开链接交付。适用于个股画像、估值财务、指数异动、多因子筛选、商品日报、模板、分享壳及卡片等页面。
   用户提供 QuantBuddy 活页 URL 并要求解读时也使用。显式调用 /quant-buddy-view、/qbv、qbv 或 QBV，且请求并非纯咨询、代码维护或文档解释时，默认按可分享活页任务处理。
@@ -11,7 +11,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 0.6.96
+  version: 0.6.97
   author: guanzhao
   category: quant-finance
   tags: [quant, dashboard, formula-package, static-page, publish, visualization]
@@ -83,6 +83,8 @@ runtimeRequirements:
 > **feishu-group 渠道**：打包渠道为 `feishu-group` 时，direct/fork/unmatched/update 等所有分支禁止发送非终态链接；终态 contract 统一把 `pages.quantbuddy.cn/pages/<owner>/<page_id>.html` 转成 `www.quantbuddy.cn/playground/<owner>/<page_id>`，内部发布与验收仍使用原始托管 URL。
 
 **量化建页时序**：除已有文件托管、只读解读、纯展示维护外，先按 [答案结构建页](guides/answer-first.md) 完成 QBS 查询并发完整非终止首答，随后才执行下述快页/模板/建页路线。此顺序也适用于 new_asset_page 快页；不能让页面验收阻塞首答。
+
+**首答不是终态**：显式调用 QBV 的建页请求在 bridge 参数中保留 `page_requested:true`。消费 `page_delivery_required` 与 `after_business_answer`，非终止首答后执行返回的页面步骤；`status:live/success:true` 仅表示数据就绪。额外日期窗口、资金指标或定制展示沿模板/Compose，不能手填快页标志省略请求内容。只有页面与回复验收通过，或实际执行既有恢复流程后报告具体阻断，才结束；宿主仅展示最终消息时继续建页后完整交付，不假设最终回复后自动续跑。
 
 **最高优先级：既有活页解读。** 用户给出 `pages.quantbuddy.cn/pages/...` 的 QuantBuddy 活页 URL，且意图是“解读 / 分析当前活页 / 看这页数据”时，先且只运行：
 

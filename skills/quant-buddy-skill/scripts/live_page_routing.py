@@ -321,9 +321,9 @@ def _bare_a_share(query: str) -> Optional[Dict[str, str]]:
 def _simple_a_share_analysis(query: str) -> Optional[Dict[str, str]]:
     """Accept bounded comprehensive-analysis phrases, not arbitrary asset mentions."""
     match = re.fullmatch(
-        r'(?:请|请帮我|帮我)?(?:全面分析|综合分析|分析)(?:一下|下)?\s*(.+?)(?:这只股票)?[。！!]?', query)
+        r'(?:请|请帮我|帮我)?(?:全面分析|综合分析|个股分析|分析)(?:一下|下)?\s*(.+?)(?:这只股票)?[。！!]?', query)
     if not match:
-        match = re.fullmatch(r'(.+?)(?:的)?(?:全面分析|综合分析|个股画像)[。！!]?', query)
+        match = re.fullmatch(r'(.+?)(?:的)?(?:全面分析|综合分析|个股分析|个股画像)[。！!]?', query)
     if not match:
         return None
     identity = match[1].strip()

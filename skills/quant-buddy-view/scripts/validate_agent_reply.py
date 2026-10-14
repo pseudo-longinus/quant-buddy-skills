@@ -11,6 +11,7 @@ import execution_plan as EP
 import delivery_state as DS
 import common as C
 import reply_template_registry as RTR
+from reply_host_metadata import split_host_metadata
 
 
 _HEADING_RE = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
@@ -435,6 +436,8 @@ def _live_page_delivery_errors(public_url, draft, data_mode=None, *, file_public
 
 
 def validate_reply(contract_payload, draft):
+    submitted_draft = draft
+    draft, host_metadata = split_host_metadata(draft)
     contract_payload = contract_payload if isinstance(contract_payload, dict) else {}
     contract = contract_payload.get("agent_reply_contract") if isinstance(contract_payload.get("agent_reply_contract"), dict) else contract_payload
     errors = []
@@ -502,7 +505,7 @@ def validate_reply(contract_payload, draft):
             "fields": unresolved[:20],
         })
     for name, pattern in _SENSITIVE_PATTERNS:
-        if pattern.search(draft):
+        if pattern.search(submitted_draft):
             errors.append({"code": "SENSITIVE_CONTENT", "message": f"最终回复包含禁止内容：{name}"})
     if re.search(r'\b(?:rank_order|rank_limit|route_binding|plan_hash|QBV_STATE_ROOT)\b', draft):
         errors.append({'code':'INTERNAL_IMPLEMENTATION_DETAIL',
@@ -529,8 +532,10 @@ def validate_reply(contract_payload, draft):
         result["markdown_table_count"] = markdown_table_count
         result["max_markdown_tables"] = contract.get("delivery_policy", {}).get("max_markdown_tables")
     if result["valid"]:
-        result["validated_markdown"] = draft
-        result["validated_markdown_sha256"] = hashlib.sha256(draft.encode("utf-8")).hexdigest()
+        result["validated_markdown"] = submitted_draft
+        result["validated_markdown_sha256"] = hashlib.sha256(submitted_draft.encode("utf-8")).hexdigest()
+        if host_metadata:
+            result['host_metadata_kind'] = 'codex_memory_citation_v1'
     return result
 
 

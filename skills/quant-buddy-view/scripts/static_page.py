@@ -5114,20 +5114,6 @@ def _routing_next_step(task_id, page_id, decision):
     return {"action": "build_dashboard_or_bespoke", "publish_command": "publish_final"}
 
 
-def _snapshot_only_request(user_query):
-    """Reject clear quote/field requests from the fixed full-profile publisher."""
-    text = str(user_query or "").strip()
-    field = r"(?:价格|股价|最新价|收盘价|涨跌幅|成交量|PE(?![A-Za-z])|PB(?![A-Za-z])|市盈率|市净率)"
-    only_fields = re.search(r"(?:只|仅)(?:查|看|要|回复|显示|展示|保留)(?:最新|当前|现在|今日|今天)?" + field, text, re.I)
-    comprehensive = re.search(r"综合分析|全面分析|完整画像|个股画像|全景分析", text)
-    if comprehensive and not only_fields:
-        return False
-    return bool(only_fields or re.search(r"多少钱", text) or (
-        re.search(field, text, re.I)
-        and re.search(r"多少|查询|查一下|查下|查一查|最新|当前|现在|今天|今日|列.*表|" + field + r"[？?。.！!\s]*$", text, re.I)
-    ))
-
-
 def _sync_fast_page_title(out, *, endpoint, api_key):
     """Finish this task's new page before sealing any public/delivery evidence."""
     identity = {'operation': 'new_asset_page', 'page_id': out.get('page_id'), 'url': out.get('url'),
@@ -5198,13 +5184,20 @@ def cmd_new_asset_page(params):
         return route_error
 
     user_query = str(params.get("user_query") or trace_context.get("user_query") or "").strip()
-    if _snapshot_only_request(user_query):
+    import page_continuation as CONT
+    page_route = CONT.route_request({**params, 'task_id': task_id, 'user_query': user_query, 'page_requested': True})
+    if page_route.get('code') != 0:
+        return {'code': 1, 'error': page_route['error'], 'page_route': page_route,
+                'message': '无法核验固定个股快页范围，尚未创建页面；修复本地QBS分类器后重试。'}
+    if page_route.get('page_workflow') != 'single_a_stock_fast':
         return {
             "code": 1,
             "error": "NEW_ASSET_PAGE_SCOPE_MISMATCH",
-            "message": "本题只查询行情或估值字段，固定综合画像快页会扩大请求范围；尚未创建页面。",
-            "continue_page_workflow": True,
-            "next_action": "复用首答已验证结果与 answer_structure，按模板/自建路由生成对应字段的页面并继续验收；不要重新查询综合画像或把此路由错误当最终失败。",
+            "message": "本题不属于无附加要求的单只A股综合分析，尚未创建页面。",
+            "continue_page_workflow": page_route['page_delivery_required'],
+            "page_route": page_route,
+            "next_action": ("复用首答已验证结果与 answer_structure，按模板/自建或原页更新路由继续验收；不要重新查询综合画像或把此路由错误当最终失败。"
+                            if page_route['page_delivery_required'] else "遵循原问题的禁止建页、澄清或授权边界，不创建页面。"),
         }
     cfg = C.load_config_require_key()
     endpoint, api_key = C.endpoint_of(cfg), cfg.get("api_key", "")
@@ -9489,8 +9482,11 @@ def cmd_delivery_status(params):
         if params.get("refresh_remote"):
             out["remote"] = cmd_template({"page_id": plan["target_page_id"]})
             if (state.get("last_write") or {}).get("idempotency_key"):
-                cfg = C.load_config_require_key()
-                out["write_outcome"] = PT.query_status(plan, state["last_write"], C.endpoint_of(cfg), cfg.get("api_key", ""))
+                out["write_outcome"] = {
+                    'source': 'local_journal', 'status': state['last_write'].get('status', 'unknown'),
+                    'write_consistency': PT.CONSISTENCY,
+                    'message': '远端详情仅是当前版本观测，不是请求状态接口；未知写入仍保留未知状态，不自动重发。',
+                }
         return out
     except EP.PlanError as exc:
         return exc.as_dict()
