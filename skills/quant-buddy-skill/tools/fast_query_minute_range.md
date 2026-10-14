@@ -10,6 +10,7 @@
 |---|---|
 | 当前/最近完整交易日分钟 | fast_query_minute，保留 fields |
 | 单资产历史分钟窗口 | fast_query_minute_range，不提供 fields |
+| 多资产/全市场、每日分钟窗口、真实交易日滚动 | [fast_query_minute_range_multi](fast_query_minute_range_multi.md)，不传tickers/fields/format |
 | 最新标量、日频窗口 | fast_query snapshot/window，保留 fields |
 
 先按资产库规则确认唯一资产。接口原始返回1分钟长表，不支持多资产、日内时分筛选、自动复权或在服务端直接请求30分钟。用户需要30分钟K线时，先取1分钟CSV并使用本Skill的受控聚合脚本生成派生30分钟产物；不得修改manifest中的interval字段冒充30分钟原始数据。

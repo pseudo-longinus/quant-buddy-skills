@@ -10,6 +10,7 @@ TOOL_BY_KIND = {
     'fast_query': 'fast_query',
     'fast_query_minute': 'fast_query_minute',
     'fast_query_minute_range': 'fast_query_minute_range',
+    'fast_query_minute_range_multi': 'fast_query_minute_range_multi',
     'stock_profile': 'stockProfile',
     'composition_select': 'selectByComposition',
 }
@@ -67,6 +68,9 @@ def contract_errors(contract, role_id=''):
     if kind == 'fast_query_minute_range':
         from minute_range_contract import validate_request
         for code, message in validate_request(payload): add(code, message)
+    if kind == 'fast_query_minute_range_multi':
+        from minute_range_contract import validate_multi_request
+        for code, message in validate_multi_request(payload): add(code, message)
     return errors
 
 
@@ -173,6 +177,34 @@ def evaluate_minute_range(payload, result):
     if not hydrated['rows']: return _failure('MINUTE_RANGE_DATA_EMPTY', 'data')
     return {'success': True, 'start_date': data.get('start_date'), 'end_date': data.get('end_date'),
             'row_count': len(hydrated['rows']), 'columns': hydrated['columns'], 'warnings': data.get('warnings', [])}
+
+
+def evaluate_minute_range_multi(payload, result):
+    if not isinstance(result, dict) or result.get('code') != 0 or result.get('success') is False:
+        return _failure('MINUTE_MULTI_QUERY_FAILED')
+    try:
+        from minute_range_csv import parse_multi_result
+        from minute_range_contract import multi_date
+        from fast_query_csv import download_and_hydrate
+        data = result.get('data')
+        if not isinstance(data, dict): return _failure('MINUTE_MULTI_RESPONSE_INVALID')
+        hydrated = download_and_hydrate(data, timeout=20) if data.get('mode') == 'csv' else parse_multi_result(data)
+        if payload.get('date_mode', 'absolute') == 'absolute':
+            for key in ('start_date', 'end_date'):
+                if multi_date(payload.get(key, payload['start_date'])) != multi_date(hydrated[key]):
+                    return _failure('MINUTE_MULTI_DATE_MISMATCH')
+        result['data'] = hydrated
+    except (ValueError, OSError, TypeError, KeyError):
+        return _failure('MINUTE_MULTI_RESPONSE_INVALID')
+    if not hydrated['rows']: return _failure('MINUTE_MULTI_DATA_EMPTY', 'data')
+    # Unrouted assets are a valid query response, but not complete evidence for a required role.
+    if hydrated.get('unrouted'): return _failure('MINUTE_MULTI_ASSETS_UNROUTED', 'data')
+    numeric = [i for i, key in enumerate(hydrated['columns']) if key in ('open','high','low','close','volume','amount')]
+    if not numeric or not any(any(row[i] is not None for i in numeric) for row in hydrated['rows']):
+        return _failure('MINUTE_MULTI_DATA_EMPTY', 'data')
+    return {'success': True, 'row_count': len(hydrated['rows']), 'columns': hydrated['columns'],
+            'start_date': hydrated['start_date'], 'end_date': hydrated['end_date'],
+            'lifecycle': hydrated['lifecycle'], 'warnings': hydrated.get('warnings', [])}
 
 
 def evaluate_option_contracts(payload, result):

@@ -171,13 +171,22 @@ def prepare(params, *, skill_root, asset_upload=None):
                 images = [raw]
                 mime = 'image/png' if kind == '.png' else 'image/jpeg'
             pictures = []
+            label_caption = ''
+            try:
+                import data_labels
+                label_caption = data_labels.file_caption(params)
+            except Exception:
+                warnings.append('LABEL_PREPARATION_UNAVAILABLE')
             for i, data in enumerate(images, 1):
                 file = root / ('page-%04d.%s' % (i, 'png' if mime == 'image/png' else 'jpg'))
                 atomic(file, data)
                 assets.append({'file': str(file), 'sha256': digest(data), 'page': i})
-                pictures.append('<figure><img alt="第 %d 页" src="%s"></figure>' % (i, _data_uri(data, mime)))
+                pictures.append('<figure><img alt="第 %d 页" src="%s">%s</figure>' % (i, _data_uri(data, mime), label_caption))
             text = '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' + html.escape(source.stem) + '</title><style>body{margin:0;background:#f3f4f6}main{max-width:1200px;margin:auto}figure{margin:0 0 12px}img{display:block;width:100%;height:auto}</style></head><body><main>' + ''.join(pictures) + '</main></body></html>'
         carrier = root / 'source.html'
+        if kind not in ('.html', '.htm') and label_caption and len(text.encode('utf-8')) > 2 * 1024 * 1024:
+            text = text.replace(label_caption, '')
+            warnings.append('LABEL_SIZE_BUDGET_SKIPPED')
         atomic(carrier, text.encode('utf-8'))
         publish = {'task_id': task, 'user_query': params.get('user_query', ''),
                    'transformation_mode': 'preserve_html_qbs_live', 'snapshot_only': True,

@@ -3,6 +3,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
 import { launchFileBrowser } from './file_browser.mjs';
+const labelChecks = await import('./data_label_checks.mjs').catch(() => ({
+  readDataLabels: async () => ({checked:false, advisory:true, warnings:['LABEL_CHECK_UNAVAILABLE']}),
+  summarizeDataLabels: () => ({checked:false, advisory:true, warnings:['LABEL_CHECK_UNAVAILABLE']}),
+}));
 const target = process.argv[2];
 let browser, server;
 async function localTarget(file) {
@@ -68,6 +72,7 @@ try {
         imageCount:imageList.length, ignoredIdlePosters:ignoredPosters, brokenImages:broken, localReferences,
         horizontalOverflow:document.documentElement.scrollWidth>innerWidth+1};
     });
+    metrics.data_labels = await labelChecks.readDataLabels(fn => page.evaluate(fn));
     if (!metrics.hasContent) problems.push('EMPTY_SOURCE_SNAPSHOT');
     if (metrics.brokenImages) problems.push('BROKEN_IMAGES');
     if (metrics.localReferences) problems.push('LOCAL_RESOURCE_REFERENCE');
@@ -78,7 +83,7 @@ try {
     await page.close();
   }
   const code=problems.length?1:0;
-  process.stdout.write(JSON.stringify({code,verification_profile:'file-snapshot',browser:{checked:true,viewports:results},problems:[...new Set(problems)]}));
+  process.stdout.write(JSON.stringify({code,verification_profile:'file-snapshot',browser:{checked:true,viewports:results},data_labels:labelChecks.summarizeDataLabels({viewports:results}),problems:[...new Set(problems)]}));
   process.exitCode=code;
 } catch {
   process.stdout.write(JSON.stringify({code:1,error:'FILE_SNAPSHOT_BROWSER_CHECK_FAILED'}));

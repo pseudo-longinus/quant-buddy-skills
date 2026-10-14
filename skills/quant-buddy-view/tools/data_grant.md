@@ -14,6 +14,7 @@
 |------|---------|---------|---------|
 | `fast_query` | fastQuery | 一次快查请求（assets/query_type/fields…），字段须命中平台白名单 | 值 / 序列 |
 | `fast_query_minute_range` | fastQueryMinuteRange | `{asset,start_date,end_date}` 或 `{asset,start_offset,end_offset}`；历史全列，无fields/format/remove_nan | CSV分钟长表manifest，内核物化为columns/rows；见下方新增规则 |
+| `fast_query_minute_range_multi` | fastQueryMinuteRangeMulti | assets/asset/market三选一；absolute/rolling/current_trade_day及每日分钟窗口；无tickers/fields/format | JSON columns/data或CSV url；内核归一为含ticker的长表，见「多资产分钟授权」 |
 | `fast_query_minute` | fastQueryMinute | `{ asset, fields }`，单资产，字段限 OHLCVA；无历史/区间参数 | 共享 `dates` + 列式 `fields` 分钟数据 |
 | `stock_profile` | stockProfile | `{ asset, dimensions }` | 个股画像卡 |
 | `composition_select` | selectByComposition | 一次按权重选股/筛选请求（mode/universe/composition/screens/top_n…），indicator_id 须为已上线维度分 | TopN 榜单表 |
@@ -65,7 +66,7 @@ python scripts/data_grant.py refresh '{"grant_id":"dg_xxx","rotate_signature":tr
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `kind` | `string` | ✅ | `option_contracts` / `fast_query` / `fast_query_minute` / `fast_query_minute_range` / `stock_profile` / `composition_select` |
+| `kind` | `string` | ✅ | `option_contracts` / `fast_query` / `fast_query_minute` / `fast_query_minute_range` / `fast_query_minute_range_multi` / `stock_profile` / `composition_select` |
 | `payload` | `object` | ✅ | 冻结的完整请求体，形状随 kind（见下） |
 | `ttl_days` | `number` | ❌ | 有效期（天），默认 365 |
 | `task_id` / `user_query` | `string` | ❌ | 随 audit 落库 |
@@ -182,6 +183,35 @@ register携带本地`validation_receipt_file`；返回`registration_receipt_file
 
 404 Not Found: POST /skill/fastQueryMinuteRange 是后端接入/版本问题，不是资产无数据。真实后端、OSS CORS、授权有效期仍须联调；本地schema通过不代表上游或部署已就绪。
 
+
+## 多资产分钟授权
+
+kind为 `fast_query_minute_range_multi`，接入现有验证→注册→query→页面验收流程。QBV编排调用 `scripts/qbs_bridge.py validate_grant_set @params.json`，传同一task_id/user_query及带fingerprint的合同；成功后用返回的validation_receipt_file原样注册，不另开session。
+
+```json
+{"kind":"fast_query_minute_range_multi","payload":{"assets":["贵州茅台","SZ000001"],"date_mode":"rolling","lookback_trade_days":5,"start_minute":"09:30","end_minute":"10:00","timezone":"Asia/Shanghai"}}
+```
+
+- assets为1～5000个名称/简称/代码，兼容asset或market（cn_stock/cn_index/us_stock/hk_stock/cn_future），三选一。服务端匹配标准ticker，客户端不传tickers。无fields/format/remove_nan/旧自然日offset。
+- absolute默认：start_date必填，end_date默认同日，真实YYYY-MM-DD或YYYYMMDD整数/字符串，包含首尾最多373自然日。禁止rolling参数。
+- rolling：lookback_trade_days为1～373整数，默认1；end_trade_offset为-372～0整数，默认0。按真实交易日取最近收盘且超过30分钟缓冲日，再向前偏移；不传start_date/end_date。
+- current_trade_day禁止所有日期/回看参数，返回最近已开始交易日，休市不保证有新记录。自动日期模式跨日历域必须拆开。
+- start_minute/end_minute为每日过滤窗口，HH:MM/HHMM（整数或字符串），含边界，null不限、0为00:00；timezone默认Asia/Shanghai，仅过滤分钟，不改变trade_date。美股当地窗口用America/New_York，由服务端处理夏冬令时。
+- 股票正向窗口；反向窗口仅国内期货且Asia/Shanghai，例如21:00～02:30；夜盘依trade_date，不按自然日重分组。
+- with_adjustment默认false，仅附股票split事件，不复权。分钟覆盖先读[覆盖表](../references/minute-data-coverage.md)，新接口不扩大来源覆盖。
+- 注册强制真实试跑，不能validate_data=false。冻结资产/市场与日期规则，rolling/current_trade_day每次取数重算日期；market冻结范围规则，不冻结当天名单。_contract_version由服务端内部保存，客户端不传。
+- 历史窗口和交易中/收盘缓冲期单日分成两份授权。不要反复刷新包含实时数据的历史CSV，不自行裁剪日期绕过服务端检查。
+- 查询只提交grant_id/signature，禁止覆盖资产/日期。refreshDataGrant为重新验证，日常刷新使用queryDataGrant；动态计费归owner，不叠加旧授权固定查询费。
+
+业务JSON为 `columns` + `data` 二维数组，CSV为 **url/url_expires_at**（不是旧接口csv_url）；CSV columns可省略，以文件表头为准，shape也可能省略。前两列trade_date/ticker，timestamp为UTC秒；按真实列名读取。Python验证器及QB.queryGrant物化CSV为columns/rows，JSON原始data保留，build_dashboard前后端均可归一成表格。多资产图表必须按ticker分组，不能把不同资产连为一条曲线。现有单资产30分钟聚合器不接此多资产产物。
+
+页面保存授权配置，刷新先queryDataGrant取本次manifest，不能硬编码临时URL；大CSV优先展示下载入口或缩小范围后做图，避免高频全量下载。generated_at为数据生成时点，start_date/end_date为实际解析日期，lifecycle保留交易中/缓冲/完成状态，不能把刷新时间当数据日期。
+
+合法empty成功应展示无数据；空表、全无有效行情或unrouted不足以证明必需角色已完成，不发成功验收收据。warnings/adjustment保留，附加事件失败不抹掉主行情。
+
+直接接口失败code=-1，授权沿既有code=1/error；同时检查HTTP和业务code。按error.code/guidance处理：HISTORICAL_REALTIME_MIXED_NOT_ALLOWED拆历史和当前日，MIXED_CALENDAR_DOMAIN拆市场，QUERY_BUDGET_EXCEEDED缩范围；日历/策略缺失联系维护者，不在页面造工作日日历。429按Retry-After等待，超时后台可能仍在运行，不立即重发；CSV下载401/403/404最多重新query授权一次，禁止循环。
+
+后端须部署fastQueryMinuteRangeMulti及同名授权kind；工具/本地回归通过不代表生产端到端已验收。
 
 ## 美股期权槽位合约授权
 

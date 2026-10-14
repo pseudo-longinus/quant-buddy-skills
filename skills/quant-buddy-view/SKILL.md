@@ -2,7 +2,7 @@
 name: quant-buddy-view
 slug: quant-buddy-view
 author: guanzhao
-version: 0.6.97
+version: 0.6.98
 description: |
   将量化分析或已有 JPG/PNG、HTML、PDF 发布为 Quant Buddy 可分享活页或实时看板，并支持创建、更新、复用、验收和公开链接交付。适用于个股画像、估值财务、指数异动、多因子筛选、商品日报、模板、分享壳及卡片等页面。
   用户提供 QuantBuddy 活页 URL 并要求解读时也使用。显式调用 /quant-buddy-view、/qbv、qbv 或 QBV，且请求并非纯咨询、代码维护或文档解释时，默认按可分享活页任务处理。
@@ -11,7 +11,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 0.6.97
+  version: 0.6.98
   author: guanzhao
   category: quant-finance
   tags: [quant, dashboard, formula-package, static-page, publish, visualization]
@@ -120,6 +120,8 @@ python scripts/static_page.py interpret '{"url":"用户提供的页面 URL"}'
 **验证结果直接交接**：`resolve_asset_data` / `validate_grant_set` / `validate_package_set` 返回 `registration_params_file` 时，首答及页面路由完成后直接执行对应 `registration_command`；不要重写合同、抄指纹、重复查询或另调validate。`publication_evidence` 原样并入看板spec，注册返回的实际ID绑定面板。已有证据的字段/范围确需变化时重新验证新合同，不能沿用旧指纹。公式型行业页面先读 [行业排名交接](guides/industry-ranking-handoff.md)。
 
 ## Compose 参数交接
+
+**LIVE / SNAPSHOT 兼容补标**：标准生成器使用已有验证数据与模块绑定补标；最终验收的 `data_labels` 仅为非阻断诊断。缺标不能成为停止交付、重查、删减内容或静态降级的理由。旧页面保留原流程，详见 [标签口径与兼容范围](guides/data-labels.md)。
 
 **技术失败后继续生成**：历史 CSV 验证、来源凭证或注册出错时，执行 [同页恢复](workflows/planned-delivery-recovery.md#同页恢复而非停留在失败页)。优先修正原合同；已有完整验证结果但注册不可用时，使用 `recover_snapshot` 生成同页快照候选，再继续 `compose_page → publish_verified`。不把一次工具失败当作任务结束，不改用 `static_content_only`；用户明确要求实时的页面不能用静态结果冒充完整交付。
 
@@ -408,7 +410,7 @@ npx skills update pseudo-longinus/quant-buddy-skills -y
 | 脚本 | 命令 | 作用 | 文档 |
 |---|---|---|---|
 | `scripts/formula_package.py` | `register` / `query` / `list` / `revoke` / `refresh` | 公式任务包：注册取数能力；query 支持 `outputs` 与 `result_mode=full|summary|last_values`，direct 使用 summary | [tools/formula_package.md](tools/formula_package.md) |
-| `scripts/data_grant.py` | `register` / `query` / `list` / `revoke` / `refresh` | 数据授权：把一次 fastQuery/stockProfile/selectByComposition/queryOptionContracts 请求规则钉死成 `grant_id`+`signature`，页面免 key 直取有界数据（取舍见「数据授权 vs 公式包」） | [tools/data_grant.md](tools/data_grant.md) |
+| `scripts/data_grant.py` | `register` / `query` / `list` / `revoke` / `refresh` | 数据授权：把一次 fastQuery（含分钟/多资产分钟）/stockProfile/selectByComposition/queryOptionContracts 请求规则钉死成 `grant_id`+`signature`，页面免 key 直取有界数据（取舍见「数据授权 vs 公式包」） | [tools/data_grant.md](tools/data_grant.md) |
 | `scripts/build_dashboard.py` | （单命令，`emit:"panel_block"` 走局部产出） | spec → live 实时取数看板 HTML；局部产出模式只生成带 marker 的图表 `<script>` 片段，供 bespoke 页面内嵌图表用 | [tools/build_dashboard.md](tools/build_dashboard.md) |
 | `scripts/stock_comparison.py` | `apply @params.json` | 为 `stock_analysis_instance_v1` 原生收盘价图并入基准序列、双 Y 轴和数据表；保持 `#priceChart` 单一 owner，拒绝用通用 panel 二次接管 | [tools/stock_comparison.md](tools/stock_comparison.md) |
 | `scripts/stock_window.py` | `apply @params.json` | 为 legacy `stock_analysis_instance_v1` 设置滚动展示窗口；生成受控 HTML 后必须浏览器预检并 update 原 `page_id` | [tools/stock_window.md](tools/stock_window.md) |
@@ -439,6 +441,7 @@ npx skills update pseudo-longinus/quant-buddy-skills -y
 - 注册、Fork改资产/窗口前必读 [分钟行情支持范围与越界提示](references/minute-data-coverage.md)：A股/美股股票起于2026-05-13，国内期货起于2005-01-04，港股股票2026-05-20，国内指数2026-08-13；美国/香港指数及期货暂不支持。全窗口早于起点不注册授权；部分覆盖先提示并在页面标注，不静默裁剪原始payload，不宣称完整覆盖。页面若展示30分钟K线，必须标注其由1分钟Grant派生，不能把页面聚合结果写成上游原始30分钟数据。
 
 - 当前/最近完整日分钟用 `fast_query_minute` Grant（保留 fields）；历史跨日分钟用 `fast_query_minute_range` Grant（全列，无fields/format/remove_nan）。绝对窗口或-70至-1自然日offset二选一，不含市场今天。详见 [tools/data_grant.md](tools/data_grant.md)。
+- 多资产/全市场分钟、每日分钟窗口或最近N个交易日分钟用 `fast_query_minute_range_multi` Grant；payload用assets/asset/market三选一，禁止tickers/format/fields。支持JSON与url指向的CSV长表，rolling/current_trade_day由服务端动态解析；历史和仍更新单日拆两份授权。沿用bridge验证、注册收据和QB.queryGrant刷新，见 [tools/data_grant.md](tools/data_grant.md#多资产分钟授权)。
 - 历史分钟CSV是 trade_date/timestamp/行情列长表，内核读取实际表头，不走日频宽表。绝对窗口固定、offset授权滚动；页端持有Grant而不是临时CSV地址，不称历史分钟为“当前盘中”。
 - 连续期货：单日只显示所选trade_date的具体合约/状态；日频窗口与跨日分钟按trade_date解释换月事件，夜盘不能拿UTC自然日匹配。inferred不等于独立实时核验，附加warnings不影响行情成功或作为发布失败理由。
 

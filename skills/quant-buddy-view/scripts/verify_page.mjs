@@ -25,6 +25,11 @@ import { staticImageProblems } from './image_verification.mjs';
 import { cardVisualContractProblems } from './card_visual_contract.mjs';
 import { dashboardDesignMetrics } from './dashboard_design_checks.mjs';
 import { pageTitleMetrics, pageTitleProblems } from './page_title_checks.mjs';
+// Optional diagnostics must not turn an old successful page into a failure.
+const labelChecks = await import('./data_label_checks.mjs').catch(() => ({
+  readDataLabels: async () => ({checked:false, advisory:true, warnings:['LABEL_CHECK_UNAVAILABLE']}),
+  summarizeDataLabels: () => ({checked:false, advisory:true, warnings:['LABEL_CHECK_UNAVAILABLE']}),
+}));
 
 const args = process.argv.slice(2);
 const expectedTitleIdx = args.indexOf('--expected-title');
@@ -770,6 +775,7 @@ async function playwrightBrowserChecks(pw, url, options = {}) {
       const imageMetrics = await page.evaluate(prepareImagesExpression);
       const shareModalMetrics = options.checkShareModal ? await page.evaluate(shareModalChecksExpression) : null;
       const metrics = await page.evaluate(pageMetricsExpression);
+      metrics.data_labels = await labelChecks.readDataLabels(fn => page.evaluate(fn));
       metrics.pageTitle = await page.evaluate(pageTitleMetrics);
       metrics.dashboardDesign = await page.evaluate(dashboardDesignMetrics, options.requireDashboardDesign === true);
       metrics.images = imageMetrics;
@@ -1148,6 +1154,7 @@ function viewportResult(viewport, metrics, options = {}) {
     verticalOverflow: metrics.scrollHeight > metrics.clientHeight + 2,
     hasH1: metrics.hasH1,
     pageTitle: metrics.pageTitle || null,
+    data_labels: metrics.data_labels || null,
     placeholderHits: metrics.placeholderHits,
     placeholderOnly: metrics.placeholderOnly,
     runtime: metrics.runtime,
@@ -1524,6 +1531,11 @@ async function cdpBrowserChecks(url, options = {}) {
         continue;
       }
       evaluated.result.value.images = preparedImages.result?.value || {};
+      evaluated.result.value.data_labels = await labelChecks.readDataLabels(async fn => {
+        const checked = await cdp.send('Runtime.evaluate', {expression: `(${fn.toString()})()`, returnByValue: true});
+        if (checked.exceptionDetails) throw new Error('LABEL_CHECK_UNAVAILABLE');
+        return checked.result?.value;
+      });
       const titleMetrics = await cdp.send('Runtime.evaluate', {
         expression: `(${pageTitleMetrics.toString()})()`, returnByValue: true,
       });
@@ -1799,6 +1811,7 @@ try {
     static: staticResult,
     card_runtime_check: cardRuntimeResult,
     browser: browserResult,
+    data_labels: labelChecks.summarizeDataLabels(browserResult),
     security_mode: summary.security_mode,
     non_core_console_warnings: summary.non_core_console_warnings,
     warnings: summary.warnings,

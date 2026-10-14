@@ -2,12 +2,13 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.25.56
+version: 4.25.57
 description: |
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据；支持查询 A 股股票所属行业。
   显式日期的单值快照可同时返回按实际更新日对齐的日频行情与估值；字段日期不同时按字段自身日期展示，不将较晚刷新字段误判为无数据。
   查询最近N个交易日的价格序列、日涨跌幅序列、窗口最高价、最低价、振幅等短期统计。
   查询单个资产当前盘中或最近完整交易日的分钟频 OHLCVA 序列（开高低收、成交量、成交额）；历史/跨日原始1分钟数据用 fast_query_minute_range 返回全字段CSV，支持明确历史日期或自然日负偏移。
+  多资产/全市场分钟、每日分钟窗口及最近N个交易日分钟使用fast_query_minute_range_multi，支持JSON/CSV和滚动数据授权。
   查询上市公司最近报告期的营业收入、净利润、归母净利润、ROE、总资产、资产负债率等财务指标（A股及部分港/美股字段，以工具返回为准）。
   查询单只股票的预计算及千维动态指标画像，按估值、财务分析、资金流向、波动率、宏观胜率背景、资产走势等维度返回最新值与上一有效值。
   查询部分美股期权槽位的当前对应合约和滚动窗口换约信息，支持可更新活页数据授权。
@@ -19,7 +20,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.25.56
+  version: 4.25.57
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -139,7 +140,7 @@ runtimeRequirements:
    - 同一对话追问可复用当前 session；新问题必须新建 session。
    - 所有业务 HTTP/SSE 请求统一携带 `x-skill-name: quant-buddy-skill` 与当前 `x-task-id`，用于跨 Skill Trace 聚合；quant-buddy-view 上游任务不得切换 task_id。
 2. **原生工具优先，禁止脚本包装**：
-   - 平台已有原生工具时，必须直接调用原生工具：`fast_query`、`fast_query_minute`、`fast_query_minute_range`、`confirmDataMulti`、`selectByComposition`、`runMultiFormulaBatchStream`、`resumeJob`、`readData`、`renderKLine`、`renderChart` 等；但普通K线活页必须先走 `kline-page-fast-path.md`，不可调用 `renderKLine`。
+   - 平台已有原生工具时，必须直接调用原生工具：`fast_query`、`fast_query_minute`、`fast_query_minute_range`、`fast_query_minute_range_multi`、`confirmDataMulti`、`selectByComposition`、`runMultiFormulaBatchStream`、`resumeJob`、`readData`、`renderKLine`、`renderChart` 等；但普通K线活页必须先走 `kline-page-fast-path.md`，不可调用 `renderKLine`。
    - 禁止用 Bash / shell / Python / `scripts/call.py` / `run_skill_script` 包装已有原生平台工具。唯一编排例外是 quant-buddy-view 的 `qbs_bridge.py`，它只负责继承 task_id 和隔离 session，不改写业务参数或结果。
    - 只有平台明确不存在等价原生工具，且 workflow 明确允许脚本兜底时，才可使用本地脚本。
    - **许可例外（csv 解析）**：当 `fast_query` 返回 `mode:"csv"` + `csv_url`（数据点 > 500 的正常交付）时，调用 `python scripts/fetch_fastquery_csv.py "<csv_url>"` 下载并解析该 csv 属于**许可路径**——这是消费工具返回的 OSS 产物（平台无等价原生解析工具），不算"包装原生工具"。历史分钟长表使用 `scripts/fetch_minute_range_csv.py @output/minute-manifest.json --output output/minute-data.json`，不能套用日频宽表解析器。但仍禁止用裸 `curl` / 自写临时脚本替代该脚本。
@@ -299,6 +300,7 @@ SKILL_ROOT/
 │   │                           ⚠️ 下表列出所有可用工具的**实际调用名**，调用时必须使用此名，不得变体
 │   ├── fast_query.md            → 工具名 `fast_query`          快速合并查询（行情/估值/财务，≤1000资产，支持CSV）
 │   ├── fast_query_minute_range.md → 历史单资产跨日1分钟CSV全列（日期/自然日offset）
+│   ├── fast_query_minute_range_multi.md → 多资产/全市场1分钟、每日时段、交易日滚动及JSON/CSV
 │   ├── fast_query_minute.md     → 工具名 `fast_query_minute`   单资产当前盘中/最近完整日分钟 OHLCVA 序列
 │   ├── confirm_data_multi.md    → 工具名 `confirmDataMulti`    批量确认数据项存在性与维度（写公式前必查）
 │   ├── run_multi_formula.md     → 工具名 `runMultiFormulaBatchStream`  执行公式批次（选股/回测/因子计算）
@@ -397,6 +399,7 @@ SKILL_ROOT/
 | 场景 | 触发词 | 目标 leaf workflow |
 |------|--------|----------|
 | 单资产历史/跨日分钟 | 用户明确历史交易日或跨日区间的原始1分钟/分时CSV | 确认唯一资产 → `tools/fast_query_minute_range.md` → `fast_query_minute_range`；不传fields/format/remove_nan |
+| 多资产/全市场分钟、每日时段或交易日滚动 | 多个资产、market、分钟范围、最近N个交易日或current_trade_day规则 | `tools/fast_query_minute_range_multi.md` → `fast_query_minute_range_multi`；用assets/asset/market三选一，不传tickers/fields/format |
 | 单资产日内分钟 / 分时序列 | 明确要求分钟、分时、1分钟、每分钟、日内 OHLCV、逐分钟开高低收/成交量；不含历史日期、区间或多资产 | 先按资产库规则确认唯一资产 → 直接调用 `fast_query_minute` → 成功即停 |
 | 最新时点行情 / 估值 / 基础信息（快照） | 最新价、今日收盘、最新涨跌幅、当前换手率、最新PE/PB/市值、所属行业… | Fast Path 条件满足 → 只读 `fast-snapshot.md`；不满足/无法查询 → `global-rules.md` → `quick-snapshot.md` |
 | 最近N日序列 / 窗口统计 | 最近5日、最近20日、近N个交易日、窗口最高/最低/振幅…（仅单资产、最近N日） | Fast Path 条件满足 → 只读 `fast-window.md`；不满足/无法查询 → `global-rules-lite.md` → `quick-window.md` |
@@ -457,7 +460,7 @@ SKILL_ROOT/
 0a. 用户明确要求**申万一级行业最近 N 个交易日涨跌幅排名图/柱状图/可视化**，且未明确只要 PNG → 只读 `workflows/industry-ranking-fast.md`；不得读取 `global-rules.md`、`quant-standard.md` 或行业 recipe，不得调用 `renderChart`。
 **分钟覆盖前置检查**：先确认市场/资产类型并按 [分钟支持范围](references/minute-data-coverage.md) 判断。A股/美股股票起于2026-05-13，国内期货起于2005-01-04，港股股票起于2026-05-20，国内指数起于2026-08-13；美国/香港指数及期货暂不支持。历史窗口早于边界必须先提示：全窗口越界不查；部分覆盖明确缺失范围，不静默改日期或宣称完整覆盖。此限制不套用于日频行情。
 
-0. 用户明确要单资产历史/跨日分钟序列或分钟CSV → `tools/fast_query_minute_range.md`；只支持历史日期，完整返回所有列；窗口/offset互斥，不得偷换成日频或当日分钟。用户要求30分钟K线时，先取原始1分钟数据，再按该工具文档的受控聚合步骤生成派生30分钟数据，并同时保留原始区间、时区和来源间隔。
+0. 用户要多资产/全市场分钟、每日分钟窗口、最近N个交易日分钟或当前交易日规则 → 先读 `tools/fast_query_minute_range_multi.md`，用 `fast_query_minute_range_multi`。其余单资产历史/跨日分钟序列或分钟CSV → `tools/fast_query_minute_range.md`；只支持历史日期，完整返回所有列；窗口/offset互斥，不得偷换成日频或当日分钟。用户要求30分钟K线时，先取原始1分钟数据，再按该工具文档的受控聚合步骤生成派生30分钟数据，并同时保留原始区间、时区和来源间隔。
 1. 用户明确要**单资产**完整分钟/分时/逐分钟序列或分钟 OHLCVA，且未指定历史日期、日期区间、分钟聚合或多个资产 → 先按资产库规则确认唯一资产，调用 `fast_query_minute`；按索引配对返回的 `dates[]` 与 `fields.<name>[]`，保留 `data_scope/trade_date/timezone` 语义，成功即停。只问最新标量仍走 snapshot；历史/区间改走 fast_query_minute_range；多资产不能塞进任一单资产工具。连续期货只按所选 trade_date 解读 contract_info，不将 inferred 说成已实时核验；附加 warnings 不影响成功行情。
 2. 整句为一个资产名称/简称/代码，或简单单股综合分析（如“分析一下贵州茅台”）时，先执行 `live_page_routing.py route`；命中 `single_a_stock_fast` 则读取 QBV `guides/answer-first.md`，QBS 验证首答后同轮 `new_asset_page`，不能只输出画像就结束。其他开放式单股综合指标概览（如“分析一下XX个股”“个股画像”“指标概览”），且不是只问单字段/明确窗口/IC 预测力 → `workflows/global-rules.md` → `workflows/stock-profile.md`
 3. 时间锚点是"最近 N 日窗口/序列"，或用户明确给出起止日期要求返回区间序列（如"从X日到X日每日的…走势/序列/数据"），或用户只说"最近走势/看走势"但未明确要图片/K线 → Fast Path 条件满足时读 `workflows/fast-window.md`，不满足则 `workflows/global-rules-lite.md` → `workflows/quick-window.md`；未给 N 时默认按最近 20 个交易日

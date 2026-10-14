@@ -1,5 +1,9 @@
 # build_dashboard — spec → 自包含看板 HTML
 
+整页生成默认兼容补充 LIVE / SNAPSHOT，依据已有构建验证和模块绑定，不新增取数或交接要求。可传 `data_labels:false`，或设置 `QBV_DATA_LABELS=0` 关闭新增补标。返回的 `data_labels` 及浏览器验收同名结果仅为非阻断诊断，不能据此重查、降级或停止交付；详见 [标签口径与兼容范围](../guides/data-labels.md)。
+
+固定研究面板可用已有 `analysis_date` 标明分析日，也可复用标题中的明确分析日；页面级 `analysis_date` 仅作缺省。验证数据快照从原数据日期生成 `Snapshot · 截至 …`，不以生成/捕获时间替代。日期字段均可省略，不改变数据交接合同。
+
 自建场景先读 [自建质量底线](../guides/self-build-quality.md)。整页生成默认内联 `assets/dashboard-design.css`，采用清楚的研究页层级；`panel_block` 不注入该样式，不接管宿主版式。`verify_page` 自动检查整页设计标记，数据成功不替代截图审查。
 
 > 路由已锁定Compose时，整页使用`static_page.py compose_page @params`，不要在此命令加upload重建整页；panel_block只生成局部。受控组装器复用本renderer并校验计划/借鉴绑定，见[计划驱动交付](../workflows/planned-delivery-recovery.md)。

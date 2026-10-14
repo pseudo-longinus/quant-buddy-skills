@@ -176,6 +176,13 @@ def _download_field(field, timeout):
 
 
 def download_and_hydrate(data, *, timeout=20, max_workers=4):
+    from minute_range_csv import is_multi_result, parse_multi_result
+    if is_multi_result(data):
+        if isinstance(data.get('rows'), list) or data.get('mode') == 'json':
+            return parse_multi_result(data)
+        text = _download_field({'intent': '多资产分钟全列', 'csv_url': data.get('url')}, timeout)
+        try: return parse_multi_result(data, text)
+        except ValueError as exc: raise CsvHydrationError(str(exc)) from exc
     if isinstance(data, dict) and data.get('query_type') == 'minute_range':
         from minute_range_csv import parse_minute_range_csv
         if isinstance(data.get('rows'), list) and data.get('source_mode') == 'csv': return data

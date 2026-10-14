@@ -60,6 +60,7 @@ QBV_RENDER_JS_START/END marker，chart_edit.py 之后能对这些嵌入的图表
 """
 
 import datetime
+import copy
 import hashlib
 from html import escape as html_escape
 import page_title_contract as PTC
@@ -308,6 +309,7 @@ _RENDER_JS_TEMPLATE = r"""/* QBV_RENDER_JS_START:v1 */
 'use strict';
 const BOOT = __BOOT__;
 let LAST_OUTPUTS = {};
+__DATA_LABEL_RUNTIME__
 
 function apiUrl(endpoint, path) {
   endpoint = String(endpoint || '').replace(/\/+$/, '');
@@ -384,8 +386,8 @@ function normalizeGrantData(kind, data) {
     if (!Array.isArray(data.records)) throw new Error('合约授权records格式错误');
     return data.records;
   }
-  if (k === 'fast_query_minute_range') {
-    return (data.rows || []).map(row => Object.fromEntries((data.columns || []).map((key, i) => [key, row[i]])));
+  if (k === 'fast_query_minute_range' || k === 'fast_query_minute_range_multi') {
+    return (data.rows || data.data || []).map(row => Object.fromEntries((data.columns || []).map((key, i) => [key, row[i]])));
   }
   if (k === 'fast_query_minute') {
     return (data.dates || []).map((date, i) => Object.assign({日期: date},
@@ -1094,6 +1096,7 @@ function buildSkeletons() {
   BOOT.panels.forEach(panel => {
     const type = panel.type || 'table';
     const made = createCard(panel);
+    qbApplyDataLabel(panel, made.body);
     const names = panelOutputNames(panel);
     const reg = {panel: panel, body: made.body, span: made.span, filled: false, names: names, received: {}};
     PANEL_REG.push(reg);
@@ -1441,9 +1444,22 @@ def _render_js_for_boot(boot):
     """把 BOOT 编译成运行时 <script> 正文。boot.embedded 为真时换成嵌入式启动，供 bespoke 页面内嵌图表用；
     否则走标准整页启动，行为与此前完全一致。_render_html（整页生成）与 chart_edit.py（定点编辑回写）
     共用这份判断，保证「这个页面当初是不是嵌入模式生成的」在编辑时不会被错误地换回整页启动逻辑。"""
+    label_runtime = ''
+    try:
+        import data_labels
+        if (data_labels.enabled({}) and (boot.get('data_labels') or {}).get('enabled') is not False
+                and any(p.get('_qb_data_label') for p in boot.get('panels', []))):
+            label_runtime = data_labels.runtime_source()
+    except Exception:
+        # Optional presentation asset failure must not break the renderer.
+        boot.setdefault('data_labels', {}).setdefault('warnings', []).append('LABEL_RUNTIME_UNAVAILABLE')
     boot_json = json.dumps(boot, ensure_ascii=False)
-    full = _RENDER_JS_TEMPLATE.replace("__BOOT__", boot_json).replace(
-        '__PROSE_BINDING_RUNTIME__', _read_text(os.path.join(ASSETS_DIR, 'prose-bindings.js')))
+    render_template = _RENDER_JS_TEMPLATE
+    if not label_runtime:
+        render_template = render_template.replace('    qbApplyDataLabel(panel, made.body);\n', '')
+    full = render_template.replace("__BOOT__", boot_json).replace(
+        '__PROSE_BINDING_RUNTIME__', _read_text(os.path.join(ASSETS_DIR, 'prose-bindings.js'))).replace(
+        '__DATA_LABEL_RUNTIME__\n', label_runtime + '\n' if label_runtime else '')
     if not boot.get("embedded"):
         return full
     embedded, n = _BOOTSTRAP_BLOCK_RE.subn(_EMBEDDED_BOOTSTRAP, full, count=1)
@@ -1525,7 +1541,7 @@ def _pair_chart_panels(spec, panels):
     return panels
 
 
-def _render_html(spec, *, title, subtitle, panels, endpoint, package_id, signature, generated_at, grants=None, snapshots=None):
+def _render_html(spec, *, title, subtitle, panels, endpoint, package_id, signature, generated_at, grants=None, snapshots=None, data_label_report=None):
     """组装 HTML。骨架自包含（样式/内核内联），数据走运行时实时取数：页面内联 endpoint+凭证 + 取数 JS。
     grants：panel 里引用 grant_id 的数据授权列表 [{grant_id,signature}]，与公式包 panel 同页并存。"""
     panels = _evidence_first_panels(spec, panels)
@@ -1572,6 +1588,8 @@ def _render_html(spec, *, title, subtitle, panels, endpoint, package_id, signatu
         "skillName": C.SKILL_NAME,
     }
 
+    if data_label_report is not None:
+        boot['data_labels'] = data_label_report
     title_esc = html_escape(title or "看板")
     delivery_note = {'partial_research':'部分研究成果：未核验条件仍待补齐。',
                      'methodology':'研究方法页：标的数据尚未取得，研究尚未完成。'}.get(spec.get('delivery_kind'), '')
@@ -1874,8 +1892,8 @@ def _normalize_grant_data(kind, data):
         if not isinstance(data.get("records"), list):
             raise ValueError("合约授权records格式错误")
         return data["records"]
-    if k == "fast_query_minute_range":
-        return [dict(zip(data.get("columns") or [], row)) for row in data.get("rows") or []]
+    if k in ("fast_query_minute_range", "fast_query_minute_range_multi"):
+        return [dict(zip(data.get("columns") or [], row)) for row in (data.get("rows") if isinstance(data.get("rows"), list) else data.get("data")) or []]
     if k == "fast_query_minute":
         return [{"日期": date, **{key: values[i] if i < len(values) else None
                 for key, values in (data.get("fields") or {}).items() if isinstance(values, list)}}
@@ -2673,11 +2691,32 @@ def _build_authorized(params):
     if copy_err:
         return copy_err
 
+    label_report = {'enabled': False, 'modules': [], 'warnings': []}
+    original_label_panels = None
+    try:
+        import data_labels
+        original_label_panels = copy.deepcopy(panels)
+        panels, label_report = data_labels.prepare(
+            params, panels, output_names=_panel_output_names, verified_outputs=verify_outputs,
+            live_outputs=set(verify_outputs).difference(snapshots), snapshots=snapshots)
+    except Exception:
+        # Do not catch or weaken any of the existing data/contract failures above.
+        label_report['warnings'].append('LABEL_PREPARATION_UNAVAILABLE')
+
     generated_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     live_card_enabled = params.get("live_card") is not None and params.get("live_card") is not False
     html = _render_html(params, title=title, subtitle=params.get("subtitle"),
                         panels=panels, endpoint=endpoint, package_id=pkg, signature=sig,
-                        generated_at=generated_at, grants=grants, snapshots=snapshots)
+                        generated_at=generated_at, grants=grants, snapshots=snapshots,
+                        data_label_report=label_report)
+    # Optional label bytes must not push an otherwise valid page over the
+    # publisher's existing 2 MiB limit. Re-render original content, never trim it.
+    if label_report.get('enabled') and len(html.encode('utf-8')) > 2 * 1024 * 1024:
+        label_report = {'enabled': False, 'modules': [], 'warnings': ['LABEL_SIZE_BUDGET_SKIPPED']}
+        panels = original_label_panels
+        html = _render_html(params, title=title, subtitle=params.get('subtitle'),
+                            panels=panels, endpoint=endpoint, package_id=pkg, signature=sig,
+                            generated_at=generated_at, grants=grants, snapshots=snapshots)
     try:
         html, title_check = PTC.prepare(html, {'title': title})
     except PTC.TitleError as exc:
@@ -2745,6 +2784,7 @@ def _build_authorized(params):
     result = {
         "code": 0,
         "out_file": out_file,
+        "data_labels": label_report,
         "mode": page_mode,
         "data_mode": "mixed" if snapshots and (pkg or grants) else ("snapshot" if snapshots else page_mode),
         "snapshot_bindings": snapshot_bindings,

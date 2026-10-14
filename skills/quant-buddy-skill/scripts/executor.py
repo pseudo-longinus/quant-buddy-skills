@@ -161,6 +161,7 @@ TOOL_ROUTES = {
     "fast_query":            ("POST", "/fastQuery"),
     "fast_query_minute":     ("POST", "/fastQueryMinute"),
     "fast_query_minute_range": ("POST", "/fastQueryMinuteRange"),
+    "fast_query_minute_range_multi": ("POST", "/fastQueryMinuteRangeMulti"),
     "searchFunctions":       ("POST", "/searchFunctions"),
     "searchSimilarCases":    ("POST", "/searchSimilarCases"),
     "getCardFormulas":       ("POST", "/getCardFormulas"),
@@ -197,6 +198,7 @@ TOOL_TIMEOUTS = {
     "renderKLine":          900,
     "stockProfile":         900,
     "fast_query_minute_range": 120, # 历史分钟CSV元信息，客户端网络余量
+    "fast_query_minute_range_multi": 120, # 多资产分钟JSON/CSV，客户端网络余量
     "fast_query_minute":    120,   # 单资产分钟行情，服务端总取数 deadline 30s
     "selectByComposition":  120,   # 轻量 DB 查询，避免按公式任务长时间等待
     "listDimensionIndicators": 120,  # 同上，纯 DB 目录查询

@@ -316,6 +316,33 @@ const QB = (function () {
 
     const parsedRecords = records(text);
     const header = parsedRecords.shift();
+    if (payload.layout === 'minute_range_multi') {
+      const meta = payload.manifest || {}, columns = (header || []).map(v => v.trim());
+      const ti = columns.indexOf('timestamp');
+      if (columns[0] !== 'trade_date' || columns[1] !== 'ticker' || ti < 0 ||
+          columns.some(v => !v) || new Set(columns).size !== columns.length ||
+          (meta.columns !== undefined && JSON.stringify(meta.columns) !== JSON.stringify(columns))) throw new Error('多资产分钟CSV表头非法');
+      let previous = null;
+      const rows = parsedRecords.map(raw => {
+        if (raw.length !== columns.length || !raw[1].trim() || !raw[ti].trim()) throw new Error('多资产分钟CSV行宽/ticker/时间戳非法');
+        const day = normalDate(raw[0]), stamp = Number(raw[ti]), ticker = raw[1];
+        if (!Number.isFinite(stamp) || day < normalDate(meta.start_date) || day > normalDate(meta.end_date) ||
+            (previous && (ticker < previous[0] || ticker === previous[0] && stamp < previous[1]))) throw new Error('多资产分钟日期/排序非法');
+        previous = [ticker, stamp];
+        return raw.map((value, i) => {
+          if (i === 0) return Number(day.replace(/-/g, ''));
+          if (i === 1) return ticker;
+          if (i === ti) return stamp;
+          if (['open','high','low','close','volume','amount','open_interest'].includes(columns[i])) return number(value, 0, day);
+          return /^(?:|null|none|nan|[+-]?(?:infinity|inf))$/i.test(value.trim()) ? null : value;
+        });
+      });
+      if (meta.shape !== undefined && (!Array.isArray(meta.shape) || meta.shape.length !== 2 ||
+          meta.shape[0] !== rows.length || meta.shape[1] !== columns.length)) throw new Error('多资产分钟CSV shape不一致');
+      if (!Number.isInteger(meta.asset_count) || meta.asset_count !== new Set(rows.map(r => r[1])).size ||
+          meta.empty !== (rows.length === 0)) throw new Error('多资产分钟CSV资产数/empty不一致');
+      return { columns, rows };
+    }
     if (payload.layout === 'minute_range') {
       const meta = payload.manifest || {}, columns = (header || []).map(v => v.trim());
       const shape = meta.shape;
@@ -510,6 +537,13 @@ const QB = (function () {
     return Object.assign({}, data, parsed, { source_mode: 'csv' });
   }
 
+  async function _hydrateMinuteRangeMultiCsv(data) {
+    if (data.status !== 'ok') throw new Error('多资产分钟manifest不合法');
+    const text = await _downloadCsvField({ intent: '多资产分钟全列', csv_url: data.url }, new Set());
+    const parsed = _parseWideCsvPayload({ intent: '多资产分钟全列', layout: 'minute_range_multi', manifest: data, text });
+    return Object.assign({}, data, parsed, { source_mode: 'csv' });
+  }
+
   async function _requestGrantBody(cfg) {
     const { endpoint, grant_id, signature } = cfg;
     // 跨域取数改用表单 POST（CORS 安全列表内的 Content-Type）且不带自定义头，
@@ -552,7 +586,7 @@ const QB = (function () {
         if (body && body.data && String(body.data.mode || '').toLowerCase() === 'csv') {
           _runtimeTransport('csv');
           try {
-            body = Object.assign({}, body, { data: body.data.query_type === 'minute_range' ? await _hydrateMinuteRangeCsv(body.data) : await _hydrateFastQueryCsv(body.data) });
+            body = Object.assign({}, body, { data: body.kind === 'fast_query_minute_range_multi' ? await _hydrateMinuteRangeMultiCsv(body.data) : body.data.query_type === 'minute_range' ? await _hydrateMinuteRangeCsv(body.data) : await _hydrateFastQueryCsv(body.data) });
           } catch (error) {
             if (attempt === 0 && error && error.retryable) {
               body = await _requestGrantBody({ endpoint, grant_id, signature });

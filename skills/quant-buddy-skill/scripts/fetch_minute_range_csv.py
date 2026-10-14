@@ -8,7 +8,7 @@ from pathlib import Path
 import tempfile
 from urllib.parse import urlsplit
 from fetch_fastquery_csv import _download
-from minute_range_csv import parse_minute_range_csv
+from minute_range_csv import parse_minute_range_csv, parse_multi_result, is_multi_result
 
 
 def main(argv=None):
@@ -26,13 +26,18 @@ def main(argv=None):
         raw = json.loads(manifest_path.read_text(encoding='utf-8-sig'))
         if raw.get('code') not in (None, 0) or raw.get('success') is False: raise ValueError('取数响应未成功')
         manifest = raw.get('data') if isinstance(raw.get('data'), dict) else raw
-        if manifest.get('csv_url'):
-            url = urlsplit(manifest['csv_url'])
+        multi = is_multi_result(manifest)
+        csv_url = manifest.get('url') if multi and manifest.get('mode') == 'csv' else manifest.get('csv_url')
+        if csv_url:
+            url = urlsplit(csv_url)
             if url.scheme not in ('http', 'https') or not url.netloc or url.username or url.password: raise ValueError('非法CSV URL')
-        text = _download(manifest['csv_url'], timeout=args.timeout) if manifest.get('csv_url') else None
-        data = parse_minute_range_csv(text, manifest)
+        text = _download(csv_url, timeout=args.timeout) if csv_url else None
+        data = parse_multi_result(manifest, text) if multi else parse_minute_range_csv(text, manifest)
         data.pop('csv_url', None)  # 物化文件不传播签名地址。
-        content = json.dumps({'schema': 'qb_minute_range_artifact_v1', 'data': data}, ensure_ascii=False, allow_nan=False).encode('utf-8')
+        data.pop('url', None)
+        data.setdefault('shape', [len(data['rows']), len(data['columns'])])
+        schema = 'qb_minute_range_multi_artifact_v1' if multi else 'qb_minute_range_artifact_v1'
+        content = json.dumps({'schema': schema, 'data': data}, ensure_ascii=False, allow_nan=False).encode('utf-8')
         target.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.NamedTemporaryFile(dir=target.parent, delete=False) as out:
             tmp = out.name; out.write(content)
