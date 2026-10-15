@@ -5381,12 +5381,13 @@ def cmd_new_asset_page(params):
         contract['reply_mode'] = 'page_followup_v1'
         contract['final_response_steps'] = [
             'Only after a complete visible business answer, replace the summary marker with one short page-delivery sentence.',
+            'The final Markdown must begin with the draft title; emit business analysis earlier, never prepend it to this sealed draft.',
             'Do not repeat analysis or add new numerical claims; preserve the title and verified URL exactly.',
             'Send the completed draft after public verification succeeds.',
         ]
         result['agent_summary_request'].update({
             'evidence_source': '本次已验证页面的交付合同；业务分析已在首答完成',
-            'instruction': '仅用一句话说明活页已生成，可在页面查看后续数据；不重复六章，不新增数值、日期或风险结论。保持标题和链接不变。',
+            'instruction': '仅用一句话说明活页已生成，可在页面查看后续数据；不重复六章，不新增数值、日期或风险结论。最终 Markdown 必须以草稿标题开头，完整业务答案只能在此前单独发送，不能前置到本草稿。保持标题和链接不变。',
         })
     try:
         expected_title = PTC.valid(result.get('title'))
@@ -6579,6 +6580,8 @@ def cmd_download(params):
         "paradigm_tags": meta.get("paradigm_tags") or [],
         "recommend_tags": meta.get("recommend_tags") or [],
         "expires_at": meta.get("expires_at"),
+        "current_version_id": meta.get("current_version_id"),
+        "current_version_no": meta.get("current_version_no"),
     }
 
     # 4) 落盘或回传 html

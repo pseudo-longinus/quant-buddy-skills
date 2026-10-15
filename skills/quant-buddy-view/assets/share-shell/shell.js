@@ -1,6 +1,6 @@
 (function(){
   const VERSION = "share-shell-v2";
-  const REVISION = 4;
+  const REVISION = 5;
   const OFFICIAL_ORIGIN = "https://www.quantbuddy.cn";
   const PAGES_ORIGIN = "https://pages.quantbuddy.cn";
   const WAREHOUSE_CHANNEL = "qb-research-warehouse-v1";
@@ -33,6 +33,10 @@
   let headerReadyTimer=0;
   let favoriteState=false;
   let refreshBusy=false;
+  let headerUpdateCapable=false;
+  let updateFlow=null;
+  let updateTimer=0;
+  let updateHandshakeTimer=0;
   function callMaybe(v){ return typeof v === "function" ? v() : v; }
   function serviceOrigin(){
     try{
@@ -68,7 +72,7 @@
   function setRefreshBusy(busy,label){
     refreshBusy=!!busy;
     const btn=$("qbHeaderFallbackRefresh");
-    if(btn){ btn.disabled=refreshBusy; btn.textContent=label || (refreshBusy ? "取数中" : "刷新数据"); }
+    if(btn){ btn.disabled=isUpdateBusy() ? false : refreshBusy; btn.textContent=isUpdateBusy() ? "更新中" : (label || (refreshBusy ? "取数中" : "更新活页")); }
     postHeaderState("state");
   }
   async function runRefresh(){
@@ -131,7 +135,7 @@
     return Object.assign({channel:HEADER_CHANNEL,version:HEADER_PROTOCOL_VERSION,type:type,page_id:pageContext.pageId},extra || {});
   }
   function postHeaderState(type){
-    const frame=headerFrame(), message=buildHeaderMessage(type || "state",{favorited:favoriteState,refresh_busy:refreshBusy});
+    const frame=headerFrame(), message=buildHeaderMessage(type || "state",{favorited:favoriteState,refresh_busy:refreshBusy,public_update:true,update_busy:isUpdateBusy()});
     if(!headerReady || !frame || !frame.contentWindow || !message) return false;
     frame.contentWindow.postMessage(message,serviceOrigin());
     return true;
@@ -175,6 +179,7 @@
   function routeHeaderAction(action){
     if(action==="brand") return openAuthenticatedTarget(null,OFFICIAL_ORIGIN+"/dashboard?scope=favorited");
     if(action==="refresh") return runRefresh();
+    if(action==="update") return runPageUpdate();
     if(action==="favorite") return openWarehouse();
     if(action==="share") return openSharePoster();
     if(action==="ask") return openAsk(null);
@@ -186,10 +191,12 @@
     const data=event.data;
     if(data.type==="ready"){
       headerReady=true;
+      headerUpdateCapable=data.public_update===true;
       window.clearTimeout(headerReadyTimer);
       headerReadyTimer=0;
       hideHeaderFallback();
       postHeaderState("init");
+      sendUpdateStart();
       return true;
     }
     if(data.type==="resize"){
@@ -198,11 +205,140 @@
       frame.style.height=Math.round(height)+"px";
       return true;
     }
-    if(data.type==="action" && /^(brand|refresh|favorite|share|ask)$/.test(String(data.action || ""))){
+    if(data.type==="update-progress") return acceptUpdateProgress(data);
+    if(data.type==="action" && /^(brand|refresh|update|favorite|share|ask)$/.test(String(data.action || ""))){
       routeHeaderAction(data.action);
       return true;
     }
     return false;
+  }
+  function isUpdateBusy(){ return !!(updateFlow && !updateFlow.finished); }
+  function updateStorageKey(){ return "qb-public-update:"+(pageContext ? pageContext.pageId : ""); }
+  function saveUpdateFlow(){
+    try{ if(updateFlow && pageContext) window.sessionStorage.setItem(updateStorageKey(),JSON.stringify(Object.assign({},updateFlow,{page_id:pageContext.pageId,saved_at:Date.now()}))); }catch(e){}
+  }
+  function updateElapsed(){
+    if(!updateFlow) return "";
+    const seconds=Math.max(0,Math.floor(((updateFlow.finished_at || Date.now())-updateFlow.started_at)/1000));
+    return String(Math.floor(seconds/60)).padStart(2,"0")+":"+String(seconds%60).padStart(2,"0");
+  }
+  function showUpdateTimeline(){ const panel=$("qbUpdateTimeline"); if(panel){ panel.hidden=false;panel.setAttribute("aria-hidden","false"); } }
+  function closeUpdateTimeline(){ const panel=$("qbUpdateTimeline"); if(panel){ panel.hidden=true;panel.setAttribute("aria-hidden","true"); } }
+  function renderUpdateTimeline(){
+    if(!updateFlow) return;
+    const flow=updateFlow;
+    const text=(id,value)=>{ const el=$(id); if(el && el.textContent!==value) el.textContent=value; };
+    text("qbUpdateElapsed",updateElapsed());
+    text("qbUpdateDataStatus",flow.data_status==="running" ? "正在按原逻辑刷新数据" : flow.data_status==="failed" ? "刷新失败；第二步仍按权限继续" : "页面数据刷新已结束");
+    text("qbUpdateReportStatus",flow.message || "等待第一步结束");
+    text("qbUpdateHint",flow.finished ? "本次更新已结束。" : "可收起进度继续阅读，任务状态会持续同步。");
+    text("qbUpdateDataMark",flow.data_status==="running" ? "◉" : flow.data_status==="failed" ? "!" : "✓");
+    text("qbUpdateReportMark",flow.report_status==="skipped" ? "—" : /^(failed|cancelled)$/.test(flow.report_status) ? "!" : flow.finished ? "✓" : flow.report_status==="waiting" ? "○" : "◉");
+    const panel=$("qbUpdateTimeline"); if(panel) panel.dataset.busy=isUpdateBusy() ? "true" : "false";
+    const dataRow=$("qbUpdateDataRow"),reportRow=$("qbUpdateReportRow");
+    if(dataRow) dataRow.dataset.status=flow.data_status;
+    if(reportRow) reportRow.dataset.status=flow.report_status;
+    const fallback=$("qbHeaderFallbackRefresh"); if(fallback){ fallback.disabled=false;fallback.textContent=isUpdateBusy() ? "更新中" : "更新活页"; }
+    postHeaderState("state");
+    if(isUpdateBusy() && !updateTimer){ updateTimer=window.setTimeout(()=>{updateTimer=0;renderUpdateTimeline();},1000); }
+  }
+  function finishUpdate(status,message){
+    if(!updateFlow) return;
+    updateFlow.report_status=status;updateFlow.message=message;updateFlow.finished=true;updateFlow.finished_at=Date.now();
+    window.clearTimeout(updateHandshakeTimer);updateHandshakeTimer=0;
+    saveUpdateFlow();renderUpdateTimeline();
+  }
+  function sendUpdateStart(){
+    if(!updateFlow || updateFlow.finished || updateFlow.data_status==="running" || !headerReady) return false;
+    if(!headerUpdateCapable){ finishUpdate("skipped","官网页头尚未支持报告更新，本次仅刷新数据");return false; }
+    const frame=headerFrame();if(!frame || !frame.contentWindow) return false;
+    window.clearTimeout(updateHandshakeTimer);updateHandshakeTimer=0;
+    const message=buildHeaderMessage("update-data-settled",{flow_id:updateFlow.flow_id,data_failed:updateFlow.data_status==="failed",resume:!!updateFlow.sent});
+    if(updateFlow.job_id) message.job_id=updateFlow.job_id;
+    frame.contentWindow.postMessage(message,serviceOrigin());
+    updateFlow.sent=true;saveUpdateFlow();return true;
+  }
+  function waitForUpdateHeader(){
+    window.clearTimeout(updateHandshakeTimer);
+    updateHandshakeTimer=window.setTimeout(()=>{
+      updateHandshakeTimer=0;
+      if(isUpdateBusy() && !headerReady) finishUpdate("failed","报告更新连接暂不可用；第一步结果已保留。如任务已启动，请在我的活页中核对。");
+    },8000);
+  }
+  async function runPageUpdate(){
+    if(isWebAgentPreviewContext() || !pageContext) return;
+    if(isUpdateBusy()){ showUpdateTimeline();return; }
+    updateFlow={flow_id:"upd_"+Date.now().toString(36)+"_"+Math.random().toString(36).slice(2,10),started_at:Date.now(),data_status:"running",report_status:"waiting",finished:false,sent:false,message:"等待第一步结束"};
+    showUpdateTimeline();saveUpdateFlow();renderUpdateTimeline();
+    try{
+      await runRefresh();updateFlow.data_status="done";
+    }catch(e){ updateFlow.data_status="failed"; }
+    updateFlow.report_status="checking";updateFlow.message="正在核对报告更新权限";
+    saveUpdateFlow();renderUpdateTimeline();
+    if(!sendUpdateStart() && !updateFlow.finished){
+      ensureHeaderFrame();
+      waitForUpdateHeader();
+    }
+  }
+  function acceptUpdateProgress(data){
+    if(!updateFlow || updateFlow.finished || data.flow_id!==updateFlow.flow_id || updateFlow.data_status==="running"
+      || !/^(checking|queued|running|reconnecting|skipped|succeeded|no_change|failed|cancelled)$/.test(String(data.status || ""))
+      || typeof data.message!=="string" || data.message.length>500 || typeof data.finished!=="boolean"
+      || (data.job_id!==undefined && (typeof data.job_id!=="string" || !/^[A-Za-z0-9_-]{1,100}$/.test(data.job_id)))) return false;
+    const terminal=/^(skipped|succeeded|no_change|failed|cancelled)$/.test(data.status);
+    if(data.finished!==terminal) return false;
+    if(data.job_id) updateFlow.job_id=data.job_id;
+    updateFlow.report_status=data.status;updateFlow.message=data.message;
+    if(data.status==="succeeded" && data.reload===true){
+      if(!Number.isInteger(data.version_no) || data.version_no<=0 || !updateFlow.job_id){ finishUpdate("failed","发布信息尚未确认，请核对版本");return false; }
+      void reloadPublishedUpdate(data.version_no);return true;
+    }
+    if(terminal) finishUpdate(data.status,data.message);
+    else { saveUpdateFlow();renderUpdateTimeline(); }
+    return true;
+  }
+  function captureReadingPosition(){
+    const position={y:Number(window.scrollY || 0),anchor:"",offset:0};
+    if(typeof document.querySelectorAll==="function") document.querySelectorAll('main h1[id],main h2[id],main h3[id],main section[id],main article[id]').forEach(el=>{
+      const top=el.getBoundingClientRect().top;if(top<=80 && el.id){position.anchor=el.id;position.offset=top;}
+    });
+    return position;
+  }
+  async function reloadPublishedUpdate(version){
+    if(!updateFlow || updateFlow.reloading) return;
+    updateFlow.reloading=true;updateFlow.version_no=version;updateFlow.reading=captureReadingPosition();
+    updateFlow.message="已发布新版，正在加载当前页面";
+    saveUpdateFlow();renderUpdateTimeline();
+    // Unique query bypasses the old document cache; init restores the canonical URL.
+    const target=new URL(pageContext.pageUrl);target.searchParams.set("_qb_update",String(version)+"_"+updateFlow.flow_id);
+    try{ target.hash=new URL(location.href).hash; }catch(e){}
+    if(window.location && typeof window.location.replace==="function") window.location.replace(target.href);
+    else if(window.location && typeof window.location.reload==="function") window.location.reload();
+  }
+  function restoreUpdateFlow(){
+    if(!pageContext || isWebAgentPreviewContext()) return;
+    try{
+      const saved=JSON.parse(window.sessionStorage.getItem(updateStorageKey()) || "null");
+      if(!saved || saved.page_id!==pageContext.pageId || !/^upd_[A-Za-z0-9_-]{8,100}$/.test(saved.flow_id || "") || !Number.isFinite(saved.started_at) || !Number.isFinite(saved.saved_at) || Date.now()-saved.saved_at>86400000) return;
+      updateFlow=saved;
+      if(!saved.finished) updateFlow.sent=true;
+      if(saved.reloading){
+        updateFlow.reloading=false;
+        finishUpdate("succeeded",saved.data_status==="failed" ? "报告已更新；第一步刷新失败" : "报告已更新，已加载新版");
+        try{ window.history.replaceState(null,"",pageContext.pageUrl+new URL(location.href).hash); }catch(e){}
+        let interrupted=false;
+        window.addEventListener("wheel",()=>{interrupted=true;},{once:true,passive:true});
+        window.addEventListener("touchstart",()=>{interrupted=true;},{once:true,passive:true});
+        [0,250,1000].forEach(delay=>window.setTimeout(()=>{
+          if(interrupted || !saved.reading || typeof window.scrollTo!=="function") return;
+          const anchor=saved.reading.anchor && $(saved.reading.anchor);
+          const y=anchor ? window.scrollY+anchor.getBoundingClientRect().top-saved.reading.offset : saved.reading.y;
+          if(Number.isFinite(y)) window.scrollTo({top:Math.max(0,y),behavior:"auto"});
+        },delay));
+        showUpdateTimeline();
+      }else if(!saved.finished && saved.data_status==="running") finishUpdate("failed","页面曾在第一步执行期间关闭，请重新点击更新");
+      else if(!saved.finished){showUpdateTimeline();renderUpdateTimeline();}
+    }catch(e){}
   }
   function warehouseFrame(){ return $("researchWarehouseFrame"); }
   function buildWarehouseHello(context){
@@ -598,11 +734,14 @@
   function init(opts){
     state=Object.assign({},opts || {}); ensureCopyLinkButton();
     pageContext=derivePageContext(state.pageUrl || location.href);
+    restoreUpdateFlow();
     const previewContext=isWebAgentPreviewContext();
     if(pageContext && !previewContext){ ensureHeaderFrame(); ensureWarehouseFrame(); }
+    if(isUpdateBusy() && updateFlow.data_status!=="running" && !headerReady) waitForUpdateHeader();
     const fallbackBrand=$("qbHeaderFallbackBrand"), fallbackRefresh=$("qbHeaderFallbackRefresh"), fallbackFavorite=$("qbHeaderFallbackFavorite"), fallbackShare=$("qbHeaderFallbackShare"), fallbackAsk=$("qbHeaderFallbackAsk");
     if(fallbackBrand && !fallbackBrand.dataset.qbBound){ fallbackBrand.addEventListener("click",()=>routeHeaderAction("brand")); fallbackBrand.dataset.qbBound="1"; }
-    if(fallbackRefresh && !fallbackRefresh.dataset.qbBound){ fallbackRefresh.addEventListener("click",runRefresh); fallbackRefresh.dataset.qbBound="1"; }
+    if(fallbackRefresh && !fallbackRefresh.dataset.qbBound){ fallbackRefresh.addEventListener("click",runPageUpdate); fallbackRefresh.dataset.qbBound="1"; }
+    const closeUpdate=$("qbUpdateClose"); if(closeUpdate && !closeUpdate.dataset.qbBound){ closeUpdate.addEventListener("click",closeUpdateTimeline);closeUpdate.dataset.qbBound="1"; }
     if(fallbackFavorite && !fallbackFavorite.dataset.qbBound){ fallbackFavorite.addEventListener("click",openWarehouse); fallbackFavorite.dataset.qbBound="1"; }
     if(fallbackShare && !fallbackShare.dataset.qbBound){ fallbackShare.addEventListener("click",openSharePoster); fallbackShare.dataset.qbBound="1"; }
     if(fallbackAsk && !fallbackAsk.dataset.qbBound){ fallbackAsk.addEventListener("click",openAsk); fallbackAsk.dataset.qbBound="1"; }

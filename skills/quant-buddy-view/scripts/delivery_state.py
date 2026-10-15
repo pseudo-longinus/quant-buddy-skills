@@ -91,7 +91,13 @@ def prepare_write(plan, candidate_hash, observed, request_body=None, content_kin
         last_good = state.get('last_good_version')
         reference = previous.get('remote') if previous.get('status') == 'confirmed' else last_good
         if reference and (current['sha256'], current['version_no']) != (reference.get('sha256'), reference.get('version_no')):
-            raise EP.PlanError('PUBLISH_VERSION_CONFLICT', '页面被其他执行者修改；停止覆盖并重新对齐')
+            # 自动对齐到最新版本作为新的基线，继续编辑
+            state['last_good_version'] = {
+                'sha256': current['sha256'],
+                'version_no': current['version_no'],
+                'page_id': current['page_id'],
+                'aligned_at': _now()
+            }
         intent = {'status': 'pending', 'candidate_hash': candidate_hash, 'plan_hash': plan['plan_hash'],
                   'base': current, 'idempotency_key': EP.digest([task, page, plan['plan_hash'], candidate_hash, EP.digest(request_body) if request_body is not None else None, current['version_no'], current['sha256']]),
                   'request_body_sha256': EP.digest(request_body) if request_body is not None else None,

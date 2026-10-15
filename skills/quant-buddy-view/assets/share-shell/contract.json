@@ -1,6 +1,6 @@
 {
   "version": "share-shell-v2",
-  "revision": 4,
+  "revision": 5,
   "required_capabilities": [
     "research_warehouse",
     "brand_warehouse_navigation",
@@ -8,6 +8,7 @@
     "desktop_playground_navigation",
     "agent_page_refresh",
     "official_header_iframe",
-    "web_agent_auto_submit"
+    "web_agent_auto_submit",
+    "public_page_serial_update"
   ]
 }

@@ -40,7 +40,7 @@ load();
 
 ## 版本与 artifact 契约
 
-- 当前目标为 `share-shell-v2 / revision 4`，必须包含 `research_warehouse`、`brand_warehouse_navigation`、`mobile_web_agent_sheet`、`desktop_playground_navigation`、`agent_page_refresh`、`official_header_iframe` 七项能力。
+- 当前目标为 `share-shell-v2 / revision 5`，必须包含 `research_warehouse`、`brand_warehouse_navigation`、`mobile_web_agent_sheet`、`desktop_playground_navigation`、`agent_page_refresh`、`official_header_iframe`、`web_agent_auto_submit`、`public_page_serial_update` 八项能力。
 - 编译后的 HTML 注入 `QB_SHARE_SHELL_VERSION` 和 `QB_SHARE_SHELL_REVISION`，供服务端 fail-closed 检测；未识别版本或 revision 不得标记为 verified。
 - `scripts/share_shell_contract.py` 只提取 `QB_SHELL_CSS/HEADER/RESEARCH_WAREHOUSE/FOOTER/MODAL/JS` 六组 Marker，统一换行和区块首尾空白后计算 SHA-256。当前标准 artifact hash 由 canonical managed shell 生成，并必须与后台目标策略一致。
 - `refresh_share_shell:true` 只能替换这六组 Marker；正文、Data Kernel、实时数据脚本和 Card Runtime 必须保持不变。
@@ -89,3 +89,11 @@ load();
 - 页面中不再出现旧的“手机扫码查看”二维码块或模板自带刷新按钮。
 - 分享海报可预览、复制链接、复制图片、下载 PNG，二维码尺寸可扫。
 - 移动端 320px 无横向溢出，Web Agent 底部对话框约占 3/4 屏，遮罩、关闭按钮和 Escape 均可关闭。
+
+## 公开页两步更新（revision 5）
+
+官网页头 ready 声明 public_update；外壳 init/state 声明 public_update 和 update_busy。新旧两端均支持时显示「更新活页」，旧外壳继续原「刷新数据」。action:update 触发外壳旧 onRefresh；结束或失败后发送 update-data-settled（flow_id、data_failed、可选 job_id、resume）。官网来源内 GET 既有 refresh 接口检查创建者权限，随后仅 POST mode:text。401/403跳过，不弹登录或创建副本；无外部链接不阻断文字更新。
+
+官网通过 update-progress 回传同页、同flow的有限状态，外壳展示非模态两步时间线。第一步明确失败仍允许创建者继续。后台任务实际发布且验收通过才回传 reload:true/version_no；外壳整页加载一次并尽量恢复锚点或scrollY，无变化不重载。resume只读取原任务，不能重新POST不确定的请求。此功能不在WebAgent Preview中启用。
+
+此变更修改受管理的HTML/CSS/JS及能力合同。上线或迁移已有页前，配套发布quantbuddy-web，并同步skill_server检测、dunhe_backend目标策略及新版canonical artifact hash；仅部署官网不会更新已内嵌的旧外壳。本次源码改动不自动覆盖任何线上页面。

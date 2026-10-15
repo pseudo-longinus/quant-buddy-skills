@@ -31,7 +31,7 @@ Templates must not fork private header/footer/share-modal implementations. If th
 
 ## Versioned Capability Contract
 
-`assets/share-shell/contract.json` is the source contract for the current managed shell. The current target is `share-shell-v2 / revision 4` with seven required capabilities:
+`assets/share-shell/contract.json` is the source contract for the current managed shell. The current target is `share-shell-v2 / revision 5` with eight required capabilities:
 
 - `research_warehouse`
 - `brand_warehouse_navigation`
@@ -40,8 +40,9 @@ Templates must not fork private header/footer/share-modal implementations. If th
 - `agent_page_refresh`
 - `official_header_iframe`
 - `web_agent_auto_submit`
+- `public_page_serial_update`
 
-Build output exposes `QB_SHARE_SHELL_VERSION` and `QB_SHARE_SHELL_REVISION`. `scripts/share_shell_contract.py` canonicalizes the six stable Marker regions (`CSS`, `HEADER`, `RESEARCH_WAREHOUSE`, `FOOTER`, `MODAL`, `JS`) and computes their SHA-256 artifact hash. The revision-4 artifact hash is generated from the canonical managed shell and must match the released admin policy.
+Build output exposes `QB_SHARE_SHELL_VERSION` and `QB_SHARE_SHELL_REVISION`. `scripts/share_shell_contract.py` canonicalizes the six stable Marker regions (`CSS`, `HEADER`, `RESEARCH_WAREHOUSE`, `FOOTER`, `MODAL`, `JS`) and computes their SHA-256 artifact hash. The revision-5 artifact hash is generated from the canonical managed shell and must match the released admin policy.
 
 The complete visible header is hosted by the official `/embed/live-page-header` endpoint. Pure visual/layout changes belong to `quantbuddy-web` and do not require a shell revision or page-by-page refresh. Parent Bridge, `qb-live-page-header-v1` protocol, or capability-contract changes are managed artifact changes: bump `revision`, update `contract.json`, update `skill_server` detection, update the `dunhe_backend` target policy, and extend regression tests. A shell-only refresh must preserve the page body, Data Kernel, live-data scripts, Card Runtime, `page_id`, and public URL.
 
@@ -149,7 +150,7 @@ The input HTML must already contain one complete set of the six stable markers. 
 
 Local previews may pass `pageUrl`, `embedOrigin`, and `navigationOrigin` to `QBShareShell.init()`; production pages omit them and derive the current public page URL directly.
 
-The 投研仓 iframe keeps its existing preload and new-window fallback behavior on ordinary public pages. If `<meta name="qb-live-page-embed-context" content="webagent-preview">` is present, the Parent Bridge does not load the Header iframe or preload 投研仓; the official Preview HTML proxy also hides legacy `.qb-head` and revision-4 Header Host elements with `display:none` so no top gap remains. The authentication iframe is not loaded or used for hidden session probing; it is created only after the user clicks the header brand or “问一问”. Both protocols validate the official origin, exact iframe source, channel, and request/page identifier. The static page never reads cookies or receives tokens, user identity, or folder details.
+The 投研仓 iframe keeps its existing preload and new-window fallback behavior on ordinary public pages. If `<meta name="qb-live-page-embed-context" content="webagent-preview">` is present, the Parent Bridge does not load the Header iframe or preload 投研仓; the official Preview HTML proxy also hides legacy `.qb-head` and revision-5 Header Host elements with `display:none` so no top gap remains. The authentication iframe is not loaded or used for hidden session probing; it is created only after the user clicks the header brand or “问一问”. Both protocols validate the official origin, exact iframe source, channel, and request/page identifier. The static page never reads cookies or receives tokens, user identity, or folder details.
 
 ## Retrofitting Old Pages
 
@@ -174,7 +175,7 @@ python scripts/retrofit_share_shell.py '{"page_id":"page_xxx","update":true,"the
 - Verify desktop, 390px, and 320px widths have no horizontal overflow.
 - Verify header actions show `刷新数据 / 收藏 / 分享 / 问一问`.
 - Verify the Header iframe reaches trusted `ready`, receives `init/state`, routes all five actions, clamps resize to 44–120px, and yields to the lightweight fallback after 4 seconds without `ready`.
-- Verify WebAgent Preview has no header and no top gap, does not request Header/warehouse iframes under revision 4, while the public page still shows the Header iframe.
+- Verify WebAgent Preview has no header and no top gap, does not request Header/warehouse iframes under revision 5, while the public page still shows the Header iframe.
 - Verify 441px and narrower hide refresh/share labels, keep the 收藏 text visible through 320px, and have no horizontal overflow.
 - Verify the header brand stays on the current live page while `/embed/auth-continue` is authenticating and navigates only after a trusted success message. At mobile widths, verify “问一问” opens the `75dvh` chat-only `/embed/web-agent` sheet without navigation; at wider widths it keeps the Auth iframe → matching Playground path. Keep the 投研仓 iframe/new-window fallback on the same `page_id`.
 - Verify a trusted Web Agent `turn-complete` refreshes live data and `page-updated` reloads the current page; untrusted origin/source/channel/page messages do nothing.
@@ -183,3 +184,11 @@ python scripts/retrofit_share_shell.py '{"page_id":"page_xxx","update":true,"the
 - Verify copy image works, or degrades to a clear fallback message when Clipboard permissions are unavailable.
 - For browser-feedback maintenance, run `verify_page.mjs --profile ui-refinement --require-browser`; add the user's exact screenshot size with `--extra-viewport [name:]WIDTHxHEIGHT` and manually confirm clipboard/download results in the target browser.
 - For public pages, use `static_page.py update` when preserving an already shared URL.
+
+## 公开页两步更新（revision 5）
+
+官网页头 ready 声明 public_update；外壳 init/state 声明 public_update 和 update_busy。新旧两端均支持时显示「更新活页」，旧外壳继续原「刷新数据」。action:update 触发外壳旧 onRefresh；结束或失败后发送 update-data-settled（flow_id、data_failed、可选 job_id、resume）。官网来源内 GET 既有 refresh 接口检查创建者权限，随后仅 POST mode:text。401/403跳过，不弹登录或创建副本；无外部链接不阻断文字更新。
+
+官网通过 update-progress 回传同页、同flow的有限状态，外壳展示非模态两步时间线。第一步明确失败仍允许创建者继续。后台任务实际发布且验收通过才回传 reload:true/version_no；外壳整页加载一次并尽量恢复锚点或scrollY，无变化不重载。resume只读取原任务，不能重新POST不确定的请求。此功能不在WebAgent Preview中启用。
+
+此变更修改受管理的HTML/CSS/JS及能力合同。上线或迁移已有页前，配套发布quantbuddy-web，并同步skill_server检测、dunhe_backend目标策略及新版canonical artifact hash；仅部署官网不会更新已内嵌的旧外壳。本次源码改动不自动覆盖任何线上页面。

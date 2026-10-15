@@ -4,13 +4,21 @@
   <div class="qb-live-page-header-fallback" data-qb-live-page-header-fallback aria-hidden="true">
     <button class="qb-header-fallback-brand" id="qbHeaderFallbackBrand" type="button">QuantBuddy · 宽宝</button>
     <div class="qb-header-fallback-actions" aria-label="页面基本操作">
-      <button id="qbHeaderFallbackRefresh" type="button">刷新数据</button>
+      <button id="qbHeaderFallbackRefresh" type="button">更新活页</button>
       <button id="qbHeaderFallbackFavorite" type="button" aria-pressed="false">收藏</button>
       <button id="qbHeaderFallbackShare" type="button">分享</button>
       <button class="primary" id="qbHeaderFallbackAsk" type="button">问一问</button>
     </div>
   </div>
 </header>
+<aside id="qbUpdateTimeline" class="qb-update-timeline" hidden aria-hidden="true" aria-label="活页更新进度">
+  <div class="qb-update-top"><strong>更新活页</strong><span id="qbUpdateElapsed" aria-label="已等待时间">00:00</span><button id="qbUpdateClose" type="button" aria-label="收起更新进度">收起</button></div>
+  <ol aria-live="polite" aria-atomic="true">
+    <li id="qbUpdateDataRow" data-status="waiting"><span id="qbUpdateDataMark" class="qb-update-mark" aria-hidden="true">○</span><div><strong>① 刷新数据</strong><p id="qbUpdateDataStatus">等待开始</p></div></li>
+    <li id="qbUpdateReportRow" data-status="waiting"><span id="qbUpdateReportMark" class="qb-update-mark" aria-hidden="true">○</span><div><strong>② 更新报告</strong><p id="qbUpdateReportStatus">等待第一步结束</p></div></li>
+  </ol>
+  <p id="qbUpdateHint" class="qb-update-hint">可收起进度继续阅读，任务状态会持续同步。</p>
+</aside>
 <!-- QB_SHELL_HEADER_END -->
 
 <!-- QB_SHELL_RESEARCH_WAREHOUSE_START -->
