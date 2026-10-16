@@ -5,6 +5,12 @@
 
 ---
 
+## [0.7.0] — 2026-10-16
+
+- 修复进度页标题泄漏到正式活页的问题：正式发布（publish_final）或正式内容更新携带“活页生成中/活页生产中”等占位标题时，按 final_title → page_context.title → HTML <title> → 主标题顺序解析正式业务标题，不再把占位标题写入正式页面元数据。
+- 占位标题无法解析出正式标题时返回 FINAL_TITLE_REQUIRED，拒绝发布；publish_final 增加返回标题与 is_live=true 的发布后检查，page_id/URL 约束不变。
+- 普通 update 未传 title 时保留原标题的语义不变；进度页（new_page/update_progress）的占位标题行为不变。仅修改 quant-buddy-view，不涉及 skill_server。
+
 ## [0.6.99] — 2026-10-14
 
 - 公共外壳升级 share-shell-v2 / revision 5，新增 public_page_serial_update 能力：公开页先执行原刷新函数，再由官网页头按创建者权限调用已有报告更新接口。

@@ -2611,6 +2611,102 @@ def _cmd_update_preserve(params, *, endpoint, api_key):
 
 _PLANNED_UPDATE_SENTINEL = object()
 
+# These titles describe a progress snapshot only. They must never be carried into
+# the final publication metadata, where they make a live page look unfinished.
+_PROGRESS_TITLE_PLACEHOLDERS = frozenset({
+    "活页生成中",
+    "活页生产中",
+    "正在生成活页",
+})
+
+
+class _HtmlTitleParser(HTMLParser):
+    """Extract the first document <title> without regex parsing HTML."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self._in_title = False
+        self._parts = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag.lower() == "title" and not self._in_title:
+            self._in_title = True
+
+    def handle_endtag(self, tag):
+        if tag.lower() == "title" and self._in_title:
+            self._in_title = False
+
+    def handle_data(self, data):
+        if self._in_title:
+            self._parts.append(data)
+
+    @property
+    def title(self):
+        return PTC.normalize("".join(self._parts))
+
+
+def _is_progress_title(value):
+    return PTC.normalize(value) in _PROGRESS_TITLE_PLACEHOLDERS
+
+
+def _html_document_title(document):
+    parser = _HtmlTitleParser()
+    try:
+        parser.feed(str(document or ""))
+        parser.close()
+    except Exception:
+        return ""
+    return parser.title
+
+
+def _final_publish_title(params, document):
+    """Resolve a business title when progress metadata leaked into params."""
+    params = dict(params or {})
+    explicit = params.get("final_title")
+    if explicit is not None and not _is_progress_title(explicit):
+        return PTC.valid(explicit)
+
+    current = params.get("title")
+    if current is not None and not _is_progress_title(current):
+        return PTC.valid(current)
+
+    page_context = params.get("page_context")
+    if isinstance(page_context, dict):
+        context_title = page_context.get("title") or page_context.get("page_title")
+        if context_title and not _is_progress_title(context_title):
+            return PTC.valid(context_title)
+
+    document_title = _html_document_title(document)
+    if document_title and not _is_progress_title(document_title):
+        return PTC.valid(document_title)
+
+    # A document without a useful <title> can still have a single valid h1;
+    # page_title_contract is the canonical parser for that fallback.
+    try:
+        _, heading_check = PTC.prepare(document, {})
+    except PTC.TitleError:
+        heading_check = {}
+    heading_title = heading_check.get("title")
+    if heading_title and not _is_progress_title(heading_title):
+        return PTC.valid(heading_title)
+
+    raise PTC.TitleError(
+        "FINAL_TITLE_REQUIRED",
+        "正式发布不能继续使用进度页占位标题；请提供正式页面标题",
+        title=current or "",
+        placeholders=sorted(_PROGRESS_TITLE_PLACEHOLDERS),
+    )
+
+
+def _prepare_final_publish_title(params, document):
+    params = dict(params or {})
+    if _is_progress_title(params.get("title")):
+        params["title"] = _final_publish_title(params, document)
+    elif params.get("final_title") is not None:
+        params["title"] = PTC.valid(params["final_title"])
+    return params
+
+
 def _prepare_page_title(params, document, *, immutable=False):
     """Resolve title before receipts/preflight; never change an already bound HTML."""
     updated, check = PTC.prepare(document, params)
@@ -2764,11 +2860,20 @@ def cmd_update(params):
 
     if publication_plan and _is_preserve_html_qbs_live(params):
         return {"code": 1, "error": "PLANNED_TRANSFORMATION_ROUTE_REQUIRED", "message": "文件转换需独立对齐计划，不能绕过条件发布入口"}
-    if _is_preserve_html_qbs_live(params):
-        return _cmd_update_preserve(params, endpoint=endpoint, api_key=api_key)
     html, err = _read_html(params)
     if err:
         return err
+    # Raw update callers can still arrive here with the progress title. Keep
+    # progress snapshots unchanged, but normalize a final-looking update before
+    # it reaches the server so the observed leak is fixed even when publish_final
+    # was bypassed.
+    if params.get("_planned_content_kind") != "progress":
+        try:
+            params = _prepare_final_publish_title(params, html)
+        except PTC.TitleError as exc:
+            return exc.as_dict()
+    if _is_preserve_html_qbs_live(params):
+        return _cmd_update_preserve(params, endpoint=endpoint, api_key=api_key)
     try:
         params, html, title_check = _prepare_page_title(params, html, immutable=bool(publication_plan))
     except PTC.TitleError as exc:
@@ -5541,6 +5646,15 @@ def _limited_research_delivery(params):
 
 def _publish_final_validation_error(params, update_out, template_resolution, final_html):
     expected_page_id = str(params.get("page_id") or "")
+    expected_title = PTC.normalize(params.get("title"))
+    actual_title = PTC.normalize(update_out.get("title"))
+    if _is_progress_title(expected_title) or _is_progress_title(actual_title):
+        return "publish_final 返回了进度页占位标题，正式活页标题未完成"
+    if "title" in update_out and actual_title != expected_title:
+        return "publish_final 返回的页面标题与正式发布标题不一致"
+    if "is_live" in update_out and update_out.get("is_live") is not True and not _limited_research_delivery(params):
+        return "publish_final 返回的页面未进入 is_live=true 状态"
+
     actual_page_id = str(update_out.get("page_id") or "")
     if actual_page_id != expected_page_id:
         return "publish_final 返回的 page_id 与首链 page_id 不一致"
@@ -5787,6 +5901,10 @@ def cmd_publish_final(params):
     final_html, final_html_error = _read_html(params)
     if final_html_error:
         return final_html_error
+    try:
+        params = _prepare_final_publish_title(params, final_html)
+    except PTC.TitleError as exc:
+        return exc.as_dict()
     if not _is_preserve_html_qbs_live(params):
         try:
             params, final_html, _ = _prepare_page_title(params, final_html, immutable=bool(plan))
