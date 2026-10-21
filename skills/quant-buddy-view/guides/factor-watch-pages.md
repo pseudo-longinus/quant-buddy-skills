@@ -2,7 +2,7 @@
 
 适用：把"某资产/商品的涨跌怎么看"拆成 **N 个可核对因子** 的观察台页面——原油六因子、美元多空五因子、铜三因子等。目标是让 playbook 命中或用户点名的"N 因子"需求不再落入通用 research-v1 数字卡墙。
 
-骨架与参考实现在 [`../assets/page-templates/commodity-factor-watch-v1.html`](../assets/page-templates/commodity-factor-watch-v1.html)（原油六因子为参考实现），编译与验收走 [bespoke 页](bespoke-page.md) 同一条链。
+页面按本文的结构合同自建，不随技能包附带具体资产示例；编译与验收走 [bespoke 页](bespoke-page.md) 同一条链。
 
 ## 为什么不用通用 dashboard
 

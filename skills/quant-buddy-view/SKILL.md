@@ -2,7 +2,7 @@
 name: quant-buddy-view
 slug: quant-buddy-view
 author: guanzhao
-version: 0.7.0
+version: 0.7.2
 description: |
   将量化分析或已有 JPG/PNG、HTML、PDF 发布为 Quant Buddy 可分享活页或实时看板，并支持创建、更新、复用、验收和公开链接交付。适用于个股画像、估值财务、指数异动、多因子筛选、商品日报、模板、分享壳及卡片等页面。
   用户提供 QuantBuddy 活页 URL 并要求解读时也使用。显式调用 /quant-buddy-view、/qbv、qbv 或 QBV，且请求并非纯咨询、代码维护或文档解释时，默认按可分享活页任务处理。
@@ -11,7 +11,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 0.7.0
+  version: 0.7.2
   author: guanzhao
   category: quant-finance
   tags: [quant, dashboard, formula-package, static-page, publish, visualization]
@@ -334,7 +334,7 @@ npx skills update pseudo-longinus/quant-buddy-skills -y
 | 通用流程 | 标准实时看板 | [workflows/dashboard-end-to-end.md](workflows/dashboard-end-to-end.md) | 用户要“做成可分享看板/链接”，但没有指定固定页面模板 |
 | 增量维护 | 单图表增删改查 | [workflows/edit-existing-chart.md](workflows/edit-existing-chart.md) | 自己的已发布页面要加/删一条线、改时间窗口、查真实数据——只改一个图表，不是整页重建 |
 | 开发指南 | 自定义页面 | [guides/bespoke-page.md](guides/bespoke-page.md) | `build_dashboard` 做不出的自定义 HTML/CSS/SVG 页面，或迁移已有 HTML |
-| 页面形态 | 因子观察台 | [guides/factor-watch-pages.md](guides/factor-watch-pages.md) | 「N 因子观察台/涨跌怎么看」类需求：结论前置 + N 因子卡五件套 + 分组图表 + 数据节奏分层；骨架在 `assets/page-templates/commodity-factor-watch-v1.html`，验收含因子页硬门槛 |
+| 页面形态 | 因子观察台 | [guides/factor-watch-pages.md](guides/factor-watch-pages.md) | 「N 因子观察台/涨跌怎么看」类需求：结论前置 + N 因子卡五件套 + 分组图表 + 数据节奏分层；按结构合同自建，验收含因子页硬门槛 |
 | 迁移工具 | 旧页套公共外壳 | [tools/retrofit_share_shell.md](tools/retrofit_share_shell.md) | 已发布/已生成 HTML 需要去掉旧二维码、旧页头、旧页尾，并保留同一个 `page_id` 更新 |
 | 设计系统 | 活页 UI/UX 系统 | [guides/live-page-ui-ux-system.md](guides/live-page-ui-ux-system.md) | 新建或整体重构活页时，选择页面原型、主题 token、字体/密度、可组合模式和响应式转换；统一体验底线但保留页面身份 |
 | 维护指南 | 浏览器批注与整页 UI refinement | [guides/browser-feedback-refinement.md](guides/browser-feedback-refinement.md) | 用户针对已有自有页面的字体层级、间距、章节导航、sticky/折叠、响应式或分享交互提出修改；保持同一 `page_id`、runtime 合同和页面视觉身份 |
@@ -368,7 +368,7 @@ npx skills update pseudo-longinus/quant-buddy-skills -y
 |---|---|---|
 | 算出来的指标 / 回测净值 / IC / rankIC / 时序 / 自定义公式口径 | **公式包** | `package_id` |
 | 平台白名单直取的行情 / 估值 / 财务 / 资金流（收盘价、涨跌幅、PE/PB…） | 数据授权 `fast_query` | `grant_id` |
-| 部分美股期权槽位当前合约 / 滚动窗口换约表 | 数据授权 `option_contracts`（snapshot/window，动态日期，真实trade_date） | `grant_id` |
+| 部分美股及国内商品期权槽位当前合约 / 空槽 / 滚动窗口换约表 | 数据授权 `option_contracts`（snapshot/window，动态日期，真实trade_date） | `grant_id` |
 | 个股预计算画像卡（估值/财务质量等维度画像） | 数据授权 `stock_profile` | `grant_id` |
 | 已上线维度分的 TopN / 榜单 / 异动名单（动量反转、趋势结构…） | 数据授权 `composition_select` | `grant_id` |
 

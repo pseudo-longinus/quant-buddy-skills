@@ -5,6 +5,20 @@
 
 ---
 
+## [0.7.2] — 2026-10-21
+
+- 移除随技能包发布的 `assets/page-templates/commodity-factor-watch-v1.html`（原油六因子参考实现）及其目录说明；因子观察台只保留 `guides/factor-watch-pages.md` 的结构合同，页面按合同自建。
+- `pack-skill.py` 增加 `assets/page-templates` 排除规则与发布包校验，防止具体资产示例再次进入正式包。
+- 影响范围：仅移除示例资产与相关文档引用，不改变 QBS 取数合同、页面运行时、授权签发与发布接口。
+- 验证：QBV 全量测试 1058 passed / 23 skipped；新增打包排除与校验测试 2 passed；0.7.2 发布包内 `assets/page-templates` 条目为 0。
+- 迁移：已生成的旧页面不受影响；后续因子观察台页面按 `guides/factor-watch-pages.md` 的结构合同自建。
+
+## [0.7.1] — 2026-10-21
+
+- option_contracts数据授权接入国内商品期权，验证真实品种、决策日、标的期货、active/empty及空槽切换；明确空槽是可展示的映射结果。
+- 标准合约表补充中文字段、空槽/方向/切换显示及业务日期格式，保留原始数据；同步夜盘日期与行情实际日对齐规则。
+- 沿用现有bridge、授权、刷新及发布流程，国内接口依赖dataServer与skill_server配套部署。
+
 ## [0.7.0] — 2026-10-16
 
 - 修复进度页标题泄漏到正式活页的问题：正式发布（publish_final）或正式内容更新携带“活页生成中/活页生产中”等占位标题时，按 final_title → page_context.title → HTML <title> → 主标题顺序解析正式业务标题，不再把占位标题写入正式页面元数据。
