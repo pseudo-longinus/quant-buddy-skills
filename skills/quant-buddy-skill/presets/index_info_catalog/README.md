@@ -18,6 +18,7 @@
 - `a_share_option_iv.yaml`：A 股期权隐含波动率。
 - `global_classification.yaml`：GICS 行业、板块所属指数。
 - `us_option_market_data.yaml`：美股期权 E1/E2、ATM/25 Delta 的价格、成交量、持仓量、隐含波动率、所选合约到期日及行权价（共 48 项）。
+- `cn_future_option_market_data.yaml`：国内期货期权 E1/E2 × ATM-CALL/ATM-PUT/25C/25P × 收盘价/隐含波动率/持仓量/成交额（32 项）。隐含波动率为 self-IV，小数 0.25 表示 25%；空值保留。目录 ID 为正式环境快照，跨环境使用精确标题重新解析，不复用 index_id。
 - `macro_indicators.yaml`：宏观指标目录；数据来源为 `indexInfoCore` 表，使用 `index_short_title` 与 `indexinfo_id`。
 - `manifest.yaml`：业务分类文件清单和记录数。
 

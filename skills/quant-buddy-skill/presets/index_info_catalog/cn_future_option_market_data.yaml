@@ -1,0 +1,37 @@
+# Auto-generated business catalog; do not edit records by hand.
+schema_version: 2
+category: cn_future_option_market_data
+record_count: 32
+records:
+  - {id: "6ad02b786d2df745c124fda9", index_title: "国内期货期权-E1-25C-成交额"}
+  - {id: "6ad02b7a6d2df745c124fe07", index_title: "国内期货期权-E1-25C-持仓量"}
+  - {id: "6ad02b726d2df745c124fcac", index_title: "国内期货期权-E1-25C-收盘价"}
+  - {id: "6ad02b856d2df745c12500f2", index_title: "国内期货期权-E1-25C-隐含波动率"}
+  - {id: "6ad02b476d2df745c124f3bb", index_title: "国内期货期权-E1-25P-成交额"}
+  - {id: "6ad02b4a6d2df745c124f421", index_title: "国内期货期权-E1-25P-持仓量"}
+  - {id: "6ad02b426d2df745c124f2e4", index_title: "国内期货期权-E1-25P-收盘价"}
+  - {id: "6ad02b556d2df745c124f619", index_title: "国内期货期权-E1-25P-隐含波动率"}
+  - {id: "6ad02ae96d2df745c124e2d6", index_title: "国内期货期权-E1-ATM-CALL-成交额"}
+  - {id: "6ad02aeb6d2df745c124e35d", index_title: "国内期货期权-E1-ATM-CALL-持仓量"}
+  - {id: "6ad02ae36d2df745c124e1dd", index_title: "国内期货期权-E1-ATM-CALL-收盘价"}
+  - {id: "6ad02af76d2df745c124e54b", index_title: "国内期货期权-E1-ATM-CALL-隐含波动率"}
+  - {id: "6ad02b186d2df745c124eacf", index_title: "国内期货期权-E1-ATM-PUT-成交额"}
+  - {id: "6ad02b1b6d2df745c124eb60", index_title: "国内期货期权-E1-ATM-PUT-持仓量"}
+  - {id: "6ad02b136d2df745c124ea1a", index_title: "国内期货期权-E1-ATM-PUT-收盘价"}
+  - {id: "6ad02b266d2df745c124ed19", index_title: "国内期货期权-E1-ATM-PUT-隐含波动率"}
+  - {id: "6ad02da26d2df745c1259df5", index_title: "国内期货期权-E2-25C-成交额"}
+  - {id: "6ad02d9f6d2df745c1259d4c", index_title: "国内期货期权-E2-25C-持仓量"}
+  - {id: "6ad02d9a6d2df745c1259c03", index_title: "国内期货期权-E2-25C-收盘价"}
+  - {id: "6ad02d9d6d2df745c1259c8d", index_title: "国内期货期权-E2-25C-隐含波动率"}
+  - {id: "6ad02d976d2df745c1259b78", index_title: "国内期货期权-E2-25P-成交额"}
+  - {id: "6ad02d946d2df745c1259ade", index_title: "国内期货期权-E2-25P-持仓量"}
+  - {id: "6ad02d8f6d2df745c1259982", index_title: "国内期货期权-E2-25P-收盘价"}
+  - {id: "6ad02d926d2df745c1259a54", index_title: "国内期货期权-E2-25P-隐含波动率"}
+  - {id: "6ad02ba66d2df745c125080c", index_title: "国内期货期权-E2-ATM-CALL-成交额"}
+  - {id: "6ad02ba86d2df745c12508c0", index_title: "国内期货期权-E2-ATM-CALL-持仓量"}
+  - {id: "6ad02ba06d2df745c12506de", index_title: "国内期货期权-E2-ATM-CALL-收盘价"}
+  - {id: "6ad02bb36d2df745c1250b50", index_title: "国内期货期权-E2-ATM-CALL-隐含波动率"}
+  - {id: "6ad02d8c6d2df745c12598ef", index_title: "国内期货期权-E2-ATM-PUT-成交额"}
+  - {id: "6ad02d8a6d2df745c1259814", index_title: "国内期货期权-E2-ATM-PUT-持仓量"}
+  - {id: "6ad02d846d2df745c1259617", index_title: "国内期货期权-E2-ATM-PUT-收盘价"}
+  - {id: "6ad02d876d2df745c125975a", index_title: "国内期货期权-E2-ATM-PUT-隐含波动率"}

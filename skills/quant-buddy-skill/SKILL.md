@@ -2,7 +2,7 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.25.57
+version: 4.25.59
 description: |
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据；支持查询 A 股股票所属行业。
   显式日期的单值快照可同时返回按实际更新日对齐的日频行情与估值；字段日期不同时按字段自身日期展示，不将较晚刷新字段误判为无数据。
@@ -11,7 +11,7 @@ description: |
   多资产/全市场分钟、每日分钟窗口及最近N个交易日分钟使用fast_query_minute_range_multi，支持JSON/CSV和滚动数据授权。
   查询上市公司最近报告期的营业收入、净利润、归母净利润、ROE、总资产、资产负债率等财务指标（A股及部分港/美股字段，以工具返回为准）。
   查询单只股票的预计算及千维动态指标画像，按估值、财务分析、资金流向、波动率、宏观胜率背景、资产走势等维度返回最新值与上一有效值。
-  查询部分美股期权槽位的当前对应合约和滚动窗口换约信息，支持可更新活页数据授权。
+  查询部分美股及国内商品期权槽位的当前对应合约、空槽状态和滚动窗口换约信息，支持可更新活页数据授权。
   支持A股选股筛选、因子计算、策略回测、净值对比、行业聚合排名、上传自有因子CSV、渲染图表。
   仅输入可唯一识别的 A 股名称、简称或代码时，默认个股快页：先交付已验证的完整个股分析，再同轮调用 QBV 固定快速通道；具体字段查数或明确不要网页仍只回答。
   港股、美股优先支持行情价格查询；财务/报告期字段应先尝试 fast_query(report)，按工具实际返回决定。
@@ -20,7 +20,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.25.57
+  version: 4.25.59
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -111,11 +111,13 @@ runtimeRequirements:
 
 **口径转换（confirmDataMulti 查询词）**：用户写 `PE(TTM)` / `归母净利润` 等英文或缩写时，查询词应使用**中文规范名**（如 `市盈率 TTM` / `归母净利润`），而不是把用户原文照抄进 `data_desc`。详细规则见 `workflows/global-rules.md#指标口径精确匹配`。
 
+**回测口径硬规则**：`回测()` 的交易时机同时决定成交时点与收益率记账口径。`当天开盘买入` / `第二天开盘买入` 按**开盘到开盘**收益记账（`今日开盘/昨日开盘-1`，含隔夜跳空，跨长假后可超过常规涨跌停）；`当天收盘买入` 按预物化日收益率记账。看到极端单日收益先跑同交易时机基准，不用涨跌停直觉直接判错。`信号按列归一`适合每日总权重为1的等权/因子组合；`信号不归一`表示输入原值就是目标仓位/目标暴露，0-1 择时与0.3等目标仓位不得强制归一。
+
 ---
 
-## 美股期权对应合约查询
+## 美股及国内商品期权对应合约查询
 
-用户问槽位对应合约、换约/换月，或要解释期权IV、价格、持仓量变化时，读取 [tools/query_option_contracts.md](tools/query_option_contracts.md)，使用独立工具 `query_option_contracts`。新参数为 `asset + query_type`：snapshot查各槽最新已生效合约，window用lookback_days查自然日滚动窗口；参数按工具说明提供。支持QBV `option_contracts` 数据授权，每次取数动态推进日期。保留实际trade_date，按行情实际日与选约生效日对齐，不把拼接价格当持有收益、不前填缺失映射。公开参数由skill_server转换为既有Celery日期查询，dataServer协议不改；新版skill_server未部署不得假装查询成功。
+用户问槽位对应合约、换约/换月，或要解释期权IV、价格、持仓量变化时，读取 [tools/query_option_contracts.md](tools/query_option_contracts.md)，使用 `query_option_contracts`。参数为 `asset + query_type`：snapshot查最新已生效映射，window用lookback_days查自然日窗口。美股按纽约日期，国内按北京时间及品种夜盘归属交易日；国内empty为空槽，不能补旧合约，E1/E2不等同于期货主力/次主力。支持QBV `option_contracts` 动态授权。保留实际trade_date，按行情实际日与选约生效日对齐，不把拼接价格当持有收益。skill_server将公开参数转换为各市场Celery五字段日期查询；国内依赖新增dataServer查询任务，未部署不得假装成功。
 
 ## 已有文件转活页：先交 QBV 静态托管
 
@@ -524,7 +526,7 @@ SKILL_ROOT/
 
 | ✅ 支持 | ⚠️ 有条件支持 | ❌ 不支持（短期内不会支持） |
 |------|------|------|
-| A股个股（沪深主板/创业板/科创板/北交所） | ETF / LOF / 场外基金（先 grep 本地资产库，能唯一命中则正常执行；未命中才告知不支持）；期货行情/窗口序列（先 grep `presets/assets_db/future.yaml`，唯一命中后按工具返回尝试行情字段；不承诺估值/财务/K线图）；部分美股期权槽位合约映射及换约（query_option_contracts，以实际返回为准） | 完整期权链及未覆盖市场/标的的期权 |
+| A股个股（沪深主板/创业板/科创板/北交所） | ETF / LOF / 场外基金（先 grep 本地资产库，能唯一命中则正常执行；未命中才告知不支持）；期货行情/窗口序列（先 grep `presets/assets_db/future.yaml`，唯一命中后按工具返回尝试行情字段；不承诺估值/财务/K线图）；部分美股及国内商品期权槽位合约映射、空槽及换约（query_option_contracts，以实际返回为准） | 完整期权链及未覆盖市场/标的的期权 |
 | 港股个股（HK + 代码，如 HK0001） | | 台股 / 韩股 / 日股 / 德股等其他境外市场 |
 | 美股个股（NASDAQ: 代码.N；NYSE: 代码.O；AMEX: 代码.A） | | |
 | 主要宽基指数（沪深300、中证500、万得全A等） | | |

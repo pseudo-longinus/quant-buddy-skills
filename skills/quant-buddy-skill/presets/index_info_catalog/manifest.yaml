@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
-  "generated_at": "2026-10-08T10:58:16+08:00",
-  "total_records": 2737,
+  "generated_at": "2026-10-16T16:15:00+08:00",
+  "total_records": 2769,
   "categories": {
     "a_share_financials": {
       "file": "a_share_financials.yaml",
@@ -34,6 +34,10 @@
     "macro_indicators": {
       "file": "macro_indicators.yaml",
       "record_count": 171
+    },
+    "cn_future_option_market_data": {
+      "file": "cn_future_option_market_data.yaml",
+      "record_count": 32
     }
   }
 }

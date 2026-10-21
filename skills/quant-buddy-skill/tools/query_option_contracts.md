@@ -1,59 +1,64 @@
-# query_option_contracts — 美股期权槽位合约
+# query_option_contracts — 美股及国内商品期权槽位合约
 
-新版skill_server部署后使用，dataServer保持原有日期范围任务，无需新增query_type参数；Skill 文档变更不代表服务已经上线。
-`POST /skill/queryOptionContracts`。只读 assignment 与必要同表前序，不查询行情/检查点，不重选、不前填、不复权。
+`POST /skill/queryOptionContracts`。只读 assignment 与必要同表前序，不重选、不前填，不附加行情检查。
+国内功能需部署新增dataServer任务及配套skill_server；Skill更新不等于服务上线。
 
 ## 何时调用
 
-查询槽位当前对应合约、最近换约/换月、或解释拼接 IV/价格/持仓量跳变时使用。
-只查询 IV 值时不强制附加本工具；不能把拼接价变动解释为持有同一合约的收益。
+查询槽位当前对应合约、空槽或最近换约，解释拼接IV/价格/持仓量跳变时使用。
+仅查IV数值不强制附加本工具；不能把拼接价变化当作持有同一合约的收益。
 
 ## 参数
 
-- `asset` 必填，单个名称、简称或代码，如 苹果、Apple、AAPL、AAPL.O；复用既有多字段匹配，不强制市场后缀。目前仅支持部分美股标的期权。
-- `query_type` 必填：`snapshot` 或 `window`。
-- `slots` 可选，省略查全部八槽；指定时1～8个合法不重复值：E1/E2分别搭配ATM-CALL、ATM-PUT、25C、25P，不传ATM_CALL。
-- `snapshot` 只传asset/query_type及可选slots，**禁止 lookback_days/mode**。返回每槽不晚于纽约当地今天的最新已生效映射，每槽最多一条。
-- `window` 必须传整数 `lookback_days:1～366`，按**自然日**、包含纽约当地今天，不是交易日；`mode` 默认 `daily`，也可 `changes`。
-- 公开查询只使用上述动态参数。固定历史日需求可在window支持范围内按真实日期匹配；超过动态窗口范围时明确说明限制。
+- `asset` 必填，单个名称、简称或代码，如 苹果、AAPL、螺纹钢、RB、RB.SHF，按既有多字段匹配，不强制后缀。
+  国内按商品品种查询，不接受具体月份期货合约；股指期权暂未开放。歧义时按候选代码修正。
+- `query_type` 必填：snapshot/window。
+- `slots` 可选，省略全部八槽；1～8个不重复值：E1/E2搭配ATM-CALL、ATM-PUT、25C、25P，不传ATM_CALL。
+  E1/E2遵循存储选约规则，不等于期货主力/次主力。
+- snapshot禁止lookback_days/mode，每槽最多一条最新已生效记录；国内请求槽来自同日完整批次。
+- window必须提供整数lookback_days:1～366，按自然日包含市场截止日期，不是交易日；mode默认daily，也可changes。
+- task_id是可选追踪信息，不要求用户提供。
 
 ```json
-{"asset":"苹果","slots":["E1-ATM-CALL","E1-25C"],"query_type":"snapshot"}
+{"asset":"螺纹钢","slots":["E1-ATM-CALL","E1-25P"],"query_type":"snapshot"}
 ```
 
 ```json
-{"asset":"苹果","slots":["E1-ATM-CALL"],"query_type":"window","lookback_days":90,"mode":"changes"}
+{"asset":"RB.SHF","slots":["E1-ATM-CALL"],"query_type":"window","lookback_days":90,"mode":"changes"}
 ```
 
-query_type/lookback_days只用于skill_server参数转换；Celery仍只传ticker/start_date/end_date/slots/mode。snapshot复用原当天查询及baselines，缺当天时按实际映射日分组补查同一daily任务以取真实前序，不新增检查任务。
-
-每次执行按 `America/New_York` 日期计算。纽约日期为2026-10-12时，90天窗口为2026-07-15～2026-10-12。
+美股以America/New_York当地今天为截止日；国内使用北京时间及已开始交易时段所属交易日，
+有夜盘品种在夜盘开始后按下一交易日归属，节假日和无夜盘品种按交易日历及品种配置判断。
+窗口起始日=截止日减N−1个自然日。公开query_type/lookback_days由skill_server转换，
+各市场Celery任务仅接收ticker/start_date/end_date/slots/mode；不新增检查任务。
 
 ## 简洁结果
 
-`data` 只有 `ticker`、`records` 及必要时的 `notes`。每行11项扁平重点字段：
-`trade_date/slot/contract/expiration/strike/call_put/changed/previous_date/previous_contract/previous_expiration/previous_strike`。
+`data={ticker,records,notes?}`，国内另有product_id。美股保留十一项扁平字段：
+trade_date/slot/contract/expiration/strike/call_put/changed/previous_date/previous_contract/previous_expiration/previous_strike。
+国内增加decision_date、underlying_contract、status，仅empty行附empty_reason。
 
-- `trade_date` 是映射实际生效日，snapshot可能早于今天，不保证合约仍可交易，不统一改成查询日；不同槽可能日期不同。
-- `changed` 表示该条相对同槽前一条实际记录的合约代码是否变化，无前序为null；snapshot不代表“今天换约”。
-- 前序日期/代码/到期日/行权价来自真实前序记录，缺失为null，不解析代码猜测；strike保留精确字符串。
-- `changes` 只返回合约代码变化，另保留每槽窗口首条基准；额外基准行带 `is_baseline:true`，首条已经换约则不重复。
-- 正常不展示固定warnings或审计树。确有缺槽/日期衔接缺口才有简短notes，缺失日不前填。
-- 空records只代表本映射数据源未查到，不等于市场没有期权。映射存在不代表close/IV行情更新。
-- 返回当前修订历史；未核验交易日历、乘数、交割物或调整状态，不把它用作交易合约规格证明。
+- trade_date是实际生效日，decision_date是决策日；T+1指下一交易日。不能把旧记录日期改为今天。
+- underlying_contract来自真实合约规格，不用选约锚点代替、不从合约代码猜测。
+- status=empty是成功查询到的空槽；合约及其规格为null，按empty_reason说明。不能跳过它找旧active合约。
+- changed表示与同槽真实前序比较，无前序为null。国内active↔empty也计为变化，empty→empty不计。
+  previous_date非null而previous_contract为null，表示前序为空槽；所有前序字段null表示无前序。
+- changes保留窗口每槽首条基准，额外保留时is_baseline=true；日期无记录不前填。
+- strike为精确十进制字符串；正常不展示审计树或固定warnings。空records不代表市场没有期权。
+- 映射不代表close/IV已更新或合约仍可交易；当前修订映射不保证等同于某次历史矩阵发布批次。
 
 ## 活页持续更新
 
-活页走 `quant-buddy-view` 数据授权 `kind:option_contracts`，payload原样使用上述新参数。
-先通过QBV bridge验证真实数据，再注册授权；网页只嵌入grant_id/signature，不放API Key。
-授权冻结标准资产/槽位/窗口规则，每次queryDataGrant重算日期，不冻结注册当天日期。
-QBV `build_dashboard` 已把records转换为合约表；显示真实trade_date并支持既有刷新。
-详细流程见QBV `tools/data_grant.md`；无需公式包和附加检查任务。
+QBV使用kind:option_contracts，payload沿用公开参数。先通过bridge验证真实数据再注册，网页只嵌入grant_id/signature。
+授权冻结标准品种、市场、槽位及窗口规则，取数时重新解析日期；无需公式包。
+按每行真实trade_date展示，与旧行情对应时使用同日映射，不把最新snapshot合约贴到历史行情。
+QBV标准合约表支持空槽、真实标的及空槽原因；实际刷新失败按已有流程保留上次有效内容并提示。
+详见QBV tools/data_grant.md。
 
 ## 错误
 
-- HTTP400：按 `error.parameter/error.usage` 改正；有两种示例和合法槽位，不原样重试。
-- 非美股资产提示“目前仅支持部分美股标的的期权合约查询”；名称未找到可换简称或代码，不能要求强制后缀。
-- HTTP502：上游数据/合同异常，不猜测结果。
-- HTTP503/504：服务不可用或排队/执行/回传超时；后台任务可能还在执行，不立即重复提交。
-- 404未知接口/工具：配套未部署，停止并说明，不编造已查到结果。
+- 400按error.parameter/error.usage修正，不原样重试；月份期货合约改用品种，歧义资产使用候选代码。
+- 502是上游身份、批次或协议异常，不能补旧批次或猜测结果。
+- 503可能是服务不可用、品种元数据或交易日历覆盖不足；联系维护者，不自行造交易日历。
+- 504包含排队/执行/回传超时，后台任务可能还在执行，不立即重复提交。
+- 未知工具/接口说明配套尚不可用，停止并如实说明。
