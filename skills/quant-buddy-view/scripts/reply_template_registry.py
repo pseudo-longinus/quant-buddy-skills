@@ -84,11 +84,15 @@ def _normalize_policy(policy, template_id, headings):
         normalized_groups.append(values)
     if policy.get("placeholder_policy") != "partial_only":
         raise ValueError(f"{template_id}.placeholder_policy 目前只支持 partial_only")
+    markers = policy.get("required_markers") or []
+    if markers:
+        markers = _string_list(markers, "required_markers", template_id)
     return {
         "version": POLICY_VERSION,
         "required_sections": required,
         "optional_sections": optional,
         "at_least_one_groups": normalized_groups,
+        "required_markers": markers,
         "omit_all_missing_columns": policy.get("omit_all_missing_columns") is True,
         "omit_all_missing_rows": policy.get("omit_all_missing_rows") is True,
         "placeholder_policy": "partial_only",

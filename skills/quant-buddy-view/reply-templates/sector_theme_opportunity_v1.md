@@ -21,10 +21,21 @@ Use for a sector, industry, or theme page that identifies a stock pool, ranks ca
 - Preserve the conclusion, sector overview, verified stock pool, sub-themes, catalysts/risks, and disclaimer.
 - Missing values stay `--`; an unverified company must not be promoted into the core pool.
 
+## 一句话总结合同
+
+`一句话总结` 是面向用户原问题收口的模块，综合四类输入：用户原问题原话；预研增强任务说明（背景/关注点/矛盾/隐含需求）；本轮联网检索可靠信息（必须有来源和发布日期）；前文已验证平台数据。
+
+- 2–4 个分句，总长 150–300 字；第一句直接回答原问题，不复述问题本身。
+- 平台数据只选最有决策价值的 1–2 个，带日期口径，不堆数字。
+- 外部检索最多 1 条，格式「外部报道（来源，发布日期）显示……」；与平台数据时点或口径不同必须点明；无可靠外部结果则省略，不得编造。
+- 末句给条件式观察（若……则……），不预测明日涨跌、不给目标价或精确点位。
+- 不描述搜索、读取、模板、工具等过程；不得出现前文没有的指标和结论。
+- 必须回答主线是否仍有效、主要分歧是什么、什么条件下退潮；不得把主题热度等同于业绩兑现。
+
 ## Markdown Skeleton
 
 ```markdown
-【结论行】{赛道/主题} 当前景气 {定性}，核心标的 {N} 只（按 {排序维度} 排序）。
+**一句话总结**：{直接回答主线是否有效与核心矛盾；接 1–2 个关键平台数据；有可靠外部催化时带来源与发布日期；给退潮/延续条件}
 
 ## 赛道概览
 

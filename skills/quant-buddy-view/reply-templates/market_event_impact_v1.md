@@ -21,10 +21,21 @@ Use for broad market, index, commodity, or event-impact pages where the answer s
 - Do not give precise index targets. Use qualitative positioning and risk framing.
 - Append `dashboard_guidance_appendix_v1` only when the current data contains a sustainable tracking signal.
 
+## 一句话总结合同
+
+`一句话总结` 是面向用户原问题收口的模块，综合四类输入：用户原问题原话；预研增强任务说明（背景/关注点/矛盾/隐含需求）；本轮联网检索可靠信息（必须有来源和发布日期）；前文已验证平台数据。
+
+- 2–4 个分句，总长 150–300 字；第一句直接回答原问题，不复述问题本身。
+- 平台数据只选最有决策价值的 1–2 个，带日期口径，不堆数字。
+- 外部检索最多 1 条，格式「外部报道（来源，发布日期）显示……」；与平台数据时点或口径不同必须点明；无可靠外部结果则省略，不得编造。
+- 末句给条件式观察（若……则……），不预测明日涨跌、不给目标价或精确点位。
+- 不描述搜索、读取、模板、工具等过程；不得出现前文没有的指标和结论。
+- 区分已发生事实、市场反应、传导机制与推断；收口给影响窗口与后续观察变量。
+
 ## Markdown Skeleton
 
 ```markdown
-【结论行】{时间范围} 大盘 {方向}，主线 {赛道/资产}，关键变量 {事件/宏观因素}。
+**一句话总结**：{直接回答事件影响判断；区分已验证事实与市场反应；有可靠外部结果时带来源与发布日期；给影响窗口与观察变量}
 
 ## 指数表
 

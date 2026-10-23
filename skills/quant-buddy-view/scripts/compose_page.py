@@ -11,6 +11,7 @@ import common as C
 import execution_plan as EP
 import runtime_credentials as RC
 import compose_inputs as CI
+import delivery_recovery as DR
 
 RECEIPT_FILE = 'receipts/compose-build.json'
 SUPPORTED = {'layout', 'layout+style', 'original'}
@@ -207,6 +208,10 @@ def build(params):
         for key in ('research_contract', 'research_checks', 'research_status', 'delivery_kind'):
             spec[key] = plan.get(key, {'research_status': 'unknown', 'delivery_kind': 'result'}.get(key))
         spec.pop('emit', None)
+        # Input/routing errors above never reach this point, so they never
+        # consume the shared build/repair budget.
+        exhausted = DR.compose_build_gate(params, plan)
+        if exhausted: return exhausted
         built = BD._build_authorized(spec)
         if built.get('code') != 0: return built
         document = artifact.read_text(encoding='utf-8')
@@ -250,6 +255,9 @@ def build(params):
                     'publication_ready': False, 'compose_receipt_file': str(receipt_path), **CI.prepare(plan, params)}
         publish_path = C.task_temp_path(task, 'compose/publish-params.json', create_parent=True)
         EP.atomic_json(publish_path, publish)
+        # Count only builds that produced a publishable candidate; missing
+        # evidence/parameters above are input errors with a corrected draft.
+        DR.record_compose_build(params, plan)
         return {**built, 'out_file': str(artifact), 'page_id': plan['target_page_id'], 'terminal': False,
                 'compose_receipt_file': str(receipt_path), 'plan_hash': plan['plan_hash'],
                 'message': '完整Compose候选页已生成；尚未完成浏览器验收和发布',

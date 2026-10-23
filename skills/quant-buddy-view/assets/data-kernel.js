@@ -604,6 +604,32 @@ const QB = (function () {
     });
   }
 
+  /* fast_query 数据授权快照：统一转成 {资产名: {字段: {v,d,unit}}}。
+     兼容已经按该形状整理的输入，避免同一页面重复适配两种返回结构。 */
+  function snapshotRows(out, grant_id) {
+    const entry = out && grant_id && Object.prototype.hasOwnProperty.call(out, grant_id)
+      ? out[grant_id] : null;
+    const data = entry && entry.data ? entry.data : out;
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return {};
+    if (data.results && typeof data.results === 'object' && !Array.isArray(data.results)) return data.results;
+    if (!Array.isArray(data.results)) return data;
+    const rows = {};
+    for (const result of data.results) {
+      if (!result || typeof result !== 'object') continue;
+      const asset = result.asset_name || result.name || result.ticker || result.asset;
+      if (!asset) continue;
+      const fields = {};
+      for (const field of (Array.isArray(result.fields) ? result.fields : [])) {
+        if (!field || typeof field !== 'object') continue;
+        const intent = field.intent || field.name || field.field;
+        if (!intent) continue;
+        fields[intent] = { v: field.value, d: field.date, unit: field.unit == null ? null : field.unit };
+      }
+      rows[asset] = fields;
+    }
+    return rows;
+  }
+
   async function queryMany(packagesByRole, opts) {
     const entries = Object.entries(packagesByRole || {}).filter(([, cfg]) => cfg);
     const outputsByRole = {};
@@ -756,7 +782,7 @@ const QB = (function () {
   }
 
   return {
-    query, queryMany, queryGrant, apiUrl,
+    query, queryMany, queryGrant, apiUrl, snapshotRows,
     runtime: { begin: _runtimeBegin, transport: _runtimeTransport, fail: _runtimeFail, end: _runtimeEnd },
     num, outputStatus,
     lastValue, lastDate, series, values, topValues, statDate,

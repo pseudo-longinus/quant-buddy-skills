@@ -215,17 +215,29 @@ def evaluate_option_contracts(payload, result):
     if not isinstance(data, dict) or not isinstance(data.get('ticker'), str) or not data.get('ticker'):
         return _failure('OPTION_RESPONSE_INVALID')
     requested = _ticker(payload.get('asset'))
-    if re.fullmatch(r'[A-Z0-9_]+\.[NOA]', requested) and requested != _ticker(data['ticker']):
+    requested = requested.replace('_S.', '.')
+    if re.fullmatch(r'[A-Z0-9_]+\.(?:[NOA]|SHF|DCE|CZC|INE|GFE)', requested) and requested != _ticker(data['ticker']):
         return _failure('OPTION_ASSET_MISMATCH')
     rows = data.get('records')
     if not isinstance(rows, list): return _failure('OPTION_RECORDS_INVALID')
     if not rows: return _failure('OPTION_DATA_EMPTY', 'data')
+    domestic = 'product_id' in data
+    if domestic:
+        match = re.fullmatch(r'([A-Z]+)\.(SHF|DCE|CZC|INE|GFE)', data['ticker'])
+        exchanges = {'SHF': 'SHFE', 'DCE': 'DCE', 'CZC': 'CZCE', 'INE': 'INE', 'GFE': 'GFEX'}
+        if not match or data['product_id'] != f'{exchanges[match[2]]}:{match[1]}':
+            return _failure('OPTION_PRODUCT_INVALID')
+    elif any(isinstance(row, dict) and 'status' in row for row in rows):
+        return _failure('OPTION_PRODUCT_INVALID')
     slots = payload.get('slots') or [f'{t}-{n}' for t in ('E1','E2') for n in ('ATM-CALL','ATM-PUT','25C','25P')]
     seen, snapshot_slots = set(), set()
     def valid_date(value):
         if type(value) is not int: return False
         try: return datetime.strptime(str(value), '%Y%m%d').strftime('%Y%m%d') == str(value)
         except ValueError: return False
+    def valid_strike(value):
+        return (isinstance(value, str) and bool(re.fullmatch(r'\d+(\.\d+)?', value))
+                and math.isfinite(float(value)) and float(value) > 0)
     for row in rows:
         if not isinstance(row, dict): return _failure('OPTION_RECORD_INVALID')
         slot, day = row.get('slot'), row.get('trade_date')
@@ -235,9 +247,20 @@ def evaluate_option_contracts(payload, result):
         seen.add(key)
         if payload.get('query_type') == 'snapshot' and slot in snapshot_slots: return _failure('OPTION_SNAPSHOT_MULTIPLE_ROWS')
         snapshot_slots.add(slot)
-        if not isinstance(row.get('contract'),str) or not row['contract']: return _failure('OPTION_CONTRACT_MISSING')
-        if not valid_date(row.get('expiration')) or row['expiration'] < day: return _failure('OPTION_EXPIRATION_INVALID')
-        if not isinstance(row.get('strike'),str) or not re.fullmatch(r'\d+(\.\d+)?', row['strike']) or not math.isfinite(float(row['strike'])) or float(row['strike']) <= 0: return _failure('OPTION_STRIKE_INVALID')
+        if domestic:
+            if row.get('status') not in ('active', 'empty') or not valid_date(row.get('decision_date')) or row['decision_date'] >= day:
+                return _failure('OPTION_STATUS_INVALID')
+        empty = domestic and row['status'] == 'empty'
+        if empty:
+            if (any(key not in row or row[key] is not None for key in ('contract', 'underlying_contract', 'expiration', 'strike'))
+                    or not isinstance(row.get('empty_reason'), str) or not row['empty_reason']):
+                return _failure('OPTION_EMPTY_INVALID')
+        else:
+            if not isinstance(row.get('contract'),str) or not row['contract']: return _failure('OPTION_CONTRACT_MISSING')
+            if not valid_date(row.get('expiration')) or row['expiration'] < day: return _failure('OPTION_EXPIRATION_INVALID')
+            if not valid_strike(row.get('strike')): return _failure('OPTION_STRIKE_INVALID')
+            if domestic and (not isinstance(row.get('underlying_contract'), str) or not row['underlying_contract'] or row.get('empty_reason') is not None):
+                return _failure('OPTION_UNDERLYING_INVALID')
         if row.get('call_put') != ('put' if slot.endswith(('PUT','25P')) else 'call'): return _failure('OPTION_DIRECTION_INVALID')
         required = {'changed', 'previous_date', 'previous_contract', 'previous_expiration', 'previous_strike'}
         if not required <= set(row): return _failure('OPTION_RECORD_INVALID')
@@ -246,13 +269,20 @@ def evaluate_option_contracts(payload, result):
         if pd is None:
             if any(row[k] is not None for k in required): return _failure('OPTION_PREVIOUS_INVALID')
         else:
-            if not valid_date(pd) or pd >= day or not isinstance(pc, str) or not pc:
+            if not valid_date(pd) or pd >= day:
                 return _failure('OPTION_PREVIOUS_INVALID')
+            if pc is None and domestic:
+                if row['previous_expiration'] is not None or row['previous_strike'] is not None:
+                    return _failure('OPTION_PREVIOUS_INVALID')
+            else:
+                if not isinstance(pc, str) or not pc: return _failure('OPTION_PREVIOUS_INVALID')
+                pe, ps = row['previous_expiration'], row['previous_strike']
+                if not valid_date(pe) or pe < pd: return _failure('OPTION_PREVIOUS_INVALID')
+                if not valid_strike(ps): return _failure('OPTION_PREVIOUS_INVALID')
             if row['changed'] != (pc != row['contract']): return _failure('OPTION_CHANGE_INVALID')
-            pe, ps = row['previous_expiration'], row['previous_strike']
-            if not valid_date(pe) or pe < pd: return _failure('OPTION_PREVIOUS_INVALID')
-            if not isinstance(ps, str) or not re.fullmatch(r'\d+(\.\d+)?', ps) or not math.isfinite(float(ps)) or float(ps) <= 0:
-                return _failure('OPTION_PREVIOUS_INVALID')
         if 'is_baseline' in row and (row['is_baseline'] is not True or payload.get('mode') != 'changes'):
             return _failure('OPTION_BASELINE_INVALID')
+    if domestic and payload.get('query_type') == 'snapshot':
+        if len({row['trade_date'] for row in rows}) != 1 or snapshot_slots != set(slots):
+            return _failure('OPTION_SNAPSHOT_INCOMPLETE')
     return {'success': True}

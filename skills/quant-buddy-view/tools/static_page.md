@@ -39,8 +39,9 @@ python scripts/static_page.py image_list '{"page_id":"page_xxx"}'
 |------|-------------|
 | 单一股票快速页 | `POST /skill/newAssetPage`（脚本命令 `new_asset_page`；支持 A 股、港股和美股，asset 必填，task_id 由请求体 / `x-task-id` 透传） |
 | 首链进度页 | 脚本包装：`new_page` 调 `uploadStaticPage`，`update_progress` 调 `updateStaticPage` |
-| 首链最终发布 | 脚本包装：`publish_final` 先调 `update_progress` 进入 `final_publish`，再调 `updateStaticPage` 写正式活页；失败时回写失败进度页 |
+| 正式活页写入（内部步骤） | `publish_final` 只在 `publish_verified` 内部执行：先进入 `final_publish` 进度，再调 `updateStaticPage` 写正式活页；失败时回写失败进度页。计划任务直接调用返回 `PUBLISH_VERIFIED_REQUIRED` 与 `next_action` |
 | 分级验收发布 | 脚本包装：`publish_verified` 固定执行 `fork_validate → fork-local 浏览器门禁 → publish_final → public-smoke` |
+| 已写入页复验 | 脚本包装：`verify_published`（task_id 必填，page_id 默认取计划目标页）只对已确认写入的目标页重跑 public-smoke 与版本/SHA 一致性检查；通过则记 verified=true。不改执行计划、不重新发布、不消耗修复预算；失败返回 failure_kind（`network_unreachable` / `content`）与诊断。publish_verified 因网络不可达返回 next_action=verify_published 时使用 |
 | 上传 | `POST /skill/uploadStaticPage` |
 | 替换 | `POST /skill/updateStaticPage` |
 | 既有活页解读数据 | `GET /skill/getPageDetail?url=&need_data=true`（服务端读取绑定的公式包/Data Grant 最新数据，不返回 signature） |
@@ -165,15 +166,15 @@ python scripts/static_page.py verify_card_runtime '{"page_ids":["page_xxx","page
 
 常见业务错误包括：`ASSET_NOT_FOUND`、`ASSET_NOT_ASHARE`、`SOURCE_TAG_NOT_FOUND`、`SOURCE_PAGE_NOT_FOUND`、`GRANT_REGISTER_FAILED`、`PAGE_UPLOAD_FAILED`。后端 `code != 0` 时脚本原样返回错误结构，不伪装成成功页面。
 
-## 首链进度页（new_page / update_progress / publish_final）
+## 首链进度页（new_page / update_progress）
 
-`new_page` / `update_progress` / `publish_final` 是脚本侧的轻封装，不需要新增后端接口：`new_page` 上传一份“活页生成中”的 HTML，`update_progress` 用同一个 `page_id` 调 `update` 更新进度内容，`publish_final` 用同一个 `page_id` 完成最终正式活页发布。它适合被承接页面放进 iframe：承接页面定时刷新 iframe URL，进度页本身只负责展示当前进度。
+`new_page` / `update_progress` 是脚本侧的轻封装，不需要新增后端接口：`new_page` 上传一份“活页生成中”的 HTML，`update_progress` 用同一个 `page_id` 调 `update` 更新进度内容；最终正式活页由 `publish_verified` 发布到同一个 `page_id`（内部调用 `publish_final`）。它适合被承接页面放进 iframe：承接页面定时刷新 iframe URL，进度页本身只负责展示当前进度。
 
 进度页约束：
 
 - 不包含 `setTimeout` / `setInterval` / `location.replace` / `meta refresh` / `postMessage`；
 - 默认接入 QuantBuddy 公共页头页尾，并套浅色 share shell theme；如内部调试确实不要页头页尾，可显式传 `ensure_share_shell:false`；
-- 首链流程的最终正式活页默认走 `publish_final`，保留普通 `update` 的 share shell 门禁。
+- 首链流程的最终正式活页走 `publish_verified`；其内部的 `publish_final` 保留普通 `update` 的 share shell 门禁。出错按返回的 `next_action` 处理。
 - `new_page` 在当前 task 完成 `templates(recommend:"all")` 后，要求 Agent 显式传 `routing_decision`：fork 引用本次候选的 `source_template_id`，unmatched 指出最接近候选、受控 `reason_code` 与实质能力缺口。脚本校验并把决定与 `page_id` 写入 task-scoped `routing-credential.json`。
 - `publish_final` 会先把进度推进到 `final_publish`；若正式 HTML 更新失败，它会把同一个 `page_id` 回写成 `failed` 进度页，避免用户刷新后长期停在上一阶段。
 - `publish_final` 在网络写入前复核路由：已选 fork 必须已有 `fork_prepare` 继承绑定或 `fork_compose` 借鉴绑定。fork 一经判定不得改判 unmatched；`routing_override` 会被拒绝。`build_dashboard` 对 inherit/inherit_augment 禁止整页构建，Compose 仅允许绑定后的 `emit:"panel_block"`。
@@ -182,9 +183,9 @@ python scripts/static_page.py verify_card_runtime '{"page_ids":["page_xxx","page
 - 个股估值、宏观事件、行业主题、多资产比较、资金量化、基金产品、海外资产会按高置信 metadata 匹配专业骨架；无法匹配的新活页使用 `generic_live_page_delivery_v1`，不再退化成一句发布摘要。
 - `reply_template_v2 + hybrid` 必须同时具备当前活页 `page_context` 和 `hybrid_composition`，缺一项正式发布直接失败；旧 v1 hybrid 兼容。
 - `update_progress` 优先只传 `current_step + message`，脚本会自动把前序阶段标为 `done`、当前阶段标为 `running`、后序阶段标为 `pending`；不要在每次更新里复制一份可能过期的完整 `steps`。未传 `change_note` 时，页面历史版本会按“状态 + 中文阶段标题 + 用户可见 message”自动生成修改描述，最长 200 字；显式传入的 `change_note` 优先。
-- 带 `task_id` 推进到 `package_register` 或更后阶段时，必须传 quant-buddy-skill 成功返回的 `validation_receipt_files`；`failed/deferred` 收据不能作为完成证据。无需实时验证的静态页必须传非空 `validation_not_required_reason`。
+- 带 `task_id` 推进到 `package_register` 或更后阶段时，必须传 quant-buddy-skill 成功返回的 `validation_receipt_files`；`failed/deferred` 收据不能作为完成证据。无需实时验证的静态页传 `live_data_mode=static_content_only`；自由文本豁免参数已停用，传入会返回 `LEGACY_VALIDATION_WAIVER_FORBIDDEN`。
 - 必须由用户决定口径时传 `page_status=waiting_input` 和 `required_input`；当前步骤标为 `waiting`，返回 `agent_reply_hint.interaction_required=true`。用户回复后必须复用原 `task_id/page_id`，以 `page_status=running` 恢复 `resume_step`。
-- 进度快照默认显式上传空 `scene_tags/paradigm_tags`，防止临时文案触发自动打标；正式 `publish_final` 不继承该抑制策略。
+- 进度快照默认显式上传空 `scene_tags/paradigm_tags`，防止临时文案触发自动打标；正式发布（`publish_verified`）不继承该抑制策略。
 - `message` 会直接展示给用户，应使用“活页内容 / 准备实时数据 / 检查展示效果”这类产品文案，避免 `HTML`、`公式包`、`本地浏览器验收`、`page_id`、`URL` 等工程词。`feishu-group` 仍创建和更新进度页，但不得把其 URL 写进用户消息。
 
 参数：
@@ -220,7 +221,7 @@ python scripts/static_page.py verify_card_runtime '{"page_ids":["page_xxx","page
 ```
 
 收到 `COMPOSE_BORROW_PLAN_REQUIRED` 时，应直接使用响应里的 `example_borrow_plan` 修正后重试，不得停下询问用户，也不得把 running 进度页当成最终交付。
-`publish_final` 接收普通 `update` 的参数，并额外支持：
+`publish_verified` 在普通 `update` 参数之外，透传给内部 `publish_final` 的字段：
 
 | 字段 | 必填 | 说明 |
 |---|---|---|
@@ -248,9 +249,9 @@ python scripts/static_page.py fork_prepare '{"task_id":"task_xxx","source_templa
 python scripts/publish_workflow.py '@output/forks/page_template_xxx/page_template_xxx.publish-plan.json'
 ```
 
-新 fork 默认改用 `publish_verified`，由脚本一次完成发布前后验收。它在启动浏览器前完成 fork 来源、凭证 tuple、最终公式包输出和分位语义预检。manifest 的 `required_outputs` 必须真实存在于最终 HTML 所绑定公式包的输出 union 中；仅在 HTML 中声明 `QB_REQUIRED_OUTPUTS` 或其他同名字符串不能通过。若同一 `package_id` 对应多个 signature，则以 `credential_ambiguity` 拒绝发布。
+计划任务与 fork 的发布只走 `publish_verified`，由脚本一次完成发布前后验收；不要直接调用 `publish_final` / `update` / `upload`，它们对计划任务返回带 `next_action` 的错误。它在启动浏览器前完成 fork 来源、凭证 tuple、最终公式包输出和分位语义预检。manifest 的 `required_outputs` 必须真实存在于最终 HTML 所绑定公式包的输出 union 中；仅在 HTML 中声明 `QB_REQUIRED_OUTPUTS` 或其他同名字符串不能通过。若同一 `package_id` 对应多个 signature，则以 `credential_ambiguity` 拒绝发布。
 
-成功结果会返回 `agent_reply_contract_file + agent_reply_contract_sha256`、`reply_draft_file`、`reply_validation_params_file` 和 `reply_validation_command`。严格数据模板还返回 `reply_data_evidence_file + reply_data_evidence_sha256 + reply_data_availability`。只把最终 Markdown 写入 draft 并执行返回的命令一次；validator 不接受手工重建的 contract。未显式覆盖账号时，validator 自行读取 `config.json/config.local.json`，发布器返回、命令串与参数文件均不得携带默认配置 key；显式覆盖只允许保留在进程内环境合同，CLI 与持久化结果统一脱敏。`valid=true` 时使用返回的 `validated_markdown` 原样交付。CLI stdout 只保留阶段摘要，完整结果写入返回的 `full_report_file`。
+成功结果会返回 `agent_reply_contract_file + agent_reply_contract_sha256`、`reply_draft_file`、`reply_validation_params_file` 和 `reply_validation_command`。严格数据模板还返回 `reply_data_evidence_file + reply_data_evidence_sha256 + reply_data_availability`。只把最终 Markdown 写入 draft 并执行返回的命令一次；validator 不接受手工重建的 contract。未显式覆盖账号时，validator 自行读取 `config.json/config.local.json`，发布器返回、命令串与参数文件均不得携带默认配置 key；显式覆盖只允许保留在进程内环境合同，CLI 与持久化结果统一脱敏。`valid=true` 时使用返回的 `validated_markdown` 原样交付。CLI stdout 保留阶段摘要；失败时另含 `failure_summary`（失败阶段、`failed_viewports`、最多 8 条 `issues` 原文、`repair_hints`），据此修复后按 `next_action` 继续，无需另读报告。完整结果写入返回的 `full_report_file`。
 
 浏览器 profile：
 
@@ -696,6 +697,8 @@ live tag 规则：未声明 `data-qb-live-mode` 的 div 默认就是未转换的
 `kind` 以服务端授权记录为准，不从页面文案或 HTML 自报类型猜测；未找到授权时为 `found:false`、`kind:null`。页面详情/模板合同继续保留该 `kind` 与原始 `payload`，更新页面时按新 HTML 重新关联，不能只支持注册、不支持发布解析。此处 `is_live:true` 表示页面有动态取数能力，**不代表历史分钟范围包含今日行情**：绝对日期窗口保持固定，offset 窗口按约定滚动。仅把下载好的 CSV/JSON 固化进 HTML、没有实时取数动作，仍是静态快照。关联解析也不等于实际取数验证，发布前仍须遵循原有授权验证和页面验收流程。
 
 > ⚠️ 拿到 `is_live=false` 时，可能是 HTML 没有 `queryFormulaPackage` / `queryDataGrant` 取数调用，也可能是没有绑定任何 `package_id` / `grant_id`。若本意是 live 看板，应按数据性质补回对应实时通道再 `update`：普通行情、估值和财务优先 Data Grant，需要计算时才使用 Formula Package，不要为了变成实时页强行改写成公式；如确为一次性静态报告，可忽略提示。发布前把 `notice` 转告用户。
+>
+> `publish_final` 的公开验收同样遵守这一定义：显式 `live_data_mode=static_content_only|verified_snapshot|static_after_live_probe`（或已绑定为 methodology / partial_research 的受限交付）允许 `is_live=false`，不会把它误判为发布失败；只有声明实时取数的页面才要求 `is_live=true`。
 
 ## 标签（场景 / 范式 / 推荐）
 

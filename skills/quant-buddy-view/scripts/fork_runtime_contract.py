@@ -1159,6 +1159,77 @@ def _check_augmented_outputs_rendered(role_id, outputs, html):
         )
 
 
+_A_SHARE_TICKER_RE = re.compile(r'^(?:SH60\d{4}|SH68\d{4}|SZ00\d{4}|SZ30\d{4})$')
+
+
+def _a_share_ticker(asset_name):
+    """Resolve an exact A-share stock name/alias through the active QBS catalog.
+
+    Peer slot decisions currently use names. The visible HTML can also contain
+    ticker labels, so name-only replacement leaves stale source codes behind.
+    """
+    import common as C
+    name = str(asset_name or '').strip().upper()
+    if not name:
+        return ''
+    resolution = C.resolve_qbs_skill_root()
+    root = resolution.get('root')
+    if root is None:
+        return ''
+    matches = set()
+    try:
+        for filename in ('stock_a.yaml',):
+            for line in (root / 'presets' / 'assets_db' / filename).read_text(encoding='utf-8-sig').splitlines():
+                parts = [part.strip() for part in line.split('|')]
+                if len(parts) < 3 or parts[0] != 'stock':
+                    continue
+                ticker = parts[2].upper()
+                aliases = re.split(r'[,，、;；]', parts[4]) if len(parts) > 4 else []
+                identifiers = {parts[1].upper(), ticker, *(alias.strip().upper() for alias in aliases if alias.strip())}
+                if name in identifiers and _A_SHARE_TICKER_RE.fullmatch(ticker):
+                    matches.add(ticker)
+    except (OSError, UnicodeError):
+        return ''
+    return next(iter(matches)) if len(matches) == 1 else ''
+
+
+def _peer_code_variant_pairs(source_ticker, target_ticker):
+    source_market, source_digits = source_ticker[:2], source_ticker[2:]
+    target_market, target_digits = target_ticker[:2], target_ticker[2:]
+    return [
+        (f'{source_market}{source_digits}', f'{target_market}{target_digits}'),
+        (f'{source_market.lower()}{source_digits}', f'{target_market.lower()}{target_digits}'),
+        (f'{source_digits}.{source_market}', f'{target_digits}.{target_market}'),
+        (f'{source_digits}.{source_market.lower()}', f'{target_digits}.{target_market.lower()}'),
+        (f'{source_market}:{source_digits}', f'{target_market}:{target_digits}'),
+        (f'{source_market}.{source_digits}', f'{target_market}.{target_digits}'),
+        (source_digits, target_digits),
+    ]
+
+
+def _replace_complete_asset_token(value, source, target):
+    source_text = str(source)
+    target_text = str(target)
+    if not source_text:
+        return value
+    pattern = re.compile(r'(?<![0-9A-Za-z])' + re.escape(source_text) + r'(?![0-9A-Za-z])', re.I)
+    return pattern.sub(target_text, value)
+
+
+def _peer_slot_replacements(source, target, html):
+    """Build name and ticker replacements for one peer-slot mapping."""
+    replacements = []
+    source_name, target_name = str(source or '').strip(), str(target or '').strip()
+    if source_name and target_name and source_name != target_name:
+        replacements.append((source_name, target_name))
+    source_ticker = _a_share_ticker(source_name)
+    target_ticker = _a_share_ticker(target_name)
+    if source_ticker and target_ticker and source_ticker != target_ticker:
+        replacements.extend(_peer_code_variant_pairs(source_ticker, target_ticker))
+    # Longest forms first so a prefixed code is not partially disturbed by a bare digits token.
+    return sorted(replacements, key=lambda item: len(str(item[0])), reverse=True), str(html or '')
+
+
 def resolve_review(manifest, review, html, intent_profile=None):
     """Resolve Agent decisions into target contracts and final editable HTML."""
     if not isinstance(review, dict) or review.get("version") != REVIEW_VERSION:
@@ -1206,8 +1277,10 @@ def resolve_review(manifest, review, html, intent_profile=None):
                     raise ForkRuntimeError("FORK_REVIEW_INCOMPLETE", f"同业槽位尚未填写完整: {role_id}")
                 formulas = list(decision.get("formula_templates") or [])
                 for source, target in slots.items():
-                    formulas = [formula.replace(str(source), str(target)) for formula in formulas]
-                    rendered_html = rendered_html.replace(str(source), str(target))
+                    peer_replacements, rendered_html = _peer_slot_replacements(source, target, rendered_html)
+                    for source_token, target_token in peer_replacements:
+                        formulas = [_replace_complete_asset_token(formula, source_token, target_token) for formula in formulas]
+                        rendered_html = _replace_complete_asset_token(rendered_html, source_token, target_token)
             else:
                 formulas = list(decision.get("target_formulas") or [])
                 if not formulas:

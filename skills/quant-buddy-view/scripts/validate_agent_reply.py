@@ -489,6 +489,15 @@ def validate_reply(contract_payload, draft):
 
     evidence, evidence_errors = _data_coverage_errors(contract, sections)
     errors.extend(evidence_errors)
+    if contract.get("required"):
+        registry_policy = RTR.get_reply_render_policy(contract.get("template_ref")) if contract.get("template_ref") else None
+        for marker in (registry_policy or {}).get("required_markers") or []:
+            if str(marker) not in draft:
+                errors.append({
+                    "code": "REQUIRED_MARKER_MISSING",
+                    "message": f"最终回复缺少必填收口标记：{marker}",
+                    "marker": marker,
+                })
     if contract.get('template_ref') == 'multi_asset_compare_v1':
         errors.extend(_comparison_extrema_errors(draft))
     errors.extend(_ranking_position_errors(draft))

@@ -531,12 +531,23 @@ function renderTable(el, tab, panel, coverage) {
   const fieldLabels = {asset:'代码', name:'名称', value:'数值', date:'观察日', close:'收盘价', open:'开盘价', high:'最高价', low:'最低价',
     pct_chg:'涨跌幅', pe_ttm:'市盈率(TTM)', pb:'市净率', market_cap:'总市值',
     volume:'成交量', amount:'成交额', turnover_rate:'换手率'};
+  const optionTable = tab.columns.includes('slot') && tab.columns.includes('contract');
+  if (optionTable) Object.assign(fieldLabels, {trade_date:'生效日',decision_date:'决策日',slot:'槽位',status:'选约状态',
+    contract:'期权合约',underlying_contract:'标的期货合约',expiration:'到期日',strike:'行权价',call_put:'方向',changed:'是否切换',
+    previous_date:'前序生效日',previous_contract:'前序合约',previous_expiration:'前序到期日',previous_strike:'前序行权价',
+    empty_reason:'空槽原因',is_baseline:'窗口基准'});
   const label = key => Object.prototype.hasOwnProperty.call(panel.output_labels || {}, key)
     ? panel.output_labels[key] : Object.prototype.hasOwnProperty.call(fieldLabels, key) ? fieldLabels[key] : key;
   const formatFor = c => (panel.column_formats || {})[c] || (panel.column_formats || {})[Object.keys(panel.output_labels || {}).find(k=>panel.output_labels[k]===c)];
   const cell = (v,c) => {
     const f=formatFor(c);
     if (v == null) return '—';
+    if (optionTable) {
+      if (['trade_date','decision_date','expiration','previous_date','previous_expiration'].includes(c)) return fmtDate(v);
+      if (c === 'status') return v === 'empty' ? '空槽' : v === 'active' ? '已选合约' : fmt(v);
+      if (c === 'call_put') return v === 'call' ? '看涨' : v === 'put' ? '看跌' : fmt(v);
+      if (['changed','is_baseline'].includes(c) && typeof v === 'boolean') return v ? '是' : '否';
+    }
     if (f?.style === 'percent' && typeof v === 'number' && Number.isFinite(v))
       return (v*f.scale).toFixed(f.decimals ?? 2)+'%';
     return fmt(c === '指标' ? label(v) : v);
@@ -943,6 +954,23 @@ function mergeOutputTables(names, received, labels = {}, panelType = '', fields 
         if(hasRank)values.push(row.values[topScore] ?? row.values[nextScore] ?? null);
         return [row.asset,row.name,...values];
       });
+      // For 2-3 asset comparison, transpose so metrics are rows and assets are columns (easier to read).
+      if (false) {
+        const assetList=[...assets.values()];
+        const isTwo=assetList.length===2;
+        const tColumns=isTwo?['指标',...assetList.map(a=>a.name||a.asset),'差异']:['指标',...assetList.map(a=>a.name||a.asset)];
+        const tRows=names.map(name=>{
+          const label=labels[name]||name;
+          const vals=assetList.map(a=>a.values[name] ?? null);
+          let diff=null;
+          if(isTwo && typeof vals[0]==='number' && typeof vals[1]==='number'){
+            const d=vals[0]-vals[1];
+            diff=d>0?'+'+d.toFixed(2):d.toFixed(2);
+          }
+          return isTwo&&diff!==null?[label,...vals,diff]:[label,...vals];
+        });
+        return {tab:{columns:tColumns,rows:tRows},out:null};
+      }
       return {tab:{columns,rows},out:null};
   }
   let fieldError = null;
@@ -1591,8 +1619,11 @@ def _render_html(spec, *, title, subtitle, panels, endpoint, package_id, signatu
     if data_label_report is not None:
         boot['data_labels'] = data_label_report
     title_esc = html_escape(title or "看板")
-    delivery_note = {'partial_research':'部分研究成果：未核验条件仍待补齐。',
-                     'methodology':'研究方法页：标的数据尚未取得，研究尚未完成。'}.get(spec.get('delivery_kind'), '')
+    # The methodology note is only accurate when no data panel was rendered;
+    # text/image panels are explanatory and do not count as data evidence.
+    has_data_panel = any(isinstance(p, dict) and (p.get('type') or 'table') not in ('text', 'image') for p in panels)
+    delivery_note = {'partial_research':'部分数据待补，未核验条件不视为通过。',
+                     'methodology':'' if has_data_panel else '本页为研究方法说明，数据待补。'}.get(spec.get('delivery_kind'), '')
     subtitle_esc = html_escape(subtitle or "")
     brand_name_esc = html_escape(share["brand_name"])
     brand_cn_esc = html_escape(share["brand_cn"])

@@ -21,10 +21,21 @@ Use for fund, ETF, index fund, bond fund, and similar vehicle pages.
 - State the valuation percentile window and original currency/price-vs-NAV convention.
 - Missing holdings, premium/discount, tracking error, or bond terms stay `--`; do not estimate them.
 
+## 一句话总结合同
+
+`一句话总结` 是面向用户原问题收口的模块，综合四类输入：用户原问题原话；预研增强任务说明（背景/关注点/矛盾/隐含需求）；本轮联网检索可靠信息（必须有来源和发布日期）；前文已验证平台数据。
+
+- 2–4 个分句，总长 100–220 字；第一句直接回答原问题，不复述问题本身。
+- 平台数据只选最有决策价值的 1–2 个，带日期口径，不堆数字。
+- 外部检索最多 1 条，格式「外部报道（来源，发布日期）显示……」；与平台数据时点或口径不同必须点明；无可靠外部结果则省略，不得编造。
+- 末句给条件式观察（若……则……），不预测明日涨跌、不给目标价或精确点位。
+- 不描述搜索、读取、模板、工具等过程；不得出现前文没有的指标和结论。
+- 必须说清基金价格、净值与底层估值的关系；有溢价/折价时必须点明。
+
 ## Markdown Skeleton
 
 ```markdown
-【结论行】{基金/ETF}（{代码}）当前 {价格/净值}，跟踪 {指数/资产}，核心估值分位 {valuation_pct}。
+**一句话总结**：{直接回答用户问题；说清价格/净值/底层估值关系与溢价状态；1–2 个关键数据（带日期口径）；条件式收尾}
 
 ## 核心数据
 

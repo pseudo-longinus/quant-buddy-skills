@@ -42,6 +42,27 @@ def _save(state):
     return state
 
 
+def flags(state):
+    """Separate "written", "reachable" and "verified" without renaming legacy fields.
+
+    States saved before these fields existed are derived from the write journal.
+    """
+    state = state or {}
+    write = state.get('last_write') or {}
+    confirmed = write.get('status') == 'confirmed' and write.get('content_kind', 'candidate') != 'progress'
+    verified = state.get('verified')
+    if verified is None:
+        verified = bool(confirmed and state.get('delivery_state') == 'published'
+                        and state.get('last_good_version') == write.get('remote'))
+    written = state.get('written')
+    if written is None:
+        written = confirmed
+    reachable = state.get('public_reachable')
+    if reachable is None and verified:
+        reachable = True
+    return {'written': bool(written), 'public_reachable': reachable, 'verified': bool(verified)}
+
+
 def initialize(task, page):
     """Only call after successful new_page, not after loading an arbitrary old URL."""
     with EP.locked(task):
@@ -105,7 +126,8 @@ def prepare_write(plan, candidate_hash, observed, request_body=None, content_kin
         intent['content_kind'] = content_kind
         state['last_write'] = intent
         if content_kind != 'progress':
-            state.update(execution_status='running', current_step='final_publish')
+            state.update(execution_status='running', current_step='final_publish',
+                         written=False, public_reachable=None, verified=False)
         return {'intent': intent, 'state': _save(state)}
 
 
@@ -121,7 +143,7 @@ def record_write(plan, result, expected_idempotency_key=None, content_kind='cand
         if result.get('code') == 0 and remote['page_id'] == plan['target_page_id'] and remote['sha256'] and remote['version_no'] is not None:
             write.update(status='confirmed', remote=remote, confirmed_result={k:v for k,v in result.items() if k not in ('signature','api_key')})
             # Do not promote last_good until the public verification succeeds.
-            if content_kind!='progress':state['delivery_state'] = 'partial'
+            if content_kind!='progress':state.update(delivery_state='partial', written=True, public_reachable=None, verified=False)
             else:state.pop('progress_sync_error',None)
         else:
             error=result.get('error');error=error.get('code') if isinstance(error,dict) else error
@@ -134,18 +156,29 @@ def record_write(plan, result, expected_idempotency_key=None, content_kind='cand
         return _save(state)
 
 
-def mark_verified(plan, result, *, complete):
+NETWORK_UNREACHABLE = 'network_unreachable'
+
+
+def mark_verified(plan, result, *, complete, failure_kind=None):
     with EP.locked(plan['task_id']):
         state = load(plan['task_id'], plan['target_page_id'])
         write = state.get('last_write') or {}
         if not complete:
-            state.update(execution_status='failed', last_error={'error_code': 'PUBLIC_VERIFICATION_FAILED',
-                         'next_action': {'command': 'publish_verified'}, 'stage': 'public_verify'})
+            network = failure_kind == NETWORK_UNREACHABLE
+            # A confirmed write whose public URL is unreachable from this host
+            # only needs a read-only re-check, not a new plan or publication.
+            action = ({'command': 'verify_published', 'params': {'task_id': plan['task_id'], 'page_id': plan['target_page_id']}}
+                      if network and write.get('status') == 'confirmed' else {'command': 'publish_verified'})
+            error = {'error_code': 'PUBLIC_VERIFICATION_FAILED', 'next_action': action, 'stage': 'public_verify'}
+            if failure_kind: error['failure_kind'] = failure_kind
+            state.update(execution_status='failed', last_error=error, verified=False,
+                         public_reachable=False if network else (True if failure_kind == 'content' else state.get('public_reachable')))
             return _save(state)
         if write.get('status') != 'confirmed':
             raise EP.PlanError('PUBLISH_RECEIPT_REQUIRED', '公开验收不能替代发布版本收据')
         state.update(execution_status='running', current_step='reply_validation', delivery_state='published',
-                     last_good_version=write['remote'], required_input=None, last_error=None)
+                     last_good_version=write['remote'], required_input=None, last_error=None,
+                     written=True, public_reachable=True, verified=True)
         state.update({key: plan.get(key, default) for key, default in
                       [('research_status', 'unknown'), ('delivery_kind', 'result')]})
         state['live_data_mode'] = result.get('live_data_mode') or state.get('live_data_mode') or 'unknown'

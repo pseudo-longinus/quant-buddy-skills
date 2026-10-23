@@ -2719,7 +2719,7 @@ def _prepare_page_title(params, document, *, immutable=False):
 def cmd_upload(params):
     try:
         if EP.load(_fork_task_id(params)):
-            return {"code": 1, "error": "PLANNED_PAGE_ALREADY_CREATED", "message": "计划任务已有目标页；使用原page_id发布，不重复upload"}
+            return _retired_path_error("PLANNED_PAGE_ALREADY_CREATED", "计划任务已有目标页；不重复upload，用原page_id经publish_verified发布", params)
     except EP.PlanError as exc:
         return exc.as_dict()
     route_error = _existing_page_mutation_error(params, action="upload")
@@ -2846,7 +2846,7 @@ def cmd_update(params):
     try:
         publication_plan = EP.load(_fork_task_id(params))
         if publication_plan and params.get("_planned_update_sentinel") is not _PLANNED_UPDATE_SENTINEL:
-            return {"code": 1, "error": "PLANNED_PUBLISH_REQUIRED", "message": "计划任务不能直接update绕过候选和浏览器验收；使用publish_verified"}
+            return _retired_path_error("PLANNED_PUBLISH_REQUIRED", "计划任务不能直接update绕过候选和浏览器验收；使用publish_verified", params)
     except EP.PlanError as exc:
         return exc.as_dict()
     cfg = C.load_config_require_key()
@@ -3021,6 +3021,17 @@ def _validate_progress_params(params, require_step=False):
 
 def _evidence_error(error, message, **extra):
     return {"code": 1, "error": error, "message": message, **extra}
+
+
+def _legacy_waiver_error(params, message):
+    """Retired waiver: name the structured replacement and the planned next command."""
+    out = _retired_path_error("LEGACY_VALIDATION_WAIVER_FORBIDDEN", message, params)
+    if "next_action" not in out:
+        instruction = ("删除 validation_not_required_reason；纯静态内容传 live_data_mode=static_content_only，"
+                       "金融数据页传 live_data_mode 与本任务的 route_receipt_file/验证收据")
+        out["next_action"] = {"command": "remove_param", "param": "validation_not_required_reason", "instruction": instruction}
+        out["message"] = message + "。下一步：" + instruction
+    return out
 
 
 def _receipt_files(value):
@@ -3364,7 +3375,7 @@ def _validate_live_receipts(params, route, *, allow_partial=False, resolve_path=
 def _validate_publish_data_evidence(params, *, source_credential_count=0, allow_partial=False):
     params = params or {}
     if str(params.get("validation_not_required_reason") or "").strip():
-        return _evidence_error("LEGACY_VALIDATION_WAIVER_FORBIDDEN", "自由文本 validation_not_required_reason 已停用；必须使用结构化 live_data_mode 和收据")
+        return _legacy_waiver_error(params, "自由文本 validation_not_required_reason 已停用；必须使用结构化 live_data_mode 和收据")
     mode = str(params.get("live_data_mode") or "").strip()
     if mode not in _LIVE_DATA_MODES:
         return _evidence_error("LIVE_DATA_MODE_REQUIRED", "发布必须显式指定 live、verified_snapshot、mixed、static_content_only 或 static_after_live_probe")
@@ -4210,7 +4221,7 @@ def _validate_progress_evidence(params):
     if not task_id or current_step not in guarded_steps or page_status in ("failed", "waiting_input"):
         return None
     if str(params.get("validation_not_required_reason") or "").strip():
-        return _evidence_error("LEGACY_VALIDATION_WAIVER_FORBIDDEN", "自由文本 validation_not_required_reason 已停用；必须提供结构化实时数据证据")
+        return _legacy_waiver_error(params, "自由文本 validation_not_required_reason 已停用；必须提供结构化实时数据证据")
     if params.get("live_data_mode") or current_step == "final_publish":
         return _validate_publish_data_evidence(params)
 
@@ -5644,6 +5655,19 @@ def _limited_research_delivery(params):
             and ((kind == 'methodology' and status == 'unavailable') or (kind == 'partial_research' and status == 'partial')))
 
 
+def _requires_live_runtime(params):
+    """Return whether publication must prove a bound Formula Package or Data Grant."""
+    if _limited_research_delivery(params):
+        return False
+    # is_live describes runtime bindings, not whether a page was published.
+    # Explicit static delivery modes therefore remain valid with is_live=false.
+    return params.get("live_data_mode") not in {
+        "static_content_only",
+        "static_after_live_probe",
+        "verified_snapshot",
+    }
+
+
 def _publish_final_validation_error(params, update_out, template_resolution, final_html):
     expected_page_id = str(params.get("page_id") or "")
     expected_title = PTC.normalize(params.get("title"))
@@ -5652,7 +5676,7 @@ def _publish_final_validation_error(params, update_out, template_resolution, fin
         return "publish_final 返回了进度页占位标题，正式活页标题未完成"
     if "title" in update_out and actual_title != expected_title:
         return "publish_final 返回的页面标题与正式发布标题不一致"
-    if "is_live" in update_out and update_out.get("is_live") is not True and not _limited_research_delivery(params):
+    if "is_live" in update_out and update_out.get("is_live") is not True and _requires_live_runtime(params):
         return "publish_final 返回的页面未进入 is_live=true 状态"
 
     actual_page_id = str(update_out.get("page_id") or "")
@@ -5885,7 +5909,7 @@ def cmd_publish_final(params):
         return routing_error
 
     if planned_publish and params.get("_fork_preflight_sentinel") is not _FORK_PREFLIGHT_SENTINEL:
-        return {"code": 1, "error": "PUBLISH_VERIFIED_REQUIRED", "message": "计划任务必须通过publish_verified的浏览器验收后发布"}
+        return _retired_path_error("PUBLISH_VERIFIED_REQUIRED", "计划任务不能直接调用publish_final；它只是publish_verified的内部步骤", params)
     try:
         plan = EP.load(_fork_task_id(params))
         if plan:
@@ -6191,27 +6215,26 @@ def _publish_verified_once(params):
                     "error": failed.get('error'), "stages": stages, "timing": timings}
 
         public_url = _record_url(stages["publish_final"])
+        expected_title = (stages.get('page_title') or {}).get('title')
         started = time.perf_counter()
-        stages["public_smoke"] = _run_page_verifier(public_url, "public-smoke", card_runtime=card_runtime,
-                                                   expected_title=(stages.get('page_title') or {}).get('title'))
+        stages["public_smoke"], smoke_attempts = _public_smoke_with_retry(public_url, card_runtime=card_runtime,
+                                                                          expected_title=expected_title)
         timings["public_smoke_ms"] = round((time.perf_counter() - started) * 1000)
-        verified = isinstance(stages["public_smoke"], dict) and stages["public_smoke"].get("code") == 0
-        plan_for_version = EP.load(_fork_task_id(params))
-        if verified and (plan_for_version or stages.get('page_title')):
-            version_result = _observe_published_template(params["page_id"])
-            observed = _template_record(version_result) if isinstance(version_result, dict) and version_result.get("code") == 0 else {}
-            if stages.get('page_title'):
-                stages['metadata_title'] = PTC.acknowledgement({'code': 0, 'title': observed.get('title')}, params['title'])
-                verified = stages['metadata_title']['code'] == 0
-            if verified and plan_for_version:
-                stages["public_version"] = PT.verify_current(plan_for_version, stages["publish_final"], observed, browser_evidence=stages["public_smoke"])
-                verified = stages["public_version"].get("code") == 0
+        if smoke_attempts > 1:
+            timings["public_smoke_attempts"] = smoke_attempts
+        verified, failure_kind = _confirm_public_publication(params, stages, stages["publish_final"])
+        if not verified and failure_kind == _NETWORK_UNREACHABLE:
+            # Keep the confirmed write's reply contract for a later verify_published.
+            try:
+                _save_pending_public_verification(params, stages, card_runtime)
+            except (EP.PlanError, OSError, ValueError, TypeError):
+                pass
         if not verified:
             stages["publish_final"].pop("agent_reply_contract", None)
         try:
             plan = EP.load(_fork_task_id(params))
             if plan:
-                DS.mark_verified(plan, stages["publish_final"], complete=verified)
+                DS.mark_verified(plan, stages["publish_final"], complete=verified, failure_kind=failure_kind)
         except EP.PlanError as exc:
             return {**exc.as_dict(), "published": True, "verified": False, "stages": stages}
         result = {
@@ -6223,49 +6246,233 @@ def _publish_verified_once(params):
             "stages": stages,
             "timing": timings,
         }
+        if not verified and failure_kind:
+            result["failure_kind"] = failure_kind
+        if not verified and failure_kind == _NETWORK_UNREACHABLE:
+            result.update(error="PUBLIC_URL_UNREACHABLE", written=True, public_reachable=False,
+                          message="页面已写入，但本机无法访问公开链接（网络/DNS/TLS/CDN）；不要修订计划或重新发布，稍后执行 verify_published 复验",
+                          next_action=_verify_published_action(params))
         if ((stages.get('metadata_title') or {}).get('code') == 1
                 or any('PAGE_TITLE_' in str(problem) for problem in stages['public_smoke'].get('problems', []))):
             result['error'] = 'PAGE_TITLE_POSTCHECK_FAILED'
-        if verified:
-            contract = stages["publish_final"].get("agent_reply_contract")
-            if isinstance(contract, dict):
-                result_contract = {**contract, "operation": "publish_verified"}
-                # Bind actual published chart membership into the hashed reply contract.
-                for viewport in ((stages["public_smoke"].get("browser") or {}).get("viewports") or []):
-                    ranks = (viewport.get("dashboardDesign") or {}).get("rankingEvidence") or {}
-                    if ranks.get("version") == 1 and ranks.get("groups"):
-                        result_contract["ranking_evidence"] = ranks
-                        break
-
-                if _delivery_policy():
-                    result_contract["public_url"] = _delivery_public_url(
-                        result_contract.get("public_url") or public_url
-                    )
-                    _apply_delivery_policy(result_contract)
-                result["agent_reply_contract"] = result_contract
-                for key in ("reply_data_evidence_file", "reply_data_evidence_sha256", "reply_data_availability"):
-                    if result_contract.get(key) not in (None, ""):
-                        result[key] = result_contract[key]
-            if stages["publish_final"].get("agent_reply_template_file"):
-                result["agent_reply_template_file"] = stages["publish_final"]["agent_reply_template_file"]
-            if isinstance(result.get("agent_reply_contract"), dict):
-                try:
-                    result.update(_write_agent_reply_artifacts(params.get("task_id"), result))
-                except (OSError, ValueError) as exc:
-                    result.update({
-                        "code": 1,
-                        "verified": False,
-                        "contract_artifact_error": str(exc),
-                    })
-        if result.get("code") == 0 and result.get("published") is True and result.get("verified") is True:
-            result["qbv_job_lifecycle"] = QJL.complete_job_from_publish_result(params, result)
-        return result
+        return _finalize_public_publication(params, stages, result, public_url, verified)
     finally:
         if temp_path:
             try:
                 os.unlink(temp_path)
             except OSError:
                 pass
+
+
+_NETWORK_UNREACHABLE = "network_unreachable"
+_PENDING_PUBLIC_VERIFICATION_FILE = "receipts/pending-public-verification.json"
+
+
+def _public_smoke_retry_delay_sec():
+    try:
+        return max(0.0, float(os.environ.get("QBV_PUBLIC_SMOKE_RETRY_DELAY_SEC", "15")))
+    except ValueError:
+        return 15.0
+
+
+def _public_smoke_with_retry(public_url, *, card_runtime=False, expected_title=None):
+    """public-smoke with one in-call retry for network_unreachable (CDN propagation).
+
+    Content failures are returned at once. Total attempts are capped at two;
+    the first failed report is kept as previous_attempt for diagnosis.
+    """
+    first = _run_page_verifier(public_url, "public-smoke", card_runtime=card_runtime, expected_title=expected_title)
+    if not (isinstance(first, dict) and first.get("code") not in (None, 0)
+            and first.get("failure_kind") == _NETWORK_UNREACHABLE):
+        return first, 1
+    time.sleep(_public_smoke_retry_delay_sec())
+    second = _run_page_verifier(public_url, "public-smoke", card_runtime=card_runtime, expected_title=expected_title)
+    if isinstance(second, dict) and second.get("code") not in (None, 0):
+        second["previous_attempt"] = {key: first.get(key) for key in ("code", "failure_kind", "message", "problems", "fetch_error") if first.get(key) is not None}
+    return second, 2
+
+
+def _confirm_public_publication(params, stages, published_record):
+    """Public smoke + metadata title + version/SHA consistency. Returns (verified, failure_kind)."""
+    smoke = stages.get("public_smoke")
+    verified = isinstance(smoke, dict) and smoke.get("code") == 0
+    failure_kind = None
+    if not verified and isinstance(smoke, dict):
+        failure_kind = smoke.get("failure_kind") or "content"
+    plan_for_version = EP.load(_fork_task_id(params))
+    if verified and (plan_for_version or stages.get('page_title')):
+        version_result = _observe_published_template(params["page_id"])
+        observed = _template_record(version_result) if isinstance(version_result, dict) and version_result.get("code") == 0 else {}
+        if stages.get('page_title'):
+            stages['metadata_title'] = PTC.acknowledgement({'code': 0, 'title': observed.get('title')}, params['title'])
+            verified = stages['metadata_title']['code'] == 0
+        if verified and plan_for_version:
+            stages["public_version"] = PT.verify_current(plan_for_version, published_record, observed, browser_evidence=smoke)
+            verified = stages["public_version"].get("code") == 0
+    return verified, failure_kind
+
+
+def _verify_published_action(params):
+    task_id = _fork_task_id(params)
+    return {"command": "verify_published", "params": {"task_id": task_id, "page_id": params.get("page_id")},
+            "instruction": f"稍后执行 python scripts/static_page.py verify_published '{{\"task_id\":\"{task_id}\"}}'；只复验已写入页面，不改计划、不重新发布"}
+
+
+_PENDING_PARAM_KEYS = ("task_id", "turn_id", "page_id", "title", "plan_hash", "live_data_mode",
+                       "qbv_job_id", "qbv_job_file", "job_file", "qbv_job_dir", "target_skill_id", "card_runtime_required")
+
+
+def _save_pending_public_verification(params, stages, card_runtime):
+    """Keep the confirmed write's reply contract so verify_published can finish it."""
+    task_id = _fork_task_id(params)
+    plan = EP.load(task_id) if task_id else None
+    if not plan:
+        return
+    record = {key: value for key, value in (stages.get("publish_final") or {}).items() if key not in ("signature", "api_key")}
+    pending = {
+        "version": "qbv_pending_public_verification_v1", "task_id": task_id, "page_id": plan["target_page_id"],
+        "plan_hash": plan["plan_hash"], "publish_final": _redact_persisted_secrets(record),
+        "page_title": stages.get("page_title"), "card_runtime": bool(card_runtime),
+        "params": {key: params[key] for key in _PENDING_PARAM_KEYS if params.get(key) is not None},
+    }
+    EP.atomic_json(C.task_temp_path(task_id, _PENDING_PUBLIC_VERIFICATION_FILE, create_parent=True), pending)
+
+
+def _finalize_public_publication(params, stages, result, public_url, verified):
+    """Shared success tail of publish_verified and verify_published."""
+    if verified:
+        contract = stages["publish_final"].get("agent_reply_contract")
+        if isinstance(contract, dict):
+            result_contract = {**contract, "operation": "publish_verified"}
+            # Bind actual published chart membership into the hashed reply contract.
+            for viewport in ((stages["public_smoke"].get("browser") or {}).get("viewports") or []):
+                ranks = (viewport.get("dashboardDesign") or {}).get("rankingEvidence") or {}
+                if ranks.get("version") == 1 and ranks.get("groups"):
+                    result_contract["ranking_evidence"] = ranks
+                    break
+
+            if _delivery_policy():
+                result_contract["public_url"] = _delivery_public_url(
+                    result_contract.get("public_url") or public_url
+                )
+                _apply_delivery_policy(result_contract)
+            result["agent_reply_contract"] = result_contract
+            for key in ("reply_data_evidence_file", "reply_data_evidence_sha256", "reply_data_availability"):
+                if result_contract.get(key) not in (None, ""):
+                    result[key] = result_contract[key]
+        if stages["publish_final"].get("agent_reply_template_file"):
+            result["agent_reply_template_file"] = stages["publish_final"]["agent_reply_template_file"]
+        if isinstance(result.get("agent_reply_contract"), dict):
+            try:
+                result.update(_write_agent_reply_artifacts(params.get("task_id"), result))
+            except (OSError, ValueError) as exc:
+                result.update({
+                    "code": 1,
+                    "verified": False,
+                    "contract_artifact_error": str(exc),
+                })
+    if result.get("code") == 0 and result.get("published") is True and result.get("verified") is True:
+        result["qbv_job_lifecycle"] = QJL.complete_job_from_publish_result(params, result)
+    return result
+
+
+def cmd_verify_published(params):
+    """Read-only public check of an already written target page.
+
+    Never revises the execution plan, never writes the page and never spends
+    the repair budget. On success the delivery state is marked verified.
+    """
+    params = dict(params or {})
+    task_id = _fork_task_id(params)
+    if not task_id:
+        return {"code": 1, "error": "TASK_ID_REQUIRED", "message": "verify_published 需要 task_id"}
+    try:
+        plan = EP.require(task_id, page_id=params.get("page_id") or None)
+        state = DS.load(task_id, plan["target_page_id"])
+    except EP.PlanError as exc:
+        return exc.as_dict()
+    page_id = plan["target_page_id"]
+    write = state.get("last_write") or {}
+    base = {"task_id": task_id, "page_id": page_id, "operation": "verify_published",
+            "plan_revision": plan["revision"], "plan_hash": plan["plan_hash"]}
+    if write.get("status") in ("pending", "unknown"):
+        return {**base, "code": 1, "error": "PUBLISH_OUTCOME_UNKNOWN", "published": False, "verified": False,
+                "message": "上次写入结果不确定；先核对 delivery_status，不能把未确认写入当作已发布",
+                "next_action": {"command": "delivery_status", "params": {"task_id": task_id}}}
+    if write.get("status") != "confirmed" or write.get("content_kind", "candidate") == "progress":
+        return {**base, "code": 1, "error": "PUBLISHED_PAGE_REQUIRED", "published": False, "verified": False,
+                "message": "目标页尚无已确认的正式写入；verify_published 只复验已写入页面",
+                "next_action": _planned_publish_next_action(task_id) or {"command": "delivery_status", "params": {"task_id": task_id}}}
+    if DS.flags(state)["verified"] and not params.get("force"):
+        return {**base, "code": 0, "published": True, "verified": True, "written": True, "public_reachable": True,
+                "public_url": _delivery_public_url((write.get("remote") or {}).get("url")),
+                "message": "目标页当前版本已通过公开验收", "already_verified": True}
+    try:
+        pending = json.loads(C.task_temp_path(task_id, _PENDING_PUBLIC_VERIFICATION_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        pending = {}
+    remote = write.get("remote") or {}
+    record = dict(write.get("confirmed_result") or {})
+    if pending.get("page_id") == page_id and (pending.get("publish_final") or {}).get("sha256") == remote.get("sha256"):
+        record = {**record, **pending["publish_final"]}
+    else:
+        pending = {}
+    record.setdefault("page_id", page_id)
+    public_url = _record_url(record) or remote.get("url") or ""
+    if not public_url:
+        return {**base, "code": 1, "error": "PUBLIC_URL_REQUIRED", "published": True, "verified": False,
+                "message": "已确认写入缺少公开链接；用 delivery_status refresh_remote 核对"}
+    run_params = {**(pending.get("params") or {}), "task_id": task_id, "page_id": page_id}
+    stages = {"publish_final": record}
+    if pending.get("page_title"):
+        stages["page_title"] = pending["page_title"]
+        run_params.setdefault("title", pending["page_title"].get("title"))
+    # Bounded: an unreachable public URL (proxy/DNS on this host) must not turn
+    # verify_published into an open-ended loop. Each call counts; at the cap
+    # the Agent stops and reports the written URL as not auto-verified.
+    import delivery_recovery as DR
+    attempts = DR.verify_published_attempts(task_id, params)
+    if attempts >= DR.VERIFY_PUBLISHED_MAX_ATTEMPTS and not params.get("force"):
+        return {**base, "code": 1, "error": "VERIFY_PUBLISHED_LIMIT", "terminal": True, "published": True,
+                "verified": False, "written": True, "public_reachable": None, "attempts": attempts,
+                "max_attempts": DR.VERIFY_PUBLISHED_MAX_ATTEMPTS, "public_url": _delivery_public_url(public_url),
+                "message": "本轮已复验%d次仍无法确认公开可达；停止复验。向用户提供链接，说明页面已写入但未能自动验收，不要修订计划或重新发布" % attempts,
+                "next_action": {"command": "delivery_status", "params": {"task_id": task_id}}}
+    DR.record_verify_published_attempt(task_id, params)
+    timings = {}
+    started = time.perf_counter()
+    stages["public_smoke"] = _run_page_verifier(public_url, "public-smoke", card_runtime=bool(pending.get("card_runtime")),
+                                               expected_title=(stages.get("page_title") or {}).get("title"))
+    timings["public_smoke_ms"] = round((time.perf_counter() - started) * 1000)
+    verified, failure_kind = _confirm_public_publication(run_params, stages, record)
+    if not verified and failure_kind is None:
+        failure_kind = "content"
+    try:
+        DS.mark_verified(plan, record, complete=verified, failure_kind=None if verified else failure_kind)
+    except EP.PlanError as exc:
+        return {**base, **exc.as_dict(), "published": True, "verified": False, "stages": stages}
+    result = {**base, "code": 0 if verified else 1, "published": True, "verified": verified, "written": True,
+              "public_reachable": verified or failure_kind != _NETWORK_UNREACHABLE,
+              "public_url": _delivery_public_url(public_url), "stages": stages, "timing": timings}
+    if not verified:
+        record.pop("agent_reply_contract", None)
+        result["failure_kind"] = failure_kind
+        result["failure_summary"] = _publish_failure_summary({"code": 1, "stages": stages, "published": True})
+        if failure_kind == _NETWORK_UNREACHABLE:
+            result.update(error="PUBLIC_URL_UNREACHABLE", next_action=_verify_published_action(run_params),
+                          message="本机仍无法访问公开链接；页面已写入。请稍后重试 verify_published，或请用户确认链接可打开；不要修订计划或重新发布")
+        else:
+            result.update(error=result.get("error") or "PUBLIC_VERIFICATION_FAILED",
+                          next_action={"command": "recover_delivery", "params": {"task_id": task_id, "plan_hash": plan["plan_hash"]}},
+                          message="公开页面可访问但内容/版本校验未通过；按 failure_summary 修复后经 recover_delivery 恢复")
+        return result
+    result = _finalize_public_publication(run_params, stages, result, public_url, True)
+    if result.get("code") == 0:
+        try:
+            C.task_temp_path(task_id, _PENDING_PUBLIC_VERIFICATION_FILE).unlink()
+        except OSError:
+            pass
+    return result
 
 
 def _atomic_write_bytes(path, data_bytes):
@@ -6288,15 +6495,188 @@ def _atomic_write_bytes(path, data_bytes):
         raise
 
 
+_FAILURE_STAGE_ORDER = ("page_title", "fork_validate", "live_data_evidence", "local_browser",
+                        "page_quality", "publish_final", "public_smoke", "metadata_title", "public_version")
+_BROWSER_STAGES = ("local_browser", "public_smoke")
+_FAILURE_MAX_ISSUES = 8
+_FAILURE_MAX_ISSUE_CHARS = 200
+_FAILURE_HINT_RULES = (
+    (r"首屏缺少可读的核心数据证据", "把真实关键值、主图或榜单前移到首屏，压缩导语、把口径说明后置；Compose 调整 panels/module_order，不缩小正文、不放假指标"),
+    (r"横向溢出", "检查宽表格、长数字或固定宽度元素：表格放入可横向滚动容器，长文本允许换行"),
+    (r"占位符残留|全是占位符", "替换占位符/模板标记为真实内容或删除对应模块"),
+    (r"pending|加载态|读取中", "数据运行时未完成：确认 panel 绑定的输出/授权可取数，失败模块改为已验证快照或移除"),
+    (r"数据运行时失败|控制台存在核心接口", "查看 issues 中的接口错误，修正凭证/输出名后重新构建；不要用静态数字冒充"),
+    (r"缺少可见 h1|PAGE_TITLE_", "确保页面有唯一可见 h1，且与发布 title 一致"),
+    (r"字号", "恢复正文字号到下限以上，不靠缩小字体塞进首屏"),
+    (r"图片|WebP|海报", "检查正文图片：使用 image_upload 返回的同域 URL，并放在分享海报目标内"),
+    (r"TIMEOUT|超时", "浏览器验收超时：减少首屏阻塞请求后重试一次；仍超时按 next_action 恢复"),
+)
+
+
+def _truncate_issue(value):
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    return text if len(text) <= _FAILURE_MAX_ISSUE_CHARS else text[:_FAILURE_MAX_ISSUE_CHARS - 1] + "…"
+
+
+def _publish_failure_summary(result):
+    """Condense the first failed publish_verified stage for stdout.
+
+    The verifier JSON (verify_page.mjs) is kept in stages/full_report_file;
+    this lifts viewport names, the original issue text and repair hints so an
+    Agent can act without opening the report.
+    """
+    if not isinstance(result, dict) or result.get("code") == 0:
+        return None
+    stages = result.get("stages") if isinstance(result.get("stages"), dict) else {}
+    stage_name, stage = None, {}
+    for name in _FAILURE_STAGE_ORDER:
+        item = stages.get(name)
+        if isinstance(item, dict) and item.get("code") not in (None, 0):
+            stage_name, stage = name, item
+            break
+    raw = []
+    viewports = []
+    if stage_name in _BROWSER_STAGES:
+        browser = stage.get("browser") if isinstance(stage.get("browser"), dict) else {}
+        names = [str(v.get("viewport")) for v in browser.get("viewports") or [] if isinstance(v, dict) and v.get("viewport")]
+        raw.extend(str(p) for p in stage.get("problems") or [] if p)
+        for entry in browser.get("consoleErrors") or []:
+            if isinstance(entry, dict) and entry.get("text"):
+                raw.append(f"{entry.get('viewport') or 'browser'}: 控制台 {entry['text']}")
+        for issue in raw:
+            prefix = issue.split(":", 1)[0].strip() if ":" in issue else ""
+            if prefix and (prefix in names or (not names and re.fullmatch(r"[a-z][A-Za-z0-9_]*", prefix))):
+                if prefix not in viewports:
+                    viewports.append(prefix)
+    if not raw:
+        for key in ("message", "raw", "error"):
+            if stage.get(key):
+                raw.append(str(stage[key]))
+                break
+    if not raw:
+        for key in ("message", "error"):
+            if result.get(key):
+                raw.append(str(result[key]))
+                break
+    issues = [_truncate_issue(item) for item in raw[:_FAILURE_MAX_ISSUES]]
+    joined = "\n".join(raw)
+    hints = []
+    for pattern, hint in _FAILURE_HINT_RULES:
+        if re.search(pattern, joined) and hint not in hints:
+            hints.append(hint)
+    hints = hints[:5]
+    if stage_name in _BROWSER_STAGES:
+        hints.append("修改候选内容后重新 compose_page/build 生成新候选，再按返回的 publish_verified 参数发布；同一候选不会被重复验收")
+    else:
+        hints.append("按 next_action 处理；不要改走 publish_final/update 等已停用的直接发布路径")
+    summary = {
+        "stage": stage_name or "precheck",
+        "error": result.get("error") or stage.get("error") or ("BROWSER_VERIFICATION_FAILED" if stage_name in _BROWSER_STAGES else None),
+        "failed_viewports": viewports,
+        "issues": issues,
+        "issue_count": len(raw),
+        "repair_hints": hints,
+        "published": bool(result.get("published")),
+    }
+    return {key: value for key, value in summary.items() if value not in (None, "")}
+
+
+def _planned_publish_next_action(task_id):
+    """The supported next command for a planned task, from its bound candidate."""
+    try:
+        plan = EP.load(task_id) if task_id else None
+    except EP.PlanError:
+        plan = None
+    if not plan:
+        return None
+    candidates = [C.task_temp_path(task_id, "compose/publish-params.json")]
+    try:
+        import compose_inputs as CI
+        candidates.append(CI.editable_root(task_id) / "dashboard-publish-params.json")
+    except (EP.PlanError, OSError, ValueError):
+        pass
+    for path in candidates:
+        try:
+            value = json.loads(Path(path).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(value, dict) and value.get("plan_hash") == plan["plan_hash"] and value.get("page_id") == plan["target_page_id"]:
+            return {"command": "publish_verified", "params_file": str(path),
+                    "instruction": f"python scripts/static_page.py publish_verified @{path}"}
+    try:
+        pointer = json.loads(C.task_temp_path(task_id, "receipts/compose-draft.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        pointer = {}
+    if pointer.get("plan_hash") == plan["plan_hash"] and pointer.get("params_file"):
+        return {"command": "compose_page", "params_file": pointer["params_file"],
+                "instruction": f"python scripts/static_page.py compose_page @{pointer['params_file']}，再按其返回的 publish_verified 参数发布"}
+    return {"command": "delivery_status", "params": {"task_id": task_id},
+            "instruction": "查看计划状态后用 compose_page 构建候选，再执行其返回的 publish_verified"}
+
+
+def _retired_path_error(error, message, params):
+    """Error for a retired publication path, carrying the supported next command."""
+    action = _planned_publish_next_action(_fork_task_id(params))
+    out = {"code": 1, "error": error, "message": message, "retired_path": True}
+    if action:
+        out["next_action"] = action
+        out["message"] = message + "。下一步：" + action["instruction"]
+    return out
+
+
+def _plan_conflict_next_action(result, params):
+    """Attach the current plan identity and the supported next command to a stale-plan error."""
+    if not isinstance(result, dict):
+        return result
+    if result.get("code") not in (None, 0) and not result.get("error"):
+        # publish_verified reports a stale plan inside a precheck stage; lift it
+        # so the caller sees the conflict instead of a generic failed candidate.
+        for stage in (result.get("stages") or {}).values():
+            if isinstance(stage, dict) and stage.get("error") == "PLAN_REVISION_CONFLICT":
+                result["error"] = "PLAN_REVISION_CONFLICT"
+                result["message"] = stage.get("message")
+                for key in ("actual_revision", "current_revision", "current_plan_hash", "stale_plan_hash"):
+                    if stage.get(key) is not None:
+                        result.setdefault(key, stage[key])
+                break
+    if result.get("error") != "PLAN_REVISION_CONFLICT":
+        return result
+    task_id = _fork_task_id(params)
+    try:
+        plan = EP.load(task_id) if task_id else None
+    except EP.PlanError:
+        plan = None
+    if plan:
+        result.setdefault("current_revision", plan.get("revision"))
+        result.setdefault("current_plan_hash", plan.get("plan_hash"))
+    if result.get("stale_plan_hash") is None and isinstance(params, dict) and params.get("plan_hash"):
+        result["stale_plan_hash"] = params.get("plan_hash")
+    action = _planned_publish_next_action(task_id) if task_id else None
+    if action:
+        result["next_action"] = action
+        message = str(result.get("message") or "")
+        if "下一步" not in message:
+            result["message"] = message + "。不要重试旧plan_hash；下一步：" + action["instruction"]
+    return result
+
+
 def cmd_publish_verified(params):
     import delivery_recovery as recovery
     try:
         blocked = recovery.before(params)
-        if blocked: return blocked
+        if blocked:
+            return blocked
         result = _publish_verified_once(params)
-        return recovery.record(params, result)
+        result = _plan_conflict_next_action(result, params)
+        result = recovery.record(params, result)
+        summary = _publish_failure_summary(result)
+        if summary:
+            result["failure_summary"] = summary
+        return result
     except (EP.PlanError, OSError, ValueError) as exc:
-        return exc.as_dict() if isinstance(exc, EP.PlanError) else {'code': 1, 'error': 'DELIVERY_RECOVERY_STATE_INVALID', 'message': str(exc)}
+        if isinstance(exc, EP.PlanError):
+            return _plan_conflict_next_action(exc.as_dict(), params)
+        return {'code': 1, 'error': 'DELIVERY_RECOVERY_STATE_INVALID', 'message': str(exc)}
 
 
 def _redact_persisted_secrets(value):
@@ -6328,10 +6708,10 @@ def _redact_persisted_secrets(value):
     return sanitized
 
 
-def _publish_verified_cli_result(result, task_id):
+def _publish_verified_cli_result(result, task_id, report_name="publish-verified-report.json"):
     result = result if isinstance(result, dict) else {"code": 1, "message": str(result)}
     persisted_result = _redact_persisted_secrets(result)
-    report_file = str(C.task_temp_path(task_id, "publish-verified-report.json", create_parent=True))
+    report_file = str(C.task_temp_path(task_id, report_name, create_parent=True))
     with open(report_file, "w", encoding="utf-8", newline="\n") as handle:
         json.dump(persisted_result, handle, ensure_ascii=False, indent=2)
 
@@ -6341,7 +6721,7 @@ def _publish_verified_cli_result(result, task_id):
             continue
         stage_summaries[name] = {
             key: stage[key]
-            for key in ("code", "error", "message", "verification_profile", "page_id", "url", "target")
+            for key in ("code", "error", "message", "verification_profile", "page_id", "url", "target", "failure_kind", "html_source")
             if stage.get(key) not in (None, "")
         }
     summary = {
@@ -6354,6 +6734,8 @@ def _publish_verified_cli_result(result, task_id):
             "reply_data_evidence_file", "reply_data_evidence_sha256", "reply_data_availability",
             "agent_reply_template_file", "contract_artifact_error", "qbv_job_lifecycle",
             "repair_attempts_remaining", "recovery_phase", "research_status", "delivery_kind", "live_data_mode", "artifact_file", "artifact_sha256", "artifact_verified", "recovery_result",
+            "failure_summary", "failure_kind", "written", "public_reachable", "operation", "already_verified",
+            "current_revision", "current_plan_hash", "stale_plan_hash", "terminal",
         )
         if persisted_result.get(key) is not None
     }
@@ -9599,7 +9981,10 @@ def cmd_delivery_status(params):
     try:
         plan = EP.require(task, page_id=params.get("page_id"))
         state = DS.load(task, plan["target_page_id"])
-        out = {"code": 0, "page_id": plan["target_page_id"], "execution_plan": plan, "delivery_state": state}
+        # Additive top-level fields; delivery_state stays byte-identical to the
+        # hashed file (legacy states are derived from the write journal).
+        out = {"code": 0, "page_id": plan["target_page_id"], "execution_plan": plan, "delivery_state": state,
+               **DS.flags(state)}
         if params.get("refresh_remote"):
             out["remote"] = cmd_template({"page_id": plan["target_page_id"]})
             if (state.get("last_write") or {}).get("idempotency_key"):
@@ -9636,18 +10021,18 @@ def cmd_execution_plan(params):
             handoff = compose_inputs.prepare(plan, params)
         return {"code": 0, "execution_plan": plan, **handoff}
     except EP.PlanError as exc:
-        return exc.as_dict()
+        return _plan_conflict_next_action(exc.as_dict(), params)
 
 
 def cmd_recover_delivery(params):
     import delivery_recovery
     try: return delivery_recovery.recover(params)
-    except EP.PlanError as exc: return exc.as_dict()
+    except EP.PlanError as exc: return _plan_conflict_next_action(exc.as_dict(), params)
 
 
 def cmd_compose_page(params):
     import compose_page
-    return compose_page.build(params)
+    return _plan_conflict_next_action(compose_page.build(params), params)
 
 
 _COMMANDS = {
@@ -9660,6 +10045,7 @@ _COMMANDS = {
     "update_progress": cmd_update_progress,
     "publish_final": cmd_publish_final,
     "publish_verified": cmd_publish_verified,
+    "verify_published": cmd_verify_published,
     "recover_delivery": cmd_recover_delivery,
     "prepare_maintenance": cmd_prepare_maintenance,
     "upload": cmd_upload,
@@ -9726,7 +10112,12 @@ def main():
         result = trace_err or _COMMANDS[cmd](params)
     except (FileNotFoundError, ValueError) as e:
         result = {"code": 1, "message": str(e)}
-    emitted = _publish_verified_cli_result(result, params.get("task_id")) if cmd == "publish_verified" else result
+    if cmd == "publish_verified":
+        emitted = _publish_verified_cli_result(result, params.get("task_id"))
+    elif cmd == "verify_published" and params.get("task_id"):
+        emitted = _publish_verified_cli_result(result, params.get("task_id"), "verify-published-report.json")
+    else:
+        emitted = result
     C.emit(emitted, out_name="sp_out.txt")
     sys.exit(0 if (isinstance(result, dict) and result.get("code") == 0) else 1)
 

@@ -19,6 +19,21 @@ class PlanError(ValueError):
         return {'code': 1, 'error': self.code, 'message': str(self), 'retryable': False, **self.details}
 
 
+def revision_conflict(message, current, *, stale_plan_hash=None, **details):
+    """Stale-plan error that names the current plan so callers can self-heal."""
+    return PlanError('PLAN_REVISION_CONFLICT', message, actual_revision=current.get('revision'),
+                     current_revision=current.get('revision'), current_plan_hash=current.get('plan_hash'),
+                     stale_plan_hash=stale_plan_hash, **details)
+
+
+def _historical_hash(task, revision):
+    try:
+        value = json.loads(C.task_temp_path(task, 'receipts/plan-history/revision-%s.json' % int(revision)).read_text(encoding='utf-8'))
+        return value.get('plan_hash') if isinstance(value, dict) else None
+    except (OSError, ValueError, TypeError):
+        return None
+
+
 def digest(value):
     return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
@@ -186,7 +201,8 @@ def bind(routing, *, target_scope=None, runtime_roles=None, borrow_modules=None,
                 stable.setdefault(key, default)
             if stable == content:
                 if expected_revision is not None and expected_revision != previous['revision']:
-                    raise PlanError('PLAN_REVISION_CONFLICT', '使用了过期计划', actual_revision=previous['revision'])
+                    raise revision_conflict('使用了过期计划', previous, stale_revision=expected_revision,
+                                            stale_plan_hash=_historical_hash(task, expected_revision))
                 return previous
             if previous.get('plan_stage') == 'routing' and expected_revision is None:
                 expected_revision, revision_reason = previous['revision'], 'complete_initial_plan'
@@ -205,7 +221,8 @@ def require(task_id, *, page_id=None, source_page_id=None, plan_hash=None, runti
     if not value: raise PlanError('PLAN_REQUIRED', '请先创建/恢复执行计划', next_action='execution_plan')
     if page_id is not None and page_id != value['target_page_id']: raise PlanError('PLAN_PAGE_CONFLICT', '目标页不一致')
     if source_page_id is not None and source_page_id != value['source_page_id']: raise PlanError('PLAN_SOURCE_CONFLICT', '来源页不一致')
-    if plan_hash is not None and plan_hash != value['plan_hash']: raise PlanError('PLAN_REVISION_CONFLICT', '构建/发布参数属于旧计划')
+    if plan_hash is not None and plan_hash != value['plan_hash']:
+        raise revision_conflict('构建/发布参数属于旧计划', value, stale_plan_hash=plan_hash)
     if operation == 'fork_prepare' and value['build_mode'] == 'compose_page':
         raise PlanError('COMPOSE_PREPARE_FORBIDDEN', 'Compose计划不能全量继承来源运行时', next_action='compose_page')
     if runtime_roles is not None:

@@ -73,10 +73,13 @@ def finish(params):
     if built.get('code')!=0:return built
     if not built.get('next_action'):
         if built.get('artifact_verified') is True:
+            current=EP.load(task) or {}
+            kind=current.get('delivery_kind','methodology')
+            note='本页为研究方法说明，数据待补。' if kind=='methodology' else '本页为部分研究成果，部分数据待补。'
             return {'code':0,'delivery':{'status':'local_artifact','artifact_file':built.get('out_file'),
-                                          'artifact_sha256':built.get('html_sha256'),'research_status':'unavailable',
-                                          'delivery_kind':'methodology','live_data_mode':'static_content_only'},
-                    'validated_markdown':'研究尚未完成。公开活页尚未发布；可打开的研究HTML作为备用成果交付。',
+                                          'artifact_sha256':built.get('html_sha256'),'research_status':current.get('research_status','unavailable'),
+                                          'delivery_kind':kind,'live_data_mode':draft.get('live_data_mode','static_content_only')},
+                    'validated_markdown':note+'公开活页尚未发布；可打开的研究HTML作为备用成果交付。',
                     'artifact_file':built.get('out_file'),'artifact_sha256':built.get('html_sha256'),
                     'artifact_verified':True,'task_id':task,'turn_id':turn}
         return {'code':1,'error':'HOST_RECOVERY_COMPOSE_INCOMPLETE','message':'候选页未返回发布动作','build':built}
@@ -94,11 +97,11 @@ def finish(params):
     contract=contract.get('agent_reply_contract') or contract
     plan=EP.load(task);kind=plan['delivery_kind'];live=published.get('live_data_mode')
     modules=(contract.get('page_context') or {}).get('core_sections') or ['研究范围与核验方法']
-    intro='研究尚未完成，已交付策略、缺口与核验方法。' if kind=='methodology' else '已交付部分研究成果，完整条件仍待核验。'
+    intro='本页为研究方法说明，数据待补；已交付策略、缺口与核验方法。' if kind=='methodology' else '已交付部分研究成果，部分数据待补。'
     mode='页面为已验证快照，不会自动刷新。' if live=='verified_snapshot' else '本页为方法研究页，不宣称实时选股研究完成。'
     url=contract['public_url']
     label={'verified_snapshot':'可分享静态研究页','static_content_only':'策略与核验方法研究页','mixed':'可分享活页（部分实时、部分静态）'}.get(contract.get('delivery_data_mode'),'可分享实时活页')
-    reply='**'+str(plan.get('title') or '策略研究与核验方法')+'**\n\n【一句话结论】'+intro+'\n\n'
+    reply='**'+str(plan.get('title') or '策略研究与核验方法')+'**\n\n**一句话总结**：'+intro+'\n\n'
     reply+='## 这份活页做了什么\n\n保留原始研究条件，呈现已核验内容及尚未完成的部分。\n\n'
     reply+='## 核心模块\n\n'+'\n'.join('- '+str(module) for module in modules)+'\n\n'
     reply+='## 重点怎么看\n\n逐项核对范围、价格基准、单位、实际观察日与排序。未验证条件保留缺口。\n\n'

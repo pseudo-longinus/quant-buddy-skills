@@ -111,7 +111,7 @@ setBar($("valuationBars"), [
 1. 先查在线模板；没有合适模板时，才写 bespoke 主体 HTML。
 2. 主体 HTML 放入 `QB_SHARED_*` 占位，并调用 `QBShareShell.init({ onRefresh: load, getPosterData })`。
 3. 填 `CONFIG = { endpoint, package_id, signature }`；地址按测试/正式环境填写。
-4. 用 `QB.query(CONFIG)` 取数，再用 `QB.series` / `QB.lastValue` / `QB.topValues` 解包。
+4. 用 `QB.query(CONFIG)` 取数，再用 `QB.series` / `QB.lastValue` / `QB.topValues` 解包。读取 fast_query Data Grant 时必须用 `QB.snapshotRows(out, grant_id)` 解包。
 5. 用 `compile_bespoke_page.py` 编译发布，脚本会内联 share shell、logo、qr-mini 和 data-kernel。
 
 ```js

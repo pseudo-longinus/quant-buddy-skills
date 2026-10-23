@@ -764,7 +764,12 @@ def _run_workflow_v2(params):
             return receipt_error
         if execution_plan:
             if manifest.get("execution_plan_hash") != execution_plan["plan_hash"]:
-                return _failure("PLAN_REVISION_CONFLICT", "manifest属于旧计划")
+                conflict = _failure("PLAN_REVISION_CONFLICT", "manifest属于旧计划", retryable=False,
+                                    actual_revision=execution_plan.get("revision"),
+                                    current_revision=execution_plan.get("revision"),
+                                    current_plan_hash=execution_plan["plan_hash"],
+                                    stale_plan_hash=manifest.get("execution_plan_hash"))
+                return SP._plan_conflict_next_action(conflict, {"task_id": task_id})
             roles = [{"role_id": role["role_id"], "kind": role["kind"]}
                      for role in (manifest.get("runtime_roles") or []) + (manifest.get("augmented_roles") or [])]
             try:

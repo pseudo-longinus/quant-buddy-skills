@@ -140,12 +140,85 @@ function targetUrl(v) {
   return url.href;
 }
 
-async function readHtml(v) {
-  if (isUrl(v)) {
-    const resp = await fetch(v);
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    return await resp.text();
+// Public URL reads: bounded timeout, at most FETCH_ATTEMPTS tries, fixed backoff.
+// Env overrides exist only so tests do not wait the production backoff.
+function envNumber(name, fallback) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+const FETCH_TIMEOUT_MS = envNumber('QBV_VERIFY_FETCH_TIMEOUT_MS', 20000);
+const FETCH_ATTEMPTS = Math.max(1, Math.min(3, Math.floor(envNumber('QBV_VERIFY_FETCH_ATTEMPTS', 3))));
+const FETCH_BACKOFF_MS = String(process.env.QBV_VERIFY_FETCH_BACKOFF_MS || '2000,5000,10000')
+  .split(',').map(Number).filter(n => Number.isFinite(n) && n >= 0);
+// Server-provided Retry-After is honored up to this cap; a longer delay stops retrying.
+const RETRY_AFTER_CAP_MS = envNumber('QBV_VERIFY_RETRY_AFTER_CAP_MS', 30000);
+// 408 timeout, 425 too early, 429 rate limited and 5xx are transient; other 4xx are content answers.
+const RETRYABLE_STATUS = new Set([408, 425, 429, 500, 502, 503, 504]);
+
+class HtmlFetchError extends Error {
+  constructor(message, attempts) {
+    super(message);
+    this.attempts = attempts;
+    this.network = attempts.every(item => item.network);
   }
+}
+
+function describeFetchError(err) {
+  const cause = err && err.cause ? err.cause : {};
+  const detail = {
+    error: sanitizeBrowserText(err && err.name === 'TimeoutError' ? `timeout after ${FETCH_TIMEOUT_MS}ms` : (err && err.message) || String(err)),
+  };
+  for (const key of ['code', 'errno', 'syscall', 'hostname']) {
+    if (cause[key] !== undefined && cause[key] !== null && cause[key] !== '') detail[key] = cause[key];
+  }
+  if (!detail.code && err && (err.name === 'TimeoutError' || err.name === 'AbortError')) detail.code = 'ETIMEDOUT';
+  if (cause && cause.message && cause.message !== detail.error) detail.cause = sanitizeBrowserText(cause.message);
+  return detail;
+}
+
+function retryAfterMs(value) {
+  if (!value) return null;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+  const at = Date.parse(value);
+  return Number.isFinite(at) ? Math.max(0, at - Date.now()) : null;
+}
+
+function fetchFailureText(attempts) {
+  return attempts.map(item => {
+    const parts = [item.status ? `HTTP ${item.status}` : item.error];
+    for (const key of ['code', 'errno', 'syscall', 'hostname']) if (item[key] !== undefined) parts.push(`${key}=${item[key]}`);
+    return `#${item.attempt} ${parts.join(' ')}`;
+  }).join('; ');
+}
+
+async function fetchPublicHtml(url) {
+  const attempts = [];
+  for (let attempt = 1; attempt <= FETCH_ATTEMPTS; attempt += 1) {
+    const started = Date.now();
+    let waitMs = FETCH_BACKOFF_MS[Math.min(attempt - 1, FETCH_BACKOFF_MS.length - 1)] ?? 0;
+    try {
+      const resp = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), redirect: 'follow' });
+      if (resp.ok) return { html: await resp.text(), attempts };
+      const record = { attempt, status: resp.status, error: `HTTP ${resp.status}`, network: RETRYABLE_STATUS.has(resp.status), elapsed_ms: Date.now() - started };
+      attempts.push(record);
+      if (!RETRYABLE_STATUS.has(resp.status)) break;
+      const serverDelay = retryAfterMs(resp.headers.get('retry-after'));
+      if (serverDelay !== null) {
+        record.retry_after_ms = serverDelay;
+        if (serverDelay > RETRY_AFTER_CAP_MS) { record.stopped = 'retry_after_exceeds_cap'; break; }
+        waitMs = Math.max(waitMs, serverDelay);
+      }
+    } catch (err) {
+      attempts.push({ attempt, ...describeFetchError(err), network: true, elapsed_ms: Date.now() - started });
+    }
+    if (attempt < FETCH_ATTEMPTS) await delay(waitMs);
+  }
+  throw new HtmlFetchError(`公开页面 HTML 读取失败（${attempts.length} 次）: ${fetchFailureText(attempts)}`, attempts);
+}
+
+async function readHtml(v) {
+  if (isUrl(v)) return (await fetchPublicHtml(v)).html;
   const parts = splitLocalTarget(v);
   const abs = path.isAbsolute(parts.file) ? parts.file : path.resolve(process.cwd(), parts.file);
   return fs.readFileSync(abs, 'utf8');
@@ -733,6 +806,7 @@ async function playwrightBrowserChecks(pw, url, options = {}) {
   const imageNetworkErrors = [];
   const viewports = VIEWPORTS;
   const settleMs = 1200;
+  let documentHtml = null;
   try {
     for (const viewport of viewports) {
       const page = await browser.newPage({ viewport: { width: viewport.width, height: viewport.height } });
@@ -756,7 +830,9 @@ async function playwrightBrowserChecks(pw, url, options = {}) {
       });
       const navigation = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
       let documentSha256 = null;
+      let documentStatus = null;
       if (/^https?:/i.test(url) && navigation) {
+        documentStatus = navigation.status();
         try { documentSha256 = crypto.createHash('sha256').update(await navigation.body()).digest('hex'); } catch (_) {}
       }
       try {
@@ -780,13 +856,18 @@ async function playwrightBrowserChecks(pw, url, options = {}) {
       metrics.dashboardDesign = await page.evaluate(dashboardDesignMetrics, options.requireDashboardDesign === true);
       metrics.images = imageMetrics;
       metrics.shareModal = shareModalMetrics;
-      results.push({ ...viewportResult(viewport, metrics, options), document_sha256: documentSha256 });
+      if (options.captureHtml && documentHtml === null) {
+        try { documentHtml = await page.evaluate(() => document.documentElement.outerHTML); } catch (_) {}
+      }
+      results.push({ ...viewportResult(viewport, metrics, options), document_sha256: documentSha256, document_status: documentStatus });
       await page.close();
     }
   } finally {
     await browser.close();
   }
-  return { checked: true, engine: 'playwright', viewports: results, consoleErrors, nonCoreWarnings, imageNetworkErrors };
+  const out = { checked: true, engine: 'playwright', viewports: results, consoleErrors, nonCoreWarnings, imageNetworkErrors };
+  if (documentHtml !== null) Object.defineProperty(out, 'documentHtml', { value: documentHtml, enumerable: false });
+  return out;
 }
 
 function pageMetricsExpression() {
@@ -1089,6 +1170,34 @@ function pageMetricsExpression() {
     }
   }
 
+  function liveValueMetrics() {
+    const roots = new Set(document.querySelectorAll('[data-qb-live-mode="live"]'));
+    // Legacy pages may not carry the div-level marker. Only an explicit visible
+    // LIVE badge opts a semantic module into this check; ordinary text mentions do not.
+    for (const badge of document.querySelectorAll('span,div,strong,em')) {
+      const text = String(badge.textContent || '').trim().replace(/\s+/g, ' ');
+      if (!/^(?:●\s*)?LIVE$/i.test(text) || !isVisible(badge)) continue;
+      const root = badge.closest('[data-qb-live-mode],section,article,aside,[class*="card"],[class*="module"]');
+      if (root && root !== document.body) roots.add(root);
+    }
+
+    const emptyValues = [];
+    for (const root of roots) {
+      if (!isVisible(root)) continue;
+      for (const node of root.querySelectorAll('*')) {
+        if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'SVG', 'PATH'].includes(node.tagName)) continue;
+        if (!isVisible(node) || node.children.length) continue;
+        const raw = String(node.textContent || '').replace(/\u00a0/g, ' ').trim();
+        const empty = raw === ''
+          || /^(?:--?|—+|nan)(?:\s*(?:%|％|元|万亿|亿|万|股|手|倍|次))?$/i.test(raw);
+        if (empty) {
+          emptyValues.push({ selector: elementLabel(node, ''), value: raw });
+        }
+      }
+    }
+    return { modules: roots.size, emptyValues };
+  }
+
   const stockComparison = stockComparisonMetrics();
   return {
     scrollWidth: doc.scrollWidth,
@@ -1102,6 +1211,7 @@ function pageMetricsExpression() {
     failureTextHits,
     loadingTextHits,
     stockComparison,
+    liveValues: liveValueMetrics(),
     visibleFonts: {
       minimumPx: visibleFontSamples.length ? visibleFontSamples[0].size : null,
       smallest: visibleFontSamples.slice(0, 8),
@@ -1160,6 +1270,7 @@ function viewportResult(viewport, metrics, options = {}) {
     runtime: metrics.runtime,
     failureTextHits: metrics.failureTextHits || [],
     loadingTextHits: metrics.loadingTextHits || [],
+    liveValues: metrics.liveValues || { modules: 0, emptyValues: [] },
     visibleFonts: metrics.visibleFonts || { minimumPx: null, smallest: [] },
     shareModal: metrics.shareModal || null,
     images: {
@@ -1440,7 +1551,9 @@ async function cdpBrowserChecks(url, options = {}) {
     const nonCoreWarnings = [];
     const imageNetworkErrors = [];
     let currentViewport = 'unknown';
+    let documentHtml = null;
     const documentRequests = new Map();
+    const documentStatuses = new Map();
     cdp.onEvent(msg => {
       if (msg.method === 'Runtime.exceptionThrown') {
         const text = msg.params?.exceptionDetails?.text || 'Runtime exception';
@@ -1462,6 +1575,7 @@ async function cdpBrowserChecks(url, options = {}) {
       }
       if (msg.method === 'Network.responseReceived' && msg.params?.type === 'Document') {
         documentRequests.set(msg.params.frameId, msg.params.requestId);
+        documentStatuses.set(msg.params.frameId, Number(msg.params?.response?.status || 0) || null);
       }
       if (msg.method === 'Network.responseReceived' && msg.params?.type === 'Image' && Number(msg.params?.response?.status || 0) >= 400) {
         imageNetworkErrors.push({ viewport: currentViewport, type: `http_${msg.params.response.status}`, url: sanitizeBrowserText(msg.params.response.url || '') });
@@ -1482,9 +1596,13 @@ async function cdpBrowserChecks(url, options = {}) {
       });
       const loaded = cdp.waitForEvent('Page.loadEventFired', 30000).catch(() => null);
       documentRequests.clear();
+      documentStatuses.clear();
       const navigation = await cdp.send('Page.navigate', { url });
+      // Chrome reports DNS/TLS/connection failures here instead of throwing.
+      if (navigation && navigation.errorText) throw new Error(`page navigation failed: ${navigation.errorText}`);
       await loaded;
       let documentSha256 = null;
+      const documentStatus = /^https?:/i.test(url) ? (documentStatuses.get(navigation.frameId) ?? null) : null;
       const documentRequest = documentRequests.get(navigation.frameId);
       if (/^https?:/i.test(url) && documentRequest) {
         try {
@@ -1547,10 +1665,16 @@ async function cdpBrowserChecks(url, options = {}) {
       if (designMetrics.exceptionDetails) throw new Error('Dashboard design checks failed to execute');
       evaluated.result.value.dashboardDesign = designMetrics.result?.value || null;
       evaluated.result.value.shareModal = shareModalMetrics?.result?.value || null;
-      results.push({ ...viewportResult(viewport, evaluated.result.value, options), document_sha256: documentSha256 });
+      if (options.captureHtml && documentHtml === null) {
+        const outer = await cdp.send('Runtime.evaluate', { expression: 'document.documentElement.outerHTML', returnByValue: true });
+        if (!outer.exceptionDetails && typeof outer.result?.value === 'string') documentHtml = outer.result.value;
+      }
+      results.push({ ...viewportResult(viewport, evaluated.result.value, options), document_sha256: documentSha256, document_status: documentStatus });
     }
     ws.close();
-    return { checked: true, engine: 'system-browser', browser: browserPath, viewports: results, consoleErrors, nonCoreWarnings, imageNetworkErrors };
+    const out = { checked: true, engine: 'system-browser', browser: browserPath, viewports: results, consoleErrors, nonCoreWarnings, imageNetworkErrors };
+    if (documentHtml !== null) Object.defineProperty(out, 'documentHtml', { value: documentHtml, enumerable: false });
+    return out;
   } catch (err) {
     return { checked: false, skipped: true, reason: err && err.message ? err.message : String(err), browser: browserPath };
   } finally {
@@ -1607,6 +1731,11 @@ function summarize(staticResult, browserResult, options) {
       if (r.failureTextHits.length) problems.push(`${r.viewport}: 页面显示失败状态 ${r.failureTextHits.join(', ')}`);
       if (r.loadingTextHits.length && r.runtime && r.runtime.pending === 0) {
         problems.push(`${r.viewport}: 数据完成后仍显示加载态 ${r.loadingTextHits.join(', ')}`);
+      }
+      if (r.runtime && r.runtime.status === 'ready' && r.runtime.pending === 0) {
+        for (const emptyValue of (r.liveValues?.emptyValues || [])) {
+          problems.push(`${r.viewport}: LIVE_VALUE_EMPTY ${emptyValue.selector || ''}=${emptyValue.value || ''}`.trim());
+        }
       }
       if (r.stockComparison?.required) {
         const comparison = r.stockComparison;
@@ -1718,8 +1847,88 @@ function fontSizeProblem(label, info, min, max) {
   return '';
 }
 
+const NETWORK_ERROR_RE = /net::ERR_|ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH|UND_ERR|CERT_|SSL|TLS|certificate|timeout|Timeout|fetch failed|socket hang up|page navigation failed|HTTP 5\d\d/;
+
+// Navigation failures (DNS/TLS/timeout/connection) and 5xx documents are reachability, not content.
+function browserNetworkFailure(browserResult) {
+  if (!browserResult) return false;
+  if (!browserResult.checked) return NETWORK_ERROR_RE.test(String(browserResult.reason || ''));
+  return (browserResult.viewports || []).some(v => Number(v.document_status || 0) >= 500);
+}
+
+// URL targets only. The browser's own document request is authoritative when
+// Node's fetch (no proxy, separate DNS/TLS stack) cannot reach the page.
+async function resolveHtml(v) {
+  if (!isUrl(v)) return { html: await readHtml(v), source: 'fetch', fetchError: null };
+  try {
+    const fetched = await fetchPublicHtml(v);
+    return { html: fetched.html, source: 'fetch', fetchError: null, fetchAttempts: fetched.attempts };
+  } catch (err) {
+    if (!(err instanceof HtmlFetchError)) throw err;
+    return { html: null, source: null, fetchError: err };
+  }
+}
+
 try {
-  const html = await readHtml(target);
+  const resolved = await resolveHtml(target);
+  if (resolved.html === null && (cardRuntimeOnly || cardRuntimeStructureOnly)) throw resolved.fetchError;
+  if (resolved.html === null) {
+    // Node fetch failed: run the browser first and use its document as the static source.
+    const browserOptions = {
+      requireDashboardDesign: verificationProfile.requireDashboardDesign,
+      checkShareModal: verificationProfile.checkShareModal,
+      minVisibleFontPx,
+      relaxSecurity: false,
+      captureHtml: true,
+    };
+    const browserResult = await browserChecks(target, browserOptions);
+    const fetchFailure = { message: resolved.fetchError.message, attempts: resolved.fetchError.attempts };
+    const browserHtml = browserResult.checked && typeof browserResult.documentHtml === 'string' ? browserResult.documentHtml : null;
+    const documentFailed = browserResult.checked && (browserResult.viewports || []).some(v => Number(v.document_status || 0) >= 400);
+    if (!browserHtml || documentFailed) {
+      // Both stacks failed. Node-side DNS/TLS/timeout/5xx, or a browser that could
+      // not navigate, means "unreachable from here"; an HTTP 4xx answer is content.
+      const network = resolved.fetchError.network || browserNetworkFailure(browserResult)
+        || (!browserResult.checked && !(resolved.fetchError.attempts || []).some(a => a.status && a.status < 500));
+      const problems = [resolved.fetchError.message];
+      if (!browserResult.checked) problems.push(`浏览器导航也失败: ${browserResult.reason}`);
+      else if (documentFailed) problems.push(`浏览器主文档返回 HTTP ${(browserResult.viewports || []).map(v => v.document_status).join('/')}`);
+      else problems.push('浏览器未能读取主文档 HTML');
+      const result = {
+        code: 1, target, verification_profile: verificationProfile.name,
+        verification_level: browserResult.checked ? 'browser' : 'static-only',
+        require_browser: requireBrowser, failure_kind: network ? 'network_unreachable' : 'content',
+        html_source: null, fetch_error: fetchFailure, browser: browserResult,
+        warnings: [], problems,
+      };
+      updateManifest(manifestPath, result);
+      emit(result);
+      process.exit(1);
+    }
+    const staticResult = staticChecks(browserHtml);
+    const cardRuntimeResult = cardRuntime ? await cardRuntimeChecks(browserHtml, {
+      requireBrowser, structureOnly: false, requireVisualContract: requireCardVisualContract, screenshotPath: cardScreenshotPath,
+    }) : { ok: true, problems: [] };
+    const summary = summarize(staticResult, browserResult, { requireBrowser, checkLayout: verificationProfile.checkLayout, ...browserOptions });
+    if (cardRuntimeResult.problems.length) { summary.ok = false; summary.problems.push(...cardRuntimeResult.problems); }
+    summary.warnings.push(`Node fetch 未能读取公开页面，静态检查改用浏览器文档: ${resolved.fetchError.message}`);
+    const result = {
+      code: summary.ok ? 0 : 1, target, verification_profile: verificationProfile.name,
+      verification_level: 'browser', require_browser: requireBrowser,
+      min_visible_font_px: minVisibleFontPx || null, extra_viewports: extraViewports,
+      card_runtime: cardRuntime, card_runtime_only: false,
+      html_source: 'browser', fetch_error: fetchFailure,
+      ...(summary.ok ? {} : { failure_kind: 'content' }),
+      static: staticResult, card_runtime_check: cardRuntimeResult, browser: browserResult,
+      data_labels: labelChecks.summarizeDataLabels(browserResult), security_mode: summary.security_mode,
+      non_core_console_warnings: summary.non_core_console_warnings, warnings: summary.warnings, problems: summary.problems,
+    };
+    updateManifest(manifestPath, result);
+    emit(result);
+    process.exit(summary.ok ? 0 : 1);
+  }
+  const html = resolved.html;
+  const urlTarget = isUrl(target);
   const staticResult = staticChecks(html);
   const cardRuntimeResult = cardRuntime ? await cardRuntimeChecks(html, {
     requireBrowser: requireBrowser || cardRuntimeOnly,
@@ -1817,10 +2026,20 @@ try {
     warnings: summary.warnings,
     problems: summary.problems,
   };
+  if (urlTarget) {
+    result.html_source = 'fetch';
+    if (resolved.fetchAttempts && resolved.fetchAttempts.length) result.fetch_retries = resolved.fetchAttempts;
+    if (!summary.ok) result.failure_kind = browserNetworkFailure(browserResult) ? 'network_unreachable' : 'content';
+  }
   updateManifest(manifestPath, result);
   emit(result);
   process.exit(summary.ok ? 0 : 1);
 } catch (err) {
-  emit({ code: 1, target, message: err && err.message ? err.message : String(err) });
+  const out = { code: 1, target, message: err && err.message ? err.message : String(err) };
+  if (err instanceof HtmlFetchError) {
+    out.fetch_error = { message: err.message, attempts: err.attempts };
+    out.failure_kind = err.network ? 'network_unreachable' : 'content';
+  }
+  emit(out);
   process.exit(1);
 }

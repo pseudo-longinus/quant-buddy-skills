@@ -103,7 +103,7 @@ python scripts/data_grant.py refresh '{"grant_id":"dg_xxx","rotate_signature":tr
 ## 取数返回（与在线接口同构，build_dashboard/data-kernel 据此渲染）
 
 - `fast_query`：与在线 fastQuery 同构的值/序列结构。固定日期的 `value` 查询中，日频行情和估值刷新时点不同是正常情况：服务端先选请求区间，若 PE/PB 等字段尚未更新才回看 10 个自然日并返回 `{v, d, fallback:true}` + `DATE_RANGE_FALLBACK`。页面必须使用字段自己的 `d` 显示日期，不能把该字段显示为空、也不能用公共 `dates.trade_date` 覆盖；`series` / `window` 仍严格只含请求区间内的数据。
-- `option_contracts`：`data={ticker,records,notes?}`，records为11项扁平合约字段；build_dashboard归一为行数组。按每行真实trade_date展示，不改成刷新时间；changes可带is_baseline。
+- `option_contracts`：`data={ticker,records,notes?}`，美股records为11项扁平合约字段，国内另有product_id及decision_date/underlying_contract/status，empty行附empty_reason；build_dashboard归一为行数组。按每行真实trade_date展示，不改成刷新时间；changes可带is_baseline。
 - `fast_query_minute`：`data.dates` 为共享分钟时间轴，`data.fields.<field>` 为同索引值数组；自定义活页直接按该列式结构渲染。
 - `stock_profile`：与在线 stockProfile 同构的画像卡结构。
 - `composition_select`：TopN 表（排名/名称/代码/score）+ `composition_used` + `as_of` / `last_date` + `date_alignment_status` + `date_alignment`。`date_alignment_status:"mixed"` 表示组合指标来自不同有效快照，此时全局 `as_of` / `last_date` 为 `null`，页面须逐项展示 `date_alignment`，不能渲染为单一数据日期。
@@ -213,29 +213,30 @@ kind为 `fast_query_minute_range_multi`，接入现有验证→注册→query→
 
 后端须部署fastQueryMinuteRangeMulti及同名授权kind；工具/本地回归通过不代表生产端到端已验收。
 
-## 美股期权槽位合约授权
+## 美股及国内商品期权槽位合约授权
 
-仅支持部分美股标的的映射，不是完整期权链或当日行情检查；需部署新版skill_server，dataServer仍使用原日期任务，不需升级query_type。
-QBS先使用 `query_option_contracts` 验证，QBV通过 `qbs_bridge.py validate_grant_set` 获取当前合同收据，再原样注册。
-这是直取映射，不使用公式包，payload使用下列动态查询参数。
+支持部分美股和国内商品品种；国内股指期权暂未开放。合约身份只读assignment，不是行情检查或完整期权链。
+QBS使用query_option_contracts验证，QBV通过qbs_bridge.py validate_grant_set获取收据，再原样注册；无需公式包。
+国内依赖配套skill_server及新增dataServer任务，不能仅凭Skill更新宣称接口上线。
 
 ```json
-{"kind":"option_contracts","payload":{"asset":"苹果","slots":["E1-ATM-CALL","E1-25C"],"query_type":"snapshot"}}
+{"kind":"option_contracts","payload":{"asset":"螺纹钢","slots":["E1-ATM-CALL","E1-25P"],"query_type":"snapshot"}}
 ```
 
 ```json
-{"kind":"option_contracts","payload":{"asset":"苹果","slots":["E1-ATM-CALL"],"query_type":"window","lookback_days":90,"mode":"changes"}}
+{"kind":"option_contracts","payload":{"asset":"RB.SHF","slots":["E1-ATM-CALL"],"query_type":"window","lookback_days":90,"mode":"changes"}}
 ```
 
-- asset必填，名称/简称/代码多字段匹配，不强制后缀；query_type必填snapshot/window；slots省略查全部八槽。
-- snapshot禁止lookback_days/mode：每槽最多一条，不晚于America/New_York当地今天；可早于今天，各槽日期可不同。
-- window必须lookback_days整数1～366，含纽约当地今天的自然日；mode默认daily或changes。changes含窗口首条基准，额外保留行is_baseline=true。
-- query_type/lookback_days只在skill_server转换，原Celery只收ticker/日期/slots/mode；snapshot缺当天映射时按baselines给出的实际日期分组补查原daily任务，仍无额外检查任务。
-- 授权冻结标准资产/槽位/查询规则，不冻结日期。之后只发grant_id/signature，每次取数重新计算日期，不允许浏览器覆盖请求。
-- 11项行字段：trade_date、slot、contract、expiration、strike、call_put、changed、previous_date、previous_contract、previous_expiration、previous_strike。无前序相关字段null；strike为精确字符串。
-- changed表示该条相对前序是否换约，不代表“今天换约”；只查询assignment与同表前序，不保证close/IV更新，不把拼接价格当持有收益。
-- 现有build_dashboard grant表格直接展示records，数据内核加载/刷新重新queryDataGrant即可；不需要每次refreshDataGrant，不新增后台推送或定时任务。
-- 页面显示真实trade_date和最近刷新时间；失败保留上次有效内容，不篡改业务日期。需要notes时从授权原始data读取，放简短提示区。
-- 合同错误在本地preflight聚合拒绝；验证器检查方向、日期、合约、精度、前序和snapshot唯一槽位。空records属于数据级不可用，不能生成“已有有效数据”的发布收据。
-- HTTP400按error.parameter/error.usage改正；502协议/数据异常、503服务错误、504超时阻断发布，按明确错误处理，不立即重复提交。
-- 过期、撤销、轮换签名按既有授权规则；授权不意味着数据源每天必有新记录。
+- asset为单个名称/简称/代码，复用多字段匹配；国内使用商品品种，不传具体月份合约。slots省略查全部八槽，E1/E2不是期货主力/次主力。
+- snapshot禁止lookback_days/mode；返回最新已生效记录，保留实际trade_date。国内全部请求槽取同日完整批次，empty也必须保留。
+- window的lookback_days为1～366整数自然日，包含市场截止日，mode默认daily或changes；changes包含首条基准。
+- 美股截止日为纽约当地今天；国内按北京时间和品种夜盘所属交易日，夜盘可能对应下一交易日。日历不足返回明确服务错误。
+- 公开参数由skill_server转换，各市场Celery只收ticker/start_date/end_date/slots/mode，不附加行情检查任务。
+- 授权冻结标准资产/市场/品种/槽位/查询规则，不冻结日期；网页只用grant_id/signature，不能覆写资产或范围。
+- 美股保留原十一项记录字段；国内增加decision_date、underlying_contract、status，empty时额外返回empty_reason，data另有product_id。
+- empty为有效选约状态，合约及规格为null，不补旧active合约；active↔empty计为changed，empty→empty不计；无前序为null。
+- previous_date有值而previous_contract为空代表真实前序为空槽；strike为十进制字符串，不按代码猜测规格或使用锚点代替真实标的。
+- build_dashboard展示中文合约字段、空槽、真实标的、原因和实际业务日期。所有槽位为空也可展示为空槽映射，records空数组仍是暂不可用。
+- 页面按行情实际trade_date匹配映射，多日行情使用window daily；不能把最新snapshot合约标到旧行情上。映射存在不代表行情更新，也不保证精确重放历史发布批次。
+- 400按error.parameter/error.usage改正；502批次/数据异常、503配置/日历/服务问题、504超时按既有失败流程处理，不立即重复提交。
+- 过期、撤销和签名轮换沿用既有规则。刷新失败保留上次有效内容并明确失败，不更改业务日期。

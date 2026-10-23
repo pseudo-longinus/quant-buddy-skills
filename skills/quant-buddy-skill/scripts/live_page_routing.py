@@ -297,7 +297,10 @@ def _bare_a_share(query: str) -> Optional[Dict[str, str]]:
     matches = {}
     try:
         for filename in ('stock_a.yaml', 'stock_hk.yaml', 'stock_us.yaml'):
-            for line in (_SKILL_ROOT / 'presets' / 'assets_db' / filename).read_text(encoding='utf-8-sig').splitlines():
+            catalog_file = _SKILL_ROOT / 'presets' / 'assets_db' / filename
+            if not catalog_file.is_file():
+                continue
+            for line in catalog_file.read_text(encoding='utf-8-sig').splitlines():
                 parts = [part.strip() for part in line.split('|')]
                 if len(parts) < 3 or parts[0] != 'stock':
                     continue
@@ -310,20 +313,33 @@ def _bare_a_share(query: str) -> Optional[Dict[str, str]]:
                     matches[ticker] = {'name': name, 'ticker': ticker}
     except (OSError, UnicodeError):
         return None
-    if len(matches) != 1:
+    # One logical name can exist in A/HK/US catalogs. For this A-share fixed
+    # page entry, a unique A-share match wins over an exact-name HK/US listing;
+    # an exact HK/US code still has no A-share match and stays outside.
+    a_share_matches = {
+        ticker: asset for ticker, asset in matches.items()
+        if re.fullmatch(r'(?:SH60\d{4}|SH68\d{4}|SZ00\d{4}|SZ30\d{4})', ticker)
+    }
+    if len(a_share_matches) != 1:
         return None
-    asset = next(iter(matches.values()))
-    if not re.fullmatch(r'(?:SH60\d{4}|SH68\d{4}|SZ00\d{4}|SZ30\d{4})', asset['ticker']):
-        return None
-    return asset
+    return next(iter(a_share_matches.values()))
 
 
-def _simple_a_share_analysis(query: str) -> Optional[Dict[str, str]]:
+def _simple_a_share_analysis(query: str, *, allow_conversational: bool = False) -> Optional[Dict[str, str]]:
     """Accept bounded comprehensive-analysis phrases, not arbitrary asset mentions."""
     match = re.fullmatch(
         r'(?:请|请帮我|帮我)?(?:全面分析|综合分析|个股分析|分析)(?:一下|下)?\s*(.+?)(?:这只股票)?[。！!]?', query)
     if not match:
         match = re.fullmatch(r'(.+?)(?:的)?(?:全面分析|综合分析|个股分析|个股画像)[。！!]?', query)
+    if not match:
+        # Bounded conversational comprehensive-analysis phrasing. This does not
+        # broaden one-field price/PE requests or arbitrary trend requests; the
+        # extracted identity must still resolve to exactly one A-share equity.
+        if allow_conversational:
+            match = re.fullmatch(
+                r'(?:请|请帮我|帮我)?(?:看看|看一下)?\s*(.+?)\s*(?:最近|现在)?(?:怎么样|如何)[？?。！!]?',
+                query,
+            )
     if not match:
         return None
     identity = match[1].strip()
@@ -373,10 +389,18 @@ def route_live_page(
         }
 
     bare_asset = _bare_a_share(query)
-    analysis_asset = _simple_a_share_analysis(query) if not bare_asset else None
+    analysis_asset = _simple_a_share_analysis(query, allow_conversational=page_requested) if not bare_asset else None
+    reasons = ['bare_a_share_fast_page' if bare_asset else 'single_a_share_analysis_fast_page']
+    if not (bare_asset or analysis_asset):
+        # The host already judged this turn a single-stock fast track and
+        # stripped output/data-scope suffixes. Only a unique A-share
+        # resolution of that hint counts; the question text still wins above.
+        hint = _compact_text(os.environ.get('QB_HOST_FAST_TRACK_ASSET'))
+        analysis_asset = _bare_a_share(hint) if hint else None
+        reasons = ['single_a_share_analysis_fast_page', 'host_fast_track']
     if bare_asset or analysis_asset:
         return {
-            'route': 'create', 'route_reason': ['bare_a_share_fast_page' if bare_asset else 'single_a_share_analysis_fast_page'],
+            'route': 'create', 'route_reason': reasons,
             'page_reference': None, 'requires_persistence_confirmation': False,
             'page_workflow': 'single_a_stock_fast', 'asset': bare_asset or analysis_asset,
             'next_step': {

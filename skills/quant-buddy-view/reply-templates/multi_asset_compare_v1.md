@@ -24,6 +24,17 @@ Use for comparing two or more stocks, indexes, funds, or assets with a shared se
 - Choose conclusion rows from verified metrics only. Price return is not revenue/earnings growth; market capitalization is not trading liquidity. With only prices, valuation and capitalization, use “区间收益 / 当前回撤 / 估值 / 规模”, and omit unsupported growth, funds and liquidity conclusions.
 - Count finite dated observations separately from the calendar axis length. `range_data.dates` may include weekends and holidays with null values; its length is not a trading-day count. Without an exchange calendar use “有效观测数”, state the first/last valid dates, and never call all calendar points trading days.
 
+## 一句话总结合同
+
+`一句话总结` 是面向用户原问题收口的模块，综合四类输入：用户原问题原话；预研增强任务说明（背景/关注点/矛盾/隐含需求）；本轮联网检索可靠信息（必须有来源和发布日期）；前文已验证平台数据。
+
+- 2–4 个分句，总长 120–250 字；第一句直接回答原问题，不复述问题本身。
+- 平台数据只选最有决策价值的 1–2 个，带日期口径，不堆数字。
+- 外部检索最多 1 条，格式「外部报道（来源，发布日期）显示……」；与平台数据时点或口径不同必须点明；无可靠外部结果则省略，不得编造。
+- 末句给条件式观察（若……则……），不预测明日涨跌、不给目标价或精确点位。
+- 不描述搜索、读取、模板、工具等过程；不得出现前文没有的指标和结论。
+- 用户未指定偏好时不给唯一 winner，按稳健/成长/估值修复/风控优先分别给倾向，并点明各标的的一票否决风险。
+
 ## Markdown Skeleton
 
 ```markdown
@@ -78,6 +89,8 @@ Use for comparing two or more stocks, indexes, funds, or assets with a shared se
 |------|----------|----------|
 | {已验证的指标维度，如区间收益} | {asset} | {该指标数值、日期和口径} |
 | {另一已验证的指标维度，如当前回撤} | {asset} | {该指标数值、日期和口径} |
+
+**一句话总结**：{按用户目标给偏好结论；点明各标的一票否决风险；有可靠外部结果时带来源与发布日期；条件式收尾}
 
 > 数据截至 {computed_at 日期}；不构成投资建议。
 ```
