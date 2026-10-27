@@ -666,15 +666,15 @@ npx skills list -g --json
 
 ## 联系作者
 
-想看更多策略案例、接入问题、更新路线和真实投研工作流，欢迎添加微信或加入交流群。
+想看更多策略案例、接入问题、更新路线和真实投研工作流，欢迎添加企业微信或加入交流群。
 
 <p align="center">
   <table>
     <tr>
       <td align="center">
-        <img src="assets/wechat_qr3.png" width="180" alt="个人微信二维码" />
+        <img src="assets/wechat_qr3.png" width="180" alt="企业微信二维码" />
         <br/>
-        <sub>个人微信</sub>
+        <sub>企业微信</sub>
       </td>
       <td align="center">
         <img src="assets/wechat_group_qr10.png" width="180" alt="QuantBuddy投研科学讨论微信群二维码" />
@@ -684,7 +684,7 @@ npx skills list -g --json
     </tr>
   </table>
   <br/>
-  <sub>扫码添加微信或加入交流群，欢迎交流量化投研、AI Agent（智能代理）工作流和策略验证案例。</sub>
+  <sub>扫码添加企业微信或加入交流群，欢迎交流量化投研、AI Agent（智能代理）工作流和策略验证案例。</sub>
 </p>
 
 ## Star History
