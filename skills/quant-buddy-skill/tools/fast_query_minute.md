@@ -12,7 +12,7 @@
 
 ## 市场覆盖
 
-调用前按 [分钟行情支持范围](../references/minute-data-coverage.md) 确认市场与资产类型：美国/香港指数及期货暂不支持分钟行情，不能因日频可查就调用本工具。本工具仍只查询当前/最近完整交易日；用户指定历史日期时转 `fast_query_minute_range` 并执行对应最早日期提示，不能向本工具添加历史日期参数。
+调用前按 [分钟行情支持范围](../references/minute-data-coverage.md) 确认市场与资产类型：境外期货主力连续已支持，分钟起点按ticker区分（见分钟覆盖参考）；美国/香港指数及香港期货暂不支持分钟行情，不能因日频可查就调用本工具。本工具仍只查询当前/最近完整交易日；用户指定历史日期时转 `fast_query_minute_range` 并执行对应最早日期提示，不能向本工具添加历史日期参数。
 
 ## 参数
 
@@ -94,3 +94,9 @@
 单日分钟不返回 roll_events、多日期 contracts、lookup_start_date，也无需 Agent 手工查换月。内部按需回看6→12→24个日历月，找到即停，共用最多2秒附加预算；这不是期货固定三个月换月的保证。无法确认时 contract=null、status=unavailable 并带 reason；附加查询失败另有 warnings。保留已成功 dates/fields，不因附加警告重查或降级行情，不把未知合约说成没有合约。
 
 历史/跨日原始分钟改用 [fast_query_minute_range](fast_query_minute_range.md)，不要往本工具追加日期参数。**本工具仍需要 fields**。
+
+遇到局部分钟缺失或与日频量价未对齐时，按 [连续期货与局部差异处理](../references/continuous-futures.md) 标注受影响范围，继续有效行情及分析；只有依赖缺失输入的路径标未知，不据此停止整个任务。
+
+## 外盘期货支持
+
+支持CME Group主力连续；新增资产清单、逐ticker起点、Chicago会话日及本工具请求示例见[外盘期货分钟覆盖](../references/minute-data-coverage.md#外盘期货主力连续)。沿用本工具参数与返回合同，不添加Celery内部参数；单资产接口不传market，多资产全市场可用market=os_future。

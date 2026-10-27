@@ -36,7 +36,7 @@ def validate_multi_request(payload):
         assets = payload['assets']
         if not isinstance(assets, list) or not 1 <= len(assets) <= 5000 or not all(asset_ok(a) for a in assets):
             add('INVALID_ASSETS', 'assets须为1～5000个名称或代码')
-    if 'market' in payload and payload['market'] not in ('cn_stock', 'cn_index', 'us_stock', 'hk_stock', 'cn_future'):
+    if 'market' in payload and payload['market'] not in ('cn_stock', 'cn_index', 'us_stock', 'hk_stock', 'cn_future', 'os_future'):
         add('INVALID_MARKET', 'market不在支持范围')
     mode = payload.get('date_mode', 'absolute')
     if mode not in ('absolute', 'rolling', 'current_trade_day'): add('INVALID_DATE_MODE', 'date_mode不支持')

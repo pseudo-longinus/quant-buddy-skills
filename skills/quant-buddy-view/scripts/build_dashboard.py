@@ -85,7 +85,11 @@ PAGES_DIR = os.path.join(C.SKILL_ROOT, "output", "pages")
 ASSETS_DIR = os.path.join(C.SKILL_ROOT, "assets")
 SHARED_SHELL_DIR = os.path.join(C.SKILL_ROOT, "assets", "share-shell")
 
-_ECHARTS_CDN = "https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"
+_ECHARTS_CDN = "https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js"
+_CHART_SOURCES = [
+    {"name": "cdn", "url": _ECHARTS_CDN, "timeout": 3000},
+    {"name": "oss", "url": "https://quant-buddy-prod.oss-cn-hangzhou.aliyuncs.com/vendor/echarts/5.6.0/echarts.min.js", "timeout": 5000},
+]
 _DEFAULT_OFFICIAL_URL = "https://www.quantbuddy.cn"
 _DEFAULT_LOGO_PATH = os.path.join(ASSETS_DIR, "logo.svg")
 _MAX_INLINE_LOGO_BYTES = 1_300_000
@@ -308,6 +312,7 @@ _RENDER_JS_TEMPLATE = r"""/* QBV_RENDER_JS_START:v1 */
 (function () {
 'use strict';
 const BOOT = __BOOT__;
+__CHART_DEPENDENCY_RUNTIME__
 let LAST_OUTPUTS = {};
 __DATA_LABEL_RUNTIME__
 
@@ -734,8 +739,8 @@ function renderImage(el, panel) {
   if (trigger) trigger.addEventListener('click', () => openImageLightbox(url, alt, panel.caption || '', trigger));
 }
 
-function renderChart(el, tab, panel) {
-  const chart = echarts.init(el);
+function renderChart(el, tab, panel, recorder) {
+  const chart = recorder || chartLibrary().init(el);
   // Rank the original signed values. Never negate returns to obtain a bottom-N.
   if (panel.type === 'bar' && ['asc', 'desc'].includes(panel.rank_order)) {
     el.dataset.qbRankOrder = panel.rank_order;
@@ -757,12 +762,15 @@ function renderChart(el, tab, panel) {
   const xi = colIdx(tab, xName);
   const xData = tab.rows.map(r => xi == null ? '' : r[xi]);
   let yCols = panel.y && panel.y.length ? panel.y : tab.columns.filter(c => c !== xName);
+  if (panel.y?.some(c=>colIdx(tab,c)==null)) throw new Error('图表缺少声明的数值系列');
+  if (yCols.some(c=>{const i=colIdx(tab,c);return i!=null && tab.rows.some(r=>typeof r[i]==='number' && !Number.isFinite(r[i]));})) throw new Error('图表含非有限数值');
   // 只保留数值列
   yCols = yCols.filter(c => {
     const i = colIdx(tab, c);
-    return i != null && tab.rows.some(r => typeof r[i] === 'number');
+    return i != null && (tab.rows.some(r => typeof r[i] === 'number') || panel.y?.includes(c) && tab.rows.every(r=>r[i]==null));
   });
-  if (xi == null || !yCols.length) throw new Error('图表缺少有效横轴或数值系列');
+  if (xi == null || !yCols.length || !yCols.some(c=>tab.rows.some(r=>typeof r[colIdx(tab,c)]==='number'))) throw new Error('图表缺少有效横轴或数值系列');
+  if (yCols.some(c=>tab.rows.some(r=>r[colIdx(tab,c)]!=null && typeof r[colIdx(tab,c)]!=='number'))) throw new Error('图表数值系列含非数值');
   // 双轴：panel.right_series 声明哪些列（= 多 output 面板里的 output 名）归右轴，其余归左轴；
   // 未声明 right_series 或 dual_axis!==true 时行为与单轴完全一致（向后兼容默认关闭）。
   const rightSet = new Set(Array.isArray(panel.right_series) ? panel.right_series : []);
@@ -797,7 +805,7 @@ function renderChart(el, tab, panel) {
       axisLabel:{interval:0,width:112,overflow:'truncate',fontSize:12,color:'#24394e'}} : spark ? Object.assign({}, yAxisBase, {show: false, splitLine: {show: false}}) : yAxis,
     series: series,
   });
-  window.addEventListener('resize', () => chart.resize());
+  if (!recorder) window.addEventListener('resize', () => chart.resize());
 }
 
 // Strict daily calendar key: no locale guessing or accidental epoch parsing.
@@ -818,7 +826,7 @@ function candleColumns(tab, panel) {
   if (['date','open','close','low','high'].some(k=>cols[k]<0) || panel.volume != null && cols.volume<0) throw new Error('K线字段缺失');
   return cols;
 }
-function renderCandlestickChart(el, tab, panel) {
+function renderCandlestickChart(el, tab, panel, recorder) {
   const ix=candleColumns(tab,panel), seen=new Set();
   // Reject invalid data explicitly; do not silently delete a trading day.
   const rows=tab.rows.map(row=>{
@@ -843,24 +851,25 @@ function renderCandlestickChart(el, tab, panel) {
   }
   const hasVolume=ix.volume>=0 && panel.show_volume!==false;
   if (hasVolume) series.push({type:'bar',name:(panel.output_labels||{})[tab.columns[ix.volume]]||'成交量',data:rows.map(r=>r[ix.volume] ?? null),xAxisIndex:1,yAxisIndex:1,itemStyle:{color:'#9ab6cc'}});
-  const chart=echarts.init(el);
+  const chart=recorder || chartLibrary().init(el);
   const grids=[{left:56,right:24,top:34,bottom:hasVolume?'30%':'14%'}];
   const xs=[{type:'category',data:dates,axisLabel:{color:'#697586'}}];
   const ys=[{type:'value',name:panel.unit || '',scale:true,axisLabel:{color:'#697586'},splitLine:{lineStyle:{color:'#e8edf4'}}}];
   if (hasVolume) {grids.push({left:56,right:24,height:'18%',bottom:'8%'});xs.push({type:'category',gridIndex:1,data:dates,axisLabel:{show:false}});ys.push({type:'value',gridIndex:1,name:panel.volume_unit || '',scale:true,axisLabel:{color:'#697586'},splitLine:{show:false}});}
   chart.setOption({tooltip:{trigger:'axis'},legend:{data:series.map(v=>v.name),top:0,type:'scroll'},grid:grids,xAxis:xs,yAxis:ys,dataZoom:[{type:'inside',xAxisIndex:hasVolume?[0,1]:[0]},{type:'slider',xAxisIndex:hasVolume?[0,1]:[0],bottom:0}],series});
   if (el.dataset) el.dataset.qbKlineEvidence=JSON.stringify({start:dates[0],end:dates.at(-1),count:dates.length,series:series.map(v=>({name:v.name,last:v.data.at(-1)}))});
-  window.addEventListener('resize',()=>chart.resize());
+  if (!recorder) window.addEventListener('resize',()=>chart.resize());
 }
 
 // 雷达图：tab 第一列是维度名、第二列（或唯一列）是 0..max 的得分。panel.max 缺省 1（比例型分数）。
-function renderRadarChart(el, tab, panel) {
-  const chart = echarts.init(el);
+function renderRadarChart(el, tab, panel, recorder) {
+  const chart = recorder || chartLibrary().init(el);
   const nameIdx = 0;
   const valueIdx = tab.columns.length > 1 ? 1 : 0;
   const maxVal = typeof panel.max === 'number' ? panel.max : 1;
   const indicator = tab.rows.map(r => ({name: String(r[nameIdx] == null ? '' : r[nameIdx]), max: maxVal}));
-  const values = tab.rows.map(r => (typeof r[valueIdx] === 'number' ? r[valueIdx] : 0));
+  const values = tab.rows.map(r => r[valueIdx] ?? null);
+  if (!values.some(v=>typeof v==='number' && Number.isFinite(v)) || values.some(v=>v!=null && (typeof v!=='number' || !Number.isFinite(v)))) throw new Error('雷达图无有效数值或含非法数值');
   chart.setOption({
     tooltip: {},
     color: ['#2454a6'],
@@ -873,7 +882,7 @@ function renderRadarChart(el, tab, panel) {
     },
     series: [{type: 'radar', data: [{value: values, areaStyle: {opacity: 0.15}}]}],
   });
-  window.addEventListener('resize', () => chart.resize());
+  if (!recorder) window.addEventListener('resize', () => chart.resize());
 }
 
 // 骨架先行：先把所有面板卡片铺出来，正文随产出到达再逐个填。
@@ -1086,14 +1095,16 @@ function transformPanelTable(tab, panel) {
 
 function renderPanelBody(body, panel, span, merged) {
   const type = panel.type || 'table';
+  body.__qbChartToken = null;
   const out = merged.out;
-  if (out && out.error) { body.innerHTML = '<p class="empty err">取数失败：' + esc(out.error) + '</p>'; if(body.dataset)body.dataset.qbRenderError=String(out.error); return; }
-  if (!merged.tab) { body.innerHTML = '<p class="empty">无产出：' + (panel.output || (panel.outputs || []).join('、') || '') + '</p>'; return; }
+  if (out && out.error) { body.innerHTML = '<p class="empty err">取数失败：' + esc(out.error) + '</p>'; if(body.dataset){body.dataset.qbRenderError=String(out.error);body.dataset.qbPresentation='failed';} return; }
+  if (!merged.tab) { if(CHART_TYPES.has(type)){setChartError(body,'图表无有效产出');return;} body.innerHTML = '<p class="empty">无产出：' + (panel.output || (panel.outputs || []).join('、') || '') + '</p>'; return; }
   if (out && out.error) { body.innerHTML = '<p class="empty err">取数失败：' + out.error + '</p>'; return; }
   try {
     if(body.dataset)delete body.dataset.qbRenderError;
     const transformed = transformPanelTable(merged.tab, panel);
     const tab = (type === 'line' || type === 'bar' || type === 'candlestick') ? applyXRange(transformed, panel) : transformed;
+    if (CHART_TYPES.has(type)) { renderChartPanel(body,tab,{...panel,type},span); return; }
     const coverage = rankCoverage(panelOutputNames(panel), panel.expected_rows);
     if (type === 'raw') body.innerHTML = '<pre>' + JSON.stringify((merged.rawData !== undefined ? merged.rawData : tab), null, 2) + '</pre>';
     else if (type === 'number') renderNumber(body, tab, panel);
@@ -1102,13 +1113,19 @@ function renderPanelBody(body, panel, span, merged) {
     else if (type === 'radar') { body.style.height = (panel.height || (span === 'full' ? 360 : 300)) + 'px'; renderRadarChart(body, tab, panel); }
     else { body.style.height = (panel.height || (span === 'full' ? 360 : 300)) + 'px'; renderChart(body, tab, panel); }
   } catch (e) {
-    const chart=typeof echarts!=='undefined' && echarts.getInstanceByDom?.(body); if(chart)chart.dispose();
-    if(body.dataset){body.dataset.qbRenderError=String(e);delete body.dataset.qbKlineEvidence;}
+    const chart=chartLibrary()?.getInstanceByDom?.(body); if(chart)chart.dispose();
+    if(body.dataset){body.dataset.qbRenderError=String(e);body.dataset.qbPresentation='failed';delete body.dataset.qbKlineEvidence;}
     body.innerHTML = '<p class="empty err">渲染失败: ' + esc(e) + '</p>';
   }
 }
 
 function buildSkeletons() {
+  PANEL_REG.forEach(reg=>{
+    reg.body.__qbChartToken=null;
+    chartLibrary()?.getInstanceByDom?.(reg.body)?.dispose();
+    if(reg.body.__qbResize)window.removeEventListener('resize',reg.body.__qbResize);
+  });
+  if(BOOT.panels.some(p=>CHART_TYPES.has(p.type)))ensureChartLibrary().catch(()=>{});
   // 嵌入模式（面板全部走 target_selector）可能压根没有 #grid；null 时跳过清空，不整页报错。
   const grid = document.getElementById('grid');
   // Complete embedded layouts own their target nodes, including nodes inside #grid.
@@ -1128,6 +1145,7 @@ function buildSkeletons() {
     const names = panelOutputNames(panel);
     const reg = {panel: panel, body: made.body, span: made.span, filled: false, names: names, received: {}};
     PANEL_REG.push(reg);
+    if(CHART_TYPES.has(type)){made.body.dataset.qbPresentation='pending';made.body.dataset.qbChartType=type;made.body.dataset.qbPanelTitle=panel.title || panel.output || type;}
     if (type === 'text' && !panel.binding && !panel.date_binding) { renderText(made.body, panel); reg.filled = true; return; }
     if (type === 'image') { renderImage(made.body, panel); reg.filled = true; return; }
     made.body.innerHTML = '<p class="empty">加载中…</p>';
@@ -1362,6 +1380,7 @@ async function fetchLiveEpoch() {
   // 收尾：始终没等到产出的非 text 面板，标注无产出
   PANEL_REG.forEach(reg => {
     if (!reg.filled && (reg.panel.type || 'table') !== 'text') {
+      if(CHART_TYPES.has(reg.panel.type)) {setChartError(reg.body,'图表缺少必要产出');return;}
       reg.body.innerHTML = '<p class="empty">无产出：' + (reg.panel.output || (reg.panel.outputs || []).join('、') || '') + '</p>';
     }
   });
@@ -1485,7 +1504,8 @@ def _render_js_for_boot(boot):
     render_template = _RENDER_JS_TEMPLATE
     if not label_runtime:
         render_template = render_template.replace('    qbApplyDataLabel(panel, made.body);\n', '')
-    full = render_template.replace("__BOOT__", boot_json).replace(
+    chart_runtime = _read_text(os.path.join(ASSETS_DIR, 'chart-dependency.js')).lstrip('\ufeff').replace('__CHART_SOURCES__', json.dumps(_CHART_SOURCES))
+    full = render_template.replace("__BOOT__", boot_json).replace('__CHART_DEPENDENCY_RUNTIME__', chart_runtime).replace(
         '__PROSE_BINDING_RUNTIME__', _read_text(os.path.join(ASSETS_DIR, 'prose-bindings.js'))).replace(
         '__DATA_LABEL_RUNTIME__\n', label_runtime + '\n' if label_runtime else '')
     if not boot.get("embedded"):
@@ -1701,7 +1721,7 @@ def _render_html(spec, *, title, subtitle, panels, endpoint, package_id, signatu
 </main>
 {shared_footer}
 {shared_modal}
-<script src="{_ECHARTS_CDN}"></script>
+<!-- ECharts is loaded lazily by the shared QBV runtime. -->
 <script>
 {shared_runtime_js}
 {data_kernel_js}
@@ -1881,9 +1901,10 @@ def cmd_panel_block(params):
     include_cdn = _as_bool(include_cdn_value, True)
     cdn_skip_reason = None
     if include_cdn_value is None and host_html is not None and _host_has_echarts(host_html):
-        include_cdn = False
-        cdn_skip_reason = "检测到宿主页面已加载 ECharts，跳过重复 CDN"
-    cdn_tag = f'<script src="{_ECHARTS_CDN}"></script>\n' if include_cdn else ""
+        cdn_skip_reason = "检测到宿主 ECharts 脚本；运行时优先复用可用库"
+    boot["include_echarts_cdn"] = include_cdn
+    render_js = _render_js_for_boot(boot)
+    cdn_tag = ""
     kernel_block = (data_kernel_js + "\n") if data_kernel_js else ""
     script_html = (
         cdn_tag
@@ -1909,6 +1930,7 @@ def cmd_panel_block(params):
         "size": len(script_html.encode("utf-8")),
         "included_data_kernel": include_kernel,
         "included_echarts_cdn": include_cdn,
+        "echarts_loading": "lazy_dual_source" if include_cdn else "host_only",
         "message": message,
     }
 

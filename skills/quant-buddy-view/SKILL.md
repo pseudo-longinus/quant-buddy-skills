@@ -2,7 +2,7 @@
 name: quant-buddy-view
 slug: quant-buddy-view
 author: guanzhao
-version: 0.7.3
+version: 0.7.4
 description: |
   将量化分析或已有 JPG/PNG、HTML、PDF 发布为 Quant Buddy 可分享活页或实时看板，并支持创建、更新、复用、验收和公开链接交付。适用于个股画像、估值财务、指数异动、多因子筛选、商品日报、模板、分享壳及卡片等页面。
   用户提供 QuantBuddy 活页 URL 并要求解读时也使用。显式调用 /quant-buddy-view、/qbv、qbv 或 QBV，且请求并非纯咨询、代码维护或文档解释时，默认按可分享活页任务处理。
@@ -11,7 +11,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 0.7.3
+  version: 0.7.4
   author: guanzhao
   category: quant-finance
   tags: [quant, dashboard, formula-package, static-page, publish, visualization]
@@ -509,12 +509,14 @@ npx skills update pseudo-longinus/quant-buddy-skills -y
 
 ## 历史分钟与连续期货数据源
 
-- 注册、Fork改资产/窗口前必读 [分钟行情支持范围与越界提示](references/minute-data-coverage.md)：A股/美股股票起于2026-05-13，国内期货起于2005-01-04，港股股票2026-05-20，国内指数2026-08-13；美国/香港指数及期货暂不支持。全窗口早于起点不注册授权；部分覆盖先提示并在页面标注，不静默裁剪原始payload，不宣称完整覆盖。页面若展示30分钟K线，必须标注其由1分钟Grant派生，不能把页面聚合结果写成上游原始30分钟数据。
+- 注册、Fork改资产/窗口前必读 [分钟行情支持范围与越界提示](references/minute-data-coverage.md)：A股/美股股票起于2026-05-13，国内期货起于2005-01-04，港股股票2026-05-20，国内指数2026-08-13；境外期货主力连续已支持，分钟起点按ticker区分（见分钟覆盖参考）；美国/香港指数及香港期货暂不支持。全窗口早于起点不注册授权；部分覆盖先提示并在页面标注，不静默裁剪原始payload，不宣称完整覆盖。页面若展示30分钟K线，必须标注其由1分钟Grant派生，不能把页面聚合结果写成上游原始30分钟数据。
 
 - 当前/最近完整日分钟用 `fast_query_minute` Grant（保留 fields）；历史跨日分钟用 `fast_query_minute_range` Grant（全列，无fields/format/remove_nan）。绝对窗口或-70至-1自然日offset二选一，不含市场今天。详见 [tools/data_grant.md](tools/data_grant.md)。
+- 外盘期货主力连续支持ES.CME等13个已确认品种，完整列表和逐ticker起点见[分钟覆盖表](references/minute-data-coverage.md#外盘期货主力连续)。三个分钟Grant沿用原kind；多资产全市场用market=os_future，当地时段用America/Chicago。页面保留请求区间、实际返回范围、逐资产缺口和时区，不以Grant可刷新推定数据已更新至今天。
 - 多资产/全市场分钟、每日分钟窗口或最近N个交易日分钟用 `fast_query_minute_range_multi` Grant；payload用assets/asset/market三选一，禁止tickers/format/fields。支持JSON与url指向的CSV长表，rolling/current_trade_day由服务端动态解析；历史和仍更新单日拆两份授权。沿用bridge验证、注册收据和QB.queryGrant刷新，见 [tools/data_grant.md](tools/data_grant.md#多资产分钟授权)。
 - 历史分钟CSV是 trade_date/timestamp/行情列长表，内核读取实际表头，不走日频宽表。绝对窗口固定、offset授权滚动；页端持有Grant而不是临时CSV地址，不称历史分钟为“当前盘中”。
-- 连续期货：单日只显示所选trade_date的具体合约/状态；日频窗口与跨日分钟按trade_date解释换月事件，夜盘不能拿UTC自然日匹配。inferred不等于独立实时核验，附加warnings不影响行情成功或作为发布失败理由。
+- 连续期货跨日/跨频页先读 [换月、复权与局部差异](references/continuous-futures.md)。新版事件保留 `decision_trade_date` 和 `effective_trade_date`，按 `columns` 解析；前者是决策日及原始参考价取价日，后者是换月生效日，按行情 `trade_date` 匹配，夜盘不能拿UTC自然日匹配。日频复权价与原始分钟/事件价统一尺度后比较，派生参考分钟使用文档的加法价差。单日仅显示所选交易日的具体合约/状态，inferred不等于独立实时核验。
+- 局部分钟缺失、端点差异、日分钟量价不齐和附加warnings默认非阻断：保留有效图表、分析和页面交付，在相关模块标注影响范围，不否定整段窗口或全年数据。确实依赖缺失输入的路径/统计单独标未知，继续其他模块；不把未知当0，不补齐伪造路径，不把跨频严格相等另设为发布门禁。核心模块完全无可用数据时沿原有失败规则处理。
 
 ## 配置
 

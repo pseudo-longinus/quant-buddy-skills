@@ -4737,6 +4737,18 @@ def _existing_page_reference_from_interpret(result, url):
     return reference
 
 
+def _classify_existing_page_intent(query):
+    """Return copy/in_place/None; paired negation must govern the matched action."""
+    text = str(query or "")
+    copy = bool(re.search(r"复制|副本|另存|别人的页面|改成我的|原页保持不动|原页不动|新的活页|新建.*(?:页面|活页)", text))
+    negated_copy = bool(re.search(r"(?:不要|不用|无需|不需要|不)\s*(?:再\s*)?(?:复制|新建|另存)", text))
+    explicit_copy = bool(re.search(r"(?:复制|另存|新建)(?:一份|一个|页面|活页)?(?:给我|出来|版本)", text)) and not negated_copy
+    explicit_in_place = bool(re.search(r"(?:直接|原位|保留原链接|更新原页|不新建|不复制)", text)) and not explicit_copy
+    if explicit_copy or (copy and not negated_copy and not explicit_in_place): return "copy"
+    if explicit_in_place: return "in_place"
+    return None
+
+
 def _record_existing_page_reference(task_id, reference):
     task_id = str(task_id or "").strip()
     if not task_id or not isinstance(reference, dict):
@@ -6338,12 +6350,57 @@ def _save_pending_public_verification(params, stages, card_runtime):
     EP.atomic_json(C.task_temp_path(task_id, _PENDING_PUBLIC_VERIFICATION_FILE, create_parent=True), pending)
 
 
+def _persist_maintenance_delivery_state(params, stages, result, public_url):
+    """Maintenance same-page publishes carry no execution plan; still leave a
+    durable, turn-bound delivery record so the host projection can verify."""
+    task_id = str(params.get('task_id') or '')
+    if not task_id or not params.get('maintenance_mode'):
+        return
+    try:
+        if EP.load(task_id):
+            return
+    except EP.PlanError:
+        return
+    page_id = result.get('page_id') or (stages.get('publish_final') or {}).get('page_id')
+    url = public_url or result.get('public_url') or (stages.get('publish_final') or {}).get('url')
+    if isinstance(url, str) and len(url) <= 2048 and url.startswith('https://'):
+        url = url
+    else:
+        url = None
+    version = result.get('version_no')
+    if not isinstance(version, int):
+        version = (stages.get('public_version') or {}).get('version_no')
+    if not isinstance(version, int):
+        version = (stages.get('publish_final') or {}).get('version_no')
+    if not isinstance(version, int) or not page_id or not url:
+        return
+    try:
+        import delivery_state as _DS
+        state = _DS.load(task_id, page_id)
+        state.update(execution_status='succeeded', current_step='reply_validated',
+                     delivery_state='published', verified=True, written=True, public_reachable=True,
+                     last_good_version={'page_id': page_id, 'url': url, 'version_no': version})
+        state.pop('last_error', None)
+        _DS._save(state)
+    except Exception:
+        return
+
+
 def _finalize_public_publication(params, stages, result, public_url, verified):
     """Shared success tail of publish_verified and verify_published."""
     if verified:
+        _persist_maintenance_delivery_state(params, stages, result, public_url)
         contract = stages["publish_final"].get("agent_reply_contract")
         if isinstance(contract, dict):
             result_contract = {**contract, "operation": "publish_verified"}
+            presentation = stages.get("public_smoke", {}).get("presentation")
+            if isinstance(presentation, dict):
+                result["presentation"] = presentation
+                result_contract["presentation"] = presentation
+                if presentation.get("status") == "degraded":
+                    titles = sorted({p.get("title", "图表") for v in presentation.get("viewports", []) for p in v.get("panels", []) if p.get("state") == "table_fallback"})
+                    result_contract["presentation_notice"] = "图表资源暂不可用，以下图表已以完整数据表替代：" + "、".join(titles)
+                    result["presentation_notice"] = result_contract["presentation_notice"]
             # Bind actual published chart membership into the hashed reply contract.
             for viewport in ((stages["public_smoke"].get("browser") or {}).get("viewports") or []):
                 ranks = (viewport.get("dashboardDesign") or {}).get("rankingEvidence") or {}
@@ -6733,7 +6790,7 @@ def _publish_verified_cli_result(result, task_id, report_name="publish-verified-
             "reply_validation_env", "reply_validation_env_keys",
             "reply_data_evidence_file", "reply_data_evidence_sha256", "reply_data_availability",
             "agent_reply_template_file", "contract_artifact_error", "qbv_job_lifecycle",
-            "repair_attempts_remaining", "recovery_phase", "research_status", "delivery_kind", "live_data_mode", "artifact_file", "artifact_sha256", "artifact_verified", "recovery_result",
+            "presentation", "presentation_notice", "repair_attempts_remaining", "recovery_phase", "research_status", "delivery_kind", "live_data_mode", "artifact_file", "artifact_sha256", "artifact_verified", "recovery_result",
             "failure_summary", "failure_kind", "written", "public_reachable", "operation", "already_verified",
             "current_revision", "current_plan_hash", "stale_plan_hash", "terminal",
         )
@@ -6937,10 +6994,12 @@ def cmd_interpret(params):
         return result
     trace = C.current_trace_context()
     query = str(trace.get("user_query") or "") if str(trace.get("task_id") or "") == task_id else ""
-    wants_copy = bool(re.search(r"复制|副本|另存|别人的页面|改成我的|原页保持不动|原页不动|新的活页|新建.*(?:页面|活页)", query))
-    rejects_copy = bool(re.search(r"(?:不要|不用|无需|不需要)(?:再)?(?:复制|新建)", query))
-    if wants_copy and not rejects_copy:
+    copy_intent = _classify_existing_page_intent(query)
+    if copy_intent == "copy":
         reference["requested_route"] = "fork"
+        reference["route_intent_source"] = "user_query"
+    elif copy_intent == "in_place":
+        reference.pop("requested_route", None)
         reference["route_intent_source"] = "user_query"
     binding_file, binding_error = _record_existing_page_reference(task_id, reference)
     if binding_error:

@@ -2,13 +2,13 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.25.60
+version: 4.25.61
 description: |
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据；支持查询 A 股股票所属行业。
   显式日期的单值快照可同时返回按实际更新日对齐的日频行情与估值；字段日期不同时按字段自身日期展示，不将较晚刷新字段误判为无数据。
   查询最近N个交易日的价格序列、日涨跌幅序列、窗口最高价、最低价、振幅等短期统计。
   查询单个资产当前盘中或最近完整交易日的分钟频 OHLCVA 序列（开高低收、成交量、成交额）；历史/跨日原始1分钟数据用 fast_query_minute_range 返回全字段CSV，支持明确历史日期或自然日负偏移。
-  多资产/全市场分钟、每日分钟窗口及最近N个交易日分钟使用fast_query_minute_range_multi，支持JSON/CSV和滚动数据授权。
+  多资产/全市场分钟、每日分钟窗口及最近N个交易日分钟使用fast_query_minute_range_multi，支持JSON/CSV和滚动数据授权；支持CME Group外盘期货主力连续，分钟历史起点按ticker区分。
   查询上市公司最近报告期的营业收入、净利润、归母净利润、ROE、总资产、资产负债率等财务指标（A股及部分港/美股字段，以工具返回为准）。
   查询单只股票的预计算及千维动态指标画像，按估值、财务分析、资金流向、波动率、宏观胜率背景、资产走势等维度返回最新值与上一有效值。
   查询部分美股及国内商品期权槽位的当前对应合约、空槽状态和滚动窗口换约信息，支持可更新活页数据授权。
@@ -20,7 +20,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.25.60
+  version: 4.25.61
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -118,6 +118,12 @@ runtimeRequirements:
 ## 美股及国内商品期权对应合约查询
 
 用户问槽位对应合约、换约/换月，或要解释期权IV、价格、持仓量变化时，读取 [tools/query_option_contracts.md](tools/query_option_contracts.md)，使用 `query_option_contracts`。参数为 `asset + query_type`：snapshot查最新已生效映射，window用lookback_days查自然日窗口。美股按纽约日期，国内按北京时间及品种夜盘归属交易日；国内empty为空槽，不能补旧合约，E1/E2不等同于期货主力/次主力。支持QBV `option_contracts` 动态授权。保留实际trade_date，按行情实际日与选约生效日对齐，不把拼接价格当持有收益。skill_server将公开参数转换为各市场Celery五字段日期查询；国内依赖新增dataServer查询任务，未部署不得假装成功。
+
+## 连续期货研究与局部数据差异
+
+主连/次主连的跨日、跨频、指标或回测任务，先读 [连续期货换月与数据口径](references/continuous-futures.md)。新版事件保留 `decision_trade_date`（决策日/原始参考价取价日）和 `effective_trade_date`（生效日），按返回 `columns` 解析；日频复权价格、原始分钟和未复权换月参考价须统一尺度，派生分钟参考序列按文档的加法价差算法计算。
+
+少量分钟缺失、端点差异、日分钟价格/成交量未对齐，默认按日期、字段和计算路径记录告警，继续可用部分和原定交付；不得把跨频严格相等自行升级为整段窗口或全年数据的通过条件。只有确实依赖缺失输入的结果才标未知或不可计算，其他分析继续。保留原始缺口和有效样本数，不补0、不删端点凑量、不将未知收益当0；日分钟可能来自不同来源，不承诺无条件重聚合相等。
 
 ## 已有文件转活页：先交 QBV 静态托管
 
@@ -460,7 +466,7 @@ SKILL_ROOT/
 
 0. 用户明确要求**一个资产的 2～4 个标准历史字段放在同一张图中**，且未明确只要 PNG → 只读 `workflows/visual-page-fast-path.md`；这是页面主图快路径，不得继续读取 `quant-standard.md` / `render-kline.md`。
 0a. 用户明确要求**申万一级行业最近 N 个交易日涨跌幅排名图/柱状图/可视化**，且未明确只要 PNG → 只读 `workflows/industry-ranking-fast.md`；不得读取 `global-rules.md`、`quant-standard.md` 或行业 recipe，不得调用 `renderChart`。
-**分钟覆盖前置检查**：先确认市场/资产类型并按 [分钟支持范围](references/minute-data-coverage.md) 判断。A股/美股股票起于2026-05-13，国内期货起于2005-01-04，港股股票起于2026-05-20，国内指数起于2026-08-13；美国/香港指数及期货暂不支持。历史窗口早于边界必须先提示：全窗口越界不查；部分覆盖明确缺失范围，不静默改日期或宣称完整覆盖。此限制不套用于日频行情。
+**分钟覆盖前置检查**：先确认市场/资产类型并按 [分钟支持范围](references/minute-data-coverage.md) 判断。A股/美股股票起于2026-05-13，国内期货起于2005-01-04，港股股票起于2026-05-20，国内指数起于2026-08-13；境外期货主力连续已支持，分钟起点按ticker区分（见分钟覆盖参考）；美国/香港指数及香港期货暂不支持。历史窗口早于边界必须先提示：全窗口越界不查；部分覆盖明确缺失范围，不静默改日期或宣称完整覆盖。此限制不套用于日频行情。
 
 0. 用户要多资产/全市场分钟、每日分钟窗口、最近N个交易日分钟或当前交易日规则 → 先读 `tools/fast_query_minute_range_multi.md`，用 `fast_query_minute_range_multi`。其余单资产历史/跨日分钟序列或分钟CSV → `tools/fast_query_minute_range.md`；只支持历史日期，完整返回所有列；窗口/offset互斥，不得偷换成日频或当日分钟。用户要求30分钟K线时，先取原始1分钟数据，再按该工具文档的受控聚合步骤生成派生30分钟数据，并同时保留原始区间、时区和来源间隔。
 1. 用户明确要**单资产**完整分钟/分时/逐分钟序列或分钟 OHLCVA，且未指定历史日期、日期区间、分钟聚合或多个资产 → 先按资产库规则确认唯一资产，调用 `fast_query_minute`；按索引配对返回的 `dates[]` 与 `fields.<name>[]`，保留 `data_scope/trade_date/timezone` 语义，成功即停。只问最新标量仍走 snapshot；历史/区间改走 fast_query_minute_range；多资产不能塞进任一单资产工具。连续期货只按所选 trade_date 解读 contract_info，不将 inferred 说成已实时核验；附加 warnings 不影响成功行情。

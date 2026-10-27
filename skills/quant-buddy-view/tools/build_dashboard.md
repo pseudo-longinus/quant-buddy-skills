@@ -31,7 +31,7 @@
 
 页面全部由 `text/image` 面板组成时可直接生成静态看板，不要求公式包或数据授权；只要出现 `line/bar/table/number/raw` 等数据型面板，仍必须提供对应的 `output` 或 `grant_id`。
 
-> 把「实时取数凭证 + 看板 spec」编译成一份自包含 HTML（Formula Package、Data Grant 可单独使用或同页混用；样式内联，图表用公网 CDN ECharts）。可顺带上传发布。
+> 把「实时取数凭证 + 看板 spec」编译成一份自包含 HTML（Formula Package、Data Grant 可单独使用或同页混用；样式内联，图表使用固定 ECharts 5.6.0 主 CDN / OSS 双源加载）。可顺带上传发布。
 > 通过本地脚本 `scripts/build_dashboard.py` 调用（单命令，无子命令）。
 
 > 分支门禁：同一 `task_id` 已由 `fork_prepare` 绑定为 prepared fork 时，本命令返回 `FORK_TASK_BOUND`，并指向应继续编辑的 `working_html_file`；此时必须改走 `static_page.py fork_validate`，不能重建通用看板。
@@ -224,7 +224,7 @@ python scripts/build_dashboard.py '{
 
 - 每个 panel 必须传 `target_selector`：bespoke 页面里已经排好版、已有自己样式的容器选择器（如 `#priceChart`）。运行时会把这个 panel 直接渲染进该容器，不包卡片外壳（无标题/边框/间距），bespoke 布局不受影响；选择器命中不到时退化为标准网格卡片（不整页报错，但需要页面里存在 `#grid`）。
 - `panels`/`package_id`/`signature`/`formulas`/`reads`/`grant_id` 与整页模式同源，不需要 `title`/`out_file`/`upload` 等整页专属字段。
-- 返回 `{code, script_html, package_id, panels, size}`；`script_html` 是完整字符串，粘贴进 bespoke 页面 `<body>`（放在对应容器**之后**）即可。默认带 ECharts CDN `<script>` 标签，若 bespoke 页面已引入 ECharts 可传 `"include_echarts_cdn": false` 跳过。
+- 返回 `{code, script_html, package_id, panels, size}`；`script_html` 是完整字符串，粘贴进 bespoke 页面 `<body>`（放在对应容器**之后**）即可。默认携带共享的延迟双源加载器，已有可用 ECharts 时复用；显式 `"include_echarts_cdn": false` 禁止 QBV 注入外部脚本，仅等待宿主库（最多 8 秒）。`included_echarts_cdn` 兼容字段表示允许加载，`echarts_loading` 表示 `lazy_dual_source` 或 `host_only`。
 - 生成的图表带标准 marker，之后可用 `chart_edit.py` 的 `add_series`/`remove_series`/`set_window`/`query_data` 对其定点编辑（`chart_edit.py inspect`/`_patch_page` 会自动识别这是嵌入式启动、编辑后不会误换成接管整页的引导逻辑）。
 - 详见 [guides/bespoke-page.md](../guides/bespoke-page.md) 「图表类可视化」一节。
 
@@ -270,3 +270,15 @@ K线活页直接使用同一份 QBS `fast_query(window)` 数据授权，不调�
 ```
 
 页面运行时同时绘制蜡烛、成交量和均线；不接受先生成 PNG 再上传作为 K 线活页主链。构建和公开验收必须核对同一授权数据的实际首末日期、最新收盘价、成交量和均线值。
+
+
+### 图表资源失败与表格替代（0.7.4）
+
+- 固定主源 `https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js`（3 秒），失败或超时后尝试 `https://quant-buddy-prod.oss-cn-hangzhou.aliyuncs.com/vendor/echarts/5.6.0/echarts.min.js`（5 秒）。不内嵌完整库、不临时下载文件、不自行改成 echarts-lite。
+- 两源均不可用时，标准折线、柱、雷达、K 线面板按同一数据自动展示完整表格，并标注“图表资源暂不可用，已改为数据表展示”。本次访问仍可刷新数据，重新打开页面重新尝试图表。
+- 数据错误、缺字段和绘图代码异常不属于成功降级。浏览器验收检查 `data-qb-render-error`、实际图表、表格行列/值及提示，不以库对象存在作为通过依据。
+- `verify_page` 与 `publish_verified` 的可选 `presentation` 字段区分 `normal`、`degraded`、`failed`。降级不改变 LIVE/SNAPSHOT 或 research_status；终态回复必须说明受影响面板暂以数据表替代，不得宣称全部图表交互正常。
+- 本版不自动改写任意第三方图表或历史线上页面。维护仍须下载当前版本、确认权限并携带 expected_current_version_id。
+
+
+浏览器回归准备：从上述固定 OSS 获取完整 5.6.0 到本地测试缓存（不入发布包），确认 SHA-256 为 `bf4a223524e40b77c304bec67e1222cf551f14880cf42c69dc046558e11c07b1`。设置 `QBV_TEST_ECHARTS_FILE` 为该文件绝对路径，执行 `node --test tests/test_chart_dependency_browser.mjs`。测试使用真实库与请求拦截，不依赖 CDN 当时是否故障；缺少浏览器、Playwright 或库文件时明确失败，不静默跳过。

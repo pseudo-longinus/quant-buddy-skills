@@ -204,7 +204,7 @@ def transform(html, params):
     package_id, signature = _credential(params)
     html, config = _patch_config(html, params, package_id, signature)
     html, runtime_changed = _patch_runtime(html)
-    if html.count("echarts@5/dist/echarts.min.js") != 1:
+    if len(re.findall(r'<script\b[^>]*src=[\"\'][^\"\']*echarts(?:\.min)?\.js(?:[?#][^\"\']*)?[\"\']', html, re.I)) != 1:
         raise ValueError("STOCK_RUNTIME_UNSUPPORTED: stock comparison 页面必须且只能加载一份 ECharts CDN")
     if html.count(MARKER) != 1:
         raise ValueError("STOCK_RUNTIME_UNSUPPORTED: comparison runtime marker 数量异常")
@@ -232,7 +232,7 @@ def cmd_apply(params):
         "benchmark_name": config["comparison"]["name"],
         "benchmark_output": config["comparison"]["benchmark_series"]["output"],
         "runtime_changed": runtime_changed,
-        "echarts_cdn_count": updated.count("echarts@5/dist/echarts.min.js"),
+        "echarts_cdn_count": len(re.findall(r'<script\b[^>]*src=[\"\'][^\"\']*echarts(?:\.min)?\.js(?:[?#][^\"\']*)?[\"\']', updated, re.I)),
         "message": "已把基准序列并入 stock 原生 load/render/table 生命周期；#priceChart 只有一个 owner。",
     }
 

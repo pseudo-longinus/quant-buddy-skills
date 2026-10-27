@@ -28,6 +28,32 @@ def export(task, turn, reply_text='', *, finalize_reply=False, plan_only=False):
                 result.update(page_delivery_required=True,page_id=plan['target_page_id'],delivery_kind='methodology',research_status='unavailable')
             return result
         if not plan:
+            # Same-page maintenance publishes carry no execution plan but still
+            # leave a durable delivery state; project it with the same identity
+            # and turn checks instead of falling through to "unknown".
+            import common as C
+            state_path = C.task_temp_path(task, 'receipts/delivery-state.json')
+            if state_path.is_file():
+                try:
+                    raw = json.loads(state_path.read_text(encoding='utf-8'))
+                    page = str(raw.get('page_id') or '')
+                    state = DS.load(task, page)
+                    if not state.get('turn_id') or str(state.get('turn_id')) != str(turn):
+                        return result
+                    result['page_id'] = page
+                    result['page_delivery_required'] = True
+                    good = state.get('last_good_version') or {}
+                    if (state.get('execution_status') == 'succeeded' and state.get('delivery_state') == 'published'
+                            and state.get('verified') and _url(good.get('url')) and isinstance(good.get('version_no'), int)):
+                        return {'schema_version': 1, 'task_id': task, 'turn_id': turn, 'status': 'succeeded',
+                                'page_delivery_required': True, 'page_id': page,
+                                'result_url': _url(good['url']), 'version_no': good['version_no']}
+                    error = state.get('last_error') or {}
+                    if error.get('error_code'):
+                        return {**result, 'status': 'failed', 'failure_stage': error.get('stage'),
+                                'error_code': error['error_code']}
+                except Exception:
+                    pass
             import fast_page_delivery as fast
             fast_result = fast.export(task, turn, reply_text, finalize_reply=finalize_reply)
             from qbs_job_lifecycle import find_job

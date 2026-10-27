@@ -2,6 +2,8 @@ const ALL_VIEWPORTS = [
   { name: 'desktop', width: 1440, height: 1000, mobile: false },
   { name: 'mobile390', width: 390, height: 844, mobile: true },
   { name: 'mobile320', width: 320, height: 720, mobile: true },
+  { name: 'mobile390Short', width: 390, height: 600, mobile: true },
+  { name: 'mobile320Short', width: 320, height: 600, mobile: true },
 ];
 
 // 控制台核心错误判定：queryDataGrant/queryFormulaPackage 等 CORS、mixed-content、Failed to fetch、

@@ -21,7 +21,7 @@
 
 ## 分钟行情覆盖预检与提示
 
-分钟授权注册、Fork替换资产/修改窗口前必须按 [分钟行情支持范围](../references/minute-data-coverage.md) 检查：A股/美股股票从 **2026-05-13**、国内期货从 **2005-01-04**、港股股票从 **2026-05-20**、国内指数从 **2026-08-13** 开始；美国/香港指数及期货暂不支持。全窗口早于起点时先提示且不注册，部分窗口越界时说明缺失区间并在页面标出真实覆盖，不能静默裁剪授权payload或把空数据伪造成完整行情。市场起点不保证单个资产当天就有数据；offset按市场当地自然日折算，绝对窗口/滚动窗口语义不变。Grant仍返回原始1分钟数据；30分钟图表必须由页面或上游派生，并标注来源间隔。
+分钟授权注册、Fork替换资产/修改窗口前必须按 [分钟行情支持范围](../references/minute-data-coverage.md) 检查：A股/美股股票从 **2026-05-13**、国内期货从 **2005-01-04**、港股股票从 **2026-05-20**、国内指数从 **2026-08-13** 开始；境外期货主力连续已支持，分钟起点按ticker区分（见分钟覆盖参考）；美国/香港指数及香港期货暂不支持。全窗口早于起点时先提示且不注册，部分窗口越界时说明缺失区间并在页面标出真实覆盖，不能静默裁剪授权payload或把空数据伪造成完整行情。市场起点不保证单个资产当天就有数据；offset按市场当地自然日折算，绝对窗口/滚动窗口语义不变。Grant仍返回原始1分钟数据；30分钟图表必须由页面或上游派生，并标注来源间隔。
 
 ## 发布链路能力预检
 
@@ -169,7 +169,7 @@ register携带本地`validation_receipt_file`；返回`registration_receipt_file
 - 固定绝对窗口不会因刷新变化；offset授权按当天市场日期滚动，仍不含今天。历史数据的实时刷新不等于当日实时分钟。
 - `QB.queryGrant` 和 Python CSV校验器会识别 query_type=minute_range，下载 `csv_url` 长表并保留全部 `columns/rows`。这不是日频 csv_fields 宽表；columns缺省就读实际表头。
 - 原始第一列 trade_date、第二列 timestamp（UTC秒），后续列按上游配置，不限六列。零/空/null不混淆，不过滤全空行情行；事件/拆股/警告保留在原始 data 中。
-- 图表X轴用 timestamp，显示时转 timezone；trade_date只用于交易日归属和换月标记。不要按自然日验证期货夜盘，不自行复权。
+- 图表X轴用 timestamp，显示时转 timezone；行情trade_date用于交易日归属，按事件effective_trade_date匹配换月，不能按自然日验证期货夜盘。原始报价保持不变；需要连续参考图时按 [连续期货口径](../references/continuous-futures.md) 的加法价差规则另建派生数据，标明尺度、锚点和事件范围。
 - Grant 原样提供1分钟数据；若页面需要30分钟K线，先将物化的分钟artifact交给 `scripts/resample_minute_bars.py` 生成 `interval=30min`、`source_interval=1min`、`derived=true` 的派生数据，再交给页面图表。不要修改Grant响应的 `interval` 字段，也不要把派生artifact注册成新的分钟Grant。
 - 页端保存Grant配置，不把临时CSV URL硬编码成长效数据源。每次刷新先queryDataGrant；CSV下载401/403/404最多重新取manifest一次，不循环刷新、不修改签名到期字符串。
 - 行情缓存12小时，事件60秒短缓存。专属每用户12小时10次仅直接调用 fast_query_minute_range 计数，Grant注册试跑/刷新/页面取数不计该专属次数；一般鉴权/计费规则不变。
@@ -178,7 +178,8 @@ register携带本地`validation_receipt_file`；返回`registration_receipt_file
 
 - fast_query_minute：原 fields 不变，只看顶层 trade_date 和简洁 contract_info={contract,status}。inferred表示事件推导，不是独立实时合约映射；unavailable/null显示“暂未确认”。不期待 roll_events、contracts数组或lookup_start_date。
 - fast_query：future_context按ticker分组。窗口用roll_events；snapshot多字段日期不同时用contract_info.contracts逐日关联。CSV物化不得丢失future_context。
-- fast_query_minute_range：roll_events是实际窗口内换月生效交易日及新旧合约当日各自原始日频收盘价；股票adjustment仅窗口内split，不承诺完整历史链。
+- fast_query_minute_range：新版roll_events列为decision_trade_date/effective_trade_date/old_contract/new_contract/old_close/new_close，按columns解析并原样保留。窗口按生效日筛选，两条close是决策日各自合约的原始日频收盘价；决策日可早于窗口起点。fast_query的future_context沿用相同事件语义；旧版事件trade_date兼容为生效日。股票adjustment仅窗口内split，不承诺完整历史链。
+- 日频连续价已复权，原始分钟及换月参考close未复权；跨频核对先统一尺度。日分钟来源及构建流程可能不同，不承诺分钟重聚合等于日线；量相等校验仅在同来源口径、同合约、完整时段、无缺失重复、单位/单双边和版本一致时成立。局部缺失或对齐差异只影响依赖它的路径/模块，继续有效内容和页面交付，按上述参考披露范围，不作为新增发布门禁。
 - 附加信息失败仅warnings（范围结果也可含roll_events_error），行情仍有效；不把它误判成必需角色失败/发布失败，不自动删掉行情。页面可用独立提示区显示缺失，不能把失败当作“无换月”。通用图表只归一化行情表格，不自动绘制换月标记；定制页从 `out[grant_id].data` 读取元信息显示。
 
 404 Not Found: POST /skill/fastQueryMinuteRange 是后端接入/版本问题，不是资产无数据。真实后端、OSS CORS、授权有效期仍须联调；本地schema通过不代表上游或部署已就绪。
@@ -192,12 +193,12 @@ kind为 `fast_query_minute_range_multi`，接入现有验证→注册→query→
 {"kind":"fast_query_minute_range_multi","payload":{"assets":["贵州茅台","SZ000001"],"date_mode":"rolling","lookback_trade_days":5,"start_minute":"09:30","end_minute":"10:00","timezone":"Asia/Shanghai"}}
 ```
 
-- assets为1～5000个名称/简称/代码，兼容asset或market（cn_stock/cn_index/us_stock/hk_stock/cn_future），三选一。服务端匹配标准ticker，客户端不传tickers。无fields/format/remove_nan/旧自然日offset。
+- assets为1～5000个名称/简称/代码，兼容asset或market（cn_stock/cn_index/us_stock/hk_stock/cn_future/os_future），三选一。服务端匹配标准ticker，客户端不传tickers。无fields/format/remove_nan/旧自然日offset。
 - absolute默认：start_date必填，end_date默认同日，真实YYYY-MM-DD或YYYYMMDD整数/字符串，包含首尾最多373自然日。禁止rolling参数。
-- rolling：lookback_trade_days为1～373整数，默认1；end_trade_offset为-372～0整数，默认0。按真实交易日取最近收盘且超过30分钟缓冲日，再向前偏移；不传start_date/end_date。
+- rolling：lookback_trade_days为1～373整数，默认1；end_trade_offset为-372～0整数，默认0。按服务端日历取最近收盘且超过30分钟缓冲日，再向前偏移（外盘默认按上游会话日口径）；不传start_date/end_date。
 - current_trade_day禁止所有日期/回看参数，返回最近已开始交易日，休市不保证有新记录。自动日期模式跨日历域必须拆开。
-- start_minute/end_minute为每日过滤窗口，HH:MM/HHMM（整数或字符串），含边界，null不限、0为00:00；timezone默认Asia/Shanghai，仅过滤分钟，不改变trade_date。美股当地窗口用America/New_York，由服务端处理夏冬令时。
-- 股票正向窗口；反向窗口仅国内期货且Asia/Shanghai，例如21:00～02:30；夜盘依trade_date，不按自然日重分组。
+- start_minute/end_minute为每日过滤窗口，HH:MM/HHMM（整数或字符串），含边界，null不限、0为00:00；timezone默认Asia/Shanghai，仅过滤分钟，不改变trade_date。美股当地窗口用America/New_York，外盘期货当地窗口用America/Chicago，由服务端处理夏冬令时；外盘默认日期按上游会话日规则，不跳过节假日。
+- 股票正向窗口；反向窗口支持国内期货+Asia/Shanghai（例如21:00～02:30）或境外期货+America/Chicago（例如17:00～02:30）；夜盘依trade_date，不按自然日重分组。
 - with_adjustment默认false，仅附股票split事件，不复权。分钟覆盖先读[覆盖表](../references/minute-data-coverage.md)，新接口不扩大来源覆盖。
 - 注册强制真实试跑，不能validate_data=false。冻结资产/市场与日期规则，rolling/current_trade_day每次取数重算日期；market冻结范围规则，不冻结当天名单。_contract_version由服务端内部保存，客户端不传。
 - 历史窗口和交易中/收盘缓冲期单日分成两份授权。不要反复刷新包含实时数据的历史CSV，不自行裁剪日期绕过服务端检查。
@@ -240,3 +241,13 @@ QBS使用query_option_contracts验证，QBV通过qbs_bridge.py validate_grant_se
 - 页面按行情实际trade_date匹配映射，多日行情使用window daily；不能把最新snapshot合约标到旧行情上。映射存在不代表行情更新，也不保证精确重放历史发布批次。
 - 400按error.parameter/error.usage改正；502批次/数据异常、503配置/日历/服务问题、504超时按既有失败流程处理，不立即重复提交。
 - 过期、撤销和签名轮换沿用既有规则。刷新失败保留上次有效内容并明确失败，不更改业务日期。
+
+## 外盘期货分钟授权
+
+资产与起点按[外盘覆盖表](../references/minute-data-coverage.md#外盘期货主力连续)逐ticker检查；三个既有kind沿用原验证和刷新流程。单日仍传asset+fields，历史Range不传fields/format；多资产示例：
+
+```json
+{"kind":"fast_query_minute_range_multi","payload":{"assets":["ES.CME","TU.CBT"],"start_date":"2021-11-01","end_date":"2021-12-10","start_minute":"08:30","end_minute":"15:00","timezone":"America/Chicago"}}
+```
+
+全市场用market=os_future替换assets。TU在2021-12-01前的缺口须在页面说明，不能截掉ES可用的更早记录；所有资产都越界时不注册。页面保留coverage_by_ticker/warnings，标明实际数据日期，不把起点或可刷新授权当作最新端已更新保证。

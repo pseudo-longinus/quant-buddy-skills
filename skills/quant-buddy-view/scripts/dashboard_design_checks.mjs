@@ -63,7 +63,7 @@ export function dashboardDesignMetrics(required = false) {
     }
   }
   for (const el of root.querySelectorAll('.body.bar')) {
-    const chart = window.echarts?.getInstanceByDom(el);
+    const chart = (window.__QB_ECHARTS_LOADER__?.library || window.echarts)?.getInstanceByDom(el);
     if (!chart) continue;
     const option = chart.getOption();
     if (el.dataset.qbRankOrder) {
@@ -101,13 +101,13 @@ export function dashboardDesignMetrics(required = false) {
   const visible = el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden';
   // Measure document positions, not the current scroll position: opening a details
   // table during acceptance must not change what was visible on initial load.
-  const evidence = [...root.querySelectorAll('.body.bar, .body.line, .body.radar,  .body.table tbody tr, table[data-qb-rank-order] tbody tr, .card-number .big, [data-qb-metric]')];
+  const evidence = [...root.querySelectorAll('.body.bar, .body.line, .body.radar,  .body.table tbody tr, [data-qb-presentation="table_fallback"] tbody tr, table[data-qb-rank-order] tbody tr, .card-number .big, [data-qb-metric]')];
   const firstScreenEvidence = evidence.some(el => {
-    if (!visible(el) || el.closest('details:not([open])')) return false;
+    if (!visible(el) || el.closest('details:not([open])') || el.dataset.qbPresentation === 'table_fallback') return false;
     const rect = el.getBoundingClientRect();
     const top = rect.top + window.scrollY;
     const chart = el.matches('.body.bar, .body.line, .body.radar');
-    if (chart && !window.echarts?.getInstanceByDom(el)?.getOption()?.series?.some(s=>s.data?.length)) return false;
+    if (chart && !(window.__QB_ECHARTS_LOADER__?.library || window.echarts)?.getInstanceByDom(el)?.getOption()?.series?.some(s=>s.data?.length)) return false;
     if (!chart && !/\d/.test(el.textContent || '')) return false;
     const minimum = chart ? 120 : Math.min(rect.height, 32);
     return rect.width > 0 && rect.height >= minimum && minimum > 0 && top >= 0 && top + minimum <= window.innerHeight;

@@ -441,6 +441,15 @@ def validate_reply(contract_payload, draft):
     contract_payload = contract_payload if isinstance(contract_payload, dict) else {}
     contract = contract_payload.get("agent_reply_contract") if isinstance(contract_payload.get("agent_reply_contract"), dict) else contract_payload
     errors = []
+    presentation = contract.get('presentation') or {}
+    if presentation.get('status') == 'degraded':
+        titles = {p.get('title') for v in presentation.get('viewports', []) for p in v.get('panels', []) if p.get('state') == 'table_fallback'}
+        if not ('表格' in draft or '数据表' in draft) or not ('降级' in draft or '替代' in draft or '代替' in draft):
+            errors.append({'code':'PRESENTATION_DEGRADATION_DISCLOSURE_REQUIRED','message':'必须说明图表暂以数据表替代'})
+        if any(title and title not in draft for title in titles):
+            errors.append({'code':'PRESENTATION_PANEL_DISCLOSURE_REQUIRED','message':'必须说明哪些图表已降级为数据表'})
+        if re.search(r'(所有|全部).{0,12}(图表|交互).{0,12}(正常|通过|恢复)', draft):
+            errors.append({'code':'PRESENTATION_OVERCLAIM','message':'表格降级不能声称全部图表交互正常'})
     from prose_contract import coverage_errors,research_claim_errors
     coverage_error=coverage_errors(draft)
     if coverage_error: errors.append({'code':coverage_error['error'],'message':coverage_error.get('message','覆盖数量无效')})

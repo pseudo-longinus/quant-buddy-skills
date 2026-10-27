@@ -555,6 +555,16 @@ def _recover(params):
             for role in evidence_roles:
                 if str(Path(role['snapshot_receipt_file']).resolve()) not in used_files:
                     panels.append(_evidence_panel(task, role, evidence_titles.get(role['role_id']) or '已验证数据', module))
+        # Every valid frozen role must end up visible: unconsumed receipts become
+        # real data tables instead of vanishing when the candidate had no panels
+        # or every runtime panel was filtered out during role mapping.
+        consumed_files = {str(Path(p['snapshot_receipt_file']).resolve()) for p in panels if p.get('snapshot_receipt_file')}
+        default_module = str((panels[0] if panels else {}).get('compose_module') or (modules[0] if modules else '已验证研究结果'))
+        for role in frozen:
+            receipt = str(Path(role['snapshot_receipt_file']).resolve())
+            if receipt in consumed_files: continue
+            panels.append(_evidence_panel(task, role, str(role.get('role_id') or '已验证数据'), default_module))
+            consumed_files.add(receipt)
         changes.update(runtime_roles=[],snapshot_roles=frozen,panels=panels, live_data_mode='verified_snapshot')
         if evidence_roles or missing or plan.get('require_live_data') or plan.get('research_status') == 'partial':
             gaps=copy.deepcopy((plan.get('research_checks') or {}).get('issues') or [])+missing
@@ -565,7 +575,7 @@ def _recover(params):
         changes['description'] = '已验证数据的静态研究页，展示实际观察日和研究口径，不会自动更新。'+('部分数据待补。' if changes.get('delivery_kind') == 'partial_research' else '')
         if changes.get('delivery_kind') == 'partial_research':
             gap_lines = ['核验缺口：'+str(item.get('condition_id') or item.get('role_id') or item.get('error')) for item in gaps]
-            panels.append({'type':'text','title':'研究覆盖与缺口','compose_module':panels[0]['compose_module'],
+            panels.append({'type':'text','title':'研究覆盖与缺口','compose_module':str((panels[0] if panels else {}).get('compose_module') or (modules[0] if modules else '已验证研究结果')),
                            'text':'本页展示已验证数据快照，快照不会自动更新。\n'+
                                   ('\n'.join(gap_lines) if gap_lines else '其余维度数据待补。')+
                                   '\n已确认的策略条件保持不变，缺失条件未被视为通过。'})
@@ -587,7 +597,7 @@ def _recover(params):
                 '\n\n数据覆盖\n本轮尚未取得足以验证标的的数据。未验证不代表符合条件的股票为零；当前不输出标的或虚构数值。'
                 '\n\n后续核验\n补齐同口径的数据来源与观察日，再在本页更新研究结果。')
         panels = [{'type':'text','title':'研究范围与核验方法','compose_module':modules[0] if modules else '研究方法','text':text,'as_of_mode':'historical'}]
-        modules = [panels[0]['compose_module']]
+        modules = [str((panels[0] if panels else {}).get('compose_module') or (modules[0] if modules else '研究方法'))]
         for key in ('asset','route_receipt_file','validation_receipt_files','grant_validation_receipt_files','handoff_validation_receipt_files'):
             changes.pop(key,None)
         changes['market_data_required'] = False

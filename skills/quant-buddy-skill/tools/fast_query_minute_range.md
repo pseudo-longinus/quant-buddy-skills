@@ -17,7 +17,7 @@
 
 ## 分钟历史覆盖（调用前必查）
 
-先阅读 [分钟行情支持范围与越界提示](../references/minute-data-coverage.md)。A股/美股股票最早 **2026-05-13**，国内期货最早 **2005-01-04**，港股股票 **2026-05-20**，国内指数 **2026-08-13**；美国/香港指数及期货暂不支持。请求早于对应起点时必须先提示：全窗口越界不调用，部分重叠说明缺失区间、保留原请求窗口并如实交付可用部分。不得将返回的首条数据夸大为完整历史覆盖。
+先阅读 [分钟行情支持范围与越界提示](../references/minute-data-coverage.md)。A股/美股股票最早 **2026-05-13**，国内期货最早 **2005-01-04**，港股股票 **2026-05-20**，国内指数 **2026-08-13**；境外期货主力连续已支持，分钟起点按ticker区分（见分钟覆盖参考）；美国/香港指数及香港期货暂不支持。请求早于对应起点时必须先提示：全窗口越界不调用，部分重叠说明缺失区间、保留原请求窗口并如实交付可用部分。不得将返回的首条数据夸大为完整历史覆盖。
 
 ## 参数
 
@@ -78,7 +78,8 @@ python scripts/resample_minute_bars.py @output/minute-data.json --output output/
 
 ## 附加信息与错误
 
-- 连续期货附 `roll_events`，包含窗口内生效交易日、新旧合约和两条合约生效日各自原始**日频**收盘价；不把它解释为换月瞬间价格，不改变分钟价。
+- 连续期货附 `roll_events`，新版按 `columns` 读取 `decision_trade_date,effective_trade_date,old_contract,new_contract,old_close,new_close`，保留全部字段。事件按生效日筛选，决策日可能早于窗口起点；两条close是**决策日**各自合约的未复权日频收盘价，不是生效日收盘或分钟换仓价。原始分钟不变；需要连续参考分钟时，按 [连续期货口径](../references/continuous-futures.md) 的加法价差算法另建派生序列。
+- 少量分钟缺失、端点或日分钟量价不齐，按日期/字段/路径标告警并继续可用部分，不作为整段窗口失败理由；直接依赖缺失bar的交易路径标未知，不补0、不删端点凑量。详细对账条件和影响范围见上述参考。
 - 股票 adjustment 仅窗口内 split 事件，不承诺全历史复权链。
 - 换月查询失败/超时/格式异常只附 warnings/roll_events_error；主行情成功则继续使用CSV，不把警告当作工具失败，也不伪造“无换月”。窗口查询不需要手工回看6/12/24个月；该策略仅供服务端确认单日具体合约。
 - 明确空结果：empty=true、csv_url=null、shape=[0,0]，不是系统错误，也不是0价格。
@@ -87,3 +88,7 @@ python scripts/resample_minute_bars.py @output/minute-data.json --output output/
 - 404表示后端路由/版本接入未到位，不能声称该资产无数据；CSV_EXPORT_FAILED需核对真实链接寿命；这些与仅附加换月失败不同。
 
 要做实时取数活页：交给 quant-buddy-view 的 `data_grant`，kind=`fast_query_minute_range`。公开页面用Grant签名，不嵌API Key，不把一次性CSV URL当成长期数据源。绝对窗口保持固定，offset授权每天按市场日期滚动；本工具始终不包含今天。
+
+## 外盘期货支持
+
+支持CME Group主力连续；新增资产清单、逐ticker起点、Chicago会话日及本工具请求示例见[外盘期货分钟覆盖](../references/minute-data-coverage.md#外盘期货主力连续)。沿用本工具参数与返回合同，不添加Celery内部参数；单资产接口不传market，多资产全市场可用market=os_future。

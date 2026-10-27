@@ -12,6 +12,7 @@
  */
 
 import fs from 'node:fs';
+import { inspectChartPresentation, chartPresentationProblems } from './chart_presentation.mjs';
 import crypto from 'node:crypto';
 import net from 'node:net';
 import os from 'node:os';
@@ -848,6 +849,7 @@ async function playwrightBrowserChecks(pw, url, options = {}) {
       // pending=0 只表示取数内核当前没有请求，不代表其它宿主 runtime 已完成最后一次 DOM/ECharts 接管。
       // 始终保留一个稳定窗口，防止“图先出现，宿主 Grant 后完成又清空图表”被瞬时采样放过。
       await page.waitForTimeout(hasRuntime ? settleMs : Math.max(settleMs, 3000));
+      const presentation = await page.evaluate(inspectChartPresentation);
       const imageMetrics = await page.evaluate(prepareImagesExpression);
       const shareModalMetrics = options.checkShareModal ? await page.evaluate(shareModalChecksExpression) : null;
       const metrics = await page.evaluate(pageMetricsExpression);
@@ -855,6 +857,7 @@ async function playwrightBrowserChecks(pw, url, options = {}) {
       metrics.pageTitle = await page.evaluate(pageTitleMetrics);
       metrics.dashboardDesign = await page.evaluate(dashboardDesignMetrics, options.requireDashboardDesign === true);
       metrics.images = imageMetrics;
+      metrics.presentation = presentation;
       metrics.shareModal = shareModalMetrics;
       if (options.captureHtml && documentHtml === null) {
         try { documentHtml = await page.evaluate(() => document.documentElement.outerHTML); } catch (_) {}
@@ -1265,6 +1268,7 @@ function viewportResult(viewport, metrics, options = {}) {
     hasH1: metrics.hasH1,
     pageTitle: metrics.pageTitle || null,
     data_labels: metrics.data_labels || null,
+    presentation: metrics.presentation || null,
     placeholderHits: metrics.placeholderHits,
     placeholderOnly: metrics.placeholderOnly,
     runtime: metrics.runtime,
@@ -1558,7 +1562,7 @@ async function cdpBrowserChecks(url, options = {}) {
       if (msg.method === 'Runtime.exceptionThrown') {
         const text = msg.params?.exceptionDetails?.text || 'Runtime exception';
         if (!CORE_ERROR_RE.test(text)) return;
-        const entry = { viewport: 'unknown', type: 'error', text: sanitizeBrowserText(text) };
+        const entry = { viewport: currentViewport, type: 'error', text: sanitizeBrowserText(text) };
         if (TRACKER_NOISE_RE.test(text)) nonCoreWarnings.push(entry);
         else consoleErrors.push(entry);
       }
@@ -1566,7 +1570,7 @@ async function cdpBrowserChecks(url, options = {}) {
         const type = msg.params?.type || '';
         const text = (msg.params?.args || []).map(arg => String(arg.value || arg.description || '')).join(' ');
         if (!['error', 'warning', 'warn'].includes(type) || !CORE_ERROR_RE.test(text)) return;
-        const entry = { viewport: 'unknown', type, text: sanitizeBrowserText(text) };
+        const entry = { viewport: currentViewport, type, text: sanitizeBrowserText(text) };
         if (TRACKER_NOISE_RE.test(text)) nonCoreWarnings.push(entry);
         else consoleErrors.push(entry);
       }
@@ -1629,6 +1633,7 @@ async function cdpBrowserChecks(url, options = {}) {
       });
       // 与 Playwright 路径一致：即使 QB_DATA_RUNTIME 已 ready，也等待宿主异步渲染稳定。
       await delay(runtimePresent.result && runtimePresent.result.value ? settleMs : Math.max(settleMs, 3000));
+      const presentation = await cdp.send('Runtime.evaluate', {expression: `(${inspectChartPresentation.toString()})()`, returnByValue:true, awaitPromise:true});
       const preparedImages = await cdp.send('Runtime.evaluate', {
         expression: `(${prepareImagesExpression.toString()})()`,
         returnByValue: true,
@@ -1649,6 +1654,7 @@ async function cdpBrowserChecks(url, options = {}) {
         continue;
       }
       evaluated.result.value.images = preparedImages.result?.value || {};
+      evaluated.result.value.presentation = presentation.result?.value || {status:'failed',panels:[{title:'验收',problems:['PRESENTATION_CHECK_FAILED']}]};
       evaluated.result.value.data_labels = await labelChecks.readDataLabels(async fn => {
         const checked = await cdp.send('Runtime.evaluate', {expression: `(${fn.toString()})()`, returnByValue: true});
         if (checked.exceptionDetails) throw new Error('LABEL_CHECK_UNAVAILABLE');
@@ -1718,8 +1724,12 @@ async function browserChecks(v, options = {}) {
 function summarize(staticResult, browserResult, options) {
   const problems = [...staticResult.problems];
   const warnings = [];
+  const nonCoreWarnings = [...(browserResult.nonCoreWarnings || [])];
   if (browserResult.checked) {
     for (const r of browserResult.viewports) {
+      for (const problem of chartPresentationProblems(r.presentation)) problems.push(`${r.viewport}: ${problem}`);
+      if(r.presentation?.status==='degraded') warnings.push(`${r.viewport}: 图表资源不可用，已验证数据表替代`);
+      if(r.presentation?.source==='oss') warnings.push(`${r.viewport}: 主图表源不可用，已切换OSS`);
       for (const problem of pageTitleProblems(r.pageTitle, expectedTitle)) problems.push(`${r.viewport}: ${problem}`);
       if (options.checkLayout !== false && r.horizontalOverflow) problems.push(`${r.viewport}: 存在横向溢出`);
       for (const problem of r.dashboardDesign?.problems || []) problems.push(`${r.viewport}: 自建页设计底线：${problem}`);
@@ -1815,7 +1825,16 @@ function summarize(staticResult, browserResult, options) {
         }
       }
     }
-    if (browserResult.consoleErrors.length) problems.push('控制台存在核心接口/运行时错误');
+    const unresolved = browserResult.consoleErrors.filter(error => {
+      const view = browserResult.viewports.find(v=>v.viewport===error.viewport);
+      const presentation = view?.presentation;
+      const handled = presentation && presentation.status !== 'failed' && presentation.panels.length > 0 &&
+        /CORS|Failed to load resource|net::|Refused to load the script/i.test(error.text || '') &&
+        presentation.dependencyAttempts.some(a=>a.status!=='pending' && a.status!=='ready' && String(error.text).includes(a.url));
+      if(handled)nonCoreWarnings.push({...error,reason:'handled_chart_dependency_failure'});
+      return !handled;
+    });
+    if (unresolved.length) problems.push('控制台存在核心接口/运行时错误');
     if ((browserResult.imageNetworkErrors || []).length) problems.push('图片请求存在 requestfailed 或非 2xx 响应');
   } else {
     const warning = `浏览器视口检查未执行: ${browserResult.reason}`;
@@ -1826,7 +1845,8 @@ function summarize(staticResult, browserResult, options) {
     ok: problems.length === 0,
     problems,
     warnings,
-    non_core_console_warnings: browserResult.nonCoreWarnings || [],
+    presentation: browserResult.checked ? {status:(browserResult.viewports||[]).some(r=>r.presentation?.status==='failed')?'failed':(browserResult.viewports||[]).some(r=>r.presentation?.status==='degraded')?'degraded':'normal',viewports:(browserResult.viewports||[]).map(r=>({viewport:r.viewport,...(r.presentation||{})}))} : null,
+    non_core_console_warnings: nonCoreWarnings,
     security_mode: options.relaxSecurity ? 'disabled-web-security' : 'default',
   };
 }
@@ -1920,7 +1940,7 @@ try {
       html_source: 'browser', fetch_error: fetchFailure,
       ...(summary.ok ? {} : { failure_kind: 'content' }),
       static: staticResult, card_runtime_check: cardRuntimeResult, browser: browserResult,
-      data_labels: labelChecks.summarizeDataLabels(browserResult), security_mode: summary.security_mode,
+      data_labels: labelChecks.summarizeDataLabels(browserResult), security_mode: summary.security_mode, presentation: summary.presentation,
       non_core_console_warnings: summary.non_core_console_warnings, warnings: summary.warnings, problems: summary.problems,
     };
     updateManifest(manifestPath, result);
@@ -2021,7 +2041,7 @@ try {
     card_runtime_check: cardRuntimeResult,
     browser: browserResult,
     data_labels: labelChecks.summarizeDataLabels(browserResult),
-    security_mode: summary.security_mode,
+    security_mode: summary.security_mode, presentation: summary.presentation,
     non_core_console_warnings: summary.non_core_console_warnings,
     warnings: summary.warnings,
     problems: summary.problems,
