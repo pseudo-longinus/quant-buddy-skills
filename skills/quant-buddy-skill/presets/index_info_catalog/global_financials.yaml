@@ -1,7 +1,7 @@
 # Auto-generated business catalog; do not edit records by hand.
 schema_version: 2
 category: global_financials
-record_count: 1324
+record_count: 1326
 records:
   - {id: "6a8bafa20162cdd13a1a4385", index_title: "港股EBITDA利润率：半年〔财务比率〕"}
   - {id: "69ff0133031ae7c8e9a92278", index_title: "港股EBITDA利润率：单季〔财务比率〕"}
@@ -310,6 +310,7 @@ records:
   - {id: "6a8bafa40162cdd13a1a45c8", index_title: "港股当期资本租赁义务：半年〔资产负债表〕"}
   - {id: "69ff022c031ae7c8e9a93b1f", index_title: "港股当期资本租赁义务：单季〔资产负债表〕"}
   - {id: "69ff0285031ae7c8e9a943be", index_title: "港股当期资本租赁义务：年度〔资产负债表〕"}
+  - {id: "6abb6644a9059b99320ccc3f", index_title: "港股总市值〔估值数据〕"}
   - {id: "69ff043d031ae7c8e9a96f5d", index_title: "港股成本及费用：TTM〔利润表〕"}
   - {id: "6a8bafa70162cdd13a1a4762", index_title: "港股成本及费用：半年〔利润表〕"}
   - {id: "69ff03db031ae7c8e9a9661a", index_title: "港股成本及费用：单季〔利润表〕"}
@@ -990,6 +991,7 @@ records:
   - {id: "69aa9bc80647ae948c0d3759", index_title: "美股当期资本租赁义务：TTM〔资产负债表〕"}
   - {id: "69aa9b960647ae948c0d2bb9", index_title: "美股当期资本租赁义务：单季〔资产负债表〕"}
   - {id: "69aa9baf0647ae948c0d31ad", index_title: "美股当期资本租赁义务：年度〔资产负债表〕"}
+  - {id: "6abb6c38a9059b99320e8e3d", index_title: "美股总市值〔估值数据〕"}
   - {id: "69aa9c330647ae948c0d509a", index_title: "美股成本及费用：TTM〔利润表〕"}
   - {id: "69aa9c160647ae948c0d49d9", index_title: "美股成本及费用：单季〔利润表〕"}
   - {id: "69aa9c250647ae948c0d4d83", index_title: "美股成本及费用：年度〔利润表〕"}

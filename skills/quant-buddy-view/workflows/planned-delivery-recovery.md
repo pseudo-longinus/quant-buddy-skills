@@ -40,10 +40,18 @@ python scripts/static_page.py execution_plan @plan-revision.json
 python scripts/static_page.py delivery_status '{"task_id":"task_xxx","refresh_remote":true}'
 ```
 
+```bash
+python scripts/static_page.py reconcile_delivery @reconcile-params.json
+```
+
+`reconcile-params.json` 包含 `task_id`、可选 `page_id/plan_hash`，以及旧 journal 未保存 trace 时必填的准确 `trace_id`。核销要求服务端确认同 task/page/trace/error 的 `outcome=rejected` 且 `write_applied=false`；新合同错误还必须 `retry_safe=true`，历史 `BAD_CHANGE_ASPECT/SCENE_TAG_NOT_FOUND` 日志可按已核实无写入事实兼容核销。核销在 `last_write.reconciliations` 留痕，不删除或重写原请求摘要。其他错误、查不到日志、身份不匹配或写入结果 unknown 均保持防重放保护。
+
+发布更新前会本地预校验 `change_aspect` 与场景标签，标签预检失败不写 journal、不发起页面更新。直接 `upload` 创建完整研究页且返回成功后，工具会登记同 task 的 `unmatched/result` 计划与 confirmed journal；宿主收尾只调用 `verify_published` 复验原 page_id。任何恢复流程都不得把已确认的完整页降级为“研究方法说明，数据待补”，也不得以同 task 新建替代页面来覆盖原 page_id。
+
 - PLAN_REVISION_CONFLICT：读取当前计划，重新生成对应候选，不篡改旧receipt/hash。
 - COMPOSE_PREPARE_FORBIDDEN：继续compose_page，不重新fork_prepare。
 - GRANT_SET_INVALID：一次处理errors中的全部角色；确定性错误同输入不盲重试。
-- PUBLISH_OUTCOME_UNKNOWN：先核对已保存的发布收据及当前页面版本/hash。远端仍显示旧版本不等于已证明请求不会迟到，不能直接重发。
+- PUBLISH_OUTCOME_UNKNOWN：先核对已保存的发布收据及当前页面版本/hash。远端仍显示旧版本不等于已证明请求不会迟到，不能直接重发。若 `last_write.error_code=BAD_CHANGE_ASPECT/SCENE_TAG_NOT_FOUND` 或服务端合同确认 `write_applied=false`，用 `reconcile_delivery` 调只读结果接口核销；证据不全时保持 unknown。
 - PUBLISH_VERSION_CONFLICT：检测到其他更新，停止覆盖，重新对齐。
 - 若上次写入已确认且当前远端版本/hash一致，重试可复用该版本再做公开验收，不重复写入。
 
@@ -55,7 +63,7 @@ python scripts/static_page.py delivery_status '{"task_id":"task_xxx","refresh_re
 
 计划/交付状态不再由终态回复清理或临时TTL扫描删除；保留策略由宿主另行管理。Grant/Formula Package新登记使用任务凭据目录；旧版全局凭据的证据恢复仍需独立验证。
 
-本次为 **Skill-only 修复**，使用现有 `getPageDetail` / `updateStaticPage` 接口，不要求后端新增接口、能力开关或版本升级。
+计划发布使用 `getPageDetail` / `updateStaticPage`；确定性拒绝的存量恢复另使用只读 `publicationOutcome`。新 QBV 遇到尚未提供该接口的旧服务端时失败关闭，不执行写入。
 
 写前读取目标页版本/哈希，写后保存现有接口返回的版本，再核对公开浏览器实际内容和当前版本。响应已确认且同一候选/远端版本未变时，复用收据重新验收，不重复写入。响应丢失或结果不确定时，记录失败并停止自动重发；不能仅凭远端仍是旧版本或恰好匹配候选哈希，就假定前一次请求已经结束。
 

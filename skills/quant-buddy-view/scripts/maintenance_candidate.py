@@ -114,7 +114,8 @@ def prepare(sp, params):
         if params.get('recover_runtime_evidence'):
             import runtime_route
             recovered = runtime_route.bind(publish)
-            publish.update(route_receipt_file=recovered['route_receipt_file'], live_data_mode='live',
+            publish.update(route_receipt_file=recovered['route_receipt_file'],
+                           live_data_mode=publish.get('live_data_mode') or recovered['live_data_mode'],
                            validation_receipt_files=[r['receipt_file'] for r in recovered['selected_routes'] if r['kind'] == 'formula'],
                            grant_validation_receipt_files=[r['receipt_file'] for r in recovered['selected_routes'] if r['kind'] != 'formula'])
         publish_path = path.parent / ('maintenance-publish-' + digest[:12] + '.json')

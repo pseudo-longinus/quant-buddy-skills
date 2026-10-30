@@ -70,3 +70,5 @@ QBV数据授权kind同名 `fast_query_minute_range_multi`，payload就是上述�
 ## 外盘期货支持
 
 支持CME Group主力连续；新增资产清单、逐ticker起点、Chicago会话日及本工具请求示例见[外盘期货分钟覆盖](../references/minute-data-coverage.md#外盘期货主力连续)。沿用本工具参数与返回合同，不添加Celery内部参数；单资产接口不传market，多资产全市场可用market=os_future。
+
+外盘换月/合约信息的返回位置、上游版本依赖及多资产补查方式见[外盘换月入口](../references/continuous-futures.md#外盘换月返回入口2026-10-28)。单资产区间读取roll_events，RangeMulti仅解析去重后单资产时读取roll_events，多资产/market不返回；单日contract_info仅解释分钟来源合约。外盘日频换月信息缺失，禁止用这些事件补日频；缺字段不表示无换月。

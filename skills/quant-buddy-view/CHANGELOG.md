@@ -5,11 +5,27 @@
 
 ---
 
+## 未发布 — 2026-10-28
+
+- 外盘主力换月仅接入分钟：单资产Range返回roll_events，RangeMulti仅解析去重后单资产时返回同结构roll_events，多资产和market不附事件；单日仅分钟来源合约推导。明确外盘日频换月信息缺失，禁止用分钟事件补日频；注明旧上游不支持警告及部署依赖。参数、Grant kind、缓存和计费沿用原合同。
+
+## [0.7.8] — 2026-10-30
+
+- 实时发布参数类报错不再消耗修复预算、不再标记候选失败：`LIVE_DATA_MODE_REQUIRED`、`LIVE_DATA_ROUTE_RECEIPT_REQUIRED` 与新增的 `LIVE_DATA_ROUTE_ASSET_REQUIRED`（原缺 asset 时复用 `LIVE_DATA_ROUTE_ASSET_MISMATCH`，现按调用方输入错误单列）与 `PAGE_ID_REQUIRED` 等一致，按 next_action 补参后可立即原候选复验；真实证据不匹配（`LIVE_DATA_ROUTE_ASSET_MISMATCH` 等）仍消耗预算并阻断。
+- 发布候选键纳入 `asset` 参数：修正 asset 后视为新候选，不再被“同一失败候选不重复验收”拦截，修复真实资产不匹配后可直接复验。
+
+## [0.7.7] — 2026-10-30
+
+- 所有新任务 `unmatched` 自建整页改为模型手写 HTML/CSS/JS，并新增 `UNMATCHED_BUILD_MODE_FORBIDDEN` 硬门禁；`build_dashboard` 仅保留 legacy 标准页维护和 `panel_block` 局部图表组件，不能再输出通用 `research-v1` 整页。
+- 发布状态优先消费服务端 `publish_phase/page_write_applied/retry_safe` 合同：写入前确定性拒绝记为 rejected，写入中失败与超时保持 unknown，避免继续按错误码白名单猜测。
+- 修复确定性参数拒绝的发布恢复：`BAD_CHANGE_ASPECT`、`SCENE_TAG_NOT_FOUND` 及新合同确认的写入前拒绝可通过 `reconcile_delivery` 受控核销；证据不足仍禁止重发。
+- 发布前预校验 `change_aspect` 与场景标签，维护恢复保留请求的 `live_data_mode`，避免 mixed 被误写为 live。
+- 修复直接上传完整研究页后的交付断链：带 task_id 的 upload 成功即登记同页 execution plan 与 confirmed journal，宿主收尾先只读 verify_published 并复用原 page_id；禁止再用空方法页顶替完整结果页。
+
 ## [0.7.5] — 2026-10-28
 
 - Host 收尾消除 PRESERVED_LAST_GOOD_PAGE 死角：当前轮次页面已发布、公开验收通过且回复合同已绑定时，finish_research_delivery 复用持久化 agent-contract 补完回复校验并将交付状态置为 succeeded，不再对用户误报“活页暂未发布”。跨轮次、未验收或合同缺失时保持原 PRESERVED 行为；全程不新建页、不组版、不重复发布。
 
-## [0.7.4] — 2026-10-27
 ## [0.7.4] — 2026-10-27
 
 - 补充CME Group外盘期货分钟支持、13个ticker逐品种起点、Chicago会话日及请求/授权示例；同步os_future客户端参数校验与多资产市场枚举。沿用既有缓存、导出、授权和计费，不改变既有分钟接口返回合同。

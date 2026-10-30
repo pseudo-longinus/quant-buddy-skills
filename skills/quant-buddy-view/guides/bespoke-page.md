@@ -1,5 +1,7 @@
 # Guide · 手搓 bespoke 页（自由排版 + 共享取数内核）
 
+**新任务 `routing_decision.mode="unmatched"` 的整页必须使用本指南：模型直接手写完整 HTML/CSS/JS。** `build_dashboard` 只能以 `emit:"panel_block"` 生成局部图表脚本，不能生成标准整页替代 bespoke。
+
 新建 bespoke 同样遵守 [自建质量底线](self-build-quality.md)：主内容结构来自用户问题，正文根及语义节点声明设计检查标记；采用自定义布局不能跳过桌面/手机截图与发布验收。已有 HTML 迁移仍遵守下面的原样保留合同。
 
 ## 正文图片
@@ -16,8 +18,8 @@ bespoke 页面不得直接引用本地路径、HTTP 图片或其他 page_id 的�
 | 路 | 怎么做 | 何时用 |
 |---|---|---|
 | **在线模板** `static_page.py templates` / `template` | 先找公共模板，下载 HTML 后替换标的、文案和对应的 Formula Package / Data Grant 凭证 | 个股画像、估值体检、异动榜、选股看板等固定页面形态 |
-| **快路** `build_dashboard` | 写 `spec.json`，声明式出 line/bar/number/table | 没有合适在线模板，但标准看板足够 |
-| **手搓 bespoke**（本剧本） | Agent 直接写 HTML/CSS/SVG，数据层调**取数内核** | 在线模板和快路都做不出的自定义版式/交互 |
+| **标准 legacy / 局部图表** `build_dashboard` | 写 spec 或 `emit:"panel_block"` | 仅维护已存在的标准面板，或给 bespoke 页生成局部图表脚本 |
+| **手搓 bespoke**（本剧本） | Agent 直接写完整 HTML/CSS/SVG，数据层调**取数内核** | 所有新任务 `unmatched` 自建整页；在线模板无法承接的自定义版式/交互 |
 
 > 快路里那套"取数 + 清洗 + 容错"已经写对了一份（内联在生成的 HTML 里）。手搓页够不着它，
 > 所以单独抽了一份同口径的 **取数内核** `assets/data-kernel.js` 给手搓页用——**别再自己抄 `fetch`/解包逻辑**。
@@ -108,7 +110,7 @@ setBar($("valuationBars"), [
 
 ## 五步接入
 
-1. 先查在线模板；没有合适模板时，才写 bespoke 主体 HTML。
+1. 先查在线模板；一旦本轮路由为 `unmatched`，必须写 bespoke 主体 HTML，不得用 `build_dashboard` 整页替代。
 2. 主体 HTML 放入 `QB_SHARED_*` 占位，并调用 `QBShareShell.init({ onRefresh: load, getPosterData })`。
 3. 填 `CONFIG = { endpoint, package_id, signature }`；地址按测试/正式环境填写。
 4. 用 `QB.query(CONFIG)` 取数，再用 `QB.series` / `QB.lastValue` / `QB.topValues` 解包。读取 fast_query Data Grant 时必须用 `QB.snapshotRows(out, grant_id)` 解包。

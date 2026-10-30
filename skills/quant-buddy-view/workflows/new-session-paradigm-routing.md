@@ -113,7 +113,7 @@ fork/unmatched 都必须由 Agent 在 `new_page.routing_decision` 中显式记�
 
 ## ③ 未命中：自建
 
-进入本分支必须先读取 [自建质量底线](../guides/self-build-quality.md)。先确定首要证据与阅读顺序，再选择标准组件或必要的 bespoke；保留主题自身的视觉表达。无模板命中不允许降低字体、布局、内容呈现与浏览器验收标准。
+进入本分支必须先读取 [自建质量底线](../guides/self-build-quality.md) 与 [bespoke 页指南](../guides/bespoke-page.md)。先确定首要证据与阅读顺序，再由模型手写完整 HTML/CSS/JS；外层布局不得降级为 `build_dashboard` 标准整页。无模板命中不允许降低字体、布局、内容呈现与浏览器验收标准。
 
 无匹配范式时，由 Agent 指出最接近候选及实质能力缺口，再走 [dashboard-end-to-end.md](dashboard-end-to-end.md)：
 
@@ -121,7 +121,7 @@ fork/unmatched 都必须由 Agent 在 `new_page.routing_decision` 中显式记�
 python scripts/static_page.py new_page '{"task_id":"task_xxx","user_query":"制作事件时间线页面","title":"事件分析活页","routing_decision":{"mode":"unmatched","closest_template_id":"page_template_xxx","reason_code":"required_capability_missing","reason":"候选模板缺少用户要求的事件时间线与情景推演能力"}}'
 ```
 
-记录成功后继续 `build_dashboard` / bespoke 自建 → 验证 → 注册 → 生成 → verify → `publish_final`。量化建页所有渠道均先内部保留链接，验收后发送；其余收口同 ②。`build_dashboard` 会读取 task 路由凭据：`unmatched` 可正常整页自建，fork/inherit* 禁止整页重建，fork/compose 通过受控 `compose_page` 生成完整候选；`panel_block`仍只表示局部产物；`publish_final` 仍会复核最终发布路径与已记录决定一致。
+记录成功后继续模型手写 bespoke 自建 → 验证 → 注册 → 编译 → verify → `publish_final`。量化建页所有渠道均先内部保留链接，验收后发送；其余收口同 ②。`build_dashboard` 会读取 task 路由凭据：`unmatched` 禁止整页构建，仅允许 `panel_block` 局部产物；fork/inherit* 禁止整页重建，fork/compose 通过受控 `compose_page` 生成完整候选；`publish_final` 仍会复核最终发布路径与已记录决定一致。
 
 若 `new_page` 已记录 fork，但继承合同后来确认不成立，仍不能改判 unmatched。继续按借鉴度处理：结构与合同可继承走 `inherit`；缺维度走 `inherit_augment + augmentation_spec`；合同不可继承但仍能借布局、样式、渲染函数、公式思路或 Grant 形状时，运行 `research_templates → fork_compose → compose_page`，随后 `publish_verified`。`publish_final` 只接受继承绑定或 SHA256 校验通过的 Compose 绑定。
 

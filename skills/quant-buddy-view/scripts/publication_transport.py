@@ -6,6 +6,7 @@ server-side idempotency or atomic compare-and-swap, and makes no such guarantee.
 import copy
 import hashlib
 import re
+import urllib.parse
 import common as C
 import execution_plan as EP
 import delivery_state as DS
@@ -13,6 +14,8 @@ import delivery_state as DS
 UPDATE_PATH = '/skill/updateStaticPage'
 CONSISTENCY = 'local_lock_and_read_before_write_no_server_cas'
 AUDIT_FIELDS = {'trace_evidence', 'user_query'}
+CHANGE_ASPECT_VALUES = frozenset({'content', 'data', 'layout', 'metadata'})
+TAGS_PATH = '/skill/listPageTags'
 
 
 def mutation_body(body):
@@ -21,6 +24,69 @@ def mutation_body(body):
 
 def _fail(code, message, **details):
     return {'code': 1, 'error': code, 'message': message, **details}
+
+
+def validate_change_aspect(body):
+    value = body.get('change_aspect')
+    if value is None or not str(value).strip():
+        return None
+    if str(value).strip() not in CHANGE_ASPECT_VALUES:
+        return _fail('BAD_CHANGE_ASPECT',
+                     'change_aspect 只接受 content / data / layout / metadata；不传则由服务端推断',
+                     retryable=False)
+    return None
+
+
+def requested_scene_tags(body):
+    value = body.get('scene_tags')
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [item.strip() for item in value.split(',') if item.strip()]
+    if not isinstance(value, list):
+        raise ValueError('scene_tags 必须是字符串、逗号分隔字符串或字符串数组')
+    tags = []
+    for item in value:
+        if isinstance(item, str):
+            token = item.strip()
+        elif isinstance(item, dict):
+            token = str(item.get('name') or item.get('tag_id') or '').strip()
+        else:
+            raise ValueError('scene_tags 数组元素必须是字符串或标签对象')
+        if token:
+            tags.append(token)
+    return tags
+
+
+def validate_scene_tags(body, endpoint, key):
+    """Check scene tags against the server before observation or journal writes."""
+    try:
+        requested = requested_scene_tags(body)
+    except ValueError as exc:
+        return _fail('SCENE_TAG_INVALID', str(exc), retryable=False,
+                     publish_phase='client_pre_write_validation', page_write_applied=False, retry_safe=True)
+    if not requested:
+        return None
+    url = C.api_url(endpoint, TAGS_PATH) + '?' + urllib.parse.urlencode({'tag_type': 'scene'})
+    response = C.http_json('GET', url, C.headers(key), timeout=30)
+    if not isinstance(response, dict) or response.get('code') != 0 or not isinstance(response.get('list'), list):
+        return _fail('SCENE_TAG_PREFLIGHT_FAILED', '无法读取服务端场景标签，发布前校验未完成',
+                     retryable=True, server_error=response.get('error') if isinstance(response, dict) else None,
+                     publish_phase='client_pre_write_validation', page_write_applied=False, retry_safe=False)
+    allowed = set()
+    for item in response['list']:
+        if not isinstance(item, dict):
+            continue
+        for field in ('tag_id', 'name'):
+            token = str(item.get(field) or '').strip()
+            if token:
+                allowed.add(token)
+    missing = [tag for tag in requested if tag not in allowed]
+    if missing:
+        return _fail('SCENE_TAG_NOT_FOUND', '场景标签不存在（只能从已有场景标签中选）：' + '、'.join(missing),
+                     retryable=False, missing_scene_tags=missing,
+                     publish_phase='client_pre_write_validation', page_write_applied=False, retry_safe=True)
+    return None
 
 
 def _check_ack(plan, intent, result):
@@ -35,6 +101,12 @@ def _check_ack(plan, intent, result):
 
 
 def write(plan, body, endpoint, key, observe, content_kind='candidate', read_only=False):
+    invalid_aspect = validate_change_aspect(body)
+    if invalid_aspect:
+        return invalid_aspect
+    invalid_tags = validate_scene_tags(body, endpoint, key)
+    if invalid_tags:
+        return invalid_tags
     try:
         with EP.locked(plan['task_id']):
             EP.require(plan['task_id'], page_id=body.get('page_id'), plan_hash=plan['plan_hash'])
@@ -67,8 +139,8 @@ def write(plan, body, endpoint, key, observe, content_kind='candidate', read_onl
                 _check_ack(plan, previous, result)
                 return {**result, 'reused_existing_version': True, 'write_consistency': CONSISTENCY}
             intent = prepared['intent']
-            # Match the established API exactly: do not send invented conditional
-            # fields or depend on new capabilities/status/reconciliation endpoints.
+            # Keep the update body stable. Outcome reconciliation uses a separate
+            # read-only endpoint and never adds conditional write fields.
             try:
                 result = C.http_json('POST', C.api_url(endpoint, UPDATE_PATH), C.headers(key), body, timeout=600)
             except (OSError, TimeoutError, ValueError):

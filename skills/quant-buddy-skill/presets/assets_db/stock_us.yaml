@@ -15,7 +15,6 @@ stock | Affiliated_Managers_Group_Inc | AMG.N |  |
 stock | Affirm_Holdings_Inc | AFRM.O |  |
 stock | AGNC_Investment_Corp | AGNC.O |  |
 stock | Agree_Realty_Corporation | ADC.N |  |
-stock | Air_Lease_Corporation | AL.N |  |
 stock | Alamos_Gold_Inc | AGI.N |  |
 stock | Albertsons_Companies_Inc | ACI.N |  |
 stock | Alexandria_Real_Estate_Equities_Inc | ARE.N |  |
@@ -181,7 +180,6 @@ stock | Everest_Re_Group_Ltd | EG.N |  |
 stock | Evergy_Inc | EVRG.O |  |
 stock | Eversource_Energy | ES.N |  |
 stock | Everus_Construction_Group_Inc | ECG.N |  |
-stock | Exact_Sciences_Corporation | EXAS.O |  |
 stock | Exelixis_Inc | EXEL.O |  |
 stock | ExlService_Holdings_Inc | EXLS.O |  |
 stock | Expand_Energy_Corporation | EXE.O |  |
@@ -218,6 +216,7 @@ stock | Genpact_Limited | G.N |  |
 stock | Gen_Digital_Inc | GEN.O |  |
 stock | GE_Vernova_Inc | GEV.N |  |
 stock | GitLab_Inc | GTLB.O |  |
+stock | Global_X_Cloud_Computing_ETF | CLOU.O |  |
 stock | Globant_SA | GLOB.N |  |
 stock | Globe_Life_Inc | GL.N |  |
 stock | Globus_Medical_Inc | GMED.N |  |
@@ -557,6 +556,8 @@ stock | 世邦魏理仕 | CBRE.N |  |
 stock | 丘博 | CB.N |  |
 stock | 丰田汽车 | TM.N |  |
 stock | 丹纳赫 | DHR.N |  |
+stock | 二倍做多纳斯达克100ETF-ProShare | QLD.A |  |
+stock | 云计算ETF-First-Trust | SKYY.O |  |
 stock | 五三银行 | FITB.O |  |
 stock | 亚什兰 | ASH.N |  |
 stock | 亚德诺半导体 | ADI.O |  |
@@ -703,7 +704,6 @@ stock | 小型黄金矿业ETF-VanEck | GDXJ.A |  |
 stock | 小鹏汽车 | XPEV.N |  |
 stock | 布鲁克 | BRKR.O |  |
 stock | 希尔顿 | HLT.N |  |
-stock | 希悦尔 | SEE.N |  |
 stock | 希捷科技 | STX.O |  |
 stock | 帕卡 | PCAR.O |  |
 stock | 广达服务 | PWR.N |  |
@@ -760,6 +760,7 @@ stock | 摩森康胜 | TAP.N |  |
 stock | 斑马技术 | ZBRA.O |  |
 stock | 斯伦贝谢 | SLB.N |  |
 stock | 斯马克 | SJM.N |  |
+stock | 新兴市场ETF-iShares | EEM.A |  |
 stock | 新思科技 | SNPS.O |  |
 stock | 新纪元能源 | NEE.N |  |
 stock | 新闻集团 | NWS.O |  |
@@ -802,6 +803,7 @@ stock | 森萨塔科技 | ST.N |  |
 stock | 楷登电子 | CDNS.O |  |
 stock | 欧加隆 | OGN.N |  |
 stock | 欧文斯科宁 | OC.N |  |
+stock | 欧澳远东指数ETF-iShares | EFA.A |  |
 stock | 欧特克 | ADSK.O |  |
 stock | 永利度假村 | WYNN.O |  |
 stock | 汇丰控股 | HSBC.N |  |
@@ -912,6 +914,7 @@ stock | 美元树 | DLTR.O |  |
 stock | 美光科技 | MU.O |  |
 stock | 美国全球喷气机ETF | JETS.A |  |
 stock | 美国合众银行 | USB.N |  |
+stock | 美国国债7-10年ETF-iShares | IEF.O |  |
 stock | 美国国际集团 | AIG.N |  |
 stock | 美国家庭人寿保险 | AFL.N |  |
 stock | 美国普信金融 | AMP.N |  |
@@ -989,7 +992,6 @@ stock | 诺福克南方 | NSC.N |  |
 stock | 谷歌 | GOOG.O |  |
 stock | 谷歌 | GOOGL.O |  |
 stock | 豪士科 | OSK.N |  |
-stock | 豪洛捷 | HOLX.O |  |
 stock | 豪迈航空 | HWM.N |  |
 stock | 贝克休斯 | BKR.O |  |
 stock | 贝壳 | BEKE.N |  |

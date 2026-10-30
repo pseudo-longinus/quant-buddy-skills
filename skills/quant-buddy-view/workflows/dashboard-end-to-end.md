@@ -6,25 +6,31 @@
 
 把 quant-buddy-skill 里探索好的指标，做成一个公开可分享、数据自动更新的网页看板。
 
-自建分支先执行 [自建质量底线](../guides/self-build-quality.md)：按问题组织首屏与主证据，不从任意碎卡片网格开始；标准生成器提供默认设计，仍须查看真实渲染截图。fork/已有页面保持其原有视觉合同。
+自建分支先执行 [自建质量底线](../guides/self-build-quality.md)：按问题组织首屏与主证据，由模型手写完整 bespoke HTML/CSS/JS；`build_dashboard` 只能生成 `panel_block` 局部图表脚本，不能生成 unmatched 整页。fork/已有页面保持其原有视觉合同。
 
 > 场景：用户说「帮我做个沪深300指数最近一年走势 + 最新涨跌幅的监控页，要能发给同事」。
 
 ## 0. 前置：在 quant-buddy-skill 里探索并选通道（本技能之外）
 
-先按数据性质选择实时取数通道：普通行情、估值、财务等平台直取数据优先 Data Grant；需要计算、自定义指标或公式口径时使用 Formula Package。两类凭证可以同页混用，分别验证、注册和取数；不要为了让页面成为实时页，把普通直取数据强行改写成公式。下面步骤以 Formula Package 示例为主，Data Grant 的验证与注册见 [../tools/data_grant.md](../tools/data_grant.md)。
+先按数据性质选择实时取数通道：普通行情、估值、财务等平台直取数据优先 Data Grant；需要计算、自定义指标或公式口径时使用 Formula Package。两类凭证可以同页混用，分别验证、注册和取数；不要为了让页面成为实时页，把普通直取数据强行改写成公式。
 
-### 多资产收益 + 估值 + 回撤的最短路径
+### 多资产收益 + 估值 + 回撤的 bespoke 路径
 
-这类请求不要逐资产建 3 份探测文件，也不要从旧 `output/` 找参数。固定顺序如下：
+1. 一份 `assets:[...]` 参数调用一次 `qbs_bridge.py resolve_asset_data`，只探测平台直取的行情/估值字段。
+2. `templates` 调用一次并确定 direct/fork/unmatched；fork/unmatched 立即 `new_page` 绑定首链。
+3. 普通行情/估值直接消费第 1 步返回的 `registration_files` 注册已验证 Data Grant，保留每个资产的合同和收据。
+4. 收益/回撤只需注册一组跨资产原始价格 Formula Package，`validate_package_set` / register 各一次。
+5. **若本轮为 `unmatched`，模型直接手写完整 HTML/CSS/JS**：
+   - 用 Data Grant 表呈现最新行情与估值；
+   - 用原始价格序列在页面内计算累计收益与历史回撤；
+   - 首屏给出三资产核心差异，再放收益/回撤主图和口径；
+   - 可用 `build_dashboard emit:"panel_block"` 生成局部图表脚本，但外层整页必须是模型手写 bespoke。
+6. 执行计划明确要求角色绑定时，先运行 `static_page.py bind_runtime_route @params.json`，再携带返回的路由、轮次、资产与验证收据。
+7. 用 `compile_bespoke_page.py` 内联公共 shell 与 data-kernel，再按 `publish_verified` 返回的 `next_action.params_file` 发布。始终写回第 2 步的同一 `page_id`，完成本地浏览器、公网和终态验收后才交付。
 
-1. 一份 `assets:[...]` 参数调用一次 `qbs_bridge.py resolve_asset_data`，只探测平台直取的行情/估值字段；
-2. `templates` 一次并确定 direct/fork/unmatched；fork/unmatched 立即 `new_page` 绑定首链；
-3. 普通行情/估值直接消费第 1 步返回的 `registration_files` 注册已验证的 Data Grant，保留每个资产的合同和收据；不要合并成未验证的新合同或再次手写指纹；
-4. 收益/回撤页面只需注册一组跨资产原始价格 Formula Package，`validate_package_set` / register 各一次；标准看板用同一组 `outputs` 的 `transform:"cumulative_return_pct"` 与 `transform:"drawdown_pct"` 生成两张图，不要读取 `assets/data-kernel.js`，也不要手写 bespoke SSE/Grant 运行时；
-5. 一份 spec 同时放图表与 Data Grant 表，绑定真实注册 ID。普通未命中自建原样携带本轮 `resolve_asset_data.publication_evidence`，补入本轮公式验证收据；Compose 或执行计划明确要求角色绑定时，先执行 `static_page.py bind_runtime_route @params.json`（参数见 `tools/static_page.md`），再携带返回的路由、轮次、资产及验证收据。执行 `build_dashboard.py @spec.json` 后，按返回的 `next_action.params_file` 调用 `publish_verified`。始终写回第 2 步的同一 `page_id`，完成本地浏览器、公网和终态验收后才交付。
+## 1. 注册公式任务包（本示例的公式通道）
 
-公式参数必须是合法 JSON。不要写会破坏 JSON 的裸内嵌引号；例如优先使用：
+公式参数必须是合法 JSON。不要写会破坏 JSON 的裸内嵌引号；例如优先写：
 
 ```json
 {
@@ -36,78 +42,40 @@
 }
 ```
 
-标准看板面板直接写：
+先在 QBS 验证并注册；不要从旧 `output/` 复制 task、凭证或公式。Data Grant 与 Formula Package 的验证收据必须与当前任务和资产一致。
 
-```json
-[
-  {"title":"累计收益（%）","type":"line","outputs":["mt_close","wly_close","lzlj_close"],"transform":"cumulative_return_pct","span":"full"},
-  {"title":"历史回撤（%）","type":"line","outputs":["mt_close","wly_close","lzlj_close"],"transform":"drawdown_pct","span":"full"},
-  {"title":"最新行情与估值","type":"table","grant_id":"dg_xxx","span":"full"}
-]
-```
+## 2. 模型手写 bespoke HTML
 
-如果某个可选画像 role 不完整，但本页必需的行情/估值与公式角色已验证成功，应删除非必需 role 后继续；禁止围绕可选画像重复探测直至耗尽工具轮次。`build_dashboard` 已支持上述场景时，禁止再 Grep/Read `scripts/build_dashboard.py`、`assets/data-kernel.js` 或 `tools/static_page.md` 猜实现；直接按命令返回的 `code` / `next_step` 继续。
+按 [自建质量底线](../guides/self-build-quality.md) 与 [bespoke 页指南](../guides/bespoke-page.md)：
 
-> 全程继承当前 `trace_context begin/beginHandoff` 返回的 task_id/turn_id；注册和发布凭配置中的凭证鉴权，凭证不能代替任务身份。旧示例省略的任务字段仍须从当前上下文补齐。
-> 调用 `runMultiFormulaBatchStream` 做验证时，`user_query` 要写当前用户的真实请求和当前资产；复制旧示例时不要留下旧股票名、旧测试说明或旧 `task_id`。
+1. 写完整主体 HTML/CSS/JS，根节点声明 `data-qb-page-design="bespoke-v1"`。
+2. 首屏放核心结论、关键数字和主证据，不从等权卡片网格开始。
+3. 数据层复用 `assets/data-kernel.js`；价格序列处理假 0 时用 `{dropZero:true}`，涨跌幅/收益率的合法 0 必须保留。
+4. 多资产对比使用透视结构：指标为行、资产为列；收益与回撤图使用同窗口、同起点口径。
+5. 如需声明式图表，只能生成 `panel_block` 嵌入模型手写容器，不得让标准面板成为整页。
+6. 用 `compile_bespoke_page.py @compile-params.json` 编译自包含页面。
 
-## 1. 注册公式任务包（本示例的公式通道）
-
-`params.json`（UTF-8，中文务必走 @file）：
+示例编译参数：
 
 ```json
 {
-  "formulas": [
-    "hs300_close = \"全市场每日收盘价\"*取出(沪深300)",
-    "hs300_chg   = \"全市场每日回报率\"*取出(沪深300)"
-  ],
-  "reads": [
-    { "output": "hs300_close", "read_mode": "range_data",
-      "mode_params": { "lookback_days": 365 } },
-    { "output": "hs300_chg", "read_mode": "last_day_stats" }
-  ],
-  "ttl_days": 365
+  "template": "output/bespoke/body.html",
+  "out_file": "output/bespoke/final.html",
+  "inline_data_kernel": true,
+  "inline_qr_mini": true
 }
 ```
 
-```bash
-python scripts/formula_package.py register @params.json
-```
+## 3. 发布与公网验收
 
-成功返回 `package_id` + `signature`，并落盘到 `output/formula_packages/<package_id>.json`（后续步骤可自动补全 signature）。
+使用 `publish_verified` 发布同一个 `page_id`，参数必须包含真实研究内容 `description`、当前 `task_id/page_id/plan_hash`、候选 `html_file`、标题、实时/快照合同与验证收据。缺参数时补齐后重发，不把参数缺项当成页面失败。必须完成：
 
-## 2. 生成看板 HTML
+- 本地桌面 / 390 / 320 浏览器验收；
+- 公网浏览器验收；
+- 版本与 hash 回读；
+- 终态回复合同校验。
 
-`spec.json`：
-
-```json
-{
-  "title": "沪深300监控",
-  "subtitle": "近一年走势 · 最新涨跌幅",
-  "package_id": "pkg_xxx",
-  "panels": [
-    { "title": "近一年收盘价", "output": "hs300_close", "type": "line" },
-    { "title": "最新涨跌幅",   "output": "hs300_chg",   "type": "number", "unit": "%" }
-  ]
-}
-```
-
-```bash
-# 仅生成
-python scripts/build_dashboard.py @spec.json
-# 或生成 + 直接发布（用户要可分享页面时优先这样做）
-python scripts/build_dashboard.py @<(jq '. + {upload:true}' spec.json)   # bash
-```
-
-> Windows 下把 `"upload": true` 直接写进 spec.json 即可，无需 jq。
-
-## 3. 发布（若第 2 步未带 upload）
-
-```bash
-python scripts/static_page.py upload '{"html_file":"output/pages/沪深300监控-xxxx.html","title":"沪深300监控"}'
-```
-
-返回的原始 `url` 是内部托管链接：`https://pages.quantbuddy.cn/pages/<user>/page_xxx.html`。普通渠道可直接对外分享；`feishu-group` 不发送该 URL，只在终态使用 `agent_reply_contract.public_url` 返回 `https://www.quantbuddy.cn/playground/<user>/page_xxx`。
+不得只因为生成 HTML 或 upload 成功就声称交付。
 
 ## 4. 后续维护
 
@@ -125,7 +93,7 @@ python scripts/static_page.py upload '{"html_file":"output/pages/沪深300监控
   ```bash
   python scripts/static_page.py update '{"page_id":"page_xxx","html_file":"output/pages/沪深300监控-xxxx.html"}'
   ```
-  重建并替换也可一步完成：在 spec.json 里加 `"update_page_id": "page_xxx"`（优先于新上传），跑 `build_dashboard.py @spec.json` 即重建 + 替换。
+  标准整页 legacy 维护可按原合同使用 `build_dashboard.py`；`unmatched` 自建页则重新模型手写 bespoke 主体，再更新同一个 `page_id`。
 - **数据更新了想刷新页面**：无需重建——页面是 live 实时取数，访问者打开即见最新；只有改版式/文案时才重跑第 2 步并按上一条 `update` 覆盖同一页面。
 - **下线页面**：`python scripts/static_page.py revoke '{"page_id":"page_xxx"}'`。
 - **轮换公式包签名（⚠️ 破坏性，默认不做）**：`refresh` 默认 `rotate_signature:false`、不动签名。只有需要主动换令牌 / 吊销已泄露旧签名时才轮换：`python scripts/formula_package.py refresh '{"package_id":"pkg_xxx","rotate_signature":true}'`。
@@ -137,4 +105,4 @@ python scripts/static_page.py upload '{"html_file":"output/pages/沪深300监控
 > 实时页可使用两条通道：Formula Package 内嵌 `package_id + signature` 并调用 `queryFormulaPackage`，Data Grant 内嵌 `grant_id + signature` 并调用 `queryDataGrant`。两类凭证可同页混用、彼此独立取数；任一通道都能让页面保持实时。前置：端点对页面域名放开 CORS、协议与页面一致、且接受 signature 公开在 HTML 里——当前 `https://www.quantbuddy.cn/skill` 均满足。
 ## 终态回复门禁
 
-标准看板使用 `build_dashboard.py` 一步 upload/update 时，spec 必须携带当前 `task_id`。发布成功后不得只读取内联 `agent_reply_contract` 就直接回复：必须使用脚本顶层返回的 `reply_draft_file` 和 `reply_validation_command`，先写入最终 Markdown 草稿，再执行 hash-bound validator。公网浏览器验收和 `valid:true` 缺一不可；validator 通过后停止工具调用并发送草稿。
+bespoke 页发布成功后不得只读取内联 `agent_reply_contract` 就直接回复：必须使用发布器顶层返回的 `reply_draft_file` 和 `reply_validation_command`，先写入最终 Markdown 草稿，再执行 hash-bound validator。公网浏览器验收和 `valid:true` 缺一不可；validator 通过后停止工具调用并发送草稿。

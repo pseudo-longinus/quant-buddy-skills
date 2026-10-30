@@ -4,8 +4,11 @@
 # 格式：index | name（公式中使用此名） | ticker | 备注 | short_names
 # ============================================================
 
+index | 1000现金流 | 932369.CSI |  |
+index | 300现金流 | 932366.CSI |  |
 index | 300红利低波 | 930740.CSI |  |
 index | 300银行全收益 | H00951.CSI |  |
+index | 500现金流 | 932367.CSI |  |
 index | A股指数 | SH000002 |  |
 index | CBOE波动率VIX | VIX.GI |  |
 index | CS中药生产 | CI005153.WI |  |
@@ -243,8 +246,24 @@ index | 商用车II（申万） | 801096.SI |  | 商用车（申万）
 index | 国有大型银行II（申万） | 801782.SI |  | 国有大型银行Ⅱ（申万）
 index | 国证1000 | SZ399311 |  |
 index | 国证2000 | SZ399303 |  |
+index | 国证300 | SZ399312 |  |
+index | 国证50 | SZ399310 |  |
+index | 国证A指 | SZ399317 |  |
+index | 国证ESG300 | SZ399378 |  |
 index | 国证价值 | SZ399371 |  |
+index | 国证企业债券指数 | SZ399481 |  |
+index | 国证医药 | SZ399394 |  |
 index | 国证成长 | SZ399370 |  |
+index | 国证有色 | SZ399395 |  |
+index | 国证煤炭 | SZ399436 |  |
+index | 国证电力 | SZ399438 |  |
+index | 国证科技100 | SZ399608 |  |
+index | 国证红利 | SZ399321 |  |
+index | 国证红利100 | SZ399411 |  |
+index | 国证证券龙头 | SZ399437 |  |
+index | 国证转债 | SZ399413 |  |
+index | 国证银行 | SZ399431 |  |
+index | 国证食品 | SZ399396 |  |
 index | 国防军工I（申万） | 801740.SI |  | 军工,国防军工（申万）
 index | 地面兵装II（申万） | 801743.SI |  | 地面兵装Ⅱ（申万）
 index | 城商行II（申万） | 801784.SI |  | 城商行Ⅱ（申万）
@@ -349,7 +368,7 @@ index | 橡胶II（申万） | 801037.SI |  | 橡胶（申万）
 index | 欧元兑瑞士法郎 | EURCHF |  |
 index | 欧元兑美元 | EURUSD |  |
 index | 欧洲斯托克银行欧元价格指数 | SX7E.Z |  |
-index | 比特币兑美元 | BTCUSD |  |
+index | 比特币兑美元 | BTCUSD |  | 比特币
 index | 水泥制造II（申万） | 801711.SI |  | 水泥（申万）
 index | 汽车I（申万） | 801880.SI |  | 汽车,汽车（申万）
 index | 汽车服务II（申万） | 801092.SI |  | 汽车服务（申万）
@@ -412,7 +431,7 @@ index | 稀有金属II（申万） | 801054.SI |  | 小金属（申万）
 index | 稳定(风格.中信) | CI005921.WI |  | 稳定风格
 index | 红利指数 | SH000015 |  |
 index | 红利指数(长江) | 861401.CJ |  | 红利
-index | 纳斯达克100指数 | NDX.GI |  |
+index | 纳斯达克100指数 | NDX.GI |  | 纳指100,纳斯达克100
 index | 纳斯达克指数 | IXIC.GI |  |
 index | 纺织制造II（申万） | 801131.SI |  | 纺织制造（申万）
 index | 纺织服装I（申万） | 801130.SI |  | 纺服,纺织服饰（申万）
@@ -499,8 +518,8 @@ index | 非金属材料II（申万） | 801039.SI |  | 非金属材料Ⅱ（申�
 index | 非银行金融（中信） | CI005022.WI |  |
 index | 非银金融I（申万） | 801790.SI |  | 非银,非银金融（申万）
 index | 韩国KOSDAQ | KOSDAQ.GI |  |
-index | 韩国综合指数 | KS11.GI |  |
-index | 韩国综合股价200 | KOSPI200.GI |  |
+index | 韩国综合指数 | KS11.GI |  | KOSPI
+index | 韩国综合股价200 | KOSPI200.GI |  | KOSPI200
 index | 预增指数 | 8841090.WI |  |
 index | 风电设备II（申万） | 801736.SI |  | 风电设备（申万）
 index | 食品加工II（申万） | 801124.SI |  | 食品加工（申万）

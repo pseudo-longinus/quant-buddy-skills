@@ -78,13 +78,29 @@ def finish(params):
     plan=EP.load(task)
     if plan:
         state=DS.load(task,plan['target_page_id'])
-        if (state.get('last_write') or {}).get('status') in ('pending','unknown'):
+        write = state.get('last_write') or {}
+        if write.get('status') in ('pending','unknown'):
             return recovery.backup_html({'task_id':task,'turn_id':turn,'user_query':query},plan)
         if state.get('last_good_version'):
             completed=_finish_verified_reply(task,turn,plan,state)
             if completed is not None:
                 return completed
             return {'code':1,'error':'PRESERVED_LAST_GOOD_PAGE'}
+        # A bespoke upload can be confirmed before public verification. Finish it
+        # read-only; never replace a confirmed result page with a methodology page.
+        if write.get('status') == 'confirmed' and write.get('content_kind', 'candidate') != 'progress':
+            checked = SP.cmd_verify_published({'task_id': task, 'page_id': plan['target_page_id']})
+            if checked.get('code') != 0:
+                return checked
+            state = DS.load(task, plan['target_page_id'])
+            completed = _finish_verified_reply(task, turn, plan, state)
+            if completed is not None:
+                return completed
+            return {'code':1,'error':'DIRECT_DELIVERY_REPLY_REQUIRED','terminal':False,
+                    'message':'直接上传页面已公开验收，但回复合同收尾失败；保留原页面，不降级重建',
+                    'page_id':plan['target_page_id'],
+                    'public_url':(state.get('last_good_version') or {}).get('url'),
+                    'next_action':{'command':'verify_published','params':{'task_id':task,'page_id':plan['target_page_id']}}}
     else:
         # A normal candidate fetch is still required. The host's fallback scope
         # is explicitly methods-only, so it never borrows a data-result runtime.

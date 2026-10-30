@@ -1,10 +1,12 @@
-# build_dashboard — spec → 自包含看板 HTML
+# build_dashboard — legacy 标准页 / 局部图表组件
+
+> **新任务 `routing_decision.mode="unmatched"` 禁止用本命令生成整页。** unmatched 自建整页必须模型手写 HTML/CSS/JS；本命令仅允许 `emit:"panel_block"` 生成局部图表脚本，或维护已存在的 legacy 标准页。整页误用会返回 `UNMATCHED_BUILD_MODE_FORBIDDEN`。
 
 整页生成默认兼容补充 LIVE / SNAPSHOT，依据已有构建验证和模块绑定，不新增取数或交接要求。可传 `data_labels:false`，或设置 `QBV_DATA_LABELS=0` 关闭新增补标。返回的 `data_labels` 及浏览器验收同名结果仅为非阻断诊断，不能据此重查、降级或停止交付；详见 [标签口径与兼容范围](../guides/data-labels.md)。
 
 固定研究面板可用已有 `analysis_date` 标明分析日，也可复用标题中的明确分析日；页面级 `analysis_date` 仅作缺省。验证数据快照从原数据日期生成 `Snapshot · 截至 …`，不以生成/捕获时间替代。日期字段均可省略，不改变数据交接合同。
 
-自建场景先读 [自建质量底线](../guides/self-build-quality.md)。整页生成默认内联 `assets/dashboard-design.css`，采用清楚的研究页层级；`panel_block` 不注入该样式，不接管宿主版式。`verify_page` 自动检查整页设计标记，数据成功不替代截图审查。
+legacy 标准页维护可使用整页生成；新自建场景先读 [自建质量底线](../guides/self-build-quality.md)，且只用 `panel_block`。`panel_block` 不注入整页样式，不接管宿主版式；外层 bespoke 页由模型手写。`verify_page` 自动检查设计标记，数据成功不替代截图审查。
 
 > 路由已锁定Compose时，整页使用`static_page.py compose_page @params`，不要在此命令加upload重建整页；panel_block只生成局部。受控组装器复用本renderer并校验计划/借鉴绑定，见[计划驱动交付](../workflows/planned-delivery-recovery.md)。
 
@@ -38,7 +40,7 @@
 
 ## 调用方式
 
-计划任务的 `upload:true` 只生成待发布候选和 `next_action.params_file`，仍须执行返回的 `publish_verified`；不是上传成功。普通未命中自建时，将本轮 `resolve_asset_data.publication_evidence` 原样并入 spec，并绑定用其注册文件得到的真实ID。Compose或计划明确要求绑定角色时，按 `bind_runtime_route` 返回值传入路由、资产/轮次及验证收据。不得把探测收据当成注册收据，不从旧任务寻找参数；生成器只透传收到的证据，不推断或伪造缺失收据。
+计划任务的 `upload:true` 只适用于 legacy 标准页维护，生成待发布候选和 `next_action.params_file`，仍须执行返回的 `publish_verified`；不是上传成功。新任务 unmatched 自建不得使用整页模式；如需局部图表，将本轮 `resolve_asset_data.publication_evidence` 原样并入 `panel_block` spec，并绑定真实注册 ID。Compose或计划明确要求绑定角色时，按 `bind_runtime_route` 返回值传入路由、资产/轮次及验证收据。不得把探测收据当成注册收据，不从旧任务寻找参数；生成器只透传收到的证据，不推断或伪造缺失收据。
 
 ```bash
 # 写好 spec.json，生成 live 实时取数 HTML

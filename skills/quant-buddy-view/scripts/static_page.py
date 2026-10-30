@@ -2796,13 +2796,18 @@ def cmd_upload(params):
         body["reply_contract_binding"] = None
     if "agent_reply_template" in params and params.get("agent_reply_template") is None:
         body["agent_reply_template"] = None
-    if params.get('_bootstrap_creation') is True and _routing_task_id(params):
+    routing_task = _routing_task_id(params)
+    # new_page binds its routing decision after upload; bespoke upload binds here.
+    direct_upload_task = routing_task if params.get('_bootstrap_creation') is not True else ''
+    if routing_task:
+        # A task-scoped create must be journaled before local plan binding. If
+        # plan binding crashes, the bootstrap receipt still prevents a second page.
         import bootstrap_publication as bootstrap
-        out=bootstrap.write(_routing_task_id(params),body,endpoint,api_key,_PATH['upload'],_UPLOAD_TIMEOUT)
+        out = bootstrap.write(routing_task, body, endpoint, api_key, _PATH['upload'], _UPLOAD_TIMEOUT)
         if out.get('error') == 'PUBLISH_OUTCOME_UNKNOWN':
             import delivery_recovery
-            backup=delivery_recovery.backup_html({**params,'task_id':_routing_task_id(params)})
-            out.update({k:v for k,v in backup.items() if k.startswith('artifact_')})
+            backup = delivery_recovery.backup_html({**params, 'task_id': routing_task})
+            out.update({k: v for k, v in backup.items() if k.startswith('artifact_')})
     else:
         out = C.http_json("POST", C.api_url(endpoint, _PATH["upload"]),
                           C.headers(api_key), body, timeout=_UPLOAD_TIMEOUT)
@@ -2834,7 +2839,85 @@ def cmd_upload(params):
             )
         if out.get("code") == 0:
             _attach_agent_reply_contract(out, operation="upload")
+            if direct_upload_task:
+                binding_error = _record_direct_upload_delivery(params, direct_upload_task, out, body, html)
+                if binding_error:
+                    out.update(binding_error)
+                    out.update({"code": 1, "published": True, "verified": False,
+                                "operation": "upload",
+                                "message": "页面已创建，但任务交付登记失败；不要重复创建页面，按 next_action 恢复登记"})
     return out
+
+
+def _record_direct_upload_delivery(params, task, out, body, html):
+    """Bind a successful bespoke upload to its task before host recovery runs.
+
+    Direct research HTML is a valid unmatched result page, not evidence that the
+    task has no data. The confirmed journal lets ``verify_published`` finish the
+    public/reply contract without creating a replacement methodology page.
+    """
+    try:
+        remote = DS._remote(out)
+        page_id = remote.get('page_id')
+        if not page_id or not remote.get('url'):
+            return {"code": 1, "error": "DIRECT_UPLOAD_RECEIPT_INVALID",
+                    "message": "上传成功响应缺少页面身份或公开链接"}
+
+        existing_plan = EP.load(task)
+        if existing_plan:
+            if existing_plan.get('target_page_id') != page_id:
+                return {"code": 1, "error": "PLAN_IDENTITY_CONFLICT",
+                        "message": "任务已绑定其他目标页，不能把新上传页登记为交付"}
+            plan = existing_plan
+        else:
+            cred, _, read_error = _read_routing_credential(task)
+            if read_error:
+                return read_error
+            previous_page = str((cred or {}).get('page_id') or '').strip()
+            if previous_page and previous_page != page_id:
+                return {"code": 1, "error": "ROUTING_PAGE_CONFLICT",
+                        "message": "任务路由已绑定其他页面，不能登记新上传页"}
+            # Direct bespoke HTML is a distinct unmatched result, even if the
+            # task had previously inspected a reusable template.
+            decision = {
+                'version': _ROUTING_DECISION_VERSION, 'mode': 'unmatched',
+                'closest_template_id': '', 'reason_code': 'user_requires_bespoke',
+                'reason': 'Agent已直接构建并上传完整研究页；恢复流程必须复用该页面。',
+                'candidate_snapshot': None,
+                'templates_full_sha256': str((cred or {}).get('templates_full_sha256') or ''),
+            }
+            cred = dict(cred or {
+                'version': _ROUTING_CREDENTIAL_VERSION, 'task_id': task,
+                'recommend_scope': '', 'item_count': 0, 'templates_full_sha256': '',
+                'generated_at': datetime.now(timezone.utc).isoformat(),
+            })
+            cred.update({
+                'routing_decision': decision, 'page_id': page_id,
+                'decision_revision': int(cred.get('decision_revision') or 0) + 1,
+                'decision_recorded_at': datetime.now(timezone.utc).isoformat(),
+                'status': 'page_created',
+                'direct_upload': True,
+            })
+            write_error = _write_routing_credential_record(cred)[1]
+            if write_error:
+                return write_error
+            plan = EP.bind(
+                cred,
+                target_scope=params.get('target_scope') if isinstance(params.get('target_scope'), dict) else {'kind': 'unspecified'},
+                require_live_data=bool(params.get('require_live_data')),
+                research_status=params.get('research_status') or 'unknown',
+                delivery_kind=params.get('delivery_kind') or 'result',
+            )
+
+        DS.initialize(task, page_id)
+        candidate_hash = hashlib.sha256(html.encode('utf-8')).hexdigest()
+        DS.prepare_write(plan, candidate_hash, remote, request_body=body)
+        DS.record_write(plan, out)
+        return None
+    except EP.PlanError as exc:
+        return exc.as_dict()
+    except (OSError, ValueError, TypeError) as exc:
+        return {"code": 1, "error": "DIRECT_UPLOAD_DELIVERY_STATE_INVALID", "message": str(exc)}
 
 
 def cmd_update(params):
@@ -3196,7 +3279,7 @@ def _validate_route_identity(route, params):
     if asset and route_asset != asset:
         return _evidence_error("LIVE_DATA_ROUTE_ASSET_MISMATCH", "路由收据资产与当前页面资产不一致", expected_asset=asset, receipt_asset=route_asset)
     if route_asset and not asset:
-        return _evidence_error("LIVE_DATA_ROUTE_ASSET_MISMATCH", "资产实时页面发布参数必须显式携带 asset", receipt_asset=route_asset)
+        return _evidence_error("LIVE_DATA_ROUTE_ASSET_REQUIRED", "资产实时页面发布参数必须显式携带 asset", receipt_asset=route_asset)
     return None
 
 
@@ -5239,7 +5322,12 @@ def _routing_next_step(task_id, page_id, decision):
                 "target_asset": "<当前目标标的>",
             },
         }
-    return {"action": "build_dashboard_or_bespoke", "publish_command": "publish_final"}
+    return {
+        "action": "write_bespoke_html",
+        "required_params": {"task_id": task_id, "page_id": page_id},
+        "publish_command": "publish_final",
+        "instruction": "模型手写完整 HTML/CSS/JS；build_dashboard 仅可用 emit=panel_block 生成局部图表脚本。",
+    }
 
 
 def _sync_fast_page_title(out, *, endpoint, api_key):
@@ -6725,6 +6813,16 @@ def cmd_publish_verified(params):
             return blocked
         result = _publish_verified_once(params)
         result = _plan_conflict_next_action(result, params)
+        if isinstance(result, dict) and result.get('error') in {'PAGE_ID_REQUIRED', 'HTML_REQUIRED', 'FINAL_DESCRIPTION_REQUIRED'}:
+            result.update({
+                'recoverable': True,
+                'terminal': False,
+                'next_action': {
+                    'command': 'publish_verified',
+                    'params': {k: v for k, v in params.items() if k in ('task_id', 'page_id', 'plan_hash', 'html_file') and v not in (None, '')},
+                    'instruction': '这是发布参数缺项，不是页面失败；补齐 page_id/html_file/description 后重新运行 publish_verified，不执行 recover_delivery。',
+                },
+            })
         result = recovery.record(params, result)
         summary = _publish_failure_summary(result)
         if summary:
@@ -8381,7 +8479,10 @@ def _write_agent_reply_artifacts(task_id, finalized):
     if not safe_task or not isinstance(contract, dict) or contract.get("terminal") is not True:
         raise ValueError("缺少可持久化的 terminal agent_reply_contract")
 
-    temp_root = C.task_temp_dir(task_id, create=True)
+    # Use the same task path resolver as the execution plan/delivery journal.
+    # Some hosts/tests override task_temp_path without replacing task_temp_dir;
+    # deriving the reply directory here keeps contract and state hashes together.
+    temp_root = Path(C.task_temp_path(task_id, ".reply-artifact-dir", create_parent=True)).parent
     contract_file = str(temp_root / "agent-contract.json")
     draft_file = str(temp_root / "reply-draft.md")
     params_file = str(temp_root / "reply-validate.json")
@@ -10089,6 +10190,12 @@ def cmd_recover_delivery(params):
     except EP.PlanError as exc: return _plan_conflict_next_action(exc.as_dict(), params)
 
 
+def cmd_reconcile_delivery(params):
+    import delivery_reconciliation
+    try: return delivery_reconciliation.reconcile(params)
+    except EP.PlanError as exc: return _plan_conflict_next_action(exc.as_dict(), params)
+
+
 def cmd_compose_page(params):
     import compose_page
     return _plan_conflict_next_action(compose_page.build(params), params)
@@ -10106,6 +10213,7 @@ _COMMANDS = {
     "publish_verified": cmd_publish_verified,
     "verify_published": cmd_verify_published,
     "recover_delivery": cmd_recover_delivery,
+    "reconcile_delivery": cmd_reconcile_delivery,
     "prepare_maintenance": cmd_prepare_maintenance,
     "upload": cmd_upload,
     "update": cmd_update,
@@ -10143,6 +10251,7 @@ _COMMANDS = {
 
 _TRACE_REQUIRED_COMMANDS = {
     "prepare_maintenance", "file_prepare", "file_status", "file_confirm_delivery", "file_assess_source",
+    "reconcile_delivery",
     "new_asset_page", "new_page", "update_progress", "publish_final", "publish_verified", "upload", "update", "direct_deliver", "direct_finalize", "fork_validate", "image_upload",
     "templates", "intent_profile", "research_templates", "fork_prepare", "fork_compose", "fork_review_update", "execution_plan", "compose_page", "materialize_snapshot", "recover_snapshot",
 }

@@ -1,7 +1,7 @@
 # Auto-generated business catalog; do not edit records by hand.
 schema_version: 2
 category: macro_strategy
-record_count: 144
+record_count: 153
 records:
   - {id: "6a1e83c7031ae7c8e9b89731", index_title: "A股中单资金当日流量净占比"}
   - {id: "6a1e83af031ae7c8e9b893fe", index_title: "A股中单资金当日流量净额"}
@@ -53,12 +53,18 @@ records:
   - {id: "6a753b57c8a907c178f6b1b7", index_title: "中证A500指数成分股"}
   - {id: "6a3e4c440bd77498e4967c74", index_title: "中证红利指数成分股"}
   - {id: "69ca3e014f760ff70564e001", index_title: "全市场10:00价格"}
+  - {id: "69ca3e014f760ff70564e010", index_title: "全市场10:00成交量"}
+  - {id: "69ca3e014f760ff70564e011", index_title: "全市场10:00成交额"}
   - {id: "69ca3e014f760ff70564e003", index_title: "全市场10:00最低价"}
   - {id: "69ca3e014f760ff70564e002", index_title: "全市场10:00最高价"}
   - {id: "69ca3e014f760ff70564e004", index_title: "全市场11:30价格"}
+  - {id: "69ca3e014f760ff70564e012", index_title: "全市场11:30成交量"}
+  - {id: "69ca3e014f760ff70564e013", index_title: "全市场11:30成交额"}
   - {id: "69ca3e014f760ff70564e006", index_title: "全市场11:30最低价"}
   - {id: "69ca3e014f760ff70564e005", index_title: "全市场11:30最高价"}
   - {id: "69ca3e014f760ff70564e007", index_title: "全市场14:30价格"}
+  - {id: "69ca3e014f760ff70564e014", index_title: "全市场14:30成交量"}
+  - {id: "69ca3e014f760ff70564e015", index_title: "全市场14:30成交额"}
   - {id: "69ca3e014f760ff70564e009", index_title: "全市场14:30最低价"}
   - {id: "69ca3e014f760ff70564e008", index_title: "全市场14:30最高价"}
   - {id: "69ae209b26fa007702ee253d", index_title: "全市场1分钟开盘价"}
@@ -114,6 +120,7 @@ records:
   - {id: "624e9d3db1b8730e7ae3a235", index_title: "月末基准日期"}
   - {id: "66309f6d454ccd7a5c28f5ea", index_title: "月末自然日期"}
   - {id: "6aaf9090c7b66e051045a7ef", index_title: "期货同合约收盘涨跌幅"}
+  - {id: "6ab4913a99338f04056f0bdf", index_title: "期货实际来源合约"}
   - {id: "6a3a465e97e2dbd70a82d6a3", index_title: "期货换月合约"}
   - {id: "6a3a466397e2dbd70a82d6a5", index_title: "期货日内量权价涨减仓强度"}
   - {id: "6a3a466097e2dbd70a82d6a4", index_title: "期货日内量权价涨增仓强度"}
@@ -137,6 +144,7 @@ records:
   - {id: "623af0a7a777c60160a108eb", index_title: "社融预期差因子"}
   - {id: "689ae6c8601e663172c2130a", index_title: "科创50信号"}
   - {id: "691bd8c1c8e3a12d6a9d3060", index_title: "科创50指数成分股"}
+  - {id: "6abb839944155897a96e3fe7", index_title: "美国交易日"}
   - {id: "670ccbf112152b90ea7836e9", index_title: "美股信号"}
   - {id: "6a8e27f3812accfdfb929277", index_title: "美股总股本换手率"}
   - {id: "6a8d0c3f35cc131a04986cac", index_title: "美股换手率"}
@@ -145,5 +153,6 @@ records:
   - {id: "66a0a571c194dd9d6dabbdc8", index_title: "趋势跟踪(日频)"}
   - {id: "641d61544da4d6f8bdb3467b", index_title: "长历史全部工作日"}
   - {id: "650ac8b93bacb9677473254a", index_title: "非ST股"}
+  - {id: "6ace017f08bd98cea015cb6a", index_title: "香港交易日"}
   - {id: "6780c9118011f3039d01d1ca", index_title: "高盛美国金融条件指数"}
   - {id: "664c47957436d243582bb735", index_title: "黄金海信号"}

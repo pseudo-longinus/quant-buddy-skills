@@ -27,7 +27,6 @@ future | CME饲牛 | FC.CME |  | 饲牛
 future | CMX-白银 | SI.CMX |  | 白银,comex银,comex白银,COMEX银,COMEX白银,CMX银
 future | CMX-铜 | HG.CMX |  | 铜,COMEX铜,comex铜,CMX铜
 future | CMX-黄金 | GC.CMX |  | 黄金,comex黄金,comex金,COMEX黄金,COMEX金
-future | COMEX上海黄金(美元) | SGU.CMX |  | 上海黄金(美元)
 future | COMEX迷你白银 | QI.CMX |  |
 future | ICE NYH(RBOB)汽油 | N.IPE |  | NYH(RBOB)汽油
 future | ICE WTI原油 | T.IPE |  | WTI原油,WTI原油期货
@@ -187,7 +186,6 @@ future | 郑PTA主连 | TA.CZC |  | PTA
 future | 郑PTA次主连 | TA_S.CZC |  | PTA
 future | 郑丙烯主连 | PL.CZC |  |
 future | 郑丙烯次主连 | PL_S.CZC |  |
-future | 郑动力煤主连（退） | ZC.CZC |  |
 future | 郑动力煤次主连 | TC_S.CZC |  | 动力煤
 future | 郑对二甲苯主连 | PX.CZC |  | 对二甲苯
 future | 郑对二甲苯次主连 | PX_S.CZC |  | 对二甲苯

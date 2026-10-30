@@ -11,7 +11,7 @@
 
 `bind_runtime_route @params.json` 将当前 task/turn 的已登记 package/grant 角色绑定为路由，返回 `route_receipt_file`。缺路由时执行 Compose 返回的下一步；工具不重算、不重复登记。参数、兼容性和结构化原因见[已验证资源恢复](../workflows/validated-resource-recovery.md)。
 
-`execution_plan`读取/显式修订目标计划；`compose_page`按绑定范围构建完整候选；`materialize_snapshot`从已验证结果或本任务已登记运行时生成不可变数据快照；`delivery_status`只读查看执行/交付状态，可用refresh_remote查询原页版本。完整参数与错误恢复见[计划驱动交付](../workflows/planned-delivery-recovery.md)。
+`execution_plan`读取/显式修订目标计划；`compose_page`按绑定范围构建完整候选；`materialize_snapshot`从已验证结果或本任务已登记运行时生成不可变数据快照；`delivery_status`只读查看执行/交付状态，可用refresh_remote查询原页版本；`reconcile_delivery`依据服务端trace与写入合同核销确认未写入的拒绝，不直接发布。完整参数与错误恢复见[计划驱动交付](../workflows/planned-delivery-recovery.md)。
 
 `update_progress`拒绝status/step误参，更新必须指定current_step；已存在内容的计划任务可能只记录状态并返回public_page_updated:false，此时不能声称已写回公开页面。计划任务的最终发布经publish_verified执行。
 
@@ -177,7 +177,7 @@ python scripts/static_page.py verify_card_runtime '{"page_ids":["page_xxx","page
 - 首链流程的最终正式活页走 `publish_verified`；其内部的 `publish_final` 保留普通 `update` 的 share shell 门禁。出错按返回的 `next_action` 处理。
 - `new_page` 在当前 task 完成 `templates(recommend:"all")` 后，要求 Agent 显式传 `routing_decision`：fork 引用本次候选的 `source_template_id`，unmatched 指出最接近候选、受控 `reason_code` 与实质能力缺口。脚本校验并把决定与 `page_id` 写入 task-scoped `routing-credential.json`。
 - `publish_final` 会先把进度推进到 `final_publish`；若正式 HTML 更新失败，它会把同一个 `page_id` 回写成 `failed` 进度页，避免用户刷新后长期停在上一阶段。
-- `publish_final` 在网络写入前复核路由：已选 fork 必须已有 `fork_prepare` 继承绑定或 `fork_compose` 借鉴绑定。fork 一经判定不得改判 unmatched；`routing_override` 会被拒绝。`build_dashboard` 对 inherit/inherit_augment 禁止整页构建，Compose 仅允许绑定后的 `emit:"panel_block"`。
+- `publish_final` 在网络写入前复核路由：已选 fork 必须已有 `fork_prepare` 继承绑定或 `fork_compose` 借鉴绑定。fork 一经判定不得改判 unmatched；`routing_override` 会被拒绝。`build_dashboard` 对 inherit/inherit_augment 禁止整页构建；unmatched 自建整页也必须模型手写 bespoke HTML，`build_dashboard` 仅允许 `emit:"panel_block"`。
 - 复用在线模板时，用同一 `task_id` 调 `fork_prepare` 生成 `fork_manifest_v2`、脱敏 HTML、`fork-review.json`、`publish-plan.json` 和任务级 `fork_task_binding_v1`。新流程由 publish plan 调用 `publish_workflow.py`；已准备的 v1 manifest 仍兼容。脚本继承来源模板的 `agent_reply_template`，manifest 负责校验来源 HTML SHA、来源凭证残留、核心栏目、必需输出与 Card Runtime。
 - 异资产 `fork_prepare` 的正式发布标题按“显式 `title` → `new_page` 已创建目标页的现有标题 → 完成资产替换后的来源标题”解析；描述和显式 `page_context` 同步替换主资产。若 publish metadata 仍含来源主资产，返回 `FORK_METADATA_SOURCE_ASSET_RESIDUAL`，禁止覆盖目标页。
 - 个股估值、宏观事件、行业主题、多资产比较、资金量化、基金产品、海外资产会按高置信 metadata 匹配专业骨架；无法匹配的新活页使用 `generic_live_page_delivery_v1`，不再退化成一句发布摘要。

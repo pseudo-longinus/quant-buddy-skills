@@ -2,7 +2,7 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 author: guanzhao
-version: 4.25.61
+version: 4.25.62
 description: |
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据；支持查询 A 股股票所属行业。
   显式日期的单值快照可同时返回按实际更新日对齐的日频行情与估值；字段日期不同时按字段自身日期展示，不将较晚刷新字段误判为无数据。
@@ -20,7 +20,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.25.61
+  version: 4.25.62
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -120,6 +120,8 @@ runtimeRequirements:
 用户问槽位对应合约、换约/换月，或要解释期权IV、价格、持仓量变化时，读取 [tools/query_option_contracts.md](tools/query_option_contracts.md)，使用 `query_option_contracts`。参数为 `asset + query_type`：snapshot查最新已生效映射，window用lookback_days查自然日窗口。美股按纽约日期，国内按北京时间及品种夜盘归属交易日；国内empty为空槽，不能补旧合约，E1/E2不等同于期货主力/次主力。支持QBV `option_contracts` 动态授权。保留实际trade_date，按行情实际日与选约生效日对齐，不把拼接价格当持有收益。skill_server将公开参数转换为各市场Celery五字段日期查询；国内依赖新增dataServer查询任务，未部署不得假装成功。
 
 ## 连续期货研究与局部数据差异
+
+外盘换月事件仅适用于分钟：Range返回roll_events，RangeMulti仅解析去重后单资产时返回同结构roll_events，多资产与market请求不附事件。外盘日频换月信息当前缺失，不能用分钟事件解释日频换月、复权或合约；详见[换月频率边界](references/continuous-futures.md#外盘换月返回入口2026-10-28)。
 
 主连/次主连的跨日、跨频、指标或回测任务，先读 [连续期货换月与数据口径](references/continuous-futures.md)。新版事件保留 `decision_trade_date`（决策日/原始参考价取价日）和 `effective_trade_date`（生效日），按返回 `columns` 解析；日频复权价格、原始分钟和未复权换月参考价须统一尺度，派生分钟参考序列按文档的加法价差算法计算。
 

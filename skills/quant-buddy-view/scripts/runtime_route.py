@@ -89,5 +89,5 @@ def bind(params):
     return {'code': 0, 'route_receipt_file': str(path), 'turn_id': turn, 'task_id': task,
             'live_data_mode': 'live', **({'asset': route['asset']} if route.get('asset') else {}),
             'selected_routes': selected, 'reused_registrations': len(roles),
-            'next_action': {'command': 'compose_page' if plan['build_mode'] == 'compose_page' else 'build_dashboard' if plan['build_mode'] == 'unmatched' else 'fork_review_update',
+            'next_action': {'command': 'compose_page' if plan['build_mode'] == 'compose_page' else 'write_bespoke_html' if plan['build_mode'] == 'unmatched' else 'fork_review_update',
                             'instruction': '沿用草稿并传入返回的route_receipt_file、turn_id、live_data_mode及asset（如有）'}}

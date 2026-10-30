@@ -1,11 +1,11 @@
 {
   "schema_version": 2,
-  "generated_at": "2026-10-16T16:15:00+08:00",
-  "total_records": 2769,
+  "generated_at": "2026-10-29T06:42:46+00:00",
+  "total_records": 2779,
   "categories": {
     "a_share_financials": {
       "file": "a_share_financials.yaml",
-      "record_count": 980
+      "record_count": 979
     },
     "a_share_option_iv": {
       "file": "a_share_option_iv.yaml",
@@ -15,29 +15,29 @@
       "file": "a_share_trading_labels.yaml",
       "record_count": 65
     },
+    "cn_future_option_market_data": {
+      "file": "cn_future_option_market_data.yaml",
+      "record_count": 32
+    },
     "global_classification": {
       "file": "global_classification.yaml",
       "record_count": 2
     },
     "global_financials": {
       "file": "global_financials.yaml",
-      "record_count": 1324
-    },
-    "macro_strategy": {
-      "file": "macro_strategy.yaml",
-      "record_count": 144
-    },
-    "us_option_market_data": {
-      "file": "us_option_market_data.yaml",
-      "record_count": 48
+      "record_count": 1326
     },
     "macro_indicators": {
       "file": "macro_indicators.yaml",
       "record_count": 171
     },
-    "cn_future_option_market_data": {
-      "file": "cn_future_option_market_data.yaml",
-      "record_count": 32
+    "macro_strategy": {
+      "file": "macro_strategy.yaml",
+      "record_count": 153
+    },
+    "us_option_market_data": {
+      "file": "us_option_market_data.yaml",
+      "record_count": 48
     }
   }
 }

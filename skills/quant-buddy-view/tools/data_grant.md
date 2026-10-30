@@ -251,3 +251,5 @@ QBS使用query_option_contracts验证，QBV通过qbs_bridge.py validate_grant_se
 ```
 
 全市场用market=os_future替换assets。TU在2021-12-01前的缺口须在页面说明，不能截掉ES可用的更早记录；所有资产都越界时不注册。页面保留coverage_by_ticker/warnings，标明实际数据日期，不把起点或可刷新授权当作最新端已更新保证。
+
+外盘分钟Range授权附roll_events，RangeMulti授权仅解析去重后单资产时附同结构roll_events，多资产和market请求不附带；单日分钟授权的contract_info仅解释所选分钟会话来源合约。外盘fast_query日频授权不使用这些事件，日频换月信息当前缺失。kind/payload与计费不变。事件缺失/旧上游不支持时保留可用行情、披露警告，不把缺失当无换月；详见[外盘换月入口](../references/continuous-futures.md#外盘换月返回入口2026-10-28)。

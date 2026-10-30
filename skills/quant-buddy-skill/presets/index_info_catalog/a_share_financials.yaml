@@ -1,7 +1,7 @@
 # Auto-generated business catalog; do not edit records by hand.
 schema_version: 2
 category: a_share_financials
-record_count: 980
+record_count: 979
 records:
   - {id: "68d26fd5c80a86bb381a163e", index_title: "A股一年内到期的可转换公司债券〔报告期现金流量表〕"}
   - {id: "68d27009c80a86bb381a226a", index_title: "A股一年内到期的可转换公司债券：按发布日〔报告期现金流量表〕"}
@@ -803,7 +803,6 @@ records:
   - {id: "68d8cdd4c80a86bb3888f1ba", index_title: "A股营业费用/营业总收入：单季：按发布日〔财务指标〕"}
   - {id: "6981a419acdb527849d4a825", index_title: "A股融券余量〔融资融券信息〕"}
   - {id: "6a424d595cf405f4d59330a6", index_title: "A股融券余额〔融资融券信息〕"}
-  - {id: "6981a418acdb527849d4a811", index_title: "A股融券偿还股〔融资融券信息〕"}
   - {id: "6981a418acdb527849d4a81b", index_title: "A股融券卖出量〔融资融券信息〕"}
   - {id: "6981a3e1acdb527849d4a66d", index_title: "A股融资买入额〔融资融券信息〕"}
   - {id: "6981a417acdb527849d4a806", index_title: "A股融资余额〔融资融券信息〕"}

@@ -2,6 +2,7 @@
 
 Locks serialize local callers only. No remote atomic/CAS guarantees are claimed.
 """
+import copy
 import hashlib
 import json
 from datetime import datetime, timezone
@@ -10,6 +11,10 @@ import common as C
 import execution_plan as EP
 
 FILE = 'receipts/delivery-state.json'
+DETERMINISTIC_REJECTIONS = frozenset({
+    'PAGE_VERSION_CONFLICT', 'IDEMPOTENCY_KEY_REUSED',
+    'WRITE_APPLIED_NOT_CURRENT', 'BAD_CHANGE_ASPECT', 'SCENE_TAG_NOT_FOUND',
+})
 
 
 def _now(): return datetime.now(timezone.utc).isoformat()
@@ -124,6 +129,9 @@ def prepare_write(plan, candidate_hash, observed, request_body=None, content_kin
                   'request_body_sha256': EP.digest(request_body) if request_body is not None else None,
                   'started_at': _now(), 'consistency': 'local_lock_and_read_before_write_no_server_cas'}
         intent['content_kind'] = content_kind
+        turn_id = C.current_trace_context().get('turn_id')
+        if turn_id:
+            intent['turn_id'] = turn_id
         state['last_write'] = intent
         if content_kind != 'progress':
             state.update(execution_status='running', current_step='final_publish',
@@ -139,6 +147,19 @@ def record_write(plan, result, expected_idempotency_key=None, content_kind='cand
             raise EP.PlanError('PUBLISH_RESPONSE_STALE','旧请求响应不能覆盖新发布状态')
         if write.get('status')=='confirmed' and result.get('code')!=0:
             return state # a late failed retry must not erase a confirmed success
+        publish_trace_id = result.get('publish_trace_id')
+        if isinstance(publish_trace_id, str) and publish_trace_id.strip():
+            write['publish_trace_id'] = publish_trace_id.strip()
+        # The server contract is authoritative when present. False means the
+        # service proved no target-page write; true/null on failure remains
+        # uncertain and must keep the replay guard closed.
+        page_write_applied = result.get('page_write_applied')
+        if isinstance(page_write_applied, bool):
+            write['page_write_applied'] = page_write_applied
+        for key in ('publish_phase', 'retry_safe'):
+            if result.get(key) is not None:
+                write[key] = result[key]
+
         remote = _remote(result)
         if result.get('code') == 0 and remote['page_id'] == plan['target_page_id'] and remote['sha256'] and remote['version_no'] is not None:
             write.update(status='confirmed', remote=remote, confirmed_result={k:v for k,v in result.items() if k not in ('signature','api_key')})
@@ -147,13 +168,69 @@ def record_write(plan, result, expected_idempotency_key=None, content_kind='cand
             else:state.pop('progress_sync_error',None)
         else:
             error=result.get('error');error=error.get('code') if isinstance(error,dict) else error
-            write['status'] = 'rejected' if error in ('PAGE_VERSION_CONFLICT','IDEMPOTENCY_KEY_REUSED','WRITE_APPLIED_NOT_CURRENT') else 'unknown'
+            server_rejected = page_write_applied is False
+            write['status'] = 'rejected' if server_rejected or error in DETERMINISTIC_REJECTIONS else 'unknown'
             write['error_code']=error
-            failure={'error_code': 'PUBLISH_OUTCOME_UNKNOWN', 'next_action': {'command': 'delivery_status'}, 'stage': 'final_publish'}
+            failure={'error_code': error if write['status'] == 'rejected' and error else 'PUBLISH_OUTCOME_UNKNOWN',
+                     'next_action': {'command': 'delivery_status'}, 'stage': 'final_publish'}
             if content_kind == 'progress':state['progress_sync_error']=failure
             else:state.update(execution_status='failed', last_error=failure)
         state['last_write'] = write
         return _save(state)
+
+
+def find_reconciliation(write, trace_id):
+    for item in (write or {}).get('reconciliations') or []:
+        if isinstance(item, dict) and item.get('trace_id') == trace_id:
+            return item
+    return None
+
+
+def reconcile_write(plan, trace_id, outcome):
+    """Apply a server-confirmed deterministic rejection to an existing unknown write."""
+    task, page = plan['task_id'], plan['target_page_id']
+    with EP.locked(task):
+        state = load(task, page)
+        write = state.get('last_write') or {}
+        previous_trace = write.get('publish_trace_id')
+        if previous_trace and previous_trace != trace_id:
+            raise EP.PlanError('PUBLISH_RECONCILE_TRACE_CONFLICT', '本地写入已绑定其他发布trace，不能替换核销')
+        if write.get('status') == 'rejected' and find_reconciliation(write, trace_id):
+            return {'state': state, 'reused_reconciliation': True}
+        if write.get('status') != 'unknown':
+            raise EP.PlanError('PUBLISH_RECONCILE_NOT_ALLOWED', '只有结果不确定的旧写入可以核销')
+        local_error = write.get('error_code')
+        if not isinstance(local_error, str) or not local_error:
+            raise EP.PlanError('PUBLISH_RECONCILE_NOT_ALLOWED', '旧写入缺少可匹配的服务端错误码')
+        if not isinstance(outcome, dict):
+            raise EP.PlanError('PUBLISH_OUTCOME_UNCONFIRMED', '服务端未返回结构化发布结果')
+        expected = {'trace_id': trace_id, 'task_id': task, 'page_id': page,
+                    'outcome': 'rejected', 'error_code': local_error, 'write_applied': False}
+        if any(outcome.get(key) != value for key, value in expected.items()):
+            raise EP.PlanError('PUBLISH_OUTCOME_UNCONFIRMED', '服务端结果与本地写入不匹配，不能核销')
+        # Legacy logs did not carry retry_safe. New server contracts must
+        # explicitly mark the corrected request as safe to retry.
+        if outcome.get('retry_safe') is False and local_error not in DETERMINISTIC_REJECTIONS:
+            raise EP.PlanError('PUBLISH_OUTCOME_UNCONFIRMED', '服务端未确认该拒绝可安全重发')
+        reconciliation = {
+            'from_status': 'unknown', 'to_status': 'rejected', 'trace_id': trace_id,
+            'base': copy.deepcopy(write.get('base')),
+            'candidate_hash': write.get('candidate_hash'),
+            'request_body_sha256': write.get('request_body_sha256'),
+            'server_outcome_hash': EP.digest(outcome), 'reconciled_at': _now(),
+        }
+        write.setdefault('reconciliations', []).append(reconciliation)
+        write['publish_trace_id'] = trace_id
+        write['status'] = 'rejected'
+        next_action = {'command': 'prepare_maintenance',
+                       'params': {'task_id': task, 'page_id': page, 'plan_hash': plan['plan_hash']}}
+        state['last_write'] = write
+        state.update(execution_status='failed', last_error={
+            'error_code': local_error, 'stage': 'final_publish',
+            'message': '服务端已确认写入前拒绝，未写入页面版本',
+            'next_action': next_action,
+        })
+        return {'state': _save(state), 'reused_reconciliation': False}
 
 
 NETWORK_UNREACHABLE = 'network_unreachable'

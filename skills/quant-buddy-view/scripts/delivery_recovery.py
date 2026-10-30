@@ -23,7 +23,7 @@ def candidate_key(params):
         paths = params.get(key) or []
         if isinstance(paths,str): paths=[paths]
         evidence[key]=[(str(p), hashlib.sha256(Path(p).read_bytes()).hexdigest() if Path(p).is_file() else None) for p in paths]
-    return EP.digest([hashlib.sha256(Path(params['html_file']).read_bytes()).hexdigest(), params.get('title'), params.get('description'), params.get('plan_hash'),params.get('live_data_mode'),evidence])
+    return EP.digest([hashlib.sha256(Path(params['html_file']).read_bytes()).hexdigest(), params.get('title'), params.get('description'), params.get('plan_hash'),params.get('live_data_mode'),params.get('asset'),evidence])
 
 def next_action(task, plan):
     return {'command': 'recover_delivery', 'params': {'task_id': task, 'plan_hash': plan['plan_hash']}}
@@ -32,6 +32,12 @@ REPAIR_BUDGET = 2
 # Real compose_page builds per task/turn: the initial build plus REPAIR_BUDGET repairs.
 BUILD_BUDGET = 1 + REPAIR_BUDGET
 NETWORK_UNREACHABLE = 'network_unreachable'
+
+CALLER_INPUT_ERRORS = {
+    'PAGE_ID_REQUIRED', 'HTML_REQUIRED', 'FINAL_DESCRIPTION_REQUIRED',
+    'LIVE_DATA_MODE_REQUIRED', 'LIVE_DATA_ROUTE_RECEIPT_REQUIRED',
+    'LIVE_DATA_ROUTE_ASSET_REQUIRED',
+}
 
 def repair_attempts_used(state):
     """Repairs already spent in this turn.
@@ -198,9 +204,12 @@ def record(params, result):
     task = params.get('task_id')
     plan = EP.load(task) if task else None
     if not plan: return result
-    # A retired parameter/path is an input error with an explicit next step,
-    # not a failed candidate; it must not consume the repair budget.
-    if result.get('retired_path'): return result
+    # A retired parameter/path and missing publish parameters — including the
+    # structured live-data routing parameters — are caller input errors, not
+    # candidate defects; they must not consume the repair budget, mark the
+    # candidate as failed, nor trigger forced methodology-page recovery.
+    if result.get('retired_path') or result.get('error') in CALLER_INPUT_ERRORS:
+        return result
     # Stale plan parameters are an input error carrying the current plan.
     if result.get('error') == 'PLAN_REVISION_CONFLICT': return result
     with EP.locked(task):

@@ -2592,6 +2592,17 @@ def cmd_build(params):
         except (ValueError,EP.PlanError) as error:
             return error.as_dict() if isinstance(error,EP.PlanError) else {'code':1,'error':'RESEARCH_RENDER_CONFLICT','message':str(error)}
         decision = (routing or {}).get("routing_decision") if isinstance((routing or {}).get("routing_decision"), dict) else {}
+        emit = str((params or {}).get("emit") or "").strip().lower()
+        if decision.get("mode") == "unmatched" and emit != "panel_block":
+            return {
+                "code": 1,
+                "error": "UNMATCHED_BUILD_MODE_FORBIDDEN",
+                "message": "unmatched 自建整页必须由模型手写 HTML/CSS/JS；build_dashboard 不能再用 research-v1 标准骨架替代 bespoke 页面。",
+                "task_id": task_id,
+                "allowed_action": "write_bespoke_html",
+                "message_detail": "如需复用声明式图表，仅可用 emit=panel_block 生成局部图表脚本，外层整页仍必须模型手写。",
+                "next_command": "python scripts/compile_bespoke_page.py @compile-params.json",
+            }
         if decision.get("mode") == "fork":
             borrow_mode = str(decision.get("borrow_mode") or "")
             emit = str((params or {}).get("emit") or "").strip().lower()

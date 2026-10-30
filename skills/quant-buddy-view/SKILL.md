@@ -2,7 +2,7 @@
 name: quant-buddy-view
 slug: quant-buddy-view
 author: guanzhao
-version: 0.7.5
+version: 0.7.8
 description: |
   将量化分析或已有 JPG/PNG、HTML、PDF 发布为 Quant Buddy 可分享活页或实时看板，并支持创建、更新、复用、验收和公开链接交付。适用于个股画像、估值财务、指数异动、多因子筛选、商品日报、模板、分享壳及卡片等页面。
   用户提供 QuantBuddy 活页 URL 并要求解读时也使用。显式调用 /quant-buddy-view、/qbv、qbv 或 QBV，且请求并非纯咨询、代码维护或文档解释时，默认按可分享活页任务处理。
@@ -11,7 +11,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 0.7.5
+  version: 0.7.8
   author: guanzhao
   category: quant-finance
   tags: [quant, dashboard, formula-package, static-page, publish, visualization]
@@ -76,38 +76,42 @@ runtimeRequirements:
 - 页面构建最多重试 2 次；第 2 次验证失败后降级到最简可交付版本，保留已验证数据和结论，不得无限循环。
 - 快速通道页面（new_asset_page）必须在页面末尾附两个轻量模块：「背景与关注点」（3 句以内，有可靠来源带链接与日期，无来源则如实写外部语境缺失）和「边界与风险」（1–2 句，说明不构成投资建议与主要不确定性）。
 
-## 页面构建策略（两类页面，两条路径）
+## 页面构建策略（自建整页一律模型手写）
 
-### 路径一：研究分析页 → 用 upload 路径（自由 HTML 创作）
+### 自建 / unmatched / 研究分析 / 对比看板 → 模型手写自由 HTML
 
-适用于：个股分析、行业研究、深度报告、对比分析、策略研究、供需因子分析等需要叙事结构和丰富视觉的场景。
+适用于：无匹配范式的自建页，以及个股分析、行业研究、深度报告、对比分析、对比看板、策略研究、供需因子分析等需要叙事结构和丰富视觉的场景。
 
-- Agent 直接用 HTML + CSS + JS 写完整页面，自由设计布局和视觉，不受面板系统约束
-- 在 HTML 中嵌入 Data Grant（`grant_id + signature`）或 Formula Package（`package_id + signature`）实现实时数据绑定
-- 可使用 Chart.js、ECharts 等前端库画交互式图表（折线、柱状、雷达、热力图等）
+- **只要本轮路由为 `unmatched`，整页必须由模型直接写 HTML + CSS + JS**；`build_dashboard` 不得生成整页替代 bespoke 自建页。
+- 页面布局、信息层级、图表组合、视觉语言由模型设计，不受标准面板卡片系统约束。
+- 在 HTML 中嵌入 Data Grant（`grant_id + signature`）或 Formula Package（`package_id + signature`）实现实时数据绑定。
+- 可使用 Chart.js、ECharts、自定义 SVG/Canvas 等交互式图表；`build_dashboard.py` 仅允许 `emit:"panel_block"` 生成局部图表脚本，外层页面仍必须模型手写。
 - 设计原则：
-  - 首屏决策：最重要的结论和最关键的数字必须在首屏可见，大字号高亮
-  - 图文交替：标题 → 结论 → 图表 → 白话解读 → 图表 → 白话解读，避免连续 5 个表格
-  - 每个图表配 1–2 句"怎么读这组数据"
-  - 核心数字用大字号（≥28px）+ 高亮色；辅助信息用小字号灰色
-  - 320px 不留横向滚动
-  - 页面开头 2 句话说明"本页回答什么问题、核心结论是什么"
-- 构建流程：先用 QBS 获取并验证数据 → 在本地写完整 HTML（含数据绑定标签）→ 用 `upload` 上传 → `publish_verified` 发布
+  - 首屏决策：最重要的结论和最关键数字必须在首屏可见，大字号高亮。
+  - 图文交替：标题 → 结论 → 图表 → 白话解读，避免连续表格或等权卡片堆叠。
+  - 每个图表配 1–2 句“怎么读这组数据”。
+  - 核心数字用大字号（≥28px）+ 高亮色；辅助信息弱化。
+  - 320px 不留横向滚动。
+  - 页面开头 2 句话说明“本页回答什么问题、核心结论是什么”。
+- 构建流程：QBS 验证数据 → 模型手写完整主体 HTML → `compile_bespoke_page.py` 内联公共 shell / 数据内核 → `upload` 或同页 `publish_verified` 发布。
 
-### 路径二：数据面板页 → 用 new_page 路径（标准面板系统）
+### 标准面板 / 局部图表组件 → build_dashboard 仅作组件工具
 
-适用于：实时看板、排行榜、监控系统、多模块数据并排展示等标准化场景。
+`build_dashboard` 不再作为新任务 `unmatched` 自建整页的渲染器。它只用于：
 
-- Agent 提供数据面板（panels），`build_dashboard` 统一渲染卡片/表格布局
-- 适合数据模块多、更新频繁、不需要复杂叙事的场景
-- compose_page 降为备选：仅在需要复用已有复杂交互组件时使用，最多 1 次
+- 生成 `emit:"panel_block"` 的局部图表脚本，嵌入模型手写的 bespoke 页；
+- 维护已存在且明确声明为标准面板的 legacy 页面；
+- 无任务路由的本地工具化渲染场景。
 
-### 路径选择规则
+不得因为用户说了“看板”“实时”“排名”就把 `unmatched` 自建整页降级为 `research-v1` 标准卡片页。若用户明确只要最简标准面板，也必须先手写 bespoke 主体，再按需嵌入声明式图表组件。
 
-- 用户要求"分析""研究""报告""对比""怎么看" → 路径一（upload）
-- 用户要求"看板""监控""排行榜""实时数据" → 路径二（new_page）
-- 不确定时，默认路径一（upload），因为研究分析是最常见的场景
-- new_asset_page（个股快页）仍走固定快速通道，不受此规则影响
+### 路由优先级
+
+1. 已有文件 / 已有页面保留原布局，按各自维护合同执行。
+2. 命中在线模板：direct / fork 按模板合同执行。
+3. **`unmatched` 自建：一律模型手写完整 HTML/CSS/JS。**
+4. `build_dashboard` 只能生成局部 `panel_block`，不得生成 unmatched 整页。
+5. 不确定如何组织页面时，读取 [bespoke 页指南](guides/bespoke-page.md) 和 [自建质量底线](guides/self-build-quality.md)，仍走模型手写 HTML。
 
 ## 多资产对比表格格式
 
@@ -254,7 +258,7 @@ QBV_API_KEY=<本次任务的 key> python scripts/trace_context.py begin '{"user_
 - 多资产探测阶段的 `formula` 必须留空或省略；跨资产公共公式只在探测后用 `validate_package_set` 验证一次，禁止每个资产重复验证/注册同一公式包。
 - **`output/` 是跨会话残留的 scratch，不是示例库**：禁止 Grep/Read 旧 `output/*.json` 来拼本次参数，尤其禁止复制其中旧 `task_id`、旧凭证、旧公式或损坏 JSON；参数形状只从当前 `SKILL.md` / `tools/*.md` / `workflows/*.md` 获取。
 - 含双引号的公式必须写成合法 JSON 转义；优先使用无嵌套引号的等价公式（如 `mt_close = 收盘价(贵州茅台)`）。写入后直接执行对应 CLI，让 JSON parser 作为反馈，不要读取旧 scratch 文件“找范例”。
-- 多资产累计收益/回撤优先走标准看板：同一组价格 `outputs` 分别配置 `transform:"cumulative_return_pct"` 与 `transform:"drawdown_pct"`，估值另用 Data Grant table。此能力已由 `build_dashboard` 内置，禁止为它 Grep/Read `assets/data-kernel.js` 或手写 bespoke SSE/Grant runtime；详见 `workflows/dashboard-end-to-end.md` 的最短路径。
+- 多资产累计收益/回撤若发生在 `unmatched` 自建任务中，整页由模型手写 HTML/CSS/JS，并用已验证原始价格序列在页面内计算累计收益与回撤。可复用 `assets/data-kernel.js` 取数；如确需声明式图表，只用 `build_dashboard emit:"panel_block"` 生成局部图表脚本，不得让 `research-v1` 标准整页替代 bespoke。
 
 
 ### 已有 URL 修改按写权限原位更新或 Fork
@@ -326,7 +330,7 @@ python scripts/static_page.py new_asset_page '{"task_id":"task_xxx","asset":"贵
 
   - 这不是建议——`publish_verified` 服务端会按 fork manifest 里的凭证数量强制核验：手工分步调用 `publish_verified(task_id, page_id, html_file, source_template_id, fork_manifest_file, validation_receipt_files)` 只有在这个页面**零凭证**（纯静态改造）时才会放行，否则直接拒绝并返回 `error:"PUBLISH_WORKFLOW_REQUIRED"`；出现该错误时改走 `publish_workflow.py`，不要绕过。
   - 回复 = 回复模板格式 + **自己的新链接**（数值同样用自己的包/grant query 填）。
-- **③ 未命中**（无匹配范式）：Agent 根据 `items_summary` 调 `new_page` 时传 `routing_decision:{"mode":"unmatched","closest_template_id":"page_xxx","reason_code":"required_capability_missing","reason":"候选缺少用户要求的核心能力"}`；存在候选却只因标的/范围不同而判 unmatched 会被提示改走 fork。记录成功后继续 `build_dashboard` / bespoke 自建 → 其余同 ②；`feishu-group` 同样不发送进度链接。
+- **③ 未命中**（无匹配范式）：Agent 根据 `items_summary` 调 `new_page` 时传 `routing_decision:{"mode":"unmatched","closest_template_id":"page_xxx","reason_code":"required_capability_missing","reason":"候选缺少用户要求的核心能力"}`；存在候选却只因标的/范围不同而判 unmatched 会被提示改走 fork。记录成功后继续模型手写 bespoke 自建 → 验证 → 注册 → 生成 → verify → `publish_final`；`feishu-group` 同样不发送进度链接。
 
 > 后续追问：自己的链接 → `update` 同 `page_id`；命中的官方/社区链接要改 → 只能转 ② fork 成自己的链接后再改。
 
@@ -413,7 +417,7 @@ npx skills update pseudo-longinus/quant-buddy-skills -y
 - 简单单一 A 股综合分析先 QBS 查数并交付业务首答，再走 `new_asset_page`；其他量化场景也先答，再匹配对应在线范式，范围不一致才 fork。详细页面契约由服务端固定场景或模板/构建脚本门禁，不在此重复。
 - fork 后禁止沿用来源 `package_id/grant_id/signature`；必须验证并注册当前用户凭证。
 - 所有页面复用 `assets/share-shell/`；分享壳、海报、Card Runtime 和迁移细则分别读取对应 `guides/`，不要手写重复组件。
-- **自建质量底线**：`unmatched` 自建前必须读取 [guides/self-build-quality.md](guides/self-build-quality.md)，按用户问题选择关键价位、排名对照、趋势或研究叙事的内容结构，再用默认生成器/适用的 bespoke 组件实现。禁止把无模板命中降级成等权碎卡片、小字滚动正文或技术字段堆砌。数据验收和视觉验收分别通过才可交付。
+- **自建质量底线**：`unmatched` 自建前必须读取 [guides/self-build-quality.md](guides/self-build-quality.md) 与 [guides/bespoke-page.md](guides/bespoke-page.md)，按用户问题选择关键价位、排名对照、趋势或研究叙事的内容结构，再由模型手写完整 HTML/CSS/JS。`build_dashboard` 只能提供 `panel_block` 局部图表脚本，禁止把无模板命中降级成 `research-v1` 等权碎卡片、小字滚动正文或技术字段堆砌。数据验收和视觉验收分别通过才可交付。
 - 公式注册与读取模式见 [tools/formula_package.md](tools/formula_package.md)，数据授权见 [tools/data_grant.md](tools/data_grant.md)，静态页命令和 metadata 见 [tools/static_page.md](tools/static_page.md)。
 - 普通自有页面用 `update` 保持 URL；published template 用 `template` 判定，除非用户明确维护原模板，否则只读复用或 fork。
 
@@ -467,7 +471,7 @@ npx skills update pseudo-longinus/quant-buddy-skills -y
 8. **正文图片先上传后引用**：先用 `static_page.py image_upload` 获得目标 `page_id` 下的绝对 `https://pages.quantbuddy.cn/pages/assets/...webp` URL，再写入 HTML；禁止跨页复用托管 URL。图片必须带明确 `alt` 与 `width/height`；首屏和海报目标内不得 lazy，正文下方才可 `loading="lazy"`。标准 image panel 默认启用当前页大图预览，装饰图才设 `zoomable:false`；不要用新窗口打开图片 URL。fork 必须按 manifest 的 `images[]` 上传到目标页并替换 marker，不能保留来源图片 URL。
 9. **`templates` 摘要必须覆盖全部候选，落盘失败不能裸奔**：`items_summary` 的条目数量必须等于 `item_count`（完整候选去重后的真实数量，不是服务端可能未重算的 `total`），不允许只看其中一部分候选就判定 `unmatched`；一旦返回 `error:"TEMPLATES_PERSIST_FAILED"` 或 `error:"TEMPLATES_RESPONSE_SHAPE_UNEXPECTED"`（落盘失败或响应结构异常），必须先向用户说明「范式候选未能完整确认，暂缓路由判断」，禁止在这种不完整信息下判定为 `unmatched` 走自建，也**不得通过重复调用 `templates` 来补救**（每个任务仍然只能调用一次这条硬规则不变）；确需重试仅限明确的瞬时网络失败，且只重试一次。
 10. **Card Runtime 先做零副作用结构预检**：含 Card Runtime artifact 的 HTML 必须由 `publish_workflow.py` 在 QBS 验证、注册、图片上传和发布前用假凭证执行 `verify_page.mjs --card-runtime-structure-only`。正文与 Card 共用凭证时用 marker 数组扇出；每个数组元素仍须全局唯一并在 HTML 中恰好出现一次。禁止空 manifest 凭证；普通 `<img>` 必须有非空 `src`，仅显式声明 `data-qb-runtime-src` 且等待运行时赋值的预览图可以暂时为空；同时禁止注册等价的重复 Card package/grant。
-11. **普通建页前必须先查范式卡并显式确认路由**：`new_page` 会校验完整候选并绑定路由。fork 必须声明借鉴度，且一经判定不得改判 unmatched；继承不成立时只能在 fork 内降为 Compose。`build_dashboard` 对 fork/inherit* 禁止整页构建；fork/compose 的完整页面使用 `static_page.py compose_page`；`emit:"panel_block"` 仍仅是局部产物。已绑定Compose不得再次全量fork_prepare。
+11. **普通建页前必须先查范式卡并显式确认路由**：`new_page` 会校验完整候选并绑定路由。fork 必须声明借鉴度，且一经判定不得改判 unmatched；继承不成立时只能在 fork 内降为 Compose。`build_dashboard` 对 fork/inherit* 和新任务 unmatched 均禁止整页构建；fork/compose 的完整页面使用 `static_page.py compose_page`，unmatched 整页由模型手写 bespoke HTML；`emit:"panel_block"` 仍仅是局部产物。已绑定Compose不得再次全量fork_prepare。
 12. **本地验收与公网验收分责**：`fork-local` 在本地 `file://`（origin=null）下用放开同源策略的测试浏览器跑真实取数渲染（`security_mode:"disabled-web-security"`），布局/占位符/运行时错误/图片/Card Runtime 门禁照常执行；`public-smoke` 保持浏览器默认安全策略，数据接口 CORS/`Failed to fetch`/运行时失败仍严格拦截。平台注入的 `/webapi/skill/track` 分析埋点是 fire-and-forget，其 CORS/网络失败降为 `non_core_console_warnings`，不再让成功页面发布失败；数据接口（`queryDataGrant`/`queryFormulaPackage`）的失败仍是阻塞性核心错误。**`public-smoke` 通过只证明功能结构与运行态，不等价于视觉质量通过**：交付页视觉结论必须来自 `self-built`/`full`/`ui-refinement` 三视口设计检查与截图审阅；「N 因子」类页面另受 [因子观察台硬门槛](guides/factor-watch-pages.md) 约束（首屏主结论、因子分组可见、指标自带日期、图表分组、节奏分层）。
 13. **Fork 数据通道必须继承来源合同**：fork 的目标是替换标的并保持来源范式运行合同，不是重新设计数据层。来源模板某一角色使用公式包，目标页同一角色继续使用公式包；来源使用 `fast_query` / `stock_profile` / `composition_select` 数据授权，目标页继续使用同 kind、同 query_type、同响应形状的数据授权。禁止仅因“财务数据通常可走 fast_query(report)”就在 fork 中把来源财务公式包改成 grant，也禁止反向把来源 grant 改成公式包。只有 `unmatched` / 明确从零重建时才重新做通道选择；此时平台白名单报告期财务优先 `fast_query(query_type="report")`。
 14. **已有文件先原样托管，后同页渐进增强**：所有已有文件转活页先执行 [静态优先工作流](workflows/existing-file-static-first.md)，包括“先纠错、重做后活化”的复合请求。用 file_prepare 及其持久发布参数，不先研究或改写来源。已获准的动态来源优先捕获只读响应并回放，以保留本地交互；只能视觉冻结时明确损失。第一版公网验收后立即交付静态链接，不等用户再催；已授权增强继续执行。保真增强按通道使用 Data Grant/Formula Package，成功区域才声明 `data-qb-live-mode="live"` 与 `data-qb-live-tag="qbs-formula-package|qbs-data-grant"`；未转换内容保留快照，不为静态声明强行注入属性。本地候选验证后仅更新同一 page_id，失败不覆盖最后成功版本、不创建替代链接；未知写入、恢复失败要明确记录，不能说成成功。首次静态不需要模板fork或Handoff；本流程不引入Block Runtime或全局标签改造。
@@ -501,13 +505,15 @@ npx skills update pseudo-longinus/quant-buddy-skills -y
 | `scripts/card_runtime_retrofit.py` | （被 static_page 调用） | 为已发布/官方精选页重建独立 card runtime artifact（`embedded-card-v1`），可原链接写回 | [tools/static_page.md](tools/static_page.md) |
 | `guides/essence-cover-card.md` | （开发指南） | 页面精华浓缩为独立 4:3 card runtime artifact（`embedded-card-v1`，空白宿主独立 hydrate），并明确 artifact、范式卡快照与整页封面的职责边界 | — |
 
-> **三条生产路**：固定页面先复用在线模板；标准看板走 `build_dashboard`（声明式快路）；要自定义版式/SVG 的设计页才写 bespoke 主体 HTML。
+> **三条生产路**：固定页面先复用在线模板；`unmatched` 自建整页一律模型手写 bespoke 主体 HTML；`build_dashboard` 只维护 legacy 标准页或生成 `panel_block` 局部图表组件。
 > **stock 原生图表 owner 门禁**：`stock_analysis_instance_v1` 的 `#priceChart` 始终由页面原生 runtime 持有；禁止用 `build_dashboard.py emit="panel_block"` 注入第二个 renderer。增加沪深300等基准线时必须使用 `scripts/stock_comparison.py` 扩展原生 load/render/table 生命周期。
 > **stock legacy 时间窗口门禁**：`stock_analysis_instance_v1` 缺少 `QBV_RENDER_JS` marker 时，改窗口必须使用 `scripts/stock_window.py apply`，不要生成或执行 `output/*.py` 临时补丁。转换后必须本地浏览器预检、`static_page.py update` 同一页并做公网验收。
 > 数据层统一调 `assets/data-kernel.js`（`QB.query` 取数、`QB.series/lastValue/topValues` 解包清洗），别再每页各抄 `fetch`/解包、各踩"假 0/缺口"的坑。见 [guides/bespoke-page.md](guides/bespoke-page.md)。
 > 发布前用 `scripts/verify_page.mjs <html_file> --require-browser` 检查桌面与 390px/320px 移动端，确保无 `QB_SHARED_` / `replace_with_signature` / `pkg_replace` 残留、存在 `<h1>`、无关键横向溢出和核心取数脚本错误。页面声明 `stock_analysis_instance_v1` 且在 `data_sources.benchmark_series` 或 `comparison.benchmark_series` 配置基准时，脚本还会在 runtime pending 归零后等待稳定窗口，并强制检查最终 canvas、个股/基准两条有效图表序列、共同交易日、基准右侧 Y 轴、双 Y 轴和数据表列；同时静态拒绝原生 runtime 与 panel_block 共同接管 `#priceChart`。不能只因 runtime ready 或首帧短暂出现就视为对比页已交付。含范式卡 artifact 的页面加 `--card-runtime`（或 `--card-runtime-only`）验收 artifact/manifest/独立 hydrate。Playwright 不在默认 Node 搜索路径时，可用 `QBV_PLAYWRIGHT_MODULE_ROOT` 指向包含 `playwright/` 的 `node_modules` 根目录；可用 `CHROME_PATH` 指定浏览器可执行文件，未指定时自动发现 Chrome/Edge。若机器没有 Playwright/Chrome/Edge，脚本会明确标记为 `static-only`，不能当完整浏览器验收。
 
 ## 历史分钟与连续期货数据源
+
+外盘换月事件仅适用于分钟：Range返回roll_events，RangeMulti仅解析去重后单资产时返回同结构roll_events，多资产与market请求不附事件。外盘日频换月信息当前缺失，不能用分钟事件解释日频换月、复权或合约；详见[换月频率边界](references/continuous-futures.md#外盘换月返回入口2026-10-28)。
 
 - 注册、Fork改资产/窗口前必读 [分钟行情支持范围与越界提示](references/minute-data-coverage.md)：A股/美股股票起于2026-05-13，国内期货起于2005-01-04，港股股票2026-05-20，国内指数2026-08-13；境外期货主力连续已支持，分钟起点按ticker区分（见分钟覆盖参考）；美国/香港指数及香港期货暂不支持。全窗口早于起点不注册授权；部分覆盖先提示并在页面标注，不静默裁剪原始payload，不宣称完整覆盖。页面若展示30分钟K线，必须标注其由1分钟Grant派生，不能把页面聚合结果写成上游原始30分钟数据。
 
