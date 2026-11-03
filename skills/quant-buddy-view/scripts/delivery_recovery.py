@@ -9,6 +9,7 @@ import execution_plan as EP
 import delivery_state as DS
 import compose_inputs as CI
 import handoff_snapshot_bridge as HSB
+import compose_presentation as CP
 
 FILE = 'receipts/delivery-recovery.json'
 UNSAFE = {'PUBLISH_OUTCOME_UNKNOWN', 'PUBLISH_VERSION_CONFLICT', 'PUBLISH_RESPONSE_STALE'}
@@ -228,7 +229,9 @@ def record(params, result):
         state.update(turn_id=turn, last_failed=result.get('code') != 0)
         state.pop('last_failure_kind', None)
         state.setdefault('failures', 0)
-        if params.get('html_file') and Path(params['html_file']).is_file(): state['last_candidate'] = candidate_key(params)
+        if params.get('html_file') and Path(params['html_file']).is_file():
+            state['last_candidate'] = candidate_key(params)
+            state['last_candidate_file'] = str(Path(params['html_file']).resolve())
         if state['last_failed']:
             state['failures'] += 1
             state['error_code'] = result.get('error') or 'PUBLICATION_VALIDATION_FAILED'
@@ -277,6 +280,31 @@ def _load_json_file(path):
         return None
 
 
+def _latest_task_handoff(task):
+    """Find the newest non-failed handoff for the same task.
+
+    Current-turn lineage remains authoritative, but a later page repair may run
+    after trace context has moved on.  Reusing task-scoped verified evidence is
+    safer than discarding it and falling back to a no-data methodology page.
+    """
+    from qbs_job_lifecycle import _job_root, _read_job
+    root=_job_root()
+    if not root.exists(): return None
+    candidates=[]
+    for handoff_path in root.glob('*.handoff.json'):
+        value=_load_json_file(handoff_path)
+        if not isinstance(value,dict) or value.get('task_id') != task: continue
+        job_path=handoff_path.with_name(handoff_path.name.replace('.handoff.json','.job.json'))
+        job=_read_job(job_path) if job_path.exists() else None
+        status=str((job or {}).get('status') or '')
+        if status == 'failed': continue
+        updated=str((job or {}).get('updated_at') or '') + str((job or {}).get('started_at') or '')
+        # completed is preferred, then queued/running handoffs with valid capsule evidence.
+        candidates.append(((2 if status == 'completed' else 1, updated, handoff_path.stat().st_mtime_ns), handoff_path, value))
+    if not candidates: return None
+    return max(candidates, key=lambda item: item[0])[2]
+
+
 def _find_handoff(task, params):
     value=params.get('handoff')
     if isinstance(value,dict): return value
@@ -284,11 +312,32 @@ def _find_handoff(task, params):
     if raw_file:
         value=_load_json_file(raw_file)
         if value is not None: return value
-    from qbs_job_lifecycle import find_job
-    job_path,_,_=find_job(task_id=task,turn_id=params.get('turn_id') or C.current_trace_context().get('turn_id'))
-    if not job_path: return None
-    candidate=job_path.with_name(job_path.name.replace('.job.json','.handoff.json'))
-    return _load_json_file(candidate) if candidate.exists() else None
+    turn=params.get('turn_id') or C.current_trace_context().get('turn_id')
+    if turn:
+        from qbs_job_lifecycle import find_job
+        job_path,_,_=find_job(task_id=task,turn_id=turn)
+        if job_path:
+            candidate=job_path.with_name(job_path.name.replace('.job.json','.handoff.json'))
+            value=_load_json_file(candidate) if candidate.exists() else None
+            if value is not None: return value
+    return _latest_task_handoff(task)
+
+
+def _default_handoff_presentation(task, snapshot_roles):
+    root=CI.editable_root(task); root.mkdir(parents=True,exist_ok=True)
+    path=root/'handoff-presentation.html'
+    mounts=''.join(
+        f'<section class="qb-handoff-panel"><h3>{role.get("role_id") or "已验证数据"}</h3>'
+        f'<div data-qb-panel="handoff-{re.sub(r"[^A-Za-z0-9_.-]+","-",str(role.get("role_id") or "data")).strip("-")}"></div></section>'
+        for role in snapshot_roles
+    )
+    style='<style>.qb-handoff-hero{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.qb-handoff-panel{margin-top:20px}</style>'
+    body=('<main data-qb-page-design="compose-bespoke-v1"><h1>已验证研究结果</h1>'
+          '<p data-qb-summary>本页展示本轮已通过QBS handoff校验的数据快照；结论只覆盖已验证角色，缺失角色不视为零命中。</p>'
+          '<div class="qb-handoff-hero"><div data-qb-metric>已验证数据组 '+str(len(snapshot_roles))+'</div>'
+          '<div data-qb-metric>数据模式 verified snapshot</div></div>'+mounts+'</main>')
+    path.write_text(style+body,encoding='utf-8')
+    return {'version':1,'mode':'bespoke','html_file':str(path),'design':'compose-bespoke-v1'}
 
 
 def _handoff_snapshot_recovery(params,plan,changes,modules,panels):
@@ -299,12 +348,18 @@ def _handoff_snapshot_recovery(params,plan,changes,modules,panels):
     snapshot_roles=bundle.get('snapshot_roles') or []
     if not snapshot_roles:
         return {'bundle':bundle,'phase':'methodology'}
+    if not isinstance(changes.get('presentation'),dict):
+        changes['presentation']=_default_handoff_presentation(plan['task_id'],snapshot_roles)
     text_panels=[copy.deepcopy(p) for p in panels if p.get('type') in ('text','image')]
     default_module=modules[0] if modules else '已验证研究结果'
     for role in snapshot_roles:
         title=str(role.get('role_id') or '已验证数据')
+        panel_id='handoff-'+re.sub(r'[^A-Za-z0-9_.-]+','-',title).strip('-')
+        if not panel_id or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_.-]*',panel_id): panel_id='handoff-data'
+        if isinstance(changes.get('presentation'),dict):
+            changes['presentation']=CP.ensure_mount(plan['task_id'],changes['presentation'],panel_id,title)
         text_panels.append({
-            'type':'table','title':title,'compose_module':default_module,
+            'type':'table','id':panel_id,'title':title,'compose_module':default_module,
             'snapshot_receipt_file':role['snapshot_receipt_file'],
             'snapshot_receipt_sha256':role['snapshot_receipt_sha256'],
             'snapshot_outputs':role.get('required_outputs') or [],
@@ -480,6 +535,8 @@ def _recover(params):
     turn = params.get('turn_id') or C.current_trace_context().get('turn_id')
     if state.get('turn_id') != turn: state = {'turn_id':turn,'failures':0,'targeted_repairs':0}
     if params.get('force_fallback'): state['targeted_repairs']=REPAIR_BUDGET
+    preserved_candidate_file = state.get('last_candidate_file') if isinstance(state.get('last_candidate_file'), str) else None
+    if preserved_candidate_file and not Path(preserved_candidate_file).is_file(): preserved_candidate_file = None
     changes = {key: copy.deepcopy(prior[key]) for key in CI.PASS_FIELDS if key in prior}
     changes.update(task_id=task, expected_revision=plan['revision'], revision_reason='bounded_delivery_recovery')
     changes.setdefault('description', '展示本轮已确认条件、验证数据、实际观察日与研究边界。')
@@ -509,6 +566,7 @@ def _recover(params):
         else:
             out=SP.cmd_execution_plan(changes)
             out.update(recovery_phase=snapshot_recovery['phase'],original_page_id=plan['target_page_id'],
+                       preserved_candidate_file=preserved_candidate_file,
                        covered_roles=bundle.get('covered_roles') or [],
                        missing_roles=bundle.get('missing_roles') or [],
                        snapshot_roles_bound=len(bundle.get('snapshot_roles') or []))
@@ -628,6 +686,10 @@ def _recover(params):
     if not changes.get('title'): changes['title'] = '策略研究与核验结果'
     out = SP.cmd_execution_plan(changes)
     out.update(recovery_phase=('partial_snapshot' if (missing or evidence_roles) else 'handoff_snapshot') if frozen else 'methodology',
-               original_page_id=plan['target_page_id'])
+               original_page_id=plan['target_page_id'], preserved_candidate_file=preserved_candidate_file,
+               **({} if frozen else {
+                   'downgraded_from': {'research_status':plan.get('research_status'),'delivery_kind':plan.get('delivery_kind'),'plan_hash':plan.get('plan_hash')},
+                   'downgrade_reason': 'no_recoverable_qbs_snapshot_or_runtime_evidence',
+               }))
     if evidence_roles: out['evidence_roles_bound'] = len(evidence_roles)
     return out

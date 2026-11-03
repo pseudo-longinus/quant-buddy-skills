@@ -1708,7 +1708,7 @@ def _render_html(spec, *, title, subtitle, panels, endpoint, package_id, signatu
   {card_runtime_artifacts}
   <section class="std-hero">
     <div class="eyebrow">{page_type_esc}</div>
-    <h1 data-qb-page-title>{title_esc}</h1>
+    {"" if isinstance(spec.get("presentation"), dict) and spec.get("presentation", {}).get("mode") == "bespoke" else f"<h1 data-qb-page-title>{title_esc}</h1>"}
     {f"<p class='subtitle'>{html_escape(delivery_note)}</p>" if delivery_note else ""}
     {f"<p class='subtitle'>{subtitle_esc}</p>" if subtitle else ""}
     {hero_conclusion_html}
@@ -1732,6 +1732,22 @@ def _render_html(spec, *, title, subtitle, panels, endpoint, package_id, signatu
 </html>
 """
     return html
+
+
+def _prepare_rendered_title(html, params, title):
+    """Validate titles now, except when Compose will inject the bespoke h1."""
+    presentation = params.get('presentation')
+    if isinstance(presentation, dict) and presentation.get('mode') == 'bespoke':
+        normalized = PTC.valid(title)
+        return html, {
+            'title': normalized,
+            'heading': normalized,
+            'document_title': normalized,
+            'heading_locator': '[data-qb-page-title]',
+            'synchronized': False,
+            'deferred': True,
+        }
+    return PTC.prepare(html, {'title': title})
 
 
 def _host_already_has_kernel(host_html):
@@ -2782,7 +2798,7 @@ def _build_authorized(params):
                             panels=panels, endpoint=endpoint, package_id=pkg, signature=sig,
                             generated_at=generated_at, grants=grants, snapshots=snapshots)
     try:
-        html, title_check = PTC.prepare(html, {'title': title})
+        html, title_check = _prepare_rendered_title(html, params, title)
     except PTC.TitleError as exc:
         return exc.as_dict()
 

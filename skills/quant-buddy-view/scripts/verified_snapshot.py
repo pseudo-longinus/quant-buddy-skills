@@ -94,6 +94,19 @@ def materialize_registered(params):
             if not proof.get('snapshot_receipt_file') and proof.get('tool_name') == 'validate_package_set':
                 import formula_snapshot
                 return formula_snapshot.materialize(task, params['validation_receipt_file'], proof)
+            if not proof.get('snapshot_receipt_file'):
+                return {
+                    'code': 1,
+                    'error': 'QBS_RECEIPT_NEEDS_BRIDGE',
+                    'message': '这是QBS验证/公式收据，不是QBV verified snapshot收据；执行同任务恢复建立handoff→snapshot证据链，不要重复传入同一文件',
+                    'validation_receipt_file': params['validation_receipt_file'],
+                    'terminal': False,
+                    'next_action': {
+                        'command': 'recover_delivery',
+                        'params': {'task_id': task},
+                        'instruction': '优先查找同task的qbs_qbv_handoff_v1并通过handoff_snapshot_bridge生成verified snapshot；没有可验证data_reference时如实失败，不得降级为无数据方法页。',
+                    },
+                }
             snapshot=load(task,proof.get('snapshot_receipt_file'),proof.get('snapshot_receipt_sha256'),allow_deferred=True)
             if snapshot['contract_fingerprint']!=proof.get('contract_fingerprint'):
                 raise EP.PlanError('SNAPSHOT_CONTRACT_MISMATCH','验证与快照合同不一致')

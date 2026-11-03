@@ -1,8 +1,9 @@
 ---
 name: quant-buddy-view
 slug: quant-buddy-view
+displayName: QuantBuddy 宽宝活页
 author: guanzhao
-version: 0.7.8
+version: 0.8.0
 description: |
   将量化分析或已有 JPG/PNG、HTML、PDF 发布为 Quant Buddy 可分享活页或实时看板，并支持创建、更新、复用、验收和公开链接交付。适用于个股画像、估值财务、指数异动、多因子筛选、商品日报、模板、分享壳及卡片等页面。
   用户提供 QuantBuddy 活页 URL 并要求解读时也使用。显式调用 /quant-buddy-view、/qbv、qbv 或 QBV，且请求并非纯咨询、代码维护或文档解释时，默认按可分享活页任务处理。
@@ -11,7 +12,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 0.7.8
+  version: 0.8.0
   author: guanzhao
   category: quant-finance
   tags: [quant, dashboard, formula-package, static-page, publish, visualization]
@@ -203,6 +204,8 @@ python scripts/static_page.py interpret '{"url":"用户提供的页面 URL"}'
 已公开验收的计划页面，仅修改正文/布局并保留标准看板取数合同和内核时，可按 `interpret` 确认同页 owner/page_admin 权限后运行 `static_page.py prepare_maintenance @params.json`。它从线上当前版本核验基线，生成独立的维护候选收据及 `publish_verified` 参数；不改写原 Compose 收据。首次建页、未完成公开验收、数据合同变化、版本冲突及未知写入结果不适用。具体约束见 [浏览器批注维护](guides/browser-feedback-refinement.md)。
 
 自建与Compose的发布底线见[自建质量](guides/self-build-quality.md)；资产身份、研究定义、完整公式合同和最小取数范围见[研究与数据合同](guides/research-data-contract.md)。价格或榜单会变化的文字必须使用动态绑定或显式标注历史分析日，不把静态正文当成实时结论。
+
+Compose 数据页默认补 [Presentation Mode](guides/compose-presentation.md)：模型手写安全的首屏叙事/布局 HTML，标准 renderer 继续消费已验证 runtime/snapshot 面板。自动 table 只是数据绑定起点；结果页首屏必须先给结论、核心指标和主图，长表折叠。用户要求 ECharts/缩放/悬停/时间窗时不得用 PNG 降级替代。
 
 `fork_compose` 与 `execution_plan` 修订返回会话可写目录中的 `next_action.params_file`。编辑该草稿的标题和研究内容，不编辑内部 `/tmp` 收据；修订后使用新路径和当前 `plan_hash`。已注册角色自动生成数据面板，`runtime_role_id` 是受支持的角色引用；纯 `text/image` 不算数据消费。先处理 `draft_diagnostics`，不能通过清空角色或取消实时要求绕过错误。只有工具返回 `publish_verified` 才进入发布；缺路由时提供本任务已有的 `route_receipt_file`，不重复注册。失败回复保留“任务进度（构建失败）/（未完成）”链接，但不使用成品交付措辞；宿主卡片不作为成功证据。
 
@@ -409,6 +412,7 @@ npx skills update pseudo-longinus/quant-buddy-skills -y
 | 通用流程 | 标准实时看板 | [workflows/dashboard-end-to-end.md](workflows/dashboard-end-to-end.md) | 用户要“做成可分享看板/链接”，但没有指定固定页面模板 |
 | 增量维护 | 单图表增删改查 | [workflows/edit-existing-chart.md](workflows/edit-existing-chart.md) | 自己的已发布页面要加/删一条线、改时间窗口、查真实数据——只改一个图表，不是整页重建 |
 | 开发指南 | 自定义页面 | [guides/bespoke-page.md](guides/bespoke-page.md) | `build_dashboard` 做不出的自定义 HTML/CSS/SVG 页面，或迁移已有 HTML |
+| Compose 呈现 | 模型排版 + 受控数据面板 | [guides/compose-presentation.md](guides/compose-presentation.md) | Compose 结果页需要首屏结论、指标卡、主图、折叠长表或自定义叙事布局 |
 | 页面形态 | 因子观察台 | [guides/factor-watch-pages.md](guides/factor-watch-pages.md) | 「N 因子观察台/涨跌怎么看」类需求：结论前置 + N 因子卡五件套 + 分组图表 + 数据节奏分层；按结构合同自建，验收含因子页硬门槛 |
 | 迁移工具 | 旧页套公共外壳 | [tools/retrofit_share_shell.md](tools/retrofit_share_shell.md) | 已发布/已生成 HTML 需要去掉旧二维码、旧页头、旧页尾，并保留同一个 `page_id` 更新 |
 | 设计系统 | 活页 UI/UX 系统 | [guides/live-page-ui-ux-system.md](guides/live-page-ui-ux-system.md) | 新建或整体重构活页时，选择页面原型、主题 token、字体/密度、可组合模式和响应式转换；统一体验底线但保留页面身份 |

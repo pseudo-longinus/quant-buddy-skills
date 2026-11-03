@@ -2920,6 +2920,52 @@ def _record_direct_upload_delivery(params, task, out, body, html):
         return {"code": 1, "error": "DIRECT_UPLOAD_DELIVERY_STATE_INVALID", "message": str(exc)}
 
 
+def _record_direct_update_delivery(params, task, out, body, html):
+    """Journal a successful unplanned same-page update for host delivery."""
+    try:
+        remote = DS._remote(out)
+        page_id = str(remote.get("page_id") or "")
+        target_page_id = str(params.get("page_id") or "")
+        if page_id != target_page_id:
+            return {"code": 1, "error": "DIRECT_UPDATE_IDENTITY_CONFLICT",
+                    "message": "更新响应与目标页面身份不一致"}
+        if (not page_id or not remote.get("url") or remote.get("version_no") is None
+                or not re.fullmatch(r"[0-9a-f]{64}", str(remote.get("sha256") or ""))):
+            return {"code": 1, "error": "DIRECT_UPDATE_RECEIPT_INVALID",
+                    "message": "更新成功响应缺少页面版本、hash 或公开链接"}
+
+        DS.initialize(task, page_id)
+        plan_hash = EP.digest({
+            "task_id": task,
+            "page_id": page_id,
+            "operation": "direct_update",
+            "version_no": remote["version_no"],
+            "sha256": remote["sha256"],
+        })
+        plan = {
+            "task_id": task,
+            "target_page_id": page_id,
+            "plan_hash": plan_hash,
+            "revision": 0,
+            "research_status": "unknown",
+            "delivery_kind": "result",
+            "require_live_data": False,
+            "direct_maintenance": True,
+        }
+        DS.prepare_write(plan, remote["sha256"], remote, request_body=body)
+        state = DS.record_write(plan, out)
+        state["plan_hash"] = plan_hash
+        state["direct_maintenance"] = True
+        if params.get("live_data_mode"):
+            state["live_data_mode"] = params["live_data_mode"]
+        DS._save(state)
+        return None
+    except EP.PlanError as exc:
+        return exc.as_dict()
+    except (OSError, ValueError, TypeError) as exc:
+        return {"code": 1, "error": "DIRECT_UPDATE_DELIVERY_STATE_INVALID", "message": str(exc)}
+
+
 def cmd_update(params):
     if not params.get("page_id"):
         return {"code": 1, "message": "update 需要 page_id（要替换哪个已发布页面）"}
@@ -3018,6 +3064,7 @@ def cmd_update(params):
         body["reply_contract_binding"] = None
     if "agent_reply_template" in params and params.get("agent_reply_template") is None:
         body["agent_reply_template"] = None
+    direct_update_task = "" if publication_plan else _routing_task_id(params)
     if publication_plan:
         def observe_publication():
             result = cmd_template({"page_id": params["page_id"]})
@@ -3058,6 +3105,28 @@ def cmd_update(params):
             )
         if out.get("code") == 0:
             _attach_agent_reply_contract(out, operation="update")
+            if direct_update_task:
+                binding_error = _record_direct_update_delivery(
+                    params, direct_update_task, out, body, html
+                )
+                if binding_error:
+                    out.update(binding_error)
+                    out.update({
+                        "code": 1,
+                        "published": True,
+                        "verified": False,
+                        "operation": "update",
+                        "message": "页面已更新，但任务交付登记失败；不要重复写入，按 next_action 恢复登记",
+                        "next_action": {"command": "delivery_status",
+                                        "params": {"task_id": direct_update_task,
+                                                   "page_id": params["page_id"]}},
+                    })
+                else:
+                    out["next_action"] = {
+                        "command": "verify_published",
+                        "params": {"task_id": direct_update_task, "page_id": params["page_id"]},
+                        "instruction": "同页更新已登记；只复验当前公开版本，不重新发布",
+                    }
     return out
 
 
@@ -6346,6 +6415,8 @@ def _publish_verified_once(params):
             "stages": stages,
             "timing": timings,
         }
+        if isinstance(stages.get("page_quality", {}).get("compose_quality"), dict):
+            result["compose_quality"] = stages["page_quality"]["compose_quality"]
         if not verified and failure_kind:
             result["failure_kind"] = failure_kind
         if not verified and failure_kind == _NETWORK_UNREACHABLE:
@@ -6409,6 +6480,36 @@ def _confirm_public_publication(params, stages, published_record):
         if verified and plan_for_version:
             stages["public_version"] = PT.verify_current(plan_for_version, published_record, observed, browser_evidence=smoke)
             verified = stages["public_version"].get("code") == 0
+    expected = params.get("_expected_publication")
+    if verified and not plan_for_version and isinstance(expected, dict):
+        version_result = _observe_published_template(params["page_id"])
+        observed = _template_record(version_result) if isinstance(version_result, dict) and version_result.get("code") == 0 else {}
+        observed_version = observed.get("version_no")
+        if observed_version is None:
+            observed_version = observed.get("current_version_no")
+        document_hashes = [
+            viewport.get("document_sha256")
+            for viewport in ((smoke.get("browser") or {}).get("viewports") or [])
+            if viewport.get("document_sha256")
+        ]
+        problems = []
+        if observed.get("page_id") != params["page_id"]:
+            problems.append("公开页面身份不一致")
+        if observed_version != expected.get("version_no"):
+            problems.append("公开页面版本不一致")
+        if observed.get("sha256") != expected.get("sha256"):
+            problems.append("公开页面内容 hash 不一致")
+        if not document_hashes or any(value != expected.get("sha256") for value in document_hashes):
+            problems.append("浏览器读取内容与发布 hash 不一致")
+        stages["public_version"] = {
+            "code": 0 if not problems else 1,
+            "version_no": observed_version,
+            "sha256": observed.get("sha256"),
+            "problems": problems,
+        }
+        verified = not problems
+        if problems:
+            failure_kind = "content"
     return verified, failure_kind
 
 
@@ -6474,6 +6575,35 @@ def _persist_maintenance_delivery_state(params, stages, result, public_url):
         return
 
 
+def _load_direct_maintenance_delivery(task_id, page_id=None):
+    """Load the durable state written by a successful unplanned page update."""
+    state_path = C.task_temp_path(task_id, "receipts/delivery-state.json")
+    if not state_path.is_file():
+        raise EP.PlanError("PLAN_REQUIRED", "请先创建/恢复执行计划", next_action="execution_plan")
+    try:
+        raw = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise EP.PlanError("DELIVERY_STATE_INVALID", "交付状态不可读") from exc
+    resolved_page = str(page_id or raw.get("page_id") or "")
+    if not resolved_page or raw.get("page_id") != resolved_page:
+        raise EP.PlanError("DELIVERY_STATE_IDENTITY_CONFLICT", "交付状态页面身份不一致")
+    state = DS.load(task_id, resolved_page)
+    plan_hash = str(state.get("plan_hash") or EP.digest({
+        "task_id": task_id, "page_id": resolved_page, "operation": "direct_update",
+    }))
+    plan = {
+        "task_id": task_id,
+        "target_page_id": resolved_page,
+        "plan_hash": plan_hash,
+        "revision": 0,
+        "research_status": state.get("research_status", "unknown"),
+        "delivery_kind": state.get("delivery_kind", "result"),
+        "require_live_data": False,
+        "direct_maintenance": True,
+    }
+    return resolved_page, state, plan
+
+
 def _finalize_public_publication(params, stages, result, public_url, verified):
     """Shared success tail of publish_verified and verify_published."""
     if verified:
@@ -6531,12 +6661,19 @@ def cmd_verify_published(params):
     task_id = _fork_task_id(params)
     if not task_id:
         return {"code": 1, "error": "TASK_ID_REQUIRED", "message": "verify_published 需要 task_id"}
+    direct_maintenance = False
     try:
         plan = EP.require(task_id, page_id=params.get("page_id") or None)
-        state = DS.load(task_id, plan["target_page_id"])
+        page_id = plan["target_page_id"]
+        state = DS.load(task_id, page_id)
     except EP.PlanError as exc:
-        return exc.as_dict()
-    page_id = plan["target_page_id"]
+        if exc.code != "PLAN_REQUIRED":
+            return exc.as_dict()
+        try:
+            page_id, state, plan = _load_direct_maintenance_delivery(task_id, params.get("page_id"))
+        except EP.PlanError as direct_exc:
+            return direct_exc.as_dict()
+        direct_maintenance = True
     write = state.get("last_write") or {}
     base = {"task_id": task_id, "page_id": page_id, "operation": "verify_published",
             "plan_revision": plan["revision"], "plan_hash": plan["plan_hash"]}
@@ -6568,6 +6705,9 @@ def cmd_verify_published(params):
         return {**base, "code": 1, "error": "PUBLIC_URL_REQUIRED", "published": True, "verified": False,
                 "message": "已确认写入缺少公开链接；用 delivery_status refresh_remote 核对"}
     run_params = {**(pending.get("params") or {}), "task_id": task_id, "page_id": page_id}
+    if direct_maintenance:
+        run_params["maintenance_mode"] = "direct_update"
+        run_params["_expected_publication"] = dict(remote)
     stages = {"publish_final": record}
     if pending.get("page_title"):
         stages["page_title"] = pending["page_title"]
@@ -6886,7 +7026,7 @@ def _publish_verified_cli_result(result, task_id, report_name="publish-verified-
             "agent_reply_contract_file", "agent_reply_contract_sha256",
             "reply_draft_file", "reply_validation_params_file", "reply_validation_command",
             "reply_validation_env", "reply_validation_env_keys",
-            "reply_data_evidence_file", "reply_data_evidence_sha256", "reply_data_availability",
+            "compose_quality", "reply_data_evidence_file", "reply_data_evidence_sha256", "reply_data_availability",
             "agent_reply_template_file", "contract_artifact_error", "qbv_job_lifecycle",
             "presentation", "presentation_notice", "repair_attempts_remaining", "recovery_phase", "research_status", "delivery_kind", "live_data_mode", "artifact_file", "artifact_sha256", "artifact_verified", "recovery_result",
             "failure_summary", "failure_kind", "written", "public_reachable", "operation", "already_verified",
@@ -10141,10 +10281,20 @@ def cmd_delivery_status(params):
     try:
         plan = EP.require(task, page_id=params.get("page_id"))
         state = DS.load(task, plan["target_page_id"])
+        direct_maintenance = False
+    except EP.PlanError as exc:
+        if exc.code != "PLAN_REQUIRED":
+            return exc.as_dict()
+        try:
+            _, state, plan = _load_direct_maintenance_delivery(task, params.get("page_id"))
+        except EP.PlanError as direct_exc:
+            return direct_exc.as_dict()
+        direct_maintenance = True
+    try:
         # Additive top-level fields; delivery_state stays byte-identical to the
         # hashed file (legacy states are derived from the write journal).
         out = {"code": 0, "page_id": plan["target_page_id"], "execution_plan": plan, "delivery_state": state,
-               **DS.flags(state)}
+               "direct_maintenance": direct_maintenance, **DS.flags(state)}
         if params.get("refresh_remote"):
             out["remote"] = cmd_template({"page_id": plan["target_page_id"]})
             if (state.get("last_write") or {}).get("idempotency_key"):

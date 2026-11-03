@@ -12,6 +12,8 @@ import execution_plan as EP
 import runtime_credentials as RC
 import compose_inputs as CI
 import delivery_recovery as DR
+import compose_presentation as CP
+import compose_quality as CQ
 
 RECEIPT_FILE = 'receipts/compose-build.json'
 SUPPORTED = {'layout', 'layout+style', 'original'}
@@ -161,6 +163,14 @@ def build(params):
                     'terminal': False, 'issues': binding_issues, **recovery}
         panels = copy.deepcopy(params.get('panels') or [])
         if not panels or any(not isinstance(p, dict) for p in panels): raise EP.PlanError('COMPOSE_CONTENT_REQUIRED', '填写目标研究panels')
+        presentation_info = None
+        if params.get('presentation') is not None:
+            presentation_info = CP.load(task, params.get('presentation'), panels)
+            panel_ids = CP.validate_panel_ids(panels, require_mounts=True)
+            for panel, panel_id in zip(panels, panel_ids):
+                panel['id'] = panel_id
+                panel['target_selector'] = f'[data-qb-panel="{panel_id}"]'
+        compose_quality = CQ.evaluate(task, plan, panels, presentation_info, params)
         registrations = _check_roles(plan, params, panels)
         by_module = {m['module']: [] for m in modules}
         for index, panel in enumerate(panels):
@@ -187,19 +197,23 @@ def build(params):
                 source_html = block['html']
                 source_classes = _OuterSection(source_html).classes
                 if module['borrow_level'] == 'layout+style': styles.append(_scoped_styles(entry, source_classes, section_id))
-            bodies = []
-            for index, panel in by_module[module['module']]:
-                target = 'qb-compose-body-' + str(index)
-                panel['target_selector'] = '#' + target
-                show_title = len(by_module[module['module']]) > 1 or panel.get('title') != module['module']
-                bodies.append(_panel_shell(index, panel, show_title=show_title))
-            # Copy only the selected outer layout classes/presentation, not old content or executable code.
-            shells.append('<section id="' + section_id + '" class="qb-compose-module ' + ' '.join(source_classes) + '"><h2>' + html.escape(module['module']) + '</h2><div class="qb-compose-panels">' + ''.join(bodies) + '</div></section>')
+            if presentation_info is None:
+                bodies = []
+                for index, panel in by_module[module['module']]:
+                    target = 'qb-compose-body-' + str(index)
+                    panel['target_selector'] = '#' + target
+                    show_title = len(by_module[module['module']]) > 1 or panel.get('title') != module['module']
+                    bodies.append(_panel_shell(index, panel, show_title=show_title))
+                # Copy only the selected outer layout classes/presentation, not old content or executable code.
+                shells.append('<section id="' + section_id + '" class="qb-compose-module ' + ' '.join(source_classes) + '"><h2>' + html.escape(module['module']) + '</h2><div class="qb-compose-panels">' + ''.join(bodies) + '</div></section>')
             provenance.append({'module': module['module'], 'borrow_level': module['borrow_level'],
                                'source_section_sha256': hashlib.sha256(source_html.encode()).hexdigest() if source_html else None,
                                'source_classes': source_classes})
         artifact = C.task_temp_path(task, 'compose/candidate.html', create_parent=True)
         spec = dict(params, panels=panels, out_file=str(artifact), upload=False, update_page_id=None)
+        if presentation_info is not None:
+            spec['layout_order'] = 'authored'
+            spec['presentation'] = {k: presentation_info[k] for k in ('version', 'mode', 'design', 'file', 'file_sha256')}
         # A verified Compose plan defines its own modules and data roles. A
         # title containing "个股画像" does not opt into the fixed factsheet's
         # unrelated outputs. Explicit single-stock templates still take priority
@@ -214,11 +228,24 @@ def build(params):
         if exhausted: return exhausted
         built = BD._build_authorized(spec)
         if built.get('code') != 0: return built
+        built['compose_quality'] = compose_quality
+        if presentation_info is not None:
+            built['presentation'] = {'mode': 'bespoke', 'file': presentation_info['file'], 'file_sha256': presentation_info['file_sha256']}
         document = artifact.read_text(encoding='utf-8')
         if '<div id="grid"></div>' not in document:
             raise EP.PlanError('COMPOSE_RENDERER_CONTRACT_CHANGED', '标准renderer的grid接口发生变化')
-        document = document.replace('<div id="grid"></div>', '<div id="grid">' + ''.join(shells) + '</div>', 1)
+        if presentation_info is None:
+            document = document.replace('<div id="grid"></div>', '<div id="grid">' + ''.join(shells) + '</div>', 1)
+        else:
+            # Standard panels own their mounted bodies; the authored file owns only
+            # inert narrative/layout around those pre-validated containers.
+            document = document.replace('<div id="grid"></div>', '<div id="grid">' + presentation_info['body_html'] + '</div>', 1)
+            document = document.replace('data-qb-page-design="research-v1"', 'data-qb-page-design="compose-bespoke-v1"', 1)
+            if compose_quality.get('interactivityRequired'):
+                document = document.replace('<main class="qb-dashboard"', '<main class="qb-dashboard" data-qb-interactivity-required="true"', 1)
         css = COMPOSE_LAYOUT_CSS
+        if presentation_info is not None:
+            css += '\n' + presentation_info['css']
         document = document.replace('</head>', '<style>' + css + '\n' + '\n'.join(styles) + '</style></head>', 1)
         document, title_check = PTC.prepare(document, params)
         artifact.write_text(document, encoding='utf-8')
@@ -229,11 +256,16 @@ def build(params):
                    'source_page_id': plan['source_page_id'], 'plan_hash': plan['plan_hash'],
                    'html_file': str(artifact), 'html_sha256': content_hash,
                    'runtime_roles': plan['runtime_roles'], 'registration_bindings': registrations, 'borrow_provenance': provenance,
-                   'data_mode': built.get('data_mode', built['mode']), 'snapshot_bindings': built.get('snapshot_bindings', {}), 'verification': 'candidate_only'}
+                   'data_mode': built.get('data_mode', built['mode']), 'snapshot_bindings': built.get('snapshot_bindings', {}), 'verification': 'candidate_only',
+                   'compose_quality': compose_quality,
+                   **({} if presentation_info is None else {'presentation': {'version': presentation_info['version'], 'design': presentation_info['design'],
+                                                                              'file': presentation_info['file'], 'file_sha256': presentation_info['file_sha256']}})}
         receipt_path = C.task_temp_path(task, RECEIPT_FILE, create_parent=True)
         EP.atomic_json(receipt_path, receipt)
         research = [{k: v for k, v in panel.items() if k not in ('signature', 'target_selector')} for panel in panels]
-        EP.atomic_json(C.task_temp_path(task, 'compose/research.json', create_parent=True), {'plan_hash': plan['plan_hash'], 'panels': research})
+        EP.atomic_json(C.task_temp_path(task, 'compose/research.json', create_parent=True),
+                       {'plan_hash': plan['plan_hash'], 'panels': research, 'compose_quality': compose_quality,
+                        **({} if presentation_info is None else {'presentation': {'file': presentation_info['file'], 'file_sha256': presentation_info['file_sha256'], 'design': presentation_info['design']}})})
         manifest = json.loads(Path(built['manifest']).read_text(encoding='utf-8'))
         manifest.update(html_sha256=content_hash, execution_plan_hash=plan['plan_hash'], compose_provenance=provenance)
         EP.atomic_json(built['manifest'], manifest)
@@ -241,6 +273,7 @@ def build(params):
                    'live_data_mode', 'route_receipt_file', 'validation_receipt_files', 'grant_validation_receipt_files',
                    'market_data_required', 'agent_intent', 'asset', 'turn_id', 'handoff_validation_receipt_files') if k in params}
         publish.update(page_id=plan['target_page_id'], html_file=str(artifact), plan_hash=plan['plan_hash'], require_live_data=plan.get('require_live_data',False))
+        publish['compose_quality'] = compose_quality
         for key in ('research_contract','research_checks','research_status','delivery_kind'):
             if key in plan: publish[key] = plan[key]
         publish['title'] = title_check['title']
@@ -259,7 +292,8 @@ def build(params):
         # evidence/parameters above are input errors with a corrected draft.
         DR.record_compose_build(params, plan)
         return {**built, 'out_file': str(artifact), 'page_id': plan['target_page_id'], 'terminal': False,
-                'compose_receipt_file': str(receipt_path), 'plan_hash': plan['plan_hash'],
+                'compose_receipt_file': str(receipt_path), 'plan_hash': plan['plan_hash'], 'compose_quality': compose_quality,
+                **({} if presentation_info is None else {'presentation': {'mode': 'bespoke', 'file': presentation_info['file'], 'file_sha256': presentation_info['file_sha256']}}),
                 'message': '完整Compose候选页已生成；尚未完成浏览器验收和发布',
                 'next_action': {'command': 'publish_verified', 'params_file': str(publish_path)}}
     except EP.PlanError as exc: return exc.as_dict()

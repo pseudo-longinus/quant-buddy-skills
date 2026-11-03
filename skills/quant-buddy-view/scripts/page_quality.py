@@ -27,4 +27,7 @@ def evidence(params, html_bytes, profile, browser):
             'page_title': params.get('title'),
             'validator_sha256': validator_hash,
             'browser_verified': browser.get('code') == 0,
-            'viewports': [x.get('viewport') for x in (browser.get('browser') or {}).get('viewports', [])]}
+            'viewports': [x.get('viewport') for x in (browser.get('browser') or {}).get('viewports', [])],
+            'compose_quality': ((next((x.get('dashboardDesign', {}).get('composeQuality') for x in (browser.get('browser') or {}).get('viewports', [])
+                                        if isinstance(x.get('dashboardDesign', {}).get('composeQuality'), dict)), None)
+                                 or params.get('compose_quality') if isinstance(params.get('compose_quality'), dict) else None))}

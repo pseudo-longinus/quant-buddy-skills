@@ -160,12 +160,12 @@ export function dashboardDesignMetrics(required = false) {
   if (fullCharts.length > 3)
     problems.push(`非折叠 full-width 图表 ${fullCharts.length} 张纵向堆叠：超过 3 张必须双列分组、页签或折叠（研究长图可留 1 张主图全宽）`);
   const methodology = root.dataset.qbDeliveryKind === 'methodology';
-  const firstScreenSummary = methodology && [...root.querySelectorAll('.text-panel')].some(el => {
+  const methodologySummary = methodology && [...root.querySelectorAll('.text-panel')].some(el => {
     const rect = el.getBoundingClientRect();
     return visible(el) && el.textContent.trim().length >= 40 && rect.top+window.scrollY >= 0 && rect.top+window.scrollY+64 <= window.innerHeight;
   });
   if (methodology && (root.dataset.qbResearchStatus !== 'unavailable' || evidence.length)) problems.push('方法研究页不能伪装成有数据结果或完整研究');
-  if ((evidence.length || required) && !firstScreenEvidence && !firstScreenSummary)
+  if ((evidence.length || required) && !firstScreenEvidence && !methodologySummary)
     problems.push('首屏缺少可读的核心数据证据：将真实关键值、主图或榜单前移，压缩导语并把详细口径后置；Compose 保留借鉴外壳，调整内部面板顺序，不能缩小正文或放置假指标绕过');
   const label = el => (el.textContent || '').trim().slice(0, 36);
   if (![...root.querySelectorAll('h1')].some(visible)) problems.push('缺少可见主标题');
@@ -199,7 +199,36 @@ export function dashboardDesignMetrics(required = false) {
       if (name) assets.add(name);
     }
   }
-  return { required: true, version: root.dataset.qbPageDesign, firstScreenEvidence, firstScreenSummary, firstScreenDiagnostics, problems: [...new Set(problems)],
-    rankingEvidence: {version:1, groups:rankingGroups, assets:[...assets], observationDates} };
+  const composeQuality = (() => {
+    const warnings = [];
+    const summaryNode = [...root.querySelectorAll('[data-qb-summary]')].find(el => {
+      const rect = el.getBoundingClientRect();
+      return visible(el) && el.textContent.trim().length >= 20 && rect.top >= 0 && rect.top + 64 <= window.innerHeight;
+    });
+    const firstScreenLongTable = [...root.querySelectorAll('table')].some(table => {
+      const rect = table.getBoundingClientRect();
+      return visible(table) && !table.closest('details:not([open])') && rect.top >= 0 && rect.top + 32 <= window.innerHeight
+        && table.querySelectorAll('tbody tr').length > 12;
+    });
+    const longTableNotCollapsed = [...root.querySelectorAll('table')].some(table =>
+      visible(table) && !table.closest('details') && table.querySelectorAll('tbody tr').length > 50);
+    const chartBodies = [...root.querySelectorAll('.body.line, .body.bar, .body.candlestick, .body.radar')].filter(visible);
+    const interactiveRequired = String(root.dataset.qbInteractivityRequired || '').toLowerCase() === 'true';
+    const chartLibrary = (window.__QB_ECHARTS_LOADER__?.library || window.echarts);
+    const customSvgCharts = [...root.querySelectorAll('svg[role="img"][aria-label]')].filter(svg =>
+      visible(svg) && svg.querySelectorAll('path').length >= 2);
+    const interactiveChartPresent = chartBodies.some(body =>
+      chartLibrary?.getInstanceByDom?.(body)?.getOption()?.series?.some(series => series.data?.length))
+      || customSvgCharts.length > 0;
+    const firstScreenSummary = Boolean(summaryNode) || Boolean(methodologySummary);
+    if (!firstScreenSummary) warnings.push('FIRST_SCREEN_SUMMARY_MISSING');
+    if (firstScreenLongTable) warnings.push('LONG_TABLE_FIRST_SCREEN');
+    if (longTableNotCollapsed) warnings.push('LONG_TABLE_NOT_COLLAPSED');
+    if (interactiveRequired && !interactiveChartPresent) warnings.push('INTERACTIVITY_REQUIREMENT_LOST');
+    return {version:1, warnings:[...new Set(warnings)], firstScreenSummary,
+      longTableInFirstScreen:firstScreenLongTable, interactiveChartPresent, interactiveRequired};
+  })();
+  return { required: true, version: root.dataset.qbPageDesign, firstScreenEvidence, firstScreenSummary: methodologySummary || composeQuality.firstScreenSummary, firstScreenDiagnostics, problems: [...new Set(problems)],
+    composeQuality, rankingEvidence: {version:1, groups:rankingGroups, assets:[...assets], observationDates} };
 
 }

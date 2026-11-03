@@ -1,7 +1,7 @@
 # ============================================================
 # 板块与行业预设
-# 来源：板块_all_742.xlsx（2026-08-07 人工导出）
-# 数据：742 条记录，738 个唯一名称，10 个分类
+# 来源：板块_all_745.xlsx（2026-11-02 人工导出）
+# 数据：745 条记录，741 个唯一名称，10 个分类
 # 关键：公式中必须使用 name 字段，如 板块(万得全A)、板块(银行（申万）)
 #
 # 说明：
@@ -10,19 +10,19 @@
 # - 若此文件没有目标项，停止并向用户澄清，不再调用远程资产确认兜底。
 #
 # 分类目录：
-# - sectors: 板块 / 市场分类，25 条（源类型：板块(ban_kuai)）
+# - sectors: 板块 / 市场分类，27 条（源类型：板块(ban_kuai)）
 # - gics_primary_industries: GICS 一级行业（美股），25 条（源类型：GICS一级行业(gics_l1)）
 # - gics_sectors: GICS 板块（美股），11 条（源类型：GICS板块(gics_sector)）
 # - hang_seng_primary_industries: 恒生一级行业（港股），12 条（源类型：恒生一级行业(hsi_l1)）
 # - hang_seng_secondary_industries: 恒生二级行业（港股），31 条（源类型：恒生二级行业(hsi_l2)）
-# - concepts: A股概念分类（A股），399 条（源类型：A股概念分类(jqc)）
+# - concepts: A股概念分类（A股），400 条（源类型：A股概念分类(jqc)）
 # - kaipanla_themes: 开盘啦题材（A股），10 条（源类型：开盘啦题材(kplc)）
 # - market_connect: 沪港通 / 深港通，5 条（源类型：沪港通(market_tong)）
 # - primary_industries: 申万 / 万得一级行业（A股），42 条（源类型：申万一级行业(shenwan1)）
 # - secondary_industries: 申万二级行业（A股），182 条（源类型：申万二级行业(swl2)）
 # ============================================================
 
-# ── 板块 / 市场分类（25 条）────────────────────
+# ── 板块 / 市场分类（27 条）────────────────────
 sectors:
   - name: "全部资产"
     type: sector
@@ -37,6 +37,12 @@ sectors:
     type: sector
 
   - name: "商品"
+    type: sector
+
+  - name: "国内期货"
+    type: sector
+
+  - name: "境外期货"
     type: sector
 
   - name: "期货"
@@ -349,7 +355,7 @@ hang_seng_secondary_industries:
     type: hang_seng_secondary_industry
 
 
-# ── A股概念分类（A股）（399 条）────────────────────
+# ── A股概念分类（A股）（400 条）────────────────────
 concepts:
   - name: "石墨烯"
     type: concept
@@ -1548,6 +1554,9 @@ concepts:
   - name: "MLCC"
     type: concept
 
+  - name: "26三季报预增"
+    type: concept
+
 
 # ── 开盘啦题材（A股）（10 条）────────────────────
 kaipanla_themes:
@@ -1731,28 +1740,28 @@ primary_industries:
 
 # ── 申万二级行业（A股）（182 条）────────────────────
 secondary_industries:
-  - name: "林业Ⅱ(申万)"
+  - name: "林业II（申万）"
     type: secondary_industry
 
-  - name: "农产品加工（申万）"
+  - name: "农产品加工II（申万）"
     type: secondary_industry
 
   - name: "农业综合II"
     type: secondary_industry
 
-  - name: "饲料（申万）"
+  - name: "饲料II（申万）"
     type: secondary_industry
 
-  - name: "渔业（申万）"
+  - name: "渔业II（申万）"
     type: secondary_industry
 
-  - name: "种植业（申万）"
+  - name: "种植业II（申万）"
     type: secondary_industry
 
-  - name: "养殖业（申万）"
+  - name: "畜禽养殖II（申万）"
     type: secondary_industry
 
-  - name: "动物保健Ⅱ（申万）"
+  - name: "动物保健II（申万）"
     type: secondary_industry
 
   - name: "农业综合II"
@@ -1773,28 +1782,28 @@ secondary_industries:
   - name: "化工新材料II"
     type: secondary_industry
 
-  - name: "化学纤维（申万）"
+  - name: "化学纤维II（申万）"
     type: secondary_industry
 
-  - name: "化学原料（申万）"
+  - name: "化学原料II（申万）"
     type: secondary_industry
 
-  - name: "化学制品（申万）"
+  - name: "化学制品II（申万）"
     type: secondary_industry
 
   - name: "石油化工II"
     type: secondary_industry
 
-  - name: "塑料（申万）"
+  - name: "塑料II（申万）"
     type: secondary_industry
 
-  - name: "橡胶（申万）"
+  - name: "橡胶II（申万）"
     type: secondary_industry
 
-  - name: "农化制品（申万）"
+  - name: "农化制品II（申万）"
     type: secondary_industry
 
-  - name: "非金属材料Ⅱ（申万）"
+  - name: "非金属材料II（申万）"
     type: secondary_industry
 
   - name: "钢铁II"
@@ -1803,31 +1812,31 @@ secondary_industries:
   - name: "金属制品II"
     type: secondary_industry
 
-  - name: "冶钢原料（申万）"
+  - name: "冶钢原料II（申万）"
     type: secondary_industry
 
-  - name: "普钢（申万）"
+  - name: "普钢II（申万）"
     type: secondary_industry
 
-  - name: "特钢Ⅱ（申万）"
+  - name: "特钢II（申万）"
     type: secondary_industry
 
-  - name: "金属新材料（申万）"
+  - name: "金属非金属新材料II（申万）"
     type: secondary_industry
 
   - name: "有色金属冶炼II"
     type: secondary_industry
 
-  - name: "贵金属（申万）"
+  - name: "黄金II（申万）"
     type: secondary_industry
 
-  - name: "小金属（申万）"
+  - name: "稀有金属II（申万）"
     type: secondary_industry
 
-  - name: "工业金属（申万）"
+  - name: "工业金属II（申万）"
     type: secondary_industry
 
-  - name: "能源金属（申万）"
+  - name: "能源金属II（申万）"
     type: secondary_industry
 
   - name: "建筑材料II"
@@ -1839,91 +1848,91 @@ secondary_industries:
   - name: "电气设备II"
     type: secondary_industry
 
-  - name: "通用设备（申万）"
+  - name: "通用机械II（申万）"
     type: secondary_industry
 
   - name: "仪器仪表II"
     type: secondary_industry
 
-  - name: "专用设备（申万）"
+  - name: "专用设备II（申万）"
     type: secondary_industry
 
   - name: "金属制品II"
     type: secondary_industry
 
-  - name: "轨交设备Ⅱ（申万）"
+  - name: "运输设备II（申万）"
     type: secondary_industry
 
-  - name: "工程机械（申万）"
+  - name: "工程机械II（申万）"
     type: secondary_industry
 
-  - name: "自动化设备（申万）"
+  - name: "自动化设备II（申万）"
     type: secondary_industry
 
-  - name: "半导体（申万）"
+  - name: "半导体II（申万）"
     type: secondary_industry
 
-  - name: "其他电子Ⅱ（申万）"
+  - name: "其他电子II（申万）"
     type: secondary_industry
 
-  - name: "元件（申万）"
+  - name: "元件II（申万）"
     type: secondary_industry
 
-  - name: "光学光电子（申万）"
+  - name: "光学光电子II（申万）"
     type: secondary_industry
 
-  - name: "消费电子（申万）"
+  - name: "电子制造II（申万）"
     type: secondary_industry
 
-  - name: "电子化学品Ⅱ（申万）"
+  - name: "电子化学品II（申万）"
     type: secondary_industry
 
   - name: "非汽车交运设备II"
     type: secondary_industry
 
-  - name: "汽车服务（申万）"
+  - name: "汽车服务II（申万）"
     type: secondary_industry
 
-  - name: "汽车零部件（申万）"
+  - name: "汽车零部件II（申万）"
     type: secondary_industry
 
   - name: "汽车整车II"
     type: secondary_industry
 
-  - name: "乘用车（申万）"
+  - name: "乘用车II（申万）"
     type: secondary_industry
 
-  - name: "商用车（申万）"
+  - name: "商用车II（申万）"
     type: secondary_industry
 
-  - name: "计算机设备（申万）"
+  - name: "计算机设备II（申万）"
     type: secondary_industry
 
-  - name: "通信设备（申万）"
+  - name: "通信设备II（申万）"
     type: secondary_industry
 
-  - name: "IT服务Ⅱ（申万）"
+  - name: "IT服务II（申万）"
     type: secondary_industry
 
-  - name: "软件开发（申万）"
+  - name: "软件开发II（申万）"
     type: secondary_industry
 
-  - name: "白色家电（申万）"
+  - name: "白色家电II（申万）"
     type: secondary_industry
 
-  - name: "黑色家电（申万）"
+  - name: "视听器材II（申万）"
     type: secondary_industry
 
-  - name: "小家电（申万）"
+  - name: "小家电II（申万）"
     type: secondary_industry
 
-  - name: "厨卫电器（申万）"
+  - name: "厨卫电器II（申万）"
     type: secondary_industry
 
-  - name: "照明设备Ⅱ（申万）"
+  - name: "照明设备II（申万）"
     type: secondary_industry
 
-  - name: "家电零部件Ⅱ（申万）"
+  - name: "家电零部件II（申万）"
     type: secondary_industry
 
   - name: "其他家电II"
@@ -1938,73 +1947,73 @@ secondary_industries:
   - name: "饮料制造II"
     type: secondary_industry
 
-  - name: "食品加工（申万）"
+  - name: "食品加工II（申万）"
     type: secondary_industry
 
-  - name: "白酒Ⅱ（申万）"
+  - name: "白酒II（申万）"
     type: secondary_industry
 
-  - name: "非白酒（申万）"
+  - name: "非白酒II（申万）"
     type: secondary_industry
 
-  - name: "饮料乳品（申万）"
+  - name: "饮料乳品II（申万）"
     type: secondary_industry
 
-  - name: "休闲食品（申万）"
+  - name: "休闲食品II（申万）"
     type: secondary_industry
 
-  - name: "调味发酵品Ⅱ（申万）"
+  - name: "调味发酵品II（申万）"
     type: secondary_industry
 
-  - name: "纺织制造（申万）"
+  - name: "纺织制造II（申万）"
     type: secondary_industry
 
-  - name: "服装家纺（申万）"
+  - name: "服装家纺II（申万）"
     type: secondary_industry
 
-  - name: "饰品（申万）"
+  - name: "饰品II（申万）"
     type: secondary_industry
 
-  - name: "包装印刷（申万）"
+  - name: "包装印刷II（申万）"
     type: secondary_industry
 
-  - name: "家居用品（申万）"
+  - name: "家用轻工II（申万）"
     type: secondary_industry
 
-  - name: "造纸（申万）"
+  - name: "造纸II（申万）"
     type: secondary_industry
 
   - name: "其他轻工制造II"
     type: secondary_industry
 
-  - name: "文娱用品（申万）"
+  - name: "文娱用品II（申万）"
     type: secondary_industry
 
-  - name: "化学制药（申万）"
+  - name: "化学制药II（申万）"
     type: secondary_industry
 
-  - name: "生物制品（申万）"
+  - name: "生物制品II（申万）"
     type: secondary_industry
 
-  - name: "医疗器械（申万）"
+  - name: "医疗器械II（申万）"
     type: secondary_industry
 
-  - name: "医药商业（申万）"
+  - name: "医药商业II（申万）"
     type: secondary_industry
 
-  - name: "中药Ⅱ（申万）"
+  - name: "中药II（申万）"
     type: secondary_industry
 
-  - name: "医疗服务（申万）"
+  - name: "医疗服务II（申万）"
     type: secondary_industry
 
-  - name: "电力（申万）"
+  - name: "电力II（申万）"
     type: secondary_industry
 
   - name: "环保工程及服务II"
     type: secondary_industry
 
-  - name: "燃气Ⅱ（申万）"
+  - name: "燃气II（申万）"
     type: secondary_industry
 
   - name: "水务II"
@@ -2031,49 +2040,49 @@ secondary_industries:
   - name: "铁路运输II"
     type: secondary_industry
 
-  - name: "物流（申万）"
+  - name: "物流II（申万）"
     type: secondary_industry
 
-  - name: "铁路公路（申万）"
+  - name: "铁路公路II（申万）"
     type: secondary_industry
 
-  - name: "房地产开发（申万）"
+  - name: "房地产开发II（申万）"
     type: secondary_industry
 
   - name: "园区开发II"
     type: secondary_industry
 
-  - name: "房地产服务（申万）"
+  - name: "房地产服务II（申万）"
     type: secondary_industry
 
-  - name: "多元金融（申万）"
+  - name: "多元金融II（申万）"
     type: secondary_industry
 
   - name: "银行II"
     type: secondary_industry
 
-  - name: "证券Ⅱ（申万）"
+  - name: "证券II（申万）"
     type: secondary_industry
 
-  - name: "保险Ⅱ（申万）"
+  - name: "保险II（申万）"
     type: secondary_industry
 
   - name: "零售II"
     type: secondary_industry
 
-  - name: "贸易Ⅱ（申万）"
+  - name: "贸易II（申万）"
     type: secondary_industry
 
-  - name: "一般零售（申万）"
+  - name: "一般零售II（申万）"
     type: secondary_industry
 
-  - name: "专业连锁Ⅱ（申万）"
+  - name: "专业零售II（申万）"
     type: secondary_industry
 
   - name: "商业物业经营II"
     type: secondary_industry
 
-  - name: "互联网电商（申万）"
+  - name: "互联网电商II（申万）"
     type: secondary_industry
 
   - name: "旅游零售II"
@@ -2100,10 +2109,10 @@ secondary_industries:
   - name: "本地生活服务II"
     type: secondary_industry
 
-  - name: "专业服务（申万）"
+  - name: "专业服务II（申万）"
     type: secondary_industry
 
-  - name: "酒店餐饮（申万）"
+  - name: "酒店餐饮II（申万）"
     type: secondary_industry
 
   - name: "传媒II"
@@ -2112,79 +2121,79 @@ secondary_industries:
   - name: "计算机应用II"
     type: secondary_industry
 
-  - name: "通信服务（申万）"
+  - name: "通信运营II（申万）"
     type: secondary_industry
 
   - name: "网络服务II"
     type: secondary_industry
 
-  - name: "综合Ⅱ（申万）"
+  - name: "综合II（申万）"
     type: secondary_industry
 
-  - name: "水泥（申万）"
+  - name: "水泥制造II（申万）"
     type: secondary_industry
 
-  - name: "玻璃玻纤（申万）"
+  - name: "玻璃制造II（申万）"
     type: secondary_industry
 
-  - name: "装修建材（申万）"
+  - name: "其他建材II（申万）"
     type: secondary_industry
 
-  - name: "房屋建设Ⅱ（申万）"
+  - name: "房屋建设II（申万）"
     type: secondary_industry
 
-  - name: "装修装饰Ⅱ（申万）"
+  - name: "装修装饰II（申万）"
     type: secondary_industry
 
-  - name: "基础建设（申万）"
+  - name: "基础建设II（申万）"
     type: secondary_industry
 
-  - name: "专业工程（申万）"
+  - name: "专业工程II（申万）"
     type: secondary_industry
 
   - name: "园林工程II"
     type: secondary_industry
 
-  - name: "工程咨询服务Ⅱ（申万）"
+  - name: "工程咨询服务II（申万）"
     type: secondary_industry
 
-  - name: "电机Ⅱ（申万）"
+  - name: "电机II（申万）"
     type: secondary_industry
 
   - name: "电气自动化设备II"
     type: secondary_industry
 
-  - name: "其他电源设备Ⅱ（申万）"
+  - name: "电源设备II（申万）"
     type: secondary_industry
 
   - name: "高低压设备II"
     type: secondary_industry
 
-  - name: "光伏设备（申万）"
+  - name: "光伏设备II（申万）"
     type: secondary_industry
 
-  - name: "风电设备（申万）"
+  - name: "风电设备II（申万）"
     type: secondary_industry
 
-  - name: "电池（申万）"
+  - name: "电池II（申万）"
     type: secondary_industry
 
-  - name: "电网设备（申万）"
+  - name: "电网设备II（申万）"
     type: secondary_industry
 
-  - name: "航天装备Ⅱ（申万）"
+  - name: "航天装备II（申万）"
     type: secondary_industry
 
-  - name: "航空装备Ⅱ（申万）"
+  - name: "航空装备II（申万）"
     type: secondary_industry
 
-  - name: "地面兵装Ⅱ（申万）"
+  - name: "地面兵装II（申万）"
     type: secondary_industry
 
-  - name: "航海装备Ⅱ（申万）"
+  - name: "船舶制造II（申万）"
     type: secondary_industry
 
-  - name: "军工电子Ⅱ（申万）"
+  - name: "军工电子II（申万）"
     type: secondary_industry
 
   - name: "营销传播II"
@@ -2196,85 +2205,85 @@ secondary_industries:
   - name: "文化传媒II"
     type: secondary_industry
 
-  - name: "游戏Ⅱ（申万）"
+  - name: "游戏II（申万）"
     type: secondary_industry
 
-  - name: "广告营销（申万）"
+  - name: "广告营销II（申万）"
     type: secondary_industry
 
-  - name: "影视院线（申万）"
+  - name: "影视院线II（申万）"
     type: secondary_industry
 
-  - name: "数字媒体（申万）"
+  - name: "数字媒体II（申万）"
     type: secondary_industry
 
   - name: "社交II"
     type: secondary_industry
 
-  - name: "出版（申万）"
+  - name: "出版II（申万）"
     type: secondary_industry
 
-  - name: "国有大型银行Ⅱ（申万）"
+  - name: "国有大型银行II（申万）"
     type: secondary_industry
 
-  - name: "股份制银行Ⅱ（申万）"
+  - name: "股份制银行II（申万）"
     type: secondary_industry
 
-  - name: "城商行Ⅱ（申万）"
+  - name: "城商行II（申万）"
     type: secondary_industry
 
-  - name: "农商行Ⅱ（申万）"
+  - name: "农商行II（申万）"
     type: secondary_industry
 
   - name: "其他银行II"
     type: secondary_industry
 
-  - name: "摩托车及其他（申万）"
+  - name: "其他交运设备II（申万）"
     type: secondary_industry
 
-  - name: "煤炭开采（申万）"
+  - name: "煤炭开采II（申万）"
     type: secondary_industry
 
-  - name: "焦炭Ⅱ（申万）"
+  - name: "焦炭II（申万）"
     type: secondary_industry
 
   - name: "油气开采II"
     type: secondary_industry
 
-  - name: "油服工程（申万）"
+  - name: "油服工程II（申万）"
     type: secondary_industry
 
-  - name: "炼化及贸易（申万）"
+  - name: "炼化及贸易II（申万）"
     type: secondary_industry
 
-  - name: "环境治理（申万）"
+  - name: "环境治理II（申万）"
     type: secondary_industry
 
-  - name: "环保设备Ⅱ（申万）"
+  - name: "环保设备II（申万）"
     type: secondary_industry
 
-  - name: "个护用品（申万）"
+  - name: "个护用品II（申万）"
     type: secondary_industry
 
-  - name: "化妆品（申万）"
+  - name: "化妆品II（申万）"
     type: secondary_industry
 
   - name: "医疗美容II"
     type: secondary_industry
 
-  - name: "航空机场（申万）"
+  - name: "航空机场II（申万）"
     type: secondary_industry
 
-  - name: "航运港口（申万）"
+  - name: "航运港口II（申万）"
     type: secondary_industry
 
-  - name: "旅游及景区（申万）"
+  - name: "旅游及景区II（申万）"
     type: secondary_industry
 
-  - name: "教育（申万）"
+  - name: "教育II（申万）"
     type: secondary_industry
 
-  - name: "电视广播Ⅱ（申万）"
+  - name: "电视广播II（申万）"
     type: secondary_industry
 
 # ============================================================

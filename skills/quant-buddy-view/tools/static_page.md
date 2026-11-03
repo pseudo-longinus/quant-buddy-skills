@@ -11,7 +11,7 @@
 
 `bind_runtime_route @params.json` 将当前 task/turn 的已登记 package/grant 角色绑定为路由，返回 `route_receipt_file`。缺路由时执行 Compose 返回的下一步；工具不重算、不重复登记。参数、兼容性和结构化原因见[已验证资源恢复](../workflows/validated-resource-recovery.md)。
 
-`execution_plan`读取/显式修订目标计划；`compose_page`按绑定范围构建完整候选；`materialize_snapshot`从已验证结果或本任务已登记运行时生成不可变数据快照；`delivery_status`只读查看执行/交付状态，可用refresh_remote查询原页版本；`reconcile_delivery`依据服务端trace与写入合同核销确认未写入的拒绝，不直接发布。完整参数与错误恢复见[计划驱动交付](../workflows/planned-delivery-recovery.md)。
+`execution_plan`读取/显式修订目标计划；`compose_page`按绑定范围构建完整候选，可在 draft 顶层加 `presentation` 让模型手写安全布局、标准 renderer 渲染已验证面板（见 [Compose Presentation](../guides/compose-presentation.md)）；`materialize_snapshot`从已验证结果或本任务已登记运行时生成不可变数据快照，普通QBS公式收据返回`QBS_RECEIPT_NEEDS_BRIDGE`并转向同任务handoff恢复；`delivery_status`只读查看执行/交付状态，可用refresh_remote查询原页版本；`reconcile_delivery`依据服务端trace与写入合同核销确认未写入的拒绝，不直接发布。完整参数与错误恢复见[计划驱动交付](../workflows/planned-delivery-recovery.md)。
 
 `update_progress`拒绝status/step误参，更新必须指定current_step；已存在内容的计划任务可能只记录状态并返回public_page_updated:false，此时不能声称已写回公开页面。计划任务的最终发布经publish_verified执行。
 

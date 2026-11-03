@@ -10,11 +10,13 @@ from pathlib import Path
 import common as C
 import execution_plan as EP
 import runtime_credentials as RC
+import compose_quality as CQ
 
 POINTER='receipts/compose-draft.json'
 PASS_FIELDS=('title','subtitle','description','page_context','agent_reply_template','live_card','agent_intent','market_data_required',
              'route_receipt_file','validation_receipt_files','grant_validation_receipt_files','handoff_validation_receipt_files','turn_id','asset',
-             'research_contract','research_checks','research_status','delivery_kind','live_data_mode','missing_conditions')
+             'research_contract','research_checks','research_status','delivery_kind','live_data_mode','missing_conditions',
+             'presentation')
 
 
 def editable_root(task):
@@ -275,6 +277,8 @@ def prepare(plan,params=None):
                 if panel.get('type') in ('table','bar'):
                     for key in ('rank_by','rank_order','rank_limit'): panel.setdefault(key,ranking[key])
         _,remaining=normalize_panels(plan,draft);issues+=remaining
+        quality_warnings=CQ.evaluate(task,plan,draft.get('panels') or [],draft.get('presentation'),draft).get('warnings',[])
+        draft['quality_warnings']=quality_warnings
         EP._no_secrets(draft)
         data=json.dumps(draft,ensure_ascii=False,indent=2).encode('utf-8')+b'\n'
         digest=hashlib.sha256(data).hexdigest();path=root/f'compose-r{plan["revision"]}-{digest[:16]}.json'
@@ -286,5 +290,5 @@ def prepare(plan,params=None):
             index+=1;path=root/f'compose-r{plan["revision"]}-{digest[:16]}-{index}.json'
         if not path.exists():EP.atomic_json(path,draft)
         EP.atomic_json(C.task_temp_path(task,POINTER,create_parent=True),{'task_id':task,'page_id':plan['target_page_id'],'plan_hash':plan['plan_hash'],'params_file':str(path),'revision':plan['revision']})
-        return {'next_action':{'command':'compose_page','params_file':str(path),'instruction':'先处理draft_diagnostics，再填写标题和研究文字。自动table只是数据绑定起点，不能直接当最终版式：阅读guides/self-build-quality.md，排名页先做最强/最弱原始数值柱图，再保留一张明确排序、单位和日期的完整表；百分比按已验证源值声明scale。可以调整面板类型/顺序但保留runtime_role_id及必需outputs。不编辑内部收据；不要原样重试未解决的诊断。'},
-                'draft_diagnostics':issues,'draft_ready':not issues,'plan_hash':plan['plan_hash']}
+        return {'next_action':{'command':'compose_page','params_file':str(path),'instruction':'先处理draft_diagnostics，再填写标题和研究文字。自动table只是数据绑定起点，不能直接当最终版式：先写首屏结论、3-4个核心指标和主图，长表放折叠明细；数据页优先补presentation.html挂载点。排名页先做最强/最弱原始数值柱图，再保留一张明确排序、单位和日期的完整表；百分比按已验证源值声明scale。可以调整面板类型/顺序但保留runtime_role_id及必需outputs。不编辑内部收据；不要把长表搬到首屏来消除warning。'},
+                'draft_diagnostics':issues,'quality_warnings':quality_warnings,'draft_ready':not issues,'plan_hash':plan['plan_hash']}
