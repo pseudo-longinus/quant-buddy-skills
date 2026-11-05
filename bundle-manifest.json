@@ -1,15 +1,15 @@
 {
   "schema_version": 1,
-  "bundle_version": "4.25.63",
+  "bundle_version": "4.25.65",
   "components": {
     "quant-buddy-skill": {
-      "version": "4.25.63"
+      "version": "4.25.65"
     },
     "quant-buddy-view": {
-      "version": "0.8.0",
+      "version": "0.8.4",
       "source_repository": "pseudo-longinus/quant-buddy-view",
-      "source_tag": "v0.8.0",
-      "source_commit": "af8ac626a19562a40b6f738895bd8a0f3e08b25e"
+      "source_tag": "v0.8.4",
+      "source_commit": "a3c6225eecc953b8606ca2156bb0859eaae80665"
     }
   }
 }

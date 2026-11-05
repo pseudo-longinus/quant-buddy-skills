@@ -12,6 +12,79 @@ from single_stock_reply import AGENT_SUMMARY_MARKER
 FILE = 'receipts/new-asset-delivery.json'
 
 
+def _verify_observation(page_id, url, expected_title, observed):
+    if expected_title is not None and PTC.normalize(observed.get('title')) != expected_title:
+        return 'PAGE_TITLE_POSTCHECK_FAILED', None
+    remote = DS._remote(observed)
+    if (observed.get('code') not in (None, 0) or remote['page_id'] != page_id or remote['url'] != url
+            or type(remote['version_no']) is not int or remote['version_no'] < 1
+            or not re.fullmatch('[a-f0-9]{64}', str(remote['sha256'] or ''))):
+        return 'FAST_PAGE_PUBLIC_VERIFICATION_FAILED', None
+    return None, remote
+
+
+def persist_template_verified(task, turn, page_id, url, draft, *, observe, expected_title=None,
+                              source_template=None, page_ready_markdown='',
+                              page_ready_data_markdown='', page_ready_tail_markdown='',
+                              summary_heading=''):
+    """Persist a release-certified template page without per-request Playwright.
+
+    Public page identity, version and hash are still checked before and after
+    the receipt is written. Standard fast-page delivery retains Playwright.
+    """
+    record = dict(schema_version='fast_page_delivery_v1', task_id=task, turn_id=turn,
+                  page_id=page_id, url=url, status='failed',
+                  error_code='FAST_PAGE_PUBLIC_VERIFICATION_FAILED',
+                  verification_mode='release_template_trusted')
+    if isinstance(source_template, dict):
+        record['source_template'] = source_template
+    if page_ready_markdown:
+        record['reply_mode'] = 'page_first_answer_v1'
+        record['page_ready_markdown'] = str(page_ready_markdown).strip()
+        if page_ready_data_markdown:
+            record['page_ready_data_markdown'] = str(page_ready_data_markdown).strip()
+        if page_ready_tail_markdown:
+            record['page_ready_tail_markdown'] = str(page_ready_tail_markdown).strip()
+        if summary_heading:
+            record['summary_heading'] = str(summary_heading).strip()
+
+    def save():
+        record.pop('receipt_hash', None)
+        record['receipt_hash'] = EP.digest(record)
+        EP.atomic_json(C.task_temp_path(task, FILE, create_parent=True), record)
+
+    save()
+    try:
+        before = observe()
+        error_code, remote = _verify_observation(page_id, url, expected_title, before)
+        if error_code:
+            record['error_code'] = error_code
+            save()
+            return {'code': 1, 'error': error_code, 'published': True, 'verified': False}
+        after = observe()
+        error_code, after_remote = _verify_observation(page_id, url, expected_title, after)
+        if error_code:
+            record['error_code'] = error_code
+            save()
+            return {'code': 1, 'error': error_code, 'published': True, 'verified': False}
+        checked = PT.verify_current({'target_page_id': page_id}, before, after)
+        if checked.get('code') != 0:
+            record['error_code'] = checked.get('error') or record['error_code']
+            save()
+            return {'code': 1, 'error': record['error_code']}
+        record.update(after_remote, status='verified', draft=draft, page_title=expected_title)
+        record.pop('error_code', None)
+        save()
+        return {
+            'code': 0,
+            'version_no': after_remote['version_no'],
+            'sha256': after_remote['sha256'],
+            'verification_mode': record['verification_mode'],
+        }
+    except (OSError, ValueError, TypeError, KeyError):
+        return {'code': 1, 'error': record['error_code'], 'published': True, 'verified': False}
+
+
 def persist_verified(task, turn, page_id, url, draft, *, observe, verify, expected_title=None):
     record = dict(schema_version='fast_page_delivery_v1', task_id=task, turn_id=turn,
                   page_id=page_id, url=url, status='failed', error_code='FAST_PAGE_PUBLIC_VERIFICATION_FAILED')
@@ -80,6 +153,39 @@ def export(task, turn, reply_text='', *, finalize_reply=False):
             if any(pattern.search(host_metadata) for _, pattern in _SENSITIVE_PATTERNS):
                 return {**unknown, 'status': 'failed', 'failure_stage': 'reply_validation',
                         'error_code': 'SENSITIVE_CONTENT'}
+        if record.get('reply_mode') == 'page_first_answer_v1':
+            page_ready = str(record.get('page_ready_markdown') or '').strip()
+            if not page_ready or not reply.startswith(page_ready):
+                return {**unknown, 'status': 'failed', 'failure_stage': 'reply_validation',
+                        'error_code': 'FAST_PAGE_REPLY_MISMATCH', 'page_id': record['page_id'],
+                        'progress_url': record['url']}
+            data_markdown = str(record.get('page_ready_data_markdown') or '').strip()
+            lead = f'{page_ready}\n\n---\n\n{data_markdown}' if data_markdown else page_ready
+            if not reply.startswith(lead):
+                return {**unknown, 'status': 'failed', 'failure_stage': 'reply_validation',
+                        'error_code': 'FAST_PAGE_REPLY_MISMATCH', 'page_id': record['page_id'],
+                        'progress_url': record['url']}
+            analysis = reply[len(lead):].lstrip(' -\n')
+            if not analysis or AGENT_SUMMARY_MARKER in reply:
+                return {**unknown, 'status': 'failed', 'failure_stage': 'reply_validation',
+                        'error_code': 'FAST_PAGE_REPLY_MISMATCH', 'page_id': record['page_id'],
+                        'progress_url': record['url']}
+            summary_heading = str(record.get('summary_heading') or '').strip()
+            if summary_heading and (not analysis.startswith(summary_heading)
+                    or reply.count(summary_heading) != 1):
+                return {**unknown, 'status': 'failed', 'failure_stage': 'reply_validation',
+                        'error_code': 'FAST_PAGE_REPLY_MISMATCH', 'page_id': record['page_id'],
+                        'progress_url': record['url']}
+            tail = str(record.get('page_ready_tail_markdown') or '').strip()
+            if tail and not reply.rstrip().endswith(tail):
+                return {**unknown, 'status': 'failed', 'failure_stage': 'reply_validation',
+                        'error_code': 'FAST_PAGE_REPLY_MISMATCH', 'page_id': record['page_id'],
+                        'progress_url': record['url']}
+            result = {**unknown, 'status': 'succeeded', 'page_id': record['page_id'],
+                      'result_url': record['url'], 'version_no': record['version_no']}
+            if finalize_reply:
+                result['validated_markdown'] = reply + host_metadata
+            return result
         if draft.count(AGENT_SUMMARY_MARKER) != 1:
             return unknown
         prefix, suffix = draft.split(AGENT_SUMMARY_MARKER)

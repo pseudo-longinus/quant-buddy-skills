@@ -28,7 +28,7 @@ def _classify(payload):
             return {'code': 1, 'error': 'PAGE_CLASSIFIER_FAILED'}
         return {key: route[key] for key in (
             'code', 'route', 'route_reason', 'page_reference', 'page_workflow',
-            'asset', 'requires_persistence_confirmation',
+            'asset', 'requires_persistence_confirmation', 'delivery_strategy', 'next_step',
         ) if key in route}
     except (OSError, ValueError, subprocess.TimeoutExpired):
         return {'code': 1, 'error': 'PAGE_CLASSIFIER_FAILED'}
@@ -101,6 +101,21 @@ def handoff(params, result, route):
                     params=({'task_id': task} if resume else
                             {'task_id': task, 'url' if str(reference).startswith(('https://', 'http://')) else 'page_id': reference}),
                     instruction='复用原页身份及本轮证据，按现有原位更新/恢复流程继续；没有计划时先完成原页归属检查和计划绑定，不新建替代页。')
+    elif route.get('page_workflow') == 'single_a_stock_fast' and route.get('delivery_strategy') == 'page_first':
+        step.update(
+            workflow='single_a_stock_fast',
+            guide='guides/answer-first.md',
+            tool='static_page.py new_asset_page',
+            params={
+                'task_id': task,
+                'asset': params['asset'],
+                'user_query': params['user_query'],
+                'delivery_mode': 'page_first_fast',
+            },
+            precondition='先并行启动页面与背景检索；页面 ready 后立即展示，不结束回合。',
+            instruction='使用 newAssetPage 返回的结构化页面证据生成分析；不重新调用 stockProfile、不下载 HTML、不重复浏览器验收。',
+            fallback='页面失败只尝试一次，随后使用可用 QBS 结果输出文字分析并明确披露页面未生成。',
+        )
     elif (route.get('page_workflow') == 'single_a_stock_fast'
           and result.get('required_roles_complete') is True and result.get('answer_evidence')
           and any(item.get('role') == 'profile' for item in result['answer_evidence'])):

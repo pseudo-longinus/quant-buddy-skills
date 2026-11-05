@@ -5,6 +5,30 @@
 
 ---
 
+## [0.8.4] — 2026-11-04
+
+- 单股 `page_first_fast` 启动顺序固定为“先 Skill 工具、后页面与搜索”，禁止通过 `ls/find/grep/sed/cat` 探测 Skill 目录或读取 SKILL.md。
+- Host 托管模式下 `new_asset_page` 可直接复用 `QB_HOST_TASK_ID`、`QB_HOST_TURN_ID` 和 `QB_HOST_USER_QUERY`；快速通道不再重复调用 `trace_context.py begin`。
+- 该优化只改变快速通道启动方式；普通先答后建页、原页更新、fork、Compose、回测和多资产流程保持原 trace 与执行顺序。
+
+## [0.8.3] — 2026-11-04
+
+- `page_first_fast` 改为分阶段交付：页面 ready 时立即展示页面卡片、分析标题和第一至第五章，背景搜索完成后只追加综合观察，不再等模型重写完整六章。
+- `new_asset_page` 新增 `page_ready_data_markdown`、`page_ready_tail_markdown`、`summary_heading` 与 `delivery_stage_mode:"page_data_then_summary_v1"`；快速通道返回 `output_scope:"summary_section_only"`。
+- 页面优先最终回复只保留一个页面链接；模型不重复数据章节、免责声明或底部链接，Host 负责将前五章、综合观察和尾注组装为同一条历史消息。
+
+## [0.8.2] — 2026-11-04
+
+- 修正单股 `page_first_fast` 的启动顺序：取得 `task_id` 后立即调用 `new_asset_page`，与必要公开搜索并行，不再等搜索或 `qb_finish_research_intent` 完成后才发起页面。
+- `new_asset_page` 返回的页面状态、草稿和 `fast_reply_payload` 直接作为分析主数据；页面 ready 后先展示，随后继续等待搜索结果并由 Agent 统一生成最终回复。
+- 仅影响宿主启用 `page_first_fast` 的单只 A 股快速通道；普通先答后建页、原页更新、fork、Compose、回测和多资产流程不变。
+
+## [0.8.1] — 2026-11-04
+
+- `new_asset_page` 新增 `page_first_fast` 专用模式：页面 ready 后先展示，返回紧凑 JSON 载荷和非终止合同；复用页面版本/hash 收据替代逐请求 Playwright。
+- `page_first_fast` 直接消费接口结构化数据，不下载 HTML、不重复读取 evidence；最终回复只保留一个页面卡片，分析正文随后输出。
+- 个股综合观察改为单节融合数据与公开背景，明确印证、矛盾、观察条件和证据缺口，并移除重复的“背景与关注点”章节。
+
 ## [0.8.0] — 2026-11-03
 
 - 新增 Compose Presentation Mode：模型可以手写首屏结论、指标卡和页面布局，数据面板仍由标准 renderer 受控渲染并绑定已验证数据。

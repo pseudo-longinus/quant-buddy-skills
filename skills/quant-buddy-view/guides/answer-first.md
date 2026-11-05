@@ -2,9 +2,11 @@
 
 WebAgent 宿主明确金融问题统一交付“问答＋活页”时，一次性查数、金融概念和口语个股近况也进入本流程；不以“未要求网页”退回纯 QBS。完整首答后复用同一证据继续，页面内容与答案规模相称，不把简单价格查询扩大成综合画像。概念页沿用首答解释和真实来源，不为建页虚构量化数据。明确不要网页/只回复文字/暂不发布优先；已有页遵循原页规则，纯只读解读不重复建页。独立 QBS 的默认不建页规则不覆盖宿主交付约定，详见 QBS `workflows/answer-first.md`。
 
+> **宿主快速页面优先例外**：仅当 WebAgent 的 `<host_individual_stock_fast_path>` 明确启用页面优先时，第一个工具调用必须使用 `Skill` 工具加载 QBV，禁止用 `ls/find/grep/sed/cat` 查找 Skill。Host 已提供托管 Trace Context 时，`new_asset_page` 省略 `task_id`，不再调用 `trace_context.py begin`；取得 Skill Base directory 后立即调用 `new_asset_page(delivery_mode:"page_first_fast")`，并与有限的公开背景检索并行。完整读取命令返回的紧凑 JSON，禁止用 `head`、`tail` 或重定向截断，也不要再次打开 data_sources/reply-evidence。页面 ready 后，Host 立即展示 `page_ready_markdown + page_ready_data_markdown`，即页面卡片、分析标题和第一至第五章；不结束回合，也不重复这些内容。搜索完成后调用 `qb_finish_research_intent`，Agent 只生成 `agent_summary_request.summary_heading` 指定的综合观察章节，融合页面数据、背景来源、印证、矛盾、观察条件和证据缺口；Host 再追加 `page_ready_tail_markdown`。不另外调用 `stockProfile`、不下载 HTML、不重复浏览器验收。普通页面、原页更新和其他验证内容仍遵守下述先答后建页规则。
+
 单字段短答、无结构的概念解释，终态仍保留完整业务答案并附验收链接，不采用只含链接的 `page_followup`；宿主目前只对带日期的结构化金融报告自动保留前文。下述完整个股报告快页仍可使用已验证短补链模式。
 
-量化查询型建页先通过 QBS 查询和验证，发送包含结果、日期和口径的完整非终止业务回复，再进入模板搜索、注册、构建和发布。默认同轮继续，不以宿主有后台能力为前提。已有文件静态托管、只读解读和纯展示维护沿原入口。若宿主只展示最终消息，继续完成任务但不宣称首答已提前可见。
+量化查询型建页通常先通过 QBS 查询和验证，发送包含结果、日期和口径的完整非终止业务回复，再进入模板搜索、注册、构建和发布。上述 `page_first_fast` 例外以 `newAssetPage.data_sources` 同时承担结构化证据和页面生成，页面先展示、分析后到。默认同轮继续，不以宿主有后台能力为前提。已有文件静态托管、只读解读和纯展示维护沿原入口。若宿主只展示最终消息，继续完成任务但不宣称首答已提前可见。
 
 直接进入 QBV 的建页任务：先建立 trace context，用 qbs_bridge 执行 QBS 查询；此阶段不要创建进度页。取得有效答案后先回复，再继续本 Skill 默认路由。上下游复用同一 task_id/turn_id。已有真实 QBS Handoff 则 beginHandoff，不重复 begin/beginTurn。
 
@@ -18,9 +20,9 @@ WebAgent 宿主明确金融问题统一交付“问答＋活页”时，一次�
 
 快页适用范围由共享 QBS 分类器复核，不能靠手填 `page_workflow` 扩大。普通“宿迁联盛个股分析”可走快页；“宿迁联盛个股分析，需要分析今日和近三日资金净流入量”含额外历史窗口，使用 `page_requested:true`，不填快页标志，复用画像及资金证据走模板/Compose。页面须保留今日是否有数据、窗口实际交易日、逐日值与累计值；截至前一交易日的替代窗口单独标注。资产不唯一时先澄清，不借快页绕过。
 
-裸 A 股名称/简称/代码及“分析一下/全面分析/个股画像”单只 A 股也是已确定的个股快页意图（由 QBS 本地目录分类器确认唯一资产）；保留原始 user_query，按下面简单个股路径先答后 `new_asset_page`，不要以只读 stockProfile 回答结束，也不问是否需要网页。若 QBS 已交付同一任务的有效画像首答，则复用证据直接继续快页，跳过下面 bridge 取数示例；即使尚未调用 QBV trace begin，也只绑定原 task/turn，不能以“进入 QBV”为由重新取数。具体查数、禁止网页、重名未澄清不由此扩大为建页。
+裸 A 股名称/简称/代码及“分析一下/全面分析/个股画像”单只 A 股也是已确定的个股快页意图（由 QBS 本地目录分类器确认唯一资产）；保留原始 user_query，不要以只读 stockProfile 回答结束，也不问是否需要网页。宿主开启页面优先时直接走 `delivery_mode:"page_first_fast"` 例外；未开启时按下面简单个股路径先答后 `new_asset_page`。若 QBS 已交付同一任务的有效画像首答，则复用证据直接继续快页，跳过下面 bridge 取数示例；即使尚未调用 QBV trace begin，也只绑定原 task/turn，不能以“进入 QBV”为由重新取数。具体查数、禁止网页、重名未澄清不由此扩大为建页。
 
-- 尚无本轮有效画像的个股综合分析（含裸 A 股默认画像）：写一份 `{"task_id":"本轮ID","user_query":"原话","asset":"分类器返回的标准 ticker","page_workflow":"single_a_stock_fast","required_roles":{"profile":["dimensions"]}}`，运行 `python scripts/qbs_bridge.py resolve_asset_data @params.json`。示例中的 `page_workflow` 仅用于满足单只 A 股快页条件的请求；其他资产或定制页省略它，取证后沿原页面路由。直接消费 `answer_evidence` 的完整画像及 variants；财务章复用其中 `answer_financial_table.markdown` 与 `notes`，不手工挑漏变体，按 QBS `workflows/stock-profile.md` 的六章完整分析合同回复，保留实际日期、单位、财务口径、估值分位和综合观察。不能只取四个 snapshot 字段充作综合分析，也不能用“每维度 2～4 项”压缩已返回的核心内容。已有同任务有效画像则直接复用，不重查；画像缺失或警告要明确披露，不将少量行情伪装成完整画像。
+- 未开启页面优先且尚无本轮有效画像的个股综合分析（含裸 A 股默认画像）：写一份 `{"task_id":"本轮ID","user_query":"原话","asset":"分类器返回的标准 ticker","page_workflow":"single_a_stock_fast","required_roles":{"profile":["dimensions"]}}`，运行 `python scripts/qbs_bridge.py resolve_asset_data @params.json`。示例中的 `page_workflow` 仅用于满足单只 A 股快页条件的请求；其他资产或定制页省略它，取证后沿原页面路由。直接消费 `answer_evidence` 的完整画像及 variants；财务章复用其中 `answer_financial_table.markdown` 与 `notes`，不手工挑漏变体，按 QBS `workflows/stock-profile.md` 的六章完整分析合同回复，保留实际日期、单位、财务口径、估值分位和综合观察。不能只取四个 snapshot 字段充作综合分析，也不能用“每维度 2～4 项”压缩已返回的核心内容。已有同任务有效画像则直接复用，不重查；画像缺失或警告要明确披露，不将少量行情伪装成完整画像。
 - 明确只问少数行情字段：按请求使用 `required_roles.snapshot`（如 `["close","pct_chg","pe_ttm","pb"]`），消费已验证 `answer_evidence`，不要为读取收据重复 fast_query。首答后按模板/自建路由生成对应字段的页面，禁止使用固定综合画像 `new_asset_page`。`NEW_ASSET_PAGE_SCOPE_MISMATCH` 只表示选错建页入口：复用答案和 `answer_structure` 继续正确路由，不停止任务。综合分析仅在用户另需画像未覆盖的实时或历史字段时补对应角色。
 - 仅上述完整个股画像快页在完整业务回复后调用 `new_asset_page`；其他请求继续各自页面路由，不能用页面生成后的草稿冒充提前首答。快指减少模板、重复查询和布局等待，不是减少分析内容；按 bridge 返回的 `after_business_answer.tool/params` 执行，只有工具为 `static_page.py new_asset_page` 才调用快页。模板/Compose 与部分研究页也会返回续执行指引，不能将其当成快页参数。完整首答已通过非终止消息实际发出后，快页使用 `reply_mode:"page_followup"`，工具生成的短草稿补页面说明和链接，不重复六章。该参数只选呈现方式，不证明首答送达；必须用真实消息时间线验证。宿主不支持中途可见首答时继续建页并用默认 `full_answer`，不可只交链接或等待最终回复后自动续跑。无论哪种模式，仍须通过同一公开验收和实际回复校验，禁止自行删改草稿。
 - 多资产：同一参数文件使用 `assets:[...]`，不能把多个资产或行业集合塞进单个 asset。

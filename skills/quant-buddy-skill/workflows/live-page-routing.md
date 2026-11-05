@@ -54,9 +54,9 @@ Windows / PowerShell 优先使用上面的 `--user-query` 形式，避免内联 
 
 “宿迁联盛个股分析”“个股分析宿迁联盛”同属普通综合分析。附加今日/近N日资金、历史窗口、指定指标或定制展示时不走固定快页；原请求显式 QBV 或已有建页约定仍传 `page_requested:true`，保留 `create` 并由 QBV 模板/Compose 承载全部要求。QBV bridge 与快页写入前使用此分类器复核，不信任调用方自行指定的快页标志。
 
-命中后直接读取 QBV Skill 与 `guides/answer-first.md`，同一 task/turn 内由 bridge 取得 QBS 证据、发送非终止业务首答，再调用一次 `new_asset_page`。固定快页沿 QBV standalone 合同，不为此额外创建通用 Handoff/Job，不先搜索模板或设计布局；已有真实 Handoff 时仍沿其生命周期，不重复建任务。若已取得 stockProfile 结果，复用它做首答，不能重查同一画像，也不能以“需要展开哪个方向”结束。
+命中后返回 `delivery_strategy:page_first`，直接读取 QBV Skill 与 `guides/answer-first.md`。宿主启用快速页面优先时，在同一 task/turn 内并行启动有限的公开背景检索与一次 `new_asset_page(delivery_mode:"page_first_fast")`，不得同时传 `reply_mode` 或 `page_followup`；页面 ready 后立即展示，不结束回合，不另外调用 `stockProfile`、不下载 HTML、不重复浏览器验收。搜索完成后调用 `qb_finish_research_intent`，再消费页面返回的 `fast_reply_payload` 生成完整分析，页面链接保持在正文之前。未启用该开关的旧宿主继续使用“QBS 证据 → 非终止首答 → `new_asset_page`”兼容路径。
 
-明确不要网页、具体字段查数、限定维度或简短分析、多资产、指数、ETF、港美股及不能唯一识别的名称不由本规则扩大成 A 股快页；重名资产先澄清。后续显式建页继续原路由。页面失败保留首答，明确未完成，不冒充已交付。
+明确不要网页、具体字段查数、限定维度或简短分析、多资产、指数、ETF、港美股及不能唯一识别的名称不由本规则扩大成 A 股快页；重名资产先澄清。后续显式建页继续原路由。页面优先分支只尝试一次页面生成；失败后使用可用的 QBS/页面结构化数据输出文字分析，并明确披露页面未生成，不冒充已交付。
 
 ### 3.2 高频稳定榜单例外
 

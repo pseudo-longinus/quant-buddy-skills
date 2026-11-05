@@ -35,7 +35,7 @@ python scripts/static_page.py new_asset_page '{"task_id":"task_xxx","asset":"贵
 
 上例只在完整非终止首答已实际发出后使用 `page_followup`，返回标题、唯一 marker 和链接的短草稿；marker 仅补一句页面说明，不复述分析。不能中途显示首答时省略该参数，使用默认完整草稿。两种模式的证据、公开访问和实际回复校验相同；参数只在本地消费，不透传服务端。
 
-命令调用 `POST /skill/newAssetPage`，由服务端完成资产解析、固定来源页实例替换和三份固定 Data Grant 注册；脚本内部材料化 SHA256 绑定 evidence，默认生成最多五张数据表的 `agent_reply_markdown_draft`。前五章保留完整数据，第六章放置唯一 `summary_marker`；当前 Agent按同一结果中的 `agent_summary_request`，结合原始 `user_query` 和前五章数据直接撰写贴合用户目的的总结，只替换 marker 后立即发送。禁止关键词分类、固定主题摘要、读取临时 evidence、扫描目录、另建草稿、运行 validator 或调用其它工具。
+命令调用 `POST /skill/newAssetPage`，由服务端完成资产解析、固定来源页实例替换和三份固定 Data Grant 注册；脚本内部材料化 SHA256 绑定 evidence，默认生成最多五张数据表的 `agent_reply_markdown_draft`。前五章保留完整数据，综合观察章节放置唯一 `summary_marker`。`page_first_fast` 额外返回 `page_ready_data_markdown`、`page_ready_tail_markdown`、`summary_heading` 和 `output_scope:"summary_section_only"`：Host 在页面 ready 时立即展示页面卡片与前五章，搜索完成后 Agent 只输出综合观察章节，Host 再追加尾注。标准模式仍按 `agent_summary_request` 替换 marker。综合观察需融合数据关系与外部背景，明确印证、矛盾、观察条件和证据缺口，来源日期放在本节末尾，不另起背景章节。禁止关键词分类、固定主题摘要、读取临时 evidence、扫描目录、另建草稿、运行 validator 或调用其它工具。
 
 任一条件不满足就进入第 0 步，不要把定制单股页或多资产请求塞进快速通道。快速通道创建的是调用者自己的页面；后续内容修改复用现有 `update(page_id)`。
 

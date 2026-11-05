@@ -5442,12 +5442,85 @@ def _sync_fast_page_title(out, *, endpoint, api_key):
         'candidate_sha256': hashlib.sha256(candidate.encode('utf-8')).hexdigest()}}
 
 
+def _fast_reply_payload(reply_artifact, result):
+    """Project hash-bound page evidence into a compact model-facing structure."""
+    artifact = reply_artifact if isinstance(reply_artifact, dict) else {}
+    evidence = artifact
+    if artifact.get('reply_data_evidence_file') and artifact.get('reply_data_evidence_sha256'):
+        evidence = SSR._read_evidence(
+            artifact.get('reply_data_evidence_file'),
+            artifact.get('reply_data_evidence_sha256'),
+        )
+    fields = [item for item in evidence.get('fields') or [] if isinstance(item, dict)]
+    section_counts = {}
+    for field in fields:
+        section = str(field.get('section') or '').strip()
+        if section:
+            section_counts[section] = section_counts.get(section, 0) + 1
+    return {
+        'schema_version': 'fast_stock_reply_v1',
+        'asset': result.get('asset') or {},
+        'page': {
+            'page_id': result.get('page_id') or '',
+            'url': result.get('url') or '',
+            'title': result.get('title') or '',
+            'source_page_id': result.get('source_page_id') or '',
+        },
+        'sections': [
+            {'section': section, 'field_count': count}
+            for section, count in section_counts.items()
+        ],
+        'field_count': len(fields),
+        'data_anomalies': [],
+        'field_errors': [],
+        'warnings': RDE.redact(result.get('warnings') or []),
+        'evidence_sha256': artifact.get('reply_data_evidence_sha256') or '',
+    }
+
+
+def _split_page_first_reply(markdown, marker):
+    """Split the sealed draft into immediately visible data and final summary parts."""
+    source = str(markdown or '')
+    marker = str(marker or '')
+    marker_at = source.find(marker)
+    if marker_at < 0:
+        raise ValueError('页面优先草稿缺少 summary_marker')
+    prefix = source[:marker_at]
+    headings = list(re.finditer(r'(?m)^##\s+[^\n]*综合观察\s*$', prefix))
+    if not headings:
+        raise ValueError('页面优先草稿缺少综合观察标题')
+    summary_match = headings[-1]
+    data_markdown = prefix[:summary_match.start()].rstrip()
+    tail_markdown = source[marker_at + len(marker):].strip()
+    if not data_markdown:
+        raise ValueError('页面优先草稿缺少可立即展示的数据章节')
+    return {
+        'data_markdown': data_markdown,
+        'summary_heading': summary_match.group(0).strip(),
+        'tail_markdown': tail_markdown,
+    }
+
+
 def cmd_new_asset_page(params):
     params = dict(params or {})
+    delivery_mode = str(params.get("delivery_mode") or "standard").strip()
+    if delivery_mode not in ("standard", "page_first_fast"):
+        return {
+            "code": 1,
+            "error": "NEW_ASSET_PAGE_DELIVERY_MODE_INVALID",
+            "message": "delivery_mode 仅支持 standard 或 page_first_fast",
+        }
+    page_first = delivery_mode == "page_first_fast"
     reply_mode = params.get("reply_mode", "full_answer")
     if reply_mode not in ("full_answer", "page_followup"):
         return {"code": 1, "error": "NEW_ASSET_PAGE_REPLY_MODE_INVALID",
                 "message": "reply_mode 仅支持 full_answer 或 page_followup；后者仅用于完整可见首答之后"}
+    if page_first and reply_mode == "page_followup":
+        return {
+            "code": 1,
+            "error": "NEW_ASSET_PAGE_REPLY_MODE_CONFLICT",
+            "message": "page_first_fast 需要完整回复草稿，不能与 page_followup 同时使用",
+        }
     asset = str(params.get("asset") or "").strip()
     if not asset:
         return {
@@ -5457,7 +5530,13 @@ def cmd_new_asset_page(params):
         }
 
     trace_context = C.current_trace_context()
-    task_id = str(params.get("task_id") or trace_context.get("task_id") or "").strip()
+    host_context = C.host_trace_context(params) or {}
+    task_id = str(
+        params.get("task_id")
+        or host_context.get("task_id")
+        or trace_context.get("task_id")
+        or ""
+    ).strip()
     if not task_id:
         return {
             "code": 1,
@@ -5468,7 +5547,12 @@ def cmd_new_asset_page(params):
     if route_error:
         return route_error
 
-    user_query = str(params.get("user_query") or trace_context.get("user_query") or "").strip()
+    user_query = str(
+        params.get("user_query")
+        or host_context.get("user_query")
+        or trace_context.get("user_query")
+        or ""
+    ).strip()
     import page_continuation as CONT
     page_route = CONT.route_request({**params, 'task_id': task_id, 'user_query': user_query, 'page_requested': True})
     if page_route.get('code') != 0:
@@ -5513,9 +5597,12 @@ def cmd_new_asset_page(params):
             "page_id": out.get("page_id") or "",
         }
 
-    out = _sync_fast_page_title(out, endpoint=endpoint, api_key=api_key)
-    if out.get('code') != 0:
-        return out
+    # The page-first fast contract consumes the structured newAssetPage
+    # response. Do not download or parse HTML merely to rewrite its title.
+    if not page_first:
+        out = _sync_fast_page_title(out, endpoint=endpoint, api_key=api_key)
+        if out.get('code') != 0:
+            return out
 
     try:
         source_artifact = MNAC.persist_data_sources(task_id, data_sources)
@@ -5615,7 +5702,7 @@ def cmd_new_asset_page(params):
             evidence_sha256=reply_artifact.get("reply_data_evidence_sha256"),
             asset=result.get("asset"),
             public_url=(result.get("agent_reply_contract") or {}).get("public_url"),
-            reply_mode=reply_mode,
+            reply_mode="page_first_answer" if page_first else reply_mode,
         )
     except (OSError, ValueError, TypeError) as exc:
         C.cleanup_task_temp_files(task_id)
@@ -5659,7 +5746,7 @@ def cmd_new_asset_page(params):
             "user_query": user_query,
             "summary_marker": SSR.AGENT_SUMMARY_MARKER,
             "evidence_source": "agent_reply_markdown_draft 的第一至第五章",
-            "instruction": "直接回答用户目的，只使用草稿中的数据，最多三句，提炼最相关依据而不复述五章。创建分享页请求先说明页面已提供什么。分位只沿用明确标注的窗口和百分比，不把短窗当作完整多年分位。股息率高分位与估值低分位不能合称都处低位；单项分别描述。未核实收盘的当日累计成交额不能与完整日均额比较后断言缩量、恐慌或观望情绪。",
+            "instruction": "直接回答用户目的，只使用草稿数据与本轮可靠公开背景，提炼最相关依据而不复述五章。综合观察要把行情交易、盈利水平、增长与现金流、外部背景融合，说明印证、矛盾、观察条件和证据缺口；来源日期放在本节末尾，不另起“背景与关注点”。分位只沿用明确标注的窗口和百分比，不把短窗当作完整多年分位。股息率高分位与估值低分位不能合称都处低位；单项分别描述。未核实收盘的当日累计成交额不能与完整日均额比较后断言缩量、恐慌或观望情绪。",
         },
     })
     if reply_mode == "page_followup":
@@ -5674,26 +5761,147 @@ def cmd_new_asset_page(params):
             'evidence_source': '本次已验证页面的交付合同；业务分析已在首答完成',
             'instruction': '仅用一句话说明活页已生成，可在页面查看后续数据；不重复六章，不新增数值、日期或风险结论。最终 Markdown 必须以草稿标题开头，完整业务答案只能在此前单独发送，不能前置到本草稿。保持标题和链接不变。',
         })
+    if page_first:
+        asset = result.get('asset') if isinstance(result.get('asset'), dict) else {}
+        page_ready_markdown = (
+            f"**{result.get('title') or asset.get('name') or '个股'}活页已生成**\n\n"
+            f"[查看活页]({result.get('url')})"
+        )
+        try:
+            page_reply_parts = _split_page_first_reply(markdown, SSR.AGENT_SUMMARY_MARKER)
+        except (TypeError, ValueError) as exc:
+            C.cleanup_task_temp_files(task_id)
+            return {
+                'code': 1,
+                'error': 'NEW_ASSET_PAGE_STAGED_REPLY_FAILED',
+                'message': f'页面已生成，但阶段回复拆分失败：{exc}',
+                'published': True,
+                'operation': 'new_asset_page',
+                'task_id': task_id,
+                'page_id': result.get('page_id') or '',
+                'url': result.get('url') or '',
+            }
+        contract = {
+            'terminal': False,
+            'required': False,
+            'operation': 'new_asset_page',
+            'page_id': contract.get('page_id') or '',
+            'public_url': contract.get('public_url') or '',
+            'template_ref': contract.get('template_ref') or 'single_stock_deep_dive_v1',
+            'page_delivery_complete': True,
+            'analysis_required': True,
+            'reply_mode': 'page_first_answer_v1',
+            'delivery_stage_mode': 'page_data_then_summary_v1',
+            'final_response_required': 'show_page_and_data_then_send_summary',
+            'page_ready_markdown': page_ready_markdown,
+            'summary_heading': page_reply_parts['summary_heading'],
+            'final_response_steps': [
+                'Expose page_ready_markdown followed by page_ready_data_markdown immediately without ending the turn.',
+                'Do not repeat the page card, title, data sections, page link, or tail in the Agent-authored text.',
+                'After the background search returns, emit only the summary_heading section using fast_reply_payload and the search results.',
+                'The host appends page_ready_tail_markdown and preserves one assistant reply.',
+            ],
+        }
+        result['agent_reply_contract'] = contract
+        result.pop('page_context', None)
+        result.pop('agent_reply_template', None)
+        result['agent_summary_request'] = {
+            'user_query': user_query,
+            'summary_marker': SSR.AGENT_SUMMARY_MARKER,
+            'summary_heading': page_reply_parts['summary_heading'],
+            'output_scope': 'summary_section_only',
+            'evidence_source': 'page_ready_data_markdown 与 fast_reply_payload；背景来自本轮可靠公开搜索',
+            'instruction': (
+                '宿主已经展示页面卡片和前五章。背景检索返回后，只输出 '
+                f'{page_reply_parts["summary_heading"]} 这一节：直接回答用户目的，'
+                '融合页面数据与本轮可靠公开背景，说明印证、矛盾、观察条件和证据缺口。'
+                '不要重复页面卡片、分析标题、前五章、页面链接、免责声明或最终尾注；'
+                '不要输出 summary_marker。来源与日期放在综合观察末尾。'
+            ),
+        }
+        try:
+            fast_reply_payload = _fast_reply_payload(reply_artifact, result)
+        except (OSError, ValueError, TypeError) as exc:
+            C.cleanup_task_temp_files(task_id)
+            return {
+                'code': 1,
+                'error': 'NEW_ASSET_PAGE_FAST_PAYLOAD_FAILED',
+                'message': f'页面已生成，但结构化快速载荷构建失败：{exc}',
+                'published': True,
+                'operation': 'new_asset_page',
+                'task_id': task_id,
+                'page_id': result.get('page_id') or '',
+                'url': result.get('url') or '',
+            }
+        result.update({
+            'page_first': True,
+            'page_ready': True,
+            'page_ready_markdown': page_ready_markdown,
+            'page_ready_data_markdown': page_reply_parts['data_markdown'],
+            'page_ready_tail_markdown': page_reply_parts['tail_markdown'],
+            'summary_heading': page_reply_parts['summary_heading'],
+            'delivery_stage_mode': 'page_data_then_summary_v1',
+            'fast_reply_payload': fast_reply_payload,
+        })
+        result.pop('agent_reply_markdown_draft', None)
     try:
         expected_title = PTC.valid(result.get('title'))
     except PTC.TitleError as exc:
         return {**exc.as_dict(), 'published': True, 'operation': 'new_asset_page',
                 'page_id': result['page_id'], 'url': result['url']}
+    template_trusted = (
+        page_first
+        and bool(result.get('source_page_id'))
+        and contract.get('template_ref') == 'single_stock_deep_dive_v1'
+    )
     if trace_context.get('turn_id'):
         import fast_page_delivery as FPD
         def observe_fast_page():
             response = C.http_json('GET', C.api_url(endpoint, _PATH['template']) + '?' + urllib.parse.urlencode({'page_id': result['page_id']}), C.headers(api_key), timeout=30)
             return _template_record(response) if response.get('code') == 0 else response
-        public_check = FPD.persist_verified(task_id, trace_context['turn_id'], result['page_id'], result['url'], markdown,
-            observe=observe_fast_page, verify=lambda url: _run_page_verifier(url, 'public-smoke', expected_title=expected_title),
-            expected_title=expected_title)
+        if template_trusted:
+            public_check = FPD.persist_template_verified(
+                task_id, trace_context['turn_id'], result['page_id'], result['url'], markdown,
+                observe=observe_fast_page, expected_title=expected_title,
+                source_template={
+                    'source_page_id': result.get('source_page_id') or '',
+                    'template_ref': contract.get('template_ref') or '',
+                    'candidate_sha256': (result.get('page_title_sync') or {}).get('candidate_sha256') or '',
+                },
+                page_ready_markdown=result.get('page_ready_markdown') or '',
+                page_ready_data_markdown=result.get('page_ready_data_markdown') or '',
+                page_ready_tail_markdown=result.get('page_ready_tail_markdown') or '',
+                summary_heading=result.get('summary_heading') or '',
+            )
+        else:
+            public_check = FPD.persist_verified(task_id, trace_context['turn_id'], result['page_id'], result['url'], markdown,
+                observe=observe_fast_page, verify=lambda url: _run_page_verifier(url, 'public-smoke', expected_title=expected_title),
+                expected_title=expected_title)
         if public_check.get('code') != 0:
             return {**public_check, 'published': True, 'verified': False,
                     'operation':'new_asset_page', 'page_id':result['page_id'], 'url':result['url']}
         result['public_verification'] = public_check
-        result['agent_summary_request']['instruction'] += ' 最终回复必须从草稿标题开始，仅替换 summary_marker；不要添加开场白或其他内容，宿主将核对实际回复。'
+        if not page_first:
+            result['agent_summary_request']['instruction'] += ' 最终回复必须从草稿标题开始，仅替换 summary_marker；不要添加开场白或其他内容，宿主将核对实际回复。'
     else:
-        public_check = _run_page_verifier(result['url'], 'public-smoke', expected_title=expected_title)
+        if template_trusted:
+            import fast_page_delivery as FPD
+            public_check = FPD.persist_template_verified(
+                task_id, '', result['page_id'], result['url'], markdown,
+                observe=lambda: _template_record(cmd_template({'page_id': result['page_id']})),
+                expected_title=expected_title,
+                source_template={
+                    'source_page_id': result.get('source_page_id') or '',
+                    'template_ref': contract.get('template_ref') or '',
+                    'candidate_sha256': (result.get('page_title_sync') or {}).get('candidate_sha256') or '',
+                },
+                page_ready_markdown=result.get('page_ready_markdown') or '',
+                page_ready_data_markdown=result.get('page_ready_data_markdown') or '',
+                page_ready_tail_markdown=result.get('page_ready_tail_markdown') or '',
+                summary_heading=result.get('summary_heading') or '',
+            )
+        else:
+            public_check = _run_page_verifier(result['url'], 'public-smoke', expected_title=expected_title)
         if public_check.get('code') != 0:
             return {'code': 1, 'error': 'PAGE_TITLE_POSTCHECK_FAILED', 'published': True, 'verified': False,
                     'operation': 'new_asset_page', 'page_id': result['page_id'], 'url': result['url'],
@@ -10436,7 +10644,11 @@ def main():
         emitted = _publish_verified_cli_result(result, params.get("task_id"), "verify-published-report.json")
     else:
         emitted = result
-    C.emit(emitted, out_name="sp_out.txt")
+    C.emit(
+        emitted,
+        out_name="sp_out.txt",
+        compact=cmd == "new_asset_page" and params.get("delivery_mode") == "page_first_fast",
+    )
     sys.exit(0 if (isinstance(result, dict) and result.get("code") == 0) else 1)
 
 

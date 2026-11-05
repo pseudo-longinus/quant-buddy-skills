@@ -61,6 +61,8 @@ python scripts/static_page.py image_list '{"page_id":"page_xxx"}'
 
 `new_asset_page` 的本地可选参数 `reply_mode` 默认 `full_answer`，保持完整分析草稿。仅在完整业务首答已通过非终止消息实际发出时使用 `page_followup`，返回短草稿，验收后补一句页面说明和链接。此参数不透传服务端，也不作为首答送达证明；公开验收、SHA256 证据与宿主实际回复校验保持不变。未知模式在联网前报错。不能中途显示首答时使用默认模式。
 
+`delivery_mode:"page_first_fast"` 是宿主单股快速通道专用模式，只能用于 `single_a_stock_fast`。该模式返回 `page_ready:true`、`page_ready_markdown`、`fast_reply_payload`，并把 `agent_reply_contract.terminal` 设为 `false`，要求页面先展示后继续生成分析。它不能与 `reply_mode:"page_followup"` 同时使用。普通调用和旧宿主继续省略该参数，保持现有 `terminal:true` 行为。
+
 ## 调用方式
 
 ```bash
@@ -147,9 +149,9 @@ python scripts/static_page.py verify_card_runtime '{"page_ids":["page_xxx","page
 
 `new_asset_page` 面向“简单分析一只 A 股、港股或美股并给我页面”这类窄场景。先用 `trace_context.py begin` 建立 new session，再调用一次本命令；不查询 templates、不创建进度页、不执行 fork，也不要求 Agent 另跑 quant-buddy-skill 验证或自行注册 Grant。
 
-该入口由服务端生成页面副本后，QBV 在生成交付收据前，以模板正文主标题同步元数据和 HTML `<title>`。已知个股模板的主标题由 `config.asset.name` 渲染；仅同步占位主标题和已识别的 `document.title` 赋值，保留正文布局、数据合同及来源模板。必要时只更新本任务新建的同一页面一次；已一致时不写入。未知运行时标题结构返回 `PAGE_TITLE_REWRITE_REQUIRED`，候选版本变化返回 `FAST_PAGE_TITLE_CANDIDATE_STALE`。随后用确定标题验收公开主标题、`document.title` 和权威元数据；不一致返回 `PAGE_TITLE_POSTCHECK_FAILED`、`published:true`、`verified:false` 及浏览器证据，不自动重发或输出成功合同。
+该入口由服务端生成页面副本后，标准模式由 QBV 下载一次 HTML，以模板正文主标题同步元数据和 HTML `<title>`；`page_first_fast` 直接使用 `newAssetPage` 返回的结构化标题与元数据，不下载或解析 HTML。标准模式已知个股模板的主标题由 `config.asset.name` 渲染；仅同步占位主标题和已识别的 `document.title` 赋值，保留正文布局、数据合同及来源模板。必要时只更新本任务新建的同一页面一次；已一致时不写入。未知运行时标题结构返回 `PAGE_TITLE_REWRITE_REQUIRED`，候选版本变化返回 `FAST_PAGE_TITLE_CANDIDATE_STALE`。随后用确定标题验收公开主标题和权威元数据；不一致返回 `PAGE_TITLE_POSTCHECK_FAILED`、`published:true`、`verified:false`，不自动重发或输出成功合同。
 
-命令返回 `agent_reply_markdown_draft`：前五章是按飞书卡片约束排好的完整可见数据，整篇最多五表；第六章只有唯一 `summary_marker`。同一结果中的 `agent_summary_request` 携带原始 `user_query`，当前 Agent直接依据用户目的和前五章数据撰写综合观察，再替换 marker。无需关键词分类、专用生成器或第二次工具调用；总结只引用草稿已有事实，首句直接回答，后续解释最相关证据，避免机械复述全部字段。走势类请求使用条件式判断，不输出确定涨跌承诺、目标价或精确买卖点。
+命令返回 `agent_reply_markdown_draft`：前五章是按飞书卡片约束排好的完整可见数据，整篇最多五表；综合观察章节只有唯一 `summary_marker`。标准模式由当前 Agent依据用户目的和前五章数据撰写综合观察并替换 marker。`page_first_fast` 还返回 `page_ready_data_markdown`（分析标题和前五章）、`page_ready_tail_markdown`（免责声明尾注）、`summary_heading` 和 `output_scope:"summary_section_only"`：Host 在页面 ready 时立即展示页面卡片与数据章节，搜索完成后 Agent 只生成综合观察章节，Host 再追加尾部。综合观察先回答用户目的，再融合数据关系与本轮可靠公开背景；说明印证、矛盾、观察条件和证据缺口，来源日期放在本节末尾，不另起“背景与关注点”。无需关键词分类、专用生成器或第二次工具调用；避免机械复述全部字段。走势类请求使用条件式判断，不输出确定涨跌承诺、目标价或精确买卖点。
 
 参数：
 
@@ -159,10 +161,11 @@ python scripts/static_page.py verify_card_runtime '{"page_ids":["page_xxx","page
 | `asset` | ✅ | 单只 A 股、港股或美股名称或代码，如 `贵州茅台` / `600519.SH`、`腾讯控股` / `0700.HK`、`苹果公司` / `AAPL.O` |
 | `user_query` | ❌ | 用户原始问题；省略时复用 Trace Context 中的 user_query，并原样交给当前 Agent作为第六章写作目标。调用方不得改写成笼统的“分析某股票”而丢失真实目的 |
 | `ttl_days` | ❌ | 页面与固定 Data Grant 有效期 |
+| `delivery_mode` | ❌ | `standard`（默认）或宿主单股快速通道专用的 `page_first_fast` |
 
 适用边界：单一 A 股、港股或美股的简单综合分析/画像/行情估值财务概览、只需返回页面。服务端只按 `tkrsInfo.market_id` 区分：`1/2` 为 A 股、`8` 为港股、`18/19` 为美股；其他 market_id 当前不支持，不使用代码格式或刷新字段兜底。金额按标的原币展示，港美股画像或部分字段稀疏时页面只展示可用模块。若用户要求定制栏目或版式、指定额外指标/公式/图表、对比、多标的、指数、期货、选股或回测，继续走 `templates → direct/fork/unmatched`。
 
-服务端固定生成 profile / market_series / financial_report 三份 Data Grant，并按 `(user, task_id, 标准标题)` 幂等。脚本在内部材料化 SHA256 绑定证据并生成回复草稿：stock profile 的稳定画像维度作为计算维度主证据，有效收盘价 CSV 补充日涨跌、均线和价格位置；两路均无可核验字段时才省略该节，并将后续可见章节连续编号。当前暂不输出消息面章节。成功返回 `reply_ready:true`、`agent_reply_markdown_draft`、草稿 SHA256、`agent_summary_request` 和 `agent_reply_contract.terminal=true`。当前 Agent只替换唯一 marker 并立即最终回复；不要读取临时 evidence、扫描目录、运行 validator 或调用其它工具。命令完成前已 best-effort 上报终态并清理临时文件，不输出 HTML、grant_id、signature、package_id 或内部 `_profile`。
+服务端固定生成 profile / market_series / financial_report 三份 Data Grant，并按 `(user, task_id, 标准标题)` 幂等。脚本在内部材料化 SHA256 绑定证据并生成回复草稿：stock profile 的稳定画像维度作为计算维度主证据，有效收盘价 CSV 补充日涨跌、均线和价格位置；两路均无可核验字段时才省略该节，并将后续可见章节连续编号。当前暂不输出消息面章节。默认模式成功返回 `reply_ready:true`、`agent_reply_markdown_draft`、草稿 SHA256、`agent_summary_request` 和 `agent_reply_contract.terminal=true`；`page_first_fast` 额外返回页面 ready 字段和 `fast_stock_reply_v1` 紧凑载荷，但合同明确非终态。该快速模板使用页面版本/hash 收据，不逐请求启动 Playwright；未知或变更模板仍回退浏览器验收。不要读取临时 evidence、扫描目录、运行 validator 或调用其它工具。命令完成前已 best-effort 上报终态并清理临时文件，不输出 HTML、grant_id、signature、package_id 或内部 `_profile`。
 
 常见业务错误包括：`ASSET_NOT_FOUND`、`ASSET_NOT_ASHARE`、`SOURCE_TAG_NOT_FOUND`、`SOURCE_PAGE_NOT_FOUND`、`GRANT_REGISTER_FAILED`、`PAGE_UPLOAD_FAILED`。后端 `code != 0` 时脚本原样返回错误结构，不伪装成成功页面。
 

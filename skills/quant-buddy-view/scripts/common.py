@@ -1060,9 +1060,11 @@ def read_params(argv, env_var="VIEW_PARAMS"):
         sys.exit(1)
 
 
-def emit(obj, out_name="view_out.txt"):
+def emit(obj, out_name="view_out.txt", *, compact=False):
     """打印结果（dict→JSON，或原样字符串），并写一份到临时文件防终端缓冲吞输出。"""
-    text = obj if isinstance(obj, str) else json.dumps(obj, ensure_ascii=False, indent=2)
+    text = obj if isinstance(obj, str) else json.dumps(
+        obj, ensure_ascii=False, **({} if compact else {"indent": 2})
+    )
     out_file = os.path.join(tempfile.gettempdir(), out_name)
     try:
         with open(out_file, "w", encoding="utf-8") as f:

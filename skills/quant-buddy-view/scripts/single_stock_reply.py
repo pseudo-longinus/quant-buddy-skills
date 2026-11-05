@@ -163,7 +163,7 @@ def _asset_identity(asset, evidence):
 
 def render(*, evidence_file, evidence_sha256, asset, public_url, reply_mode="full_answer"):
     """Return a complete data draft whose summary marker must be authored by the Agent."""
-    if reply_mode not in ("full_answer", "page_followup"):
+    if reply_mode not in ("full_answer", "page_followup", "page_first_answer"):
         raise ReplyRenderError("未知回复模式")
     evidence = _read_evidence(evidence_file, evidence_sha256)
     public_url = str(public_url or "").strip()
@@ -190,8 +190,11 @@ def render(*, evidence_file, evidence_sha256, asset, public_url, reply_mode="ful
             "若效果不满意，页面可进一步升级", "",
         ])
 
+    heading_prefix = "# " if reply_mode == "page_first_answer" else "**"
+    heading_suffix = "" if reply_mode == "page_first_answer" else "**"
     lines = [
-        f"**{identity}全面分析**", "",
+        f"{heading_prefix}{identity}全面分析{heading_suffix}",
+        "",
         f"时间：截至 {as_of} | 数据来源：QB / 活页实时数据", "",
         "---",
     ]
@@ -218,10 +221,13 @@ def render(*, evidence_file, evidence_sha256, asset, public_url, reply_mode="ful
     # Keep the delivery block as the literal end of the reply.  The browser
     # streams this Markdown incrementally, so emitting the public URL above
     # the evidence sections makes the link appear before the analysis ends.
-    lines.extend([
-        "", f"> 数据截至 {as_of}；不构成投资建议。",
-        "", "---", "",
-        f"可分享实时活页：[{public_url}]({public_url})",
-        "若效果不满意，页面可进一步升级",
-    ])
+    lines.extend(["", f"> 数据截至 {as_of}；不构成投资建议。"])
+    if reply_mode == "page_first_answer":
+        lines.extend(["", "若效果不满意，页面可进一步升级"])
+    else:
+        lines.extend([
+            "", "---", "",
+            f"可分享实时活页：[{public_url}]({public_url})",
+            "若效果不满意，页面可进一步升级",
+        ])
     return "\n".join(lines) + "\n"

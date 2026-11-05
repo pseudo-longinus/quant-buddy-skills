@@ -399,15 +399,21 @@ def route_live_page(
         analysis_asset = _bare_a_share(hint) if hint else None
         reasons = ['single_a_share_analysis_fast_page', 'host_fast_track']
     if bare_asset or analysis_asset:
+        next_step = {
+            'skill': 'quant-buddy-view', 'guide': 'guides/answer-first.md',
+            'tool': 'static_page.py new_asset_page',
+            'delivery_mode': 'page_first_fast',
+            'instruction': '立即复用同一 task/turn 调用 new_asset_page(page_first_fast)，不得同时传 reply_mode/page_followup，并与其并行完成有限的公开背景检索。完整读取命令的紧凑 JSON，禁止 head/tail/重定向截断，也不要再次解析 data_sources 文件。页面返回后先展示公开链接，不结束回合；直接使用 agent_reply_markdown_draft 和结构化数据生成分析，不另行调用 stockProfile、不下载 HTML、不重复浏览器验收。',
+        }
+        if os.environ.get('QB_HOST_FAST_PAGE_FIRST') != '1':
+            # Compatibility for hosts that do not implement page_first_fast.
+            next_step['reply_mode_after_visible_answer'] = 'page_followup'
         return {
             'route': 'create', 'route_reason': reasons,
             'page_reference': None, 'requires_persistence_confirmation': False,
             'page_workflow': 'single_a_stock_fast', 'asset': bare_asset or analysis_asset,
-            'next_step': {
-                'skill': 'quant-buddy-view', 'guide': 'guides/answer-first.md',
-                'instruction': '立即按 QBV 快页入口复用同一 task/turn；尚未取数时由 bridge 取一次完整画像再首答。已有本轮有效画像和完整首答时直接 new_asset_page，禁止重新 resolve_asset_data 或 stockProfile。',
-                'reply_mode_after_visible_answer': 'page_followup',
-            },
+            'delivery_strategy': 'page_first',
+            'next_step': next_step,
         }
 
     scenarios = [name for name, pattern in _SCENARIO_RES if pattern.search(actions)]
