@@ -18,7 +18,19 @@ import compose_quality as CQ
 RECEIPT_FILE = 'receipts/compose-build.json'
 SUPPORTED = {'layout', 'layout+style', 'original'}
 
-COMPOSE_LAYOUT_CSS = '.qb-compose-module{grid-column:1/-1;min-width:0}.qb-compose-module>h2{margin:12px 0 20px;font-size:24px;line-height:1.4}.qb-compose-panels{display:grid;gap:20px;grid-template-columns:repeat(12,minmax(0,1fr));align-items:start}'
+COMPOSE_LAYOUT_CSS = (
+    '.qb-compose-module,.qb-compose-presentation{grid-column:1/-1;min-width:0}'
+    '.qb-compose-module>h2{margin:12px 0 20px;font-size:24px;line-height:1.4}'
+    '.qb-compose-panels{display:grid;gap:20px;grid-template-columns:repeat(12,minmax(0,1fr));align-items:start}'
+    '@media(max-width:680px) and (max-height:650px){'
+    '.qb-dashboard{padding-top:8px}'
+    '.qb-dashboard .std-hero{margin-bottom:6px;padding-bottom:6px}'
+    '.qb-dashboard .std-lead{margin-top:4px}'
+    '.qb-dashboard .lead-note{margin-top:2px;line-height:1.35}'
+    '.qb-dashboard #grid,.qb-compose-panels{gap:10px}'
+    '.qb-compose-module>h2{margin:2px 0 6px;font-size:20px;line-height:1.25}'
+    '}'
+)
 
 
 def _panel_shell(index, panel, *, show_title=True):
@@ -198,10 +210,18 @@ def build(params):
                 source_classes = _OuterSection(source_html).classes
                 if module['borrow_level'] == 'layout+style': styles.append(_scoped_styles(entry, source_classes, section_id))
             if presentation_info is None:
+                if by_module[module['module']] and all(
+                        panel.get('hero') for _, panel in by_module[module['module']]
+                ):
+                    provenance.append({'module': module['module'], 'borrow_level': module['borrow_level'],
+                                       'source_section_sha256': hashlib.sha256(source_html.encode()).hexdigest() if source_html else None,
+                                       'source_classes': source_classes})
+                    continue
                 bodies = []
                 for index, panel in by_module[module['module']]:
                     target = 'qb-compose-body-' + str(index)
-                    panel['target_selector'] = '#' + target
+                    if not panel.get('hero'):
+                        panel['target_selector'] = '#' + target
                     show_title = len(by_module[module['module']]) > 1 or panel.get('title') != module['module']
                     bodies.append(_panel_shell(index, panel, show_title=show_title))
                 # Copy only the selected outer layout classes/presentation, not old content or executable code.
@@ -271,8 +291,11 @@ def build(params):
         EP.atomic_json(built['manifest'], manifest)
         publish = {k: params[k] for k in ('task_id', 'title', 'description', 'page_context', 'agent_reply_template',
                    'live_data_mode', 'route_receipt_file', 'validation_receipt_files', 'grant_validation_receipt_files',
-                   'market_data_required', 'agent_intent', 'asset', 'turn_id', 'handoff_validation_receipt_files') if k in params}
+                   'market_data_required', 'agent_intent', 'asset', 'turn_id', 'handoff_validation_receipt_files','expected_current_version_id') if k in params}
         publish.update(page_id=plan['target_page_id'], html_file=str(artifact), plan_hash=plan['plan_hash'], require_live_data=plan.get('require_live_data',False))
+        import page_baseline
+        baseline=page_baseline.expected(publish)
+        if baseline: publish['expected_current_version_id']=baseline
         publish['compose_quality'] = compose_quality
         for key in ('research_contract','research_checks','research_status','delivery_kind'):
             if key in plan: publish[key] = plan[key]

@@ -9,7 +9,7 @@ import verified_snapshot as VS
 
 def failure_details(task, result, validations=()):
     result = result if isinstance(result, dict) else {}
-    out = {k: result[k] for k in ('cause_code', 'retryable') if k in result}
+    out = {k: result[k] for k in ('cause_code', 'retryable', 'unresolved_data_names') if k in result}
     out.update(cause_error=result.get('error') or 'REGISTRATION_RESPONSE_INVALID', stage='registration')
     plan = EP.load(task)
     roles = []
@@ -23,7 +23,13 @@ def failure_details(task, result, validations=()):
                 roles.append({'role_id': candidates[0]['role_id'], 'validation_receipt_file': item['validation_receipt_file']})
             elif plan and not plan.get('runtime_roles'):
                 roles.append({'role_id': kind + '.' + str(item.get('name')), 'validation_receipt_file': item['validation_receipt_file']})
-    if plan and roles and not plan.get('require_live_data'):
+    from delivery_requirements import live_required
+    current_live=live_required({'task_id':task}) or bool((plan or {}).get('require_live_data'))
+    if current_live and result.get('unresolved_data_names'):
+        out.update(recoverable=True,terminal=False,next_action={
+            'command':'validate_package_set','params':{'task_id':task},
+            'instruction':'用 qbs_bridge.py validate_package_set 验证补齐依赖后的完整 packages 合同：从原QBS计算及验证记录取回全部上游公式，按依赖顺序放入同一个包；不得只引用旧session中的中间序列，不改公式口径。先补全参数再验证，不原样重试注册；实时要求不降级为静态。'})
+    elif plan and roles and not current_live:
         out.update(recoverable=True, terminal=False, next_action={'command': 'recover_snapshot', 'params': {
             'task_id': task, 'plan_hash': plan['plan_hash'], 'roles': roles},
             'instruction': '继续同页快照恢复；不重复注册，不把中间失败当最终答复。'})

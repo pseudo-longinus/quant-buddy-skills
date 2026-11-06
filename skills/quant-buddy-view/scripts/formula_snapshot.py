@@ -11,6 +11,17 @@ import reply_data_evidence as RDE
 
 
 def read_qbs(task, params):
+    # These are internal read requests, whose helper label is not a user query.
+    # Keep strict task/turn validation, then forward the trusted host question.
+    params = dict(params)
+    host = C.host_trace_context({key: params.get(key) for key in ('task_id', 'turn_id', 'message_id')})
+    if host:
+        C.host_trace_context({'task_id': task})
+        params.update(task_id=task, user_query=host['user_query'])
+        if host.get('turn_id'):
+            params['turn_id'] = host['turn_id']
+        else:
+            params.pop('turn_id', None)
     path = C.task_temp_path(task, 'snapshot-read-params.json', create_parent=True)
     EP.atomic_json(path, params)
     command = [sys.executable, str(Path(__file__).with_name('qbs_bridge.py')), 'readData', '@' + str(path)]

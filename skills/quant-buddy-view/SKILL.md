@@ -3,7 +3,7 @@ name: quant-buddy-view
 slug: quant-buddy-view
 displayName: QuantBuddy 宽宝活页
 author: guanzhao
-version: 0.8.4
+version: 0.8.5
 description: |
   将量化分析或已有 JPG/PNG、HTML、PDF 发布为 Quant Buddy 可分享活页或实时看板，并支持创建、更新、复用、验收和公开链接交付。适用于个股画像、估值财务、指数异动、多因子筛选、商品日报、模板、分享壳及卡片等页面。
   用户提供 QuantBuddy 活页 URL 并要求解读时也使用。显式调用 /quant-buddy-view、/qbv、qbv 或 QBV，且请求并非纯咨询、代码维护或文档解释时，默认按可分享活页任务处理。
@@ -12,7 +12,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 0.8.4
+  version: 0.8.5
   author: guanzhao
   category: quant-finance
   tags: [quant, dashboard, formula-package, static-page, publish, visualization]
@@ -64,6 +64,13 @@ runtimeRequirements:
       required: false
       description: file_prepare 将PDF按原顺序渲染为完整页图时使用；HTML和图片准备不依赖它。
 ---
+
+## 当前轮次与历史版本恢复
+
+- 宿主托管时，以 `QB_HOST_TASK_ID / QB_HOST_TURN_ID / QB_HOST_USER_QUERY` 为准；旧持久记录不能覆盖当前轮次。身份冲突按结构化错误修正参数，不换回旧 turn。
+- “昨日名单”可以交付注明实际日期的静态快照。“实时更新”追问先 `interpret` 当前页，再按本轮要求修订计划，保留页面身份与有效绑定。实时集合结果必须在当前计划中绑定明确范围、结果合同和动态 package 角色；只有同范围、同观察时点的完整覆盖证据才能发布。自动取数未核验通过时保留原页，说明本轮未完成。
+- 用户说“回退 V1 / 恢复 V1”时优先走 [历史版本恢复](workflows/page-version-restore.md)：`versions → version → rollback`。不重新研究、不生成近似页、不进入方法页降级；恢复验收通过才报告成功。
+- 已确认发布优先只读核验，其次复用 Capsule / Handoff / 验证收据；缺少内部草稿不能证明公开页没有数据。
 
 ## 页面研究合同（WebAgent 正式投研）
 
@@ -240,7 +247,7 @@ QBV_API_KEY=<本次任务的 key> python scripts/trace_context.py begin '{"user_
 
 > `build_dashboard.py` 也属于上述“后续每个命令”：只要 spec 含 `upload:true` 或 `update_page_id`，必须写入同一 `task_id`。成功结果会返回 hash-bound `reply_draft_file + reply_validation_command`；公网验收后必须写草稿并运行该命令，只有 `valid:true` 才能最终回复，之后停止工具调用。
 
-> **计划与恢复**：普通研究页按[计划驱动交付](workflows/planned-delivery-recovery.md)执行。借鉴范围、目标运行角色及构建模式必须一致；Compose返回的params文件用于完整候选构建，随后publish_verified。`update_progress`必须使用page_status/current_step；技术失败不是用户确认，已有可读内容不得被失败进度页覆盖。 登记运行凭据需对应验证收据；静态金融页用materialize_snapshot及计划snapshot_roles，不手填数据绕过验证。
+> **计划与恢复**：普通研究页按[计划驱动交付](workflows/planned-delivery-recovery.md)执行。借鉴范围、目标运行角色及构建模式必须一致；Compose返回的params文件用于完整候选构建，随后publish_verified。`update_progress`必须使用page_status/current_step；技术失败不是用户确认，已有可读内容不得被失败进度页覆盖。 登记运行凭据需对应验证收据；静态金融页用materialize_snapshot及计划snapshot_roles，不手填数据绕过验证。本轮明确要求实时时，集合结果合同、完整覆盖证据、`required_outputs`和动态package角色缺一不可；普通行情Grant不能覆盖名单重算。
 
 **具体资产证据闸门**：已有文件转活页先执行静态交付，本闸门仅在其后实时增强阶段生效。除 `new_asset_page` 固定场景外，只要用户点名具体资产，就在 Trace 后、解释资产身份或提交 `routing_decision` 前，按「Trace → 资产映射 → 最小接口验证 → 页面路由」的顺序完成验证：调用 `scripts/qbs_bridge.py resolve_asset_data` 得到平台 ticker 映射，并按页面实际需要探测所需数据角色是否可取数，只记录接口成功/失败、可用字段和结构化错误。页面结构与 direct/fork/unmatched 判断只依据"用户所需能力 × 已验证的平台能力"，不得依据 Agent 对公司上市状态、所有权、资产名称或市场惯例的记忆。验证前不得引入"上市/未上市、公开/私营、代理资产、无行情、只能静态"等限制性前提；若用户没有询问这些身份属性，也不要把它们扩展成分析主线。
 

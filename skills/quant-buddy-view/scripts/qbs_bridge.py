@@ -114,7 +114,9 @@ def _read_session(path):
 
 
 def _configure_bridge_trace_context(params):
-    """Use only a persisted trusted QBV Turn as canonical bridge context."""
+    """The current trusted host owns identity; disk is standalone fallback only."""
+    if C.host_trace_context(params):
+        return C.configure_trace_context(dict(params))
     context_params = dict(params)
     nested = params.get("trace_context") if isinstance(params.get("trace_context"), dict) else {}
     task_id = str(params.get("task_id") or nested.get("task_id") or os.environ.get("QBV_TASK_ID") or "").strip()
@@ -1627,7 +1629,11 @@ def main():
         return 1
 
     task_id = str(params.get("task_id") or "").strip()
-    context = _configure_bridge_trace_context(params)
+    try:
+        context = _configure_bridge_trace_context(params)
+    except ValueError:
+        print(json.dumps({'code': 1, 'error': 'QBV_TRACE_CONTEXT_CONFLICT'}, ensure_ascii=False))
+        return 1
     task_id = str(context.get("task_id") or "").strip()
     turn_id = str(context.get("turn_id") or "").strip()
     user_query = str(context.get("user_query") or "").strip()

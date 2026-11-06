@@ -1563,9 +1563,8 @@ def _apply_hero_conclusion(spec, panels, generated_at):
     hp['target_selector'] = '#qb-hero-conclusion'
     analysis_date = str(generated_at or '')[:10] or '—'
     hero_html = (
-        "<div class='std-lead' id='qb-hero-conclusion' data-qb-conclusion></div>"
-        f"<p class='lead-note'>研究快照 · 分析日 {html_escape(analysis_date)}：结论由研究生成，"
-        "数值随页面打开实时取数、按各自数据日期展示。</p>"
+        "<div class='std-lead' id='qb-hero-conclusion' data-qb-conclusion data-qb-summary></div>"
+        f"<p class='lead-note'>研究快照 · {html_escape(analysis_date)} · 数据打开时刷新</p>"
     )
     return panels, hero_html
 

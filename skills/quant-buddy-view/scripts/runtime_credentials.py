@@ -94,7 +94,8 @@ def _active(record):
     status=record.get('status')
     if status == 'rejected':
         raise CredentialError('REGISTRATION_REJECTED', '前次注册已明确拒绝；修正合同或使用已验证快照继续建页',
-                              cause_code=record.get('cause_code'), next_action='materialize_snapshot')
+                              cause_code=record.get('cause_code'), next_action='materialize_snapshot',
+                              **({'unresolved_data_names':record['unresolved_data_names']} if record.get('unresolved_data_names') else {}))
     if status=='revoked':raise CredentialError('REGISTRATION_REVOKED','凭证已撤销；不能自动重新注册')
     if status!='confirmed':raise CredentialError('REGISTRATION_OUTCOME_UNKNOWN','前一次注册/轮换结果不确定，先查询恢复状态，不重复注册',next_action='registration_status')
     try:
@@ -164,6 +165,20 @@ def _response(resource,record,secret,reused):
     return out
 
 
+def _unresolved_data_names(response):
+    """Expose bounded series identifiers, never the raw upstream error text."""
+    error=response.get('error') if isinstance(response,dict) else None
+    message=error.get('message') if isinstance(error,dict) else ''
+    names=[]
+    for name in re.findall(r'数据名["“]([^"”]+)["”]未在',str(message or '')[:20000]):
+        if (re.fullmatch(r'[\w .()\-]{1,100}',name)
+                and not re.search(r'api.?key|signature|token|bearer|authorization',name,re.I)
+                and name not in names):
+            names.append(name)
+        if len(names)>=20: break
+    return names
+
+
 def register(resource,params,contract,endpoint,key,send,legacy_dir):
     task=task_of(params);fingerprint=EP.digest(contract)
     if not task:
@@ -201,10 +216,13 @@ def register(resource,params,contract,endpoint,key,send,legacy_dir):
         # Only documented pre-creation rejection codes. Unknown/transport failures stay uncertain.
         if isinstance(response, dict) and response.get('code') != 0 and cause in {
                 'REGISTER_FAILED', 'FORMULA_INVALID', 'PARAMS_REQUIRED', 'INVALID_PARAMS', 'UNAUTHORIZED', 'FORBIDDEN'}:
-            record.update(status='rejected', cause_code=cause)
+            details={}
+            unresolved=_unresolved_data_names(response)
+            if unresolved: details['unresolved_data_names']=unresolved
+            record.update(status='rejected', cause_code=cause, **details)
             _write_record(task, resource, record)
             raise CredentialError('REGISTRATION_REJECTED', '接口明确拒绝注册；修正合同或使用已验证快照继续建页',
-                                  cause_code=cause, next_action='materialize_snapshot')
+                                  cause_code=cause, next_action='materialize_snapshot', **details)
         if not isinstance(response,dict) or response.get('code')!=0 or not response.get(ID_FIELDS[resource]) or not response.get('signature'):
             record['status']='unknown';_write_record(task,resource,record)
             raise CredentialError('REGISTRATION_OUTCOME_UNKNOWN','未取得可持久化注册结果，不再次创建')

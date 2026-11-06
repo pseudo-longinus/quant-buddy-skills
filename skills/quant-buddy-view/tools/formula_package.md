@@ -104,6 +104,7 @@ QBS_IMPORT_CRED_DIR='D:/.../quant-buddy-skill/output/formula_packages' \
 `scripts/formula_package.py register` 在读取 API key / 请求服务端前会先做本地预检，成功和失败响应都会带 `_preflight`：
 
 - `formulas` 必须是非空字符串数组，每条必须是完整左值赋值公式。
+- 公式包在独立执行环境重算，必须包含所引用中间序列的完整上游定义，并保留原公式口径及依赖顺序；不能依赖旧聊天 session 的临时命名序列。`unresolved_data_names` 返回的是服务端报告的未解析名称，需追溯它们的上游，补全合同后重新验证，不原样重复注册。
 - 支持多输出左值，如 `NAV, HOLD = 回测(...)`。
 - 左值不能重复。
 - `reads` 必须非空，且 `reads[].output` 必须命中公式左值。

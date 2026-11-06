@@ -17,10 +17,12 @@ import export_delivery as export
 def _build_contract_reply(plan,contract,live):
     kind=plan['delivery_kind']
     modules=(contract.get('page_context') or {}).get('core_sections') or ['研究范围与核验方法']
-    intro='本页为研究方法说明，数据待补；已交付策略、缺口与核验方法。' if kind=='methodology' else '已交付部分研究成果，部分数据待补。'
-    mode='页面为已验证快照，不会自动刷新。' if live=='verified_snapshot' else '本页为方法研究页，不宣称实时选股研究完成。'
+    intro={'methodology':'本页为研究方法说明，数据待补；已交付策略、缺口与核验方法。',
+           'partial_research':'已交付部分研究成果，部分数据待补。'}.get(kind,'已交付研究成果，具体覆盖范围以核验记录为准。')
+    mode={'verified_snapshot':'页面为已验证快照，不会自动刷新。','static_content_only':'页面为静态展示，不会自动刷新。',
+          'live':'已核验自动取数能力。','mixed':'页面含实时与静态内容，按各字段日期与状态查看。'}.get(live,'页面自动更新能力待核验。')
     url=contract['public_url']
-    label={'verified_snapshot':'可分享静态研究页','static_content_only':'策略与核验方法研究页','mixed':'可分享活页（部分实时、部分静态）'}.get(contract.get('delivery_data_mode'),'可分享实时活页')
+    label=contract.get('delivery_link_label') or ('策略与核验方法研究页' if kind=='methodology' else {'verified_snapshot':'可分享静态研究页','static_content_only':'可分享静态研究页','live':'可分享实时活页','mixed':'可分享活页（部分实时、部分静态）'}.get(live,'可分享研究页（数据模式待核验）'))
     reply='**'+str(plan.get('title') or '策略研究与核验方法')+'**\n\n**一句话总结**：'+intro+'\n\n'
     reply+='## 这份活页做了什么\n\n保留原始研究条件，呈现已核验内容及尚未完成的部分。\n\n'
     reply+='## 核心模块\n\n'+'\n'.join('- '+str(module) for module in modules)+'\n\n'
@@ -30,7 +32,7 @@ def _build_contract_reply(plan,contract,live):
     return reply
 
 
-def _finish_verified_reply(task,turn,plan,state):
+def _finish_verified_reply(task,turn,plan,state,reply_text=None):
     """Complete reply bookkeeping for the current turn's already-verified publish.
 
     Any guard failure returns None so the caller preserves the last good page;
@@ -55,7 +57,8 @@ def _finish_verified_reply(task,turn,plan,state):
         if hashlib.sha256(contract_bytes).hexdigest() != contract_hash: return None
         contract=json.loads(contract_bytes.decode('utf-8'))
         contract=contract.get('agent_reply_contract') or contract
-        reply=_build_contract_reply(plan,contract,state.get('live_data_mode') or contract.get('delivery_data_mode'))
+        reply=(reply_text if reply_text is not None else
+               _build_contract_reply(plan,contract,state.get('live_data_mode') or contract.get('delivery_data_mode')))
         from validate_agent_reply import validate_reply
         checked=validate_reply(contract,reply)
         if checked.get('code')!=0: return None
@@ -64,6 +67,32 @@ def _finish_verified_reply(task,turn,plan,state):
                 'delivery':export.export(task,turn,checked['validated_markdown'],finalize_reply=True)}
     except Exception:
         return None
+
+
+def preserve_publication(params, plan, state):
+    """Shared read-only guard for both direct recovery and host finalization."""
+    task = plan['task_id']
+    turn = params.get('turn_id') or C.current_trace_context().get('turn_id')
+    from delivery_requirements import recovery_boundary
+    blocked=recovery_boundary(params,plan,state)
+    if blocked is not None: return blocked
+    if state.get('last_good_version'):
+        completed = _finish_verified_reply(task, turn, plan, state)
+        return completed if completed is not None else {'code':1,'error':'PRESERVED_LAST_GOOD_PAGE',
+                                                       'preserved_version':state['last_good_version']}
+    write = state.get('last_write') or {}
+    if write.get('status') == 'confirmed' and write.get('content_kind', 'candidate') != 'progress':
+        checked = SP.cmd_verify_published({'task_id':task,'page_id':plan['target_page_id']})
+        if checked.get('code') != 0:
+            return checked
+        state = DS.load(task, plan['target_page_id'])
+        completed = _finish_verified_reply(task, turn, plan, state)
+        return completed if completed is not None else {
+            'code':1,'error':'DIRECT_DELIVERY_REPLY_REQUIRED','terminal':False,
+            'page_id':plan['target_page_id'],
+            'public_url':(state.get('last_good_version') or {}).get('url'),
+            'next_action':{'command':'verify_published','params':{'task_id':task,'page_id':plan['target_page_id']}}}
+    return None
 
 
 def finish(params):
@@ -76,31 +105,19 @@ def finish(params):
     query=re.sub(r'(?i)(?:api_key|signature|authorization|access_token)\s*[=:]\s*\S+','[凭证已移除]',query)
     if not query or len(query)>30000: return {'code':1,'error':'METHODOLOGY_INTENT_REQUIRED'}
     plan=EP.load(task)
+    if plan and (DS.load(task,plan['target_page_id']).get('last_write') or {}).get('status') in ('pending','unknown'):
+        return recovery.backup_html({'task_id':task,'turn_id':turn,'user_query':query},plan)
+    from delivery_requirements import recovery_boundary
+    blocked=recovery_boundary(params,plan,DS.load(task,plan['target_page_id']) if plan else None)
+    if blocked is not None: return blocked
     if plan:
         state=DS.load(task,plan['target_page_id'])
         write = state.get('last_write') or {}
         if write.get('status') in ('pending','unknown'):
             return recovery.backup_html({'task_id':task,'turn_id':turn,'user_query':query},plan)
-        if state.get('last_good_version'):
-            completed=_finish_verified_reply(task,turn,plan,state)
-            if completed is not None:
-                return completed
-            return {'code':1,'error':'PRESERVED_LAST_GOOD_PAGE'}
-        # A bespoke upload can be confirmed before public verification. Finish it
-        # read-only; never replace a confirmed result page with a methodology page.
-        if write.get('status') == 'confirmed' and write.get('content_kind', 'candidate') != 'progress':
-            checked = SP.cmd_verify_published({'task_id': task, 'page_id': plan['target_page_id']})
-            if checked.get('code') != 0:
-                return checked
-            state = DS.load(task, plan['target_page_id'])
-            completed = _finish_verified_reply(task, turn, plan, state)
-            if completed is not None:
-                return completed
-            return {'code':1,'error':'DIRECT_DELIVERY_REPLY_REQUIRED','terminal':False,
-                    'message':'直接上传页面已公开验收，但回复合同收尾失败；保留原页面，不降级重建',
-                    'page_id':plan['target_page_id'],
-                    'public_url':(state.get('last_good_version') or {}).get('url'),
-                    'next_action':{'command':'verify_published','params':{'task_id':task,'page_id':plan['target_page_id']}}}
+        preserved = preserve_publication(params, plan, state)
+        if preserved is not None:
+            return preserved
     else:
         # A normal candidate fetch is still required. The host's fallback scope
         # is explicitly methods-only, so it never borrows a data-result runtime.
@@ -123,7 +140,7 @@ def finish(params):
                                 'user_query':query,'routing_decision':decision,
                                 'live_data_mode':'static_content_only','market_data_required':False,
                                 'research_status':'unavailable','delivery_kind':'methodology',
-                                'require_live_data':params.get('require_live_data',True)})
+                                'require_live_data':params.get('require_live_data',False)})
         if created.get('code')!=0:
             if created.get('error')=='PUBLISH_OUTCOME_UNKNOWN': return recovery.backup_html({'task_id':task,'turn_id':turn,'user_query':query})
             return created
@@ -133,7 +150,7 @@ def finish(params):
         if error:return error
         plan=EP.bind(route,expected_revision=plan['revision'],revision_reason='host_budget_methodology',
                      research_contract=contract,research_status='unavailable',delivery_kind='methodology',
-                     require_live_data=params.get('require_live_data',True))
+                     require_live_data=params.get('require_live_data',False))
     prepared=recovery.recover({'task_id':task,'turn_id':turn,'plan_hash':plan['plan_hash'],
                                'force_fallback':True,'user_query':query})
     if prepared.get('code')!=0:return prepared

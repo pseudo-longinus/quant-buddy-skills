@@ -182,6 +182,7 @@ class Publication:
         self.root, self.task = root, task
         self.path = root / 'publication.json'
         self.state = {}
+        self.editing_version = None
 
     def load(self):
         if self.path.exists():
@@ -239,6 +240,10 @@ class Publication:
         # An accessible 全部静态 page is intentionally is_live=False.
         if result.get('sha256_match') is False or result.get('status') in {'revoked','expired','deleted','inactive'}:
             raise PublishError('FILE_PUBLISH_REMOTE_INVALID')
+        version = result.get('current_version_id') or result.get('expected_current_version_id')
+        if self.editing_version and version != self.editing_version:
+            raise PublishError('FILE_PUBLISH_REMOTE_VERSION_CONFLICT')
+        self.editing_version = version
         return result
 
     def verify(self, target, profile):
@@ -337,13 +342,24 @@ class Publication:
 
     def write(self, html, kind, *, metadata=None):
         """Persist intent BEFORE network; a crash is always a recoverable unknown write."""
-        candidate = self.artifact(html)
-        self.state['operation'] = {'kind': kind, 'status': 'pending', 'candidate': candidate}
-        self.state['problem'] = None
-        self.save()
         params = self.params if metadata is None else metadata
         page_id = self.state.get('page_id')
+        if page_id:
+            if not self.editing_version:
+                self.remote()
+            if not self.editing_version:
+                return self.fail('FILE_PUBLISH_VERSION_REQUIRED')
+            explicit = params.get('expected_current_version_id') if kind != 'restore' else None
+            if explicit and explicit != self.editing_version:
+                return self.fail('FILE_PUBLISH_REMOTE_VERSION_CONFLICT')
+        candidate = self.artifact(html)
+        self.state['operation'] = {'kind': kind, 'status': 'pending', 'candidate': candidate,
+                                   'expected_current_version_id':self.editing_version}
+        self.state['problem'] = None
+        self.save()
         body = self.sp._publish_body(params, html, page_id=page_id, snapshot_stage=kind in ('create', 'snapshot'))
+        if page_id:
+            body['expected_current_version_id'] = self.editing_version
         try:
             out = self.sp.C.http_json('POST', self.sp.C.api_url(self.endpoint, self.sp._PATH['update' if page_id else 'upload']),
                                       self.sp.C.headers(self.api_key), body, timeout=self.sp._UPLOAD_TIMEOUT)
@@ -364,6 +380,7 @@ class Publication:
             self.state['public_url'] = self.sp._delivery_public_url(url)
             self.state['verification_url'] = url
         self.state['operation']['status'] = 'written'
+        self.editing_version = None  # Subsequent reads verify the newly written version.
         if isinstance(out.get('sha256'),str) and re.fullmatch(r'[0-9a-fA-F]{64}',out['sha256']):
             self.state['operation']['server_sha256']=out['sha256'].lower()
             self.state['operation']['tracker_injected']=out.get('tracker_injected') is True
@@ -443,7 +460,7 @@ class Publication:
             html = self.read_artifact(previous)
         except (PublishError, OSError) as exc:
             return self.fail(str(exc) if isinstance(exc, PublishError) else 'FILE_PUBLISH_RESTORE_ARTIFACT_UNAVAILABLE')
-        # No server CAS exists: guard with immediate read, report the remaining race in docs.
+        # The version read above remains the server's atomic write precondition.
         metadata = json.loads(self.read_artifact(self.state['previous_metadata'])) if self.state.get('previous_metadata') else {}
         self.state['restore_from_sha256'] = op.get('published',op['candidate'])['sha256']
         return self.write(html, 'restore', metadata=metadata)

@@ -21,6 +21,8 @@ python scripts/static_page.py execution_plan @plan-revision.json
 
 修订输入必须包含 `expected_revision + revision_reason`，按需提供 `target_scope` 与 `runtime_roles`。task/page/source身份不能改变；初始化路由计划可在首次准备时补全，已准备的计划变化必须显式修订。旧plan_hash的候选和发布参数失效。每次成功修订返回新的next_action.params_file；旧稿保留，研究文字自动迁移，不编辑内部收据或手工修补旧hash。
 
+本轮明确要求实时而旧计划未记录该要求时，发布返回 `CURRENT_LIVE_PLAN_REQUIRED`，先修订计划并绑定当前研究需要的数据角色。集合范围必须是 `basket/sector/market` 等明确范围；`market/sector` 或未列成员的 `basket` 还要有当前研究合同及 `selection_output`。把 `selection_output` 写进某个 `runtime_roles[*].required_outputs`，并绑定动态 package/handoff 角色；普通行情 Grant 不能覆盖名单或派生指标重算。合同还必须带同一范围的完整覆盖、逐行数量和实际观察日期。少量观察股价格自动刷新不能代替用户要求的全市场名单或计算指标自动更新；核心角色未覆盖时保留原页和未完成状态，不把混合页说成实时任务已完成。已验收页面的宿主收尾会按封存合同校验实际最终答复，缺失必填章节或最终链接格式时仍不能标记交付成功。
+
 目标运行角色至少声明 `role_id + kind(package|grant)`。Compose引用已注册数据时还需相应 `package_id/grant_id`、`contract_fingerprint`、`validation_receipt_file`；收据必须属于同任务且completed/success。先完成合同验证和注册，再填写引用；不能把signature或API Key写进执行计划。
 
 同任务已选择Compose时，`fork_prepare`（含force_rebuild）不得全量继承来源运行时。需要改变业务范围时明确修订计划；不允许把fork改判unmatched，不新建task/page绕过。
@@ -35,6 +37,12 @@ python scripts/static_page.py execution_plan @plan-revision.json
 - 若已存在可读内容或旧页面状态未知，进度只写任务状态，返回`public_page_updated:false`，不得称“页面已更新”。对话/宿主显示进度，公开正文保留。首链确认为placeholder时才允许更新进度HTML。
 
 ## 恢复
+
+本轮宿主原始问题优先于历史计划。已有页追问先 `interpret` 当前页，再按新要求显式修订计划；不继续沿用旧的“方法页、无需实时”判断。
+
+恢复顺序统一为：核对 pending/unknown 写入 → 只读核验已确认发布 → 复用 Capsule/Handoff/验证收据 → 确实没有可用数据才考虑方法页。内部 Compose 文件缺失只表示记录不完整，不能推断线上没有数据。聊天恢复 V1 走 [版本恢复](page-version-restore.md)，不进入此降级流程。
+
+快照读取属于内部操作，传给QBS的用户问题与轮次仍沿用当前宿主上下文，不用“物化快照”等操作说明替代。交接失败须保留原验证合同并检查具体原因，不手工补造验证收据。静态升级为实时只改变取数方式，已有公式、日期定义、单位与股票范围保持原合同；需改变时明确修订，不能把不同算法假定为等价。
 
 ```bash
 python scripts/static_page.py delivery_status '{"task_id":"task_xxx","refresh_remote":true}'
@@ -67,7 +75,7 @@ python scripts/static_page.py reconcile_delivery @reconcile-params.json
 
 写前读取目标页版本/哈希，写后保存现有接口返回的版本，再核对公开浏览器实际内容和当前版本。响应已确认且同一候选/远端版本未变时，复用收据重新验收，不重复写入。响应丢失或结果不确定时，记录失败并停止自动重发；不能仅凭远端仍是旧版本或恰好匹配候选哈希，就假定前一次请求已经结束。
 
-这些是客户端日志与写前检查，不是服务端原子条件更新或幂等保证。工具返回 `local_lock_and_read_before_write_no_server_cas` 如实表示边界。本次不承担服务端锁过期、并发覆盖或跨 Mongo/对象存储事务的修复，不因此阻塞正常 Skill 发布。
+下载/解读记录的编辑版本会沿 Compose、更新和恢复传递为 `expected_current_version_id`。服务端原子检查该前置条件，工具返回 `local_journal_and_server_cas`。版本变化即停止，不取一个新版本号继续覆盖。该保护不等于服务端全局幂等或跨 Mongo/对象存储事务；未知写入仍按原 journal 核对，不能盲重发。
 
 已有可读页面失败时保留正文；尚未完成的任务只给出非终态状态和具体错误，不把技术失败伪装成用户待确认或成功交付。
 
@@ -101,7 +109,7 @@ materialize返回snapshot_receipt_file及snapshot_receipt_sha256。把这两项�
 
 - 页面只有快照：发布参数自动使用`live_data_mode:"verified_snapshot"`，不依赖原Grant/Package持续可用；声明“已验证静态快照，不会自动更新”。
 - 既有动态角色又有快照：使用`mixed`，动态部分仍需完整路由/验证收据，并明确“部分实时、部分静态快照”。
-- 用户要求实时：在计划中保留`require_live_data:true`，不能用技术性计划修订将其改为false。快照不能满足完整实时研究条件；仍可按 partial_research/partial 公开交付注明限制的部分成果，研究实时要求保持未完成。
+- 用户要求实时：在计划中保留`require_live_data:true`，不能用技术性计划修订将其改为false。快照可作为本地研究证据，但不能替代本轮自动更新交付。发布前统一核对本轮范围、结果合同、`required_outputs`、动态 package/handoff 角色、完整覆盖行数和观察时点；任一缺失时保留原页并返回结构化未完成错误，不得覆盖为方法页或报告完成。
 - captured_at是快照生成时间，不是行情交易日。保留数据本身的日期/报告期，不能自动把生成时间当成数据时点。
 
 快照和mixed的终态回复链接分别使用“可分享静态研究页”和“可分享活页（部分实时、部分静态）”；validator按合同检查，不再强制把快照称作实时活页。
@@ -135,6 +143,10 @@ materialize返回snapshot_receipt_file及snapshot_receipt_sha256。把这两项�
 1. `validate_grant_set` 的 `success/required_roles_complete` 表示全部合同是否通过；`status:partial` 保留成功项但不代表完整研究可发布。按 failed_grants 修正并只重验失败合同，零成功不注册。不用最新单值代替完整历史，不把缺失数据补零。
 2. `SOURCE_CREDENTIAL_UNPAIRED/RESEARCH_DIGEST_EMPTY`：按 next_action 对同来源仅提取 layout/style，继续 fork_compose。只借布局不继承数据凭证，保持原 page_id 和来源。
 3. `REGISTRATION_REJECTED` 保留明确拒绝码；`REGISTRATION_OUTCOME_UNKNOWN` 不重发注册。两者不意味着研究数据作废。执行返回的 recover_snapshot；单独注册工具返回 materialize_snapshot 时，物化后继续同页恢复。
+
+明确实时要求时，不走静态降级。注册返回 `unresolved_data_names` 表示新执行环境找不到所引用的数据序列；从原 QBS 计算及验证记录取回全部上游公式，保留字面和依赖顺序，补齐同一包的完整合同后重新验证，再用新收据注册。当前会话能读到命名序列，不证明独立公式包能重算；不能只带最后几条排序公式或删除失败产出来通过。
+
+恢复过程生成的说明、覆盖缺口和数据面板都补齐唯一编号及对应挂载点，保留已有编号。Presentation 主体占满宿主网格可用宽度；仍需真实浏览器验收，不以参数准备成功当作发布成功。
 
 ```bash
 python scripts/static_page.py recover_snapshot @recovery-params.json

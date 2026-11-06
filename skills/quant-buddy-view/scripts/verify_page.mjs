@@ -7,6 +7,7 @@
  *   node scripts/verify_page.mjs https://pages.quantbuddy.cn/...
  *   node scripts/verify_page.mjs output/pages/demo.html --manifest output/pages/demo.manifest.json
  *   node scripts/verify_page.mjs output/pages/demo.html --require-browser
+ *   node scripts/verify_page.mjs https://pages.quantbuddy.cn/... --require-live-data
  *   node scripts/verify_page.mjs output/pages/demo.html --card-runtime-only
  *   node scripts/verify_page.mjs output/pages/demo.html --card-runtime-structure-only
  */
@@ -26,6 +27,7 @@ import { staticImageProblems } from './image_verification.mjs';
 import { cardVisualContractProblems } from './card_visual_contract.mjs';
 import { dashboardDesignMetrics } from './dashboard_design_checks.mjs';
 import { pageTitleMetrics, pageTitleProblems } from './page_title_checks.mjs';
+import { liveAction, liveResponse, liveRequestProblems } from './live_request_verification.mjs';
 // Optional diagnostics must not turn an old successful page into a failure.
 const labelChecks = await import('./data_label_checks.mjs').catch(() => ({
   readDataLabels: async () => ({checked:false, advisory:true, warnings:['LABEL_CHECK_UNAVAILABLE']}),
@@ -39,7 +41,8 @@ if (expectedTitleIdx >= 0 && (!expectedTitle || expectedTitle.length > 200 || ex
   fs.writeSync(1, JSON.stringify({ code: 1, error: 'PAGE_TITLE_INVALID', message: '--expected-title 需要非空且不超过200字符的标题' }) + '\n');
   process.exit(1);
 }
-const requireBrowser = args.includes('--require-browser') || expectedTitle !== null;
+const requireLiveData = args.includes('--require-live-data');
+const requireBrowser = args.includes('--require-browser') || expectedTitle !== null || requireLiveData;
 const profileIdx = args.indexOf('--profile');
 const profileName = profileIdx >= 0 ? args[profileIdx + 1] : 'full';
 const minVisibleFontIdx = args.indexOf('--min-visible-font-px');
@@ -60,6 +63,10 @@ const cardRuntimeOnly = !cardRuntimeStructureOnly && (args.includes('--card-runt
 const cardRuntime = args.includes('--card-runtime') || cardRuntimeOnly || cardRuntimeStructureOnly;
 if (expectedTitle !== null && (cardRuntimeOnly || cardRuntimeStructureOnly)) {
   fs.writeSync(1, JSON.stringify({ code: 1, error: 'EXPECTED_TITLE_FULL_PAGE_REQUIRED', message: '标题验收需要整页浏览器检查，不能只验收卡片' }) + '\n');
+  process.exit(1);
+}
+if (requireLiveData && (cardRuntimeOnly || cardRuntimeStructureOnly)) {
+  fs.writeSync(1, JSON.stringify({code:1,error:'LIVE_FULL_PAGE_REQUIRED',message:'实时验收必须检查完整页面的真实请求'})+'\n');
   process.exit(1);
 }
 const requireCardVisualContract = args.includes('--require-card-visual-contract');
@@ -94,6 +101,7 @@ const VIEWPORTS = [...verificationProfile.viewports, ...extraViewports];
 function sanitizeBrowserText(value) {
   return String(value || '')
     .replace(/https?:\/\/[^\s)'"<>]+/gi, '[URL]')
+    .replace(/((?:signature|api_key|access_token|authorization)["'\s]*[:=]["'\s]*)([^"'\s,}]+)/gi, '$1[REDACTED]')
     .replace(/([?&](?:x-amz-[^=]+|signature)\s*=)[^&\s]+/gi, '$1[REDACTED]');
 }
 
@@ -811,6 +819,8 @@ async function playwrightBrowserChecks(pw, url, options = {}) {
   try {
     for (const viewport of viewports) {
       const page = await browser.newPage({ viewport: { width: viewport.width, height: viewport.height } });
+      const liveRequests=[], liveReads=[];
+      page.on('pageerror',error=>consoleErrors.push({viewport:viewport.name,type:'error',text:sanitizeBrowserText(error.message)}));
       page.on('console', msg => {
         if (!['error', 'warning'].includes(msg.type())) return;
         const text = msg.text();
@@ -825,6 +835,12 @@ async function playwrightBrowserChecks(pw, url, options = {}) {
         }
       });
       page.on('response', response => {
+        const action=liveAction(response.url());
+        if (action) {
+          const entry={action,http:response.status(),business_ok:false,output_count:0};
+          liveRequests.push(entry);
+          liveReads.push(response.text().then(body=>Object.assign(entry,liveResponse(action,response.status(),body))).catch(()=>{}));
+        }
         if (response.request().resourceType() === 'image' && !response.ok()) {
           imageNetworkErrors.push({ viewport: viewport.name, type: `http_${response.status()}`, url: sanitizeBrowserText(response.url()) });
         }
@@ -849,6 +865,7 @@ async function playwrightBrowserChecks(pw, url, options = {}) {
       // pending=0 只表示取数内核当前没有请求，不代表其它宿主 runtime 已完成最后一次 DOM/ECharts 接管。
       // 始终保留一个稳定窗口，防止“图先出现，宿主 Grant 后完成又清空图表”被瞬时采样放过。
       await page.waitForTimeout(hasRuntime ? settleMs : Math.max(settleMs, 3000));
+      if (options.requireLiveData) await Promise.race([Promise.allSettled(liveReads),delay(3000)]);
       const presentation = await page.evaluate(inspectChartPresentation);
       const imageMetrics = await page.evaluate(prepareImagesExpression);
       const shareModalMetrics = options.checkShareModal ? await page.evaluate(shareModalChecksExpression) : null;
@@ -862,7 +879,7 @@ async function playwrightBrowserChecks(pw, url, options = {}) {
       if (options.captureHtml && documentHtml === null) {
         try { documentHtml = await page.evaluate(() => document.documentElement.outerHTML); } catch (_) {}
       }
-      results.push({ ...viewportResult(viewport, metrics, options), document_sha256: documentSha256, document_status: documentStatus });
+      results.push({ ...viewportResult(viewport, metrics, options), liveRequests, document_sha256: documentSha256, document_status: documentStatus });
       await page.close();
     }
   } finally {
@@ -1558,10 +1575,10 @@ async function cdpBrowserChecks(url, options = {}) {
     let documentHtml = null;
     const documentRequests = new Map();
     const documentStatuses = new Map();
+    let liveResponses=[];
     cdp.onEvent(msg => {
       if (msg.method === 'Runtime.exceptionThrown') {
         const text = msg.params?.exceptionDetails?.text || 'Runtime exception';
-        if (!CORE_ERROR_RE.test(text)) return;
         const entry = { viewport: currentViewport, type: 'error', text: sanitizeBrowserText(text) };
         if (TRACKER_NOISE_RE.test(text)) nonCoreWarnings.push(entry);
         else consoleErrors.push(entry);
@@ -1580,6 +1597,10 @@ async function cdpBrowserChecks(url, options = {}) {
       if (msg.method === 'Network.responseReceived' && msg.params?.type === 'Document') {
         documentRequests.set(msg.params.frameId, msg.params.requestId);
         documentStatuses.set(msg.params.frameId, Number(msg.params?.response?.status || 0) || null);
+      }
+      if (msg.method === 'Network.responseReceived') {
+        const action=liveAction(msg.params?.response?.url);
+        if (action) liveResponses.push({requestId:msg.params.requestId,action,http:Number(msg.params.response.status)});
       }
       if (msg.method === 'Network.responseReceived' && msg.params?.type === 'Image' && Number(msg.params?.response?.status || 0) >= 400) {
         imageNetworkErrors.push({ viewport: currentViewport, type: `http_${msg.params.response.status}`, url: sanitizeBrowserText(msg.params.response.url || '') });
@@ -1601,6 +1622,7 @@ async function cdpBrowserChecks(url, options = {}) {
       const loaded = cdp.waitForEvent('Page.loadEventFired', 30000).catch(() => null);
       documentRequests.clear();
       documentStatuses.clear();
+      liveResponses=[];
       const navigation = await cdp.send('Page.navigate', { url });
       // Chrome reports DNS/TLS/connection failures here instead of throwing.
       if (navigation && navigation.errorText) throw new Error(`page navigation failed: ${navigation.errorText}`);
@@ -1671,11 +1693,20 @@ async function cdpBrowserChecks(url, options = {}) {
       if (designMetrics.exceptionDetails) throw new Error('Dashboard design checks failed to execute');
       evaluated.result.value.dashboardDesign = designMetrics.result?.value || null;
       evaluated.result.value.shareModal = shareModalMetrics?.result?.value || null;
+      const liveRequests=[];
+      for (const response of liveResponses) {
+        let entry={action:response.action,http:response.http,business_ok:false,output_count:0};
+        try {
+          const body=await cdp.send('Network.getResponseBody',{requestId:response.requestId});
+          entry=liveResponse(response.action,response.http,body.base64Encoded?Buffer.from(body.body,'base64').toString('utf8'):body.body);
+        } catch { /* Missing network body cannot prove success. */ }
+        liveRequests.push(entry);
+      }
       if (options.captureHtml && documentHtml === null) {
         const outer = await cdp.send('Runtime.evaluate', { expression: 'document.documentElement.outerHTML', returnByValue: true });
         if (!outer.exceptionDetails && typeof outer.result?.value === 'string') documentHtml = outer.result.value;
       }
-      results.push({ ...viewportResult(viewport, evaluated.result.value, options), document_sha256: documentSha256, document_status: documentStatus });
+      results.push({ ...viewportResult(viewport, evaluated.result.value, options), liveRequests, document_sha256: documentSha256, document_status: documentStatus });
     }
     ws.close();
     const out = { checked: true, engine: 'system-browser', browser: browserPath, viewports: results, consoleErrors, nonCoreWarnings, imageNetworkErrors };
@@ -1727,6 +1758,7 @@ function summarize(staticResult, browserResult, options) {
   const nonCoreWarnings = [...(browserResult.nonCoreWarnings || [])];
   if (browserResult.checked) {
     for (const r of browserResult.viewports) {
+      if (options.requireLiveData) for (const problem of liveRequestProblems(r.liveRequests,r.runtime)) problems.push(`${r.viewport}: ${problem}`);
       for (const problem of chartPresentationProblems(r.presentation)) problems.push(`${r.viewport}: ${problem}`);
       if(r.presentation?.status==='degraded') warnings.push(`${r.viewport}: 图表资源不可用，已验证数据表替代`);
       if(r.presentation?.source==='oss') warnings.push(`${r.viewport}: 主图表源不可用，已切换OSS`);
@@ -1895,6 +1927,7 @@ try {
   if (resolved.html === null) {
     // Node fetch failed: run the browser first and use its document as the static source.
     const browserOptions = {
+      requireLiveData,
       requireDashboardDesign: verificationProfile.requireDashboardDesign,
       checkShareModal: verificationProfile.checkShareModal,
       minVisibleFontPx,
@@ -2010,6 +2043,7 @@ try {
     process.exit(cardRuntimeResult.ok ? 0 : 1);
   }
   const browserOptions = {
+    requireLiveData,
     requireDashboardDesign: verificationProfile.requireDashboardDesign,
     checkShareModal: verificationProfile.checkShareModal,
     minVisibleFontPx,
