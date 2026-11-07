@@ -103,6 +103,23 @@ def binding_path(endpoint, identity, kind):
     return binding_root() / kind / (digest(endpoint + '\0' + identity) + '.json')
 
 
+def publication_endpoint(sp, endpoint):
+    """Bind journals to the configured upstream, not a per-run loopback proxy.
+
+    Only the host's matching config pair can supply the stable identity. Network
+    requests keep using the current proxy and its signing/billing boundary.
+    """
+    from urllib.parse import urlsplit
+    cfg = sp.C.load_config()
+    actual = str(endpoint).rstrip('/')
+    configured = str(cfg.get('endpoint') or '').rstrip('/')
+    upstream = str(cfg.get('_claw_upstream_endpoint') or '').rstrip('/')
+    parsed = urlsplit(actual)
+    if actual == configured and parsed.scheme == 'http' and parsed.hostname in {'127.0.0.1', 'localhost', '::1'} and upstream:
+        return upstream
+    return actual
+
+
 def register_binding(state, root):
     """Pointers only; journal remains authoritative. Register BEFORE a network write."""
     task, endpoint = state['task_id'], state['endpoint']
@@ -132,6 +149,7 @@ def register_binding(state, root):
 
 def mutation_guard(sp, params, endpoint, *, action):
     """Do not let ordinary update/upload silently escape a previously managed page."""
+    endpoint = publication_endpoint(sp, endpoint)
     task = str(params.get('task_id') or sp.C.current_trace_context().get('task_id') or '')
     page = str(params.get('page_id') or '')
     roots = set()
@@ -167,6 +185,7 @@ def mutation_guard(sp, params, endpoint, *, action):
 class Publication:
     def __init__(self, sp, params, endpoint, api_key):
         self.sp, self.params, self.endpoint, self.api_key = sp, dict(params), endpoint, api_key
+        self.binding_endpoint = publication_endpoint(sp, endpoint)
         if 'snapshot_only' in params and not isinstance(params['snapshot_only'], bool):
             raise PublishError('PRESERVE_HTML_SNAPSHOT_ONLY_INVALID')
         root = Path(str(params.get('file_publish_dir') or ''))
@@ -190,7 +209,7 @@ class Publication:
                 self.state = json.loads(self.path.read_text(encoding='utf-8'))
             except (ValueError, OSError):
                 raise PublishError('FILE_PUBLISH_STATE_UNREADABLE')
-            if self.state.get('schema') != 'qbv_file_publication_v1' or self.state.get('task_id') != self.task or self.state.get('endpoint') != self.endpoint:
+            if self.state.get('schema') != 'qbv_file_publication_v1' or self.state.get('task_id') != self.task or self.state.get('endpoint') != self.binding_endpoint:
                 raise PublishError('FILE_PUBLISH_STATE_BINDING_MISMATCH')
             source = self.params.get('source_html_sha256')
             if source and source != self.state.get('source_sha256'):
@@ -274,6 +293,9 @@ class Publication:
             'page_id': state.get('page_id'), 'public_url': state.get('public_url'),
             'delivery_stage': state.get('stage', 'not_published'),
             'page_delivered': delivered,
+            'version_no': state.get('operation', {}).get('version_no'),
+            'version_id': state.get('operation', {}).get('version_id'),
+            'sha256': state.get('operation', {}).get('server_sha256'),
             'last_verified_at': state.get('last_verified_at'),
             'current_page_verified': bool(delivered and state.get('operation', {}).get('status') == 'verified' and not state.get('problem')),
             'snapshot_published_first': bool(state.get('snapshot_published_first')),
@@ -416,6 +438,11 @@ class Publication:
         if not self.matches_write(remote['html']):
             # Eventual consistency and third-party writes are both unsafe to overwrite.
             return self.fail('FILE_PUBLISH_REMOTE_VERSION_CONFLICT')
+        version_no = remote.get('current_version_no')
+        version_id = remote.get('current_version_id')
+        if type(version_no) is not int or version_no < 1 or not version_id:
+            return self.fail('FILE_PUBLISH_VERSION_REQUIRED')
+        op.update(version_no=version_no, version_id=version_id)
         op['published']=self.artifact(remote['html'])
         op['server_sha256']=sha
         self.save()
@@ -590,7 +617,7 @@ class Publication:
                 snapshot, resolution, error = self.sp._prepare_preserve_snapshot_stage({**self.params, "snapshot_only": True})
                 if error:
                     return error
-                self.state = {'schema': 'qbv_file_publication_v1', 'task_id': self.task, 'endpoint': self.endpoint,
+                self.state = {'schema': 'qbv_file_publication_v1', 'task_id': self.task, 'endpoint': self.binding_endpoint,
                               'source_sha256': self.params.get('source_html_sha256'),
                               'source_html_file': self.params.get('source_html_file'),
                               'original_sha256': self.params.get('source_original_sha256'),
