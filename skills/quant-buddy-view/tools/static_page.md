@@ -5,6 +5,30 @@
 
 > QBS→QBV 旁路：`publish_verified` 可显式传 `qbv_job_id`、`qbv_job_file`、`turn_id`（或 `qbv_job_dir`）；`direct_deliver` 则可从 `beginHandoff` 持久化的 task-scoped Trace Context 恢复 Turn lineage。公网验收成功，或 direct 取得字段一致的强终态 `direct_finalize` contract 后，脚本自动把对应 `qbs_qbv_job_v2` 写为 `completed`；QBV standalone 没有 Handoff/Job 时行为完全不变。
 
+## 历史版本与并发更新
+
+```bash
+python scripts/static_page.py versions @versions.json
+python scripts/static_page.py version @version.json
+python scripts/static_page.py rollback @rollback.json
+```
+
+| 命令 | 参数 | 结果 |
+|---|---|---|
+| `versions` | `page_id`；可选 `page`、`page_size` | 历史列表与 `current_version_id/current_version_no` |
+| `version` | `page_id`，加 `version_id` 或 `version:"V1"` / `version_no:1`；下载时加 `task_id, download:true` | 目标版本、权限与凭证预检；下载校验 hash 后返回私有 `html_file` |
+| `rollback` | 同 task/turn、`page_id`、目标版本、`expected_current_version_id`；可选稳定 `operation_id`、`change_note` | 原链接的新恢复版本和公网验收结果 |
+
+`V1` 按 `version_no=1` 查询，不取列表第一项。恢复固定为 `restore_metadata:true, restore_tags:false, force:false, reactivate_credentials:false`：正文、运行绑定、标题、说明及回复元信息恢复，当前标签保留。凭证撤销/失效先停，不擅自复活。`code:0, written:true, verified:true` 才能说恢复完成。
+
+原始请求指定的 V 号约束实际恢复目标；参数或自动默认选择不能覆盖原始请求，不匹配返回 `ROLLBACK_TARGET_CONFLICT`。只有用户后续明确新消息可以修改目标。成功结果与发布收据提供 `restored_version_id`、`restored_version_no`，新增恢复版本仍使用 `version_no`，两者不可混淆。
+
+已经恢复到目标内容时仍调用 `rollback`，由工具完成本轮只读核验并返回 `already_current, written:false, verified:true`；不能凭旧收据或 hash 自行宣告无需恢复。当前可能是来源于 V1 的 V4，核验通过不新增 V5，回复按目标 V1 说明。
+
+`ROLLBACK_PRECHECK_FAILED` 不发写入；`VERSION_CHANGED` 停止覆盖；`ROLLBACK_OUTCOME_UNKNOWN` 仅查询历史核对同 task、来源、顺序和 hash，不重发 POST；`ROLLBACK_PUBLIC_VERIFICATION_FAILED` 表示已写入但尚未验收，不再降级方法页。详见 [恢复流程](../workflows/page-version-restore.md)。私有预览 URL 不作为用户分享链接，不进入公开交接记录。
+
+`download/interpret` 返回并记录 `expected_current_version_id`，Compose 草稿与后续更新须沿用该值。不要用发布前的新版本号替换旧编辑基线来绕过冲突。没有既有编辑基线的普通更新会先读取版本并传给服务端；版本号缺失则拒绝写入。受控文件流程的每次更新与失败恢复同样使用其读到的版本 ID。
+
 ## 计划、Compose与恢复
 
 `recover_snapshot` 接受 task_id、当前 plan_hash 和 roles（每项 role_id、validation_receipt_file），将已有验证数据绑定为同页快照并返回 compose_page 参数；不重试未知注册、不直接发布。可传现有标题和 panels 保留研究内容。详见 [同页恢复](../workflows/planned-delivery-recovery.md#同页恢复而非停留在失败页)。
@@ -235,7 +259,7 @@ python scripts/static_page.py verify_card_runtime '{"page_ids":["page_xxx","page
 | `fork_manifest_file` / `fork_manifest` | `source_template_id` 存在时必填 | v1/v2 均可读取；新 `fork_prepare` 只生成 v2。发布前 fail-closed 校验来源 HTML、凭证、栏目、输出和 Card Runtime |
 | `require_agent_reply_template` | ❌ | `true` 时启用 fail-closed 门禁；无法解析 Agent 回复模板则不发布正式页 |
 | `routing_override` | ❌ | 不再支持 fork→unmatched。若传入会返回 `ROUTING_OVERRIDE_NOT_ALLOWED`，并提示继续 `fork_prepare` 或 `fork_compose` |
-| `runtime_roles` | ❌ | `fork_compose`省略时固定为空数组，不继承来源模板runtime role；显式目标role必须具备`contract_fingerprint`和`validation_receipt_file`，否则返回`COMPOSE_ROLE_EVIDENCE_INCOMPLETE` |
+| `runtime_roles` | ❌ | `fork_compose`省略时固定为空数组，不继承来源模板runtime role；显式目标role必须具备`contract_fingerprint`和`validation_receipt_file`，否则返回`COMPOSE_ROLE_EVIDENCE_INCOMPLETE`。实时集合结果用package/handoff角色，并把结果合同的`selection_output`写入`required_outputs`；Grant只刷新已声明字段，不能覆盖结果重算 |
 | `snapshot_roles` | ❌ | 当前任务已验证快照；QBS Handoff可先经`handoff_snapshot_bridge.py build`物化 |
 
 默认步骤固定为：
@@ -831,7 +855,7 @@ python scripts/static_page.py unpublish_community '{"page_id":"page_xxx"}'
 
 - OS文件锁及原子状态写入保护同任务本地协作；跨worker必须共享file_publish_dir。
 - 创建回执完全丢失需通过本人页面列表/服务端证据找到候选page_id，哈希确认前不自动重试创建。
-- 服务端无条件更新接口不提供CAS；立即读版本再写可阻止已发现冲突，不能消除读写间竞态。
+- 更新和受保护恢复传递 `expected_current_version_id`，由服务端原子检查；版本变化即停止。该条件保护不等于对象存储与数据库的跨系统事务保证。
 - HTML/元数据恢复工件可能携带原页面运行凭证，仅存私有任务目录；publication.json不收集API key或原始错误正文。
 
 首次已写入但浏览器验收失败、且无旧成功版本可恢复时，可用同一发布记录和page_id，传 `file_repair:true` 与修复后的 `html_file`。工具先核对当前首版哈希，再做本地浏览器验收，通过后同页修复；不查QBS，不允许借此绕过未知写入或覆盖已有成功增强版本。

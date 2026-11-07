@@ -97,10 +97,9 @@ def handoff(params, result, route):
         reference = route['page_reference']
         resume = route.get('execution_plan_available') is True
         step.update(workflow='existing_page', guide='workflows/planned-delivery-recovery.md',
-                    tool='static_page.py delivery_status' if resume else 'static_page.py interpret',
-                    params=({'task_id': task} if resume else
-                            {'task_id': task, 'url' if str(reference).startswith(('https://', 'http://')) else 'page_id': reference}),
-                    instruction='复用原页身份及本轮证据，按现有原位更新/恢复流程继续；没有计划时先完成原页归属检查和计划绑定，不新建替代页。')
+                    tool='static_page.py interpret',
+                    params={'task_id': task, 'url' if str(reference).startswith(('https://', 'http://')) else 'page_id': reference},
+                    instruction='先读取当前页面与版本，再按本轮原始问题修订执行计划（expected_revision、revision_reason）；保留原页身份及有效数据绑定。实时要求必须真实取数验收，不沿用旧方法页判断。')
     elif route.get('page_workflow') == 'single_a_stock_fast' and route.get('delivery_strategy') == 'page_first':
         step.update(
             workflow='single_a_stock_fast',

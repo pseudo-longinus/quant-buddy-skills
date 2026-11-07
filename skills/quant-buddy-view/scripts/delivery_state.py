@@ -259,6 +259,16 @@ def mark_verified(plan, result, *, complete, failure_kind=None):
         state.update({key: plan.get(key, default) for key, default in
                       [('research_status', 'unknown'), ('delivery_kind', 'result')]})
         state['live_data_mode'] = result.get('live_data_mode') or state.get('live_data_mode') or 'unknown'
+        if state['live_data_mode'] == 'unknown' and result.get('is_live') is False:
+            state['live_data_mode'] = 'static_content_only'
+        state['publication_receipt'] = {
+            'task_id':plan['task_id'],'turn_id':C.current_trace_context().get('turn_id') or state.get('turn_id'),
+            'page_id':plan['target_page_id'],'version_no':write['remote'].get('version_no'),
+            'sha256':write['remote'].get('sha256'),'plan_hash':plan['plan_hash'],
+            'live_data_mode':state['live_data_mode'],'research_status':state['research_status'],
+            'delivery_kind':state['delivery_kind'],
+            'covered_roles':[r['role_id'] for r in plan.get('runtime_roles',[])+plan.get('snapshot_roles',[])],
+        }
         return _save(state)
 
 

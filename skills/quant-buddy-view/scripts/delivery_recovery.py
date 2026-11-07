@@ -24,7 +24,10 @@ def candidate_key(params):
         paths = params.get(key) or []
         if isinstance(paths,str): paths=[paths]
         evidence[key]=[(str(p), hashlib.sha256(Path(p).read_bytes()).hexdigest() if Path(p).is_file() else None) for p in paths]
-    return EP.digest([hashlib.sha256(Path(params['html_file']).read_bytes()).hexdigest(), params.get('title'), params.get('description'), params.get('plan_hash'),params.get('live_data_mode'),params.get('asset'),evidence])
+    # Metadata is validated alongside HTML. Correcting it must reach validation;
+    # dict key ordering alone must still count as an unchanged failed request.
+    metadata = {key: params.get(key) for key in ('page_context', 'agent_reply_template')}
+    return EP.digest([hashlib.sha256(Path(params['html_file']).read_bytes()).hexdigest(), params.get('title'), params.get('description'), params.get('plan_hash'),params.get('live_data_mode'),params.get('asset'),evidence,metadata])
 
 def next_action(task, plan):
     return {'command': 'recover_delivery', 'params': {'task_id': task, 'plan_hash': plan['plan_hash']}}
@@ -35,6 +38,7 @@ BUILD_BUDGET = 1 + REPAIR_BUDGET
 NETWORK_UNREACHABLE = 'network_unreachable'
 
 CALLER_INPUT_ERRORS = {
+    'RESEARCH_PLAN_CONFLICT', 'SNAPSHOT_PLAN_REQUIRED',
     'PAGE_ID_REQUIRED', 'HTML_REQUIRED', 'FINAL_DESCRIPTION_REQUIRED',
     'LIVE_DATA_MODE_REQUIRED', 'LIVE_DATA_ROUTE_RECEIPT_REQUIRED',
     'LIVE_DATA_ROUTE_ASSET_REQUIRED',
@@ -340,6 +344,24 @@ def _default_handoff_presentation(task, snapshot_roles):
     return {'version':1,'mode':'bespoke','html_file':str(path),'design':'compose-bespoke-v1'}
 
 
+def _mount_recovery_panels(task, changes, panels):
+    """Keep generated/retained recovery panels valid in Presentation Mode."""
+    if not isinstance(changes.get('presentation'),dict): return
+    used={str(panel.get('id')) for panel in panels if panel.get('id')}
+    for index,panel in enumerate(panels):
+        if not panel.get('id'):
+            base=f'recovery-panel-{index+1}'
+            panel_id=base
+            suffix=1
+            while panel_id in used:
+                panel_id=f'{base}-{suffix}'
+                suffix+=1
+            panel['id']=panel_id
+            used.add(panel_id)
+        changes['presentation']=CP.ensure_mount(
+            task,changes['presentation'],panel['id'],str(panel.get('title') or panel['id']))
+
+
 def _handoff_snapshot_recovery(params,plan,changes,modules,panels):
     handoff=_find_handoff(plan['task_id'],params)
     if not isinstance(handoff,dict): return None
@@ -372,6 +394,7 @@ def _handoff_snapshot_recovery(params,plan,changes,modules,panels):
                    '\n'.join('缺失角色：'+str(role) for role in missing)+
                    '\n缺失角色未被当作零命中或已核验条件。'
         })
+    _mount_recovery_panels(plan['task_id'],changes,text_panels)
     changes.update(
         runtime_roles=[],snapshot_roles=snapshot_roles,panels=text_panels,
         unassigned_panels=[],live_data_mode='verified_snapshot',
@@ -487,6 +510,11 @@ def _network_only_failure(task, plan):
 def recover(params):
     task = params['task_id']
     plan = EP.load(task)
+    if plan and (DS.load(task,plan['target_page_id']).get('last_write') or {}).get('status') in ('pending','unknown'):
+        raise EP.PlanError('PUBLISH_OUTCOME_UNKNOWN','先核对已有写入，不能自动重发')
+    from delivery_requirements import recovery_boundary
+    blocked=recovery_boundary(params,plan,DS.load(task,plan['target_page_id']) if plan else None)
+    if blocked is not None: return blocked
     if plan and not params.get('force_fallback') and _network_only_failure(task, plan):
         # Do not revise the plan or rebuild: the page is written; only the
         # public check from this host failed. Re-check it read-only.
@@ -527,6 +555,12 @@ def _recover(params):
     public = DS.load(task, plan['target_page_id'])
     if (public.get('last_write') or {}).get('status') in ('pending','unknown'):
         raise EP.PlanError('PUBLISH_OUTCOME_UNKNOWN', '先核对已有写入，不能自动重发')
+    # Inspect publication before loading/rewriting any Compose workspace. Missing
+    # internal candidate files say nothing about the published page's contents.
+    from finish_research_delivery import preserve_publication
+    preserved = preserve_publication(params, plan, public)
+    if preserved is not None:
+        return preserved
     mark_job_running(task_id=task, turn_id=C.current_trace_context().get('turn_id'), resume_failed=True)
     prior = CI._prior(plan, CI.editable_root(task))
     state = load(task)
@@ -647,15 +681,18 @@ def _recover(params):
                                   ('\n'.join(gap_lines) if gap_lines else '其余维度数据待补。')+
                                   '\n已确认的策略条件保持不变，缺失条件未被视为通过。'})
     else:
+        from delivery_requirements import current_query, live_required
         contract = plan.get('research_contract') or params.get('research_contract')
         context = C.current_trace_context()
         descriptions = [c['description'] for c in (contract or {}).get('conditions', [])]
-        query = params.get('user_query') or (context.get('user_query') if context.get('task_id') in (None,task) else None)
+        query = current_query(params)
+        # Only the current request can add a live requirement. Historical
+        # Handoff prose below may restore research scope, not authorize live.
+        if live_required(params): changes['require_live_data']=True
         if not query and context.get('turn_id'):
             from qbs_job_lifecycle import find_job
             _,job,_=find_job(task_id=task,turn_id=context['turn_id'])
             query=(job or {}).get('handoff',{}).get('user_query')
-        if params.get('require_live_data') is True or re.search(r'实时|持续刷新',str(query or '')): changes['require_live_data']=True
         changes['title']='策略研究与核验方法'
         if not descriptions and not query:
             raise EP.PlanError('METHODOLOGY_INTENT_REQUIRED', '需原始用户研究范围或已确认合同，不能生成空方法页')
@@ -684,6 +721,7 @@ def _recover(params):
     data_modules=[m for m in used if any(p['compose_module']==m and p.get('type') not in ('text','image') for p in panels)]
     changes['module_order'] = data_modules+[m for m in used if m not in data_modules]
     if not changes.get('title'): changes['title'] = '策略研究与核验结果'
+    _mount_recovery_panels(task,changes,panels)
     out = SP.cmd_execution_plan(changes)
     out.update(recovery_phase=('partial_snapshot' if (missing or evidence_roles) else 'handoff_snapshot') if frozen else 'methodology',
                original_page_id=plan['target_page_id'], preserved_candidate_file=preserved_candidate_file,

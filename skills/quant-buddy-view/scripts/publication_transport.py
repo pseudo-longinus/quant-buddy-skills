@@ -1,7 +1,7 @@
 """Skill-only publication through the existing updateStaticPage API.
 
-The journal prevents this task from blindly replaying uncertain writes. It is not
-server-side idempotency or atomic compare-and-swap, and makes no such guarantee.
+The journal prevents replay of uncertain writes; the server version precondition
+protects the interval between reading and writing an existing page.
 """
 import copy
 import hashlib
@@ -12,8 +12,8 @@ import execution_plan as EP
 import delivery_state as DS
 
 UPDATE_PATH = '/skill/updateStaticPage'
-CONSISTENCY = 'local_lock_and_read_before_write_no_server_cas'
-AUDIT_FIELDS = {'trace_evidence', 'user_query'}
+CONSISTENCY = 'local_journal_and_server_cas'
+AUDIT_FIELDS = {'trace_evidence', 'user_query', 'expected_current_version_id'}
 CHANGE_ASPECT_VALUES = frozenset({'content', 'data', 'layout', 'metadata'})
 TAGS_PATH = '/skill/listPageTags'
 
@@ -131,6 +131,19 @@ def write(plan, body, endpoint, key, observe, content_kind='candidate', read_onl
                 if not result: return _fail('PUBLISH_RECEIPT_REQUIRED', '只读复验缺少已确认收据')
                 _check_ack(plan, previous, result)
                 return {**result, 'reused_existing_version': True, 'write_consistency': CONSISTENCY}
+            import page_baseline
+            expected = page_baseline.expected({**body,'task_id':plan['task_id']})
+            current = observed.get('current_version_id') or observed.get('version_id')
+            same_confirmed = (previous.get('status') == 'confirmed'
+                              and previous.get('candidate_hash') == candidate_hash
+                              and previous.get('request_body_sha256') == EP.digest(mutation_body(body))
+                              and DS._remote(observed) == previous.get('remote'))
+            if not same_confirmed:
+                if expected and expected != current:
+                    return _fail('VERSION_CHANGED', '页面在编辑后已变化，停止写入；先读取新版本')
+                if not (expected or current):
+                    return _fail('PUBLISH_VERSION_REQUIRED', '缺少服务端版本ID，不能执行并发安全更新')
+                body['expected_current_version_id'] = expected or current
             prepared = DS.prepare_write(plan, candidate_hash, observed, request_body=mutation_body(body), content_kind=content_kind)
             if prepared.get('reuse_result'):
                 result = previous.get('confirmed_result')
@@ -139,8 +152,7 @@ def write(plan, body, endpoint, key, observe, content_kind='candidate', read_onl
                 _check_ack(plan, previous, result)
                 return {**result, 'reused_existing_version': True, 'write_consistency': CONSISTENCY}
             intent = prepared['intent']
-            # Keep the update body stable. Outcome reconciliation uses a separate
-            # read-only endpoint and never adds conditional write fields.
+            # Preserve the original editing baseline in the actual server POST.
             try:
                 result = C.http_json('POST', C.api_url(endpoint, UPDATE_PATH), C.headers(key), body, timeout=600)
             except (OSError, TimeoutError, ValueError):

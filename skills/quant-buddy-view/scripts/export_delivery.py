@@ -22,6 +22,9 @@ def export(task, turn, reply_text='', *, finalize_reply=False, plan_only=False):
     try:
         if not all(re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,159}', v) for v in (task, turn)):
             return result
+        import page_versions
+        restored=page_versions.export(task,turn)
+        if restored is not None: return restored
         plan = EP.load(task)
         if plan_only:
             if plan and plan.get('delivery_kind')=='methodology' and plan.get('research_status')=='unavailable' and not plan.get('runtime_roles') and not plan.get('snapshot_roles'):
@@ -73,16 +76,27 @@ def export(task, turn, reply_text='', *, finalize_reply=False, plan_only=False):
         state = DS.load(task, plan['target_page_id'])
         if state.get('turn_id') != turn:
             return result
+        if finalize_reply and reply_text and state.get('execution_status') != 'succeeded':
+            # The host already has the model's final answer. Validate that exact
+            # answer against the sealed, current-version contract rather than
+            # synthesizing generic headings that a specialized template rejects.
+            from finish_research_delivery import _finish_verified_reply
+            completed = _finish_verified_reply(task, turn, plan, state, reply_text=reply_text)
+            if completed is not None:
+                return completed['delivery']
         result['page_id'] = plan['target_page_id']
         result['page_delivery_required'] = True
         result['research_status'] = plan.get('research_status', 'unknown')
         result['delivery_kind'] = plan.get('delivery_kind', 'result')
+        result['require_live_data'] = plan.get('require_live_data',False)
         if state.get('live_data_mode'): result['live_data_mode'] = state['live_data_mode']
         for key in ('artifact_file','artifact_sha256','artifact_verified'):
             if key in state: result[key]=state[key]
         execution = state.get('execution_status')
         public = state.get('delivery_state')
         write = state.get('last_write') or {}
+        if write.get('status') in ('pending','unknown','confirmed','rejected'):
+            result['write_outcome']=write['status']
         remote = write.get('remote') or {}
         if public == 'placeholder' and remote.get('page_id') == plan['target_page_id']:
             result['progress_url'] = _url(remote.get('url'))
@@ -95,6 +109,19 @@ def export(task, turn, reply_text='', *, finalize_reply=False, plan_only=False):
                 and re.fullmatch(r'[0-9a-f]{64}', str(good.get('sha256') or '')) and good.get('version_no') is not None
                 and _url(good.get('url'))):
             result.update(status='succeeded', result_url=_url(good['url']), version_no=good['version_no'])
+            receipt=state.get('publication_receipt')
+            if receipt:
+                if (receipt.get('task_id')!=task or receipt.get('turn_id')!=turn
+                        or receipt.get('page_id')!=result['page_id'] or receipt.get('version_no')!=good['version_no']
+                        or receipt.get('sha256')!=good['sha256'] or receipt.get('plan_hash')!=plan['plan_hash']):
+                    result.update(status='unknown')
+                    result.pop('result_url',None)
+                else:
+                    result.update({k:receipt[k] for k in ('research_status','delivery_kind','live_data_mode')})
+                    result['publication_receipt']=receipt
+            if result.get('require_live_data') and result.get('live_data_mode') not in ('live','mixed'):
+                result.update(status='failed',error_code='LIVE_REQUIREMENT_NOT_SATISFIED',failure_stage='live_verification')
+                result.pop('result_url',None)
         error = state.get('last_error') or {}
         for src, dst in [('stage','failure_stage'),('error_code','error_code')]:
             value = str(error.get(src) or '')

@@ -219,6 +219,12 @@ def host_managed_lifecycle():
     }
 
 
+class TraceContextError(ValueError):
+    def __init__(self, code, message):
+        super().__init__(message)
+        self.code = code
+
+
 def host_trace_context(params=None):
     if not host_managed_lifecycle():
         return None
@@ -231,7 +237,7 @@ def host_trace_context(params=None):
     }
     missing = [key for key in ("task_id", "user_query") if not host[key]]
     if missing:
-        raise ValueError(f"Host Trace Context 缺少字段: {', '.join(missing)}")
+        raise TraceContextError('QBV_TRACE_CONTEXT_REQUIRED', f"Host Trace Context 缺少字段: {', '.join(missing)}")
     aliases = {
         "task_id": ("task_id",),
         "turn_id": ("turn_id",),
@@ -239,9 +245,12 @@ def host_trace_context(params=None):
         "message_id": ("message_id",),
     }
     for field, names in aliases.items():
-        supplied = next((str(params.get(name) or "").strip() for name in names if params.get(name)), "")
-        if supplied and host.get(field) and supplied != host[field]:
-            raise ValueError(f"Host 模式 {field} 已锁定为 {host[field]}，拒绝使用 {supplied}")
+        nested = params.get('trace_context') if isinstance(params.get('trace_context'), dict) else {}
+        for source in (params, nested):
+            for name in names:
+                supplied = str(source.get(name) or '').strip()
+                if supplied and host.get(field) and supplied != host[field]:
+                    raise TraceContextError('QBV_TRACE_CONTEXT_CONFLICT', f"Host context 已锁定: {field}")
     return host
 
 
@@ -323,9 +332,9 @@ def configure_trace_context(params=None):
     host = host_trace_context(params)
     task_id = (host or {}).get("task_id") or params.get("task_id") or nested.get("task_id") or os.environ.get("QBV_TASK_ID")
     persisted = read_task_trace_context(task_id) if task_id else {}
-    persisted_turn_untrusted = bool(persisted) and persisted.get("current_turn_trusted") is False
-    turn_id = None if persisted_turn_untrusted else (
-        (host or {}).get("turn_id") or params.get("turn_id") or nested.get("turn_id")
+    persisted_turn_untrusted = not host and bool(persisted) and persisted.get("current_turn_trusted") is False
+    turn_id = (host.get("turn_id") or None) if host else None if persisted_turn_untrusted else (
+        params.get("turn_id") or nested.get("turn_id")
         or os.environ.get("QBV_TURN_ID") or persisted.get("current_turn_id")
     )
     user_query = ((host or {}).get("user_query") or params.get("user_query") or params.get("userQuery") or nested.get("user_query")
@@ -1021,6 +1030,14 @@ def _parse_flags(argv):
     return out or None
 
 
+def _configure_input_context(params):
+    try:
+        configure_trace_context(params)
+    except TraceContextError as error:
+        emit({'code':1,'error':error.code,'message':str(error)})
+        sys.exit(1)
+
+
 def read_params(argv, env_var="VIEW_PARAMS"):
     """按 <env_var> > @file > 命令行 > stdin 优先级解析参数 dict。
 
@@ -1043,7 +1060,7 @@ def read_params(argv, env_var="VIEW_PARAMS"):
     raw = raw or "{}"
     try:
         params = json.loads(raw)
-        configure_trace_context(params)
+        _configure_input_context(params)
         return params
     except json.JSONDecodeError as e:
         if from_argv:
@@ -1053,7 +1070,7 @@ def read_params(argv, env_var="VIEW_PARAMS"):
                 emit({"code": 1, "message": str(conflict)})
                 sys.exit(1)
             if flags is not None:
-                configure_trace_context(flags)
+                _configure_input_context(flags)
                 return flags
         emit({"code": 1, "message": f"参数 JSON 解析失败: {e}", "raw": raw[:200],
               "hint": "参数用单个 JSON 字符串，如 list '{\"scope\":\"test_all\"}'；命令行也支持 --scope test_all"})

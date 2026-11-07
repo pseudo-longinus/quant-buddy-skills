@@ -935,15 +935,18 @@ def _attach_reply_data_contract(record, params):
     contract = record.get("agent_reply_contract")
     if not isinstance(contract, dict):
         return record
-    mode = params.get("live_data_mode")
+    mode = params.get("live_data_mode") or record.get('live_data_mode') or ('static_content_only' if record.get('is_live') is False else 'unknown')
+    record['live_data_mode'] = mode
     for key in ("research_status", "delivery_kind", "live_data_mode"):
         if key in params: contract[key] = params[key]
     if params.get("delivery_kind") == "methodology":
         contract["delivery_link_label"] = "策略与核验方法研究页"
         contract["delivery_data_mode"] = mode
-    elif mode in ("verified_snapshot", "mixed"):
+    elif mode in ("verified_snapshot", "mixed", "static_content_only", "static_after_live_probe", "unknown", "live"):
         contract["delivery_data_mode"] = mode
-        contract["delivery_link_label"] = "可分享静态研究页" if mode == "verified_snapshot" else "可分享活页（部分实时、部分静态）"
+        contract['delivery_link_label'] = {'verified_snapshot':'可分享静态研究页','static_content_only':'可分享静态研究页',
+            'static_after_live_probe':'可分享静态研究页','mixed':'可分享活页（部分实时、部分静态）',
+            'live':'可分享实时活页'}.get(mode,'可分享研究页（数据模式待核验）')
     for key in ("reply_data_evidence_file", "reply_data_evidence_sha256", "reply_data_availability"):
         if params.get(key) not in (None, ""):
             contract[key] = params[key]
@@ -2298,7 +2301,7 @@ def _publish_body(params, html, *, page_id=None, snapshot_stage=False):
         "agent_reply_template", "reply_contract_binding", "trace_evidence",
     )
     if page_id:
-        fields += ("change_note", "change_aspect")
+        fields += ("change_note", "change_aspect", "expected_current_version_id")
     for key in fields:
         if params.get(key) is not None:
             body[key] = params[key]
@@ -2610,6 +2613,7 @@ def _cmd_update_preserve(params, *, endpoint, api_key):
     )
 
 _PLANNED_UPDATE_SENTINEL = object()
+_PROGRESS_WRITE_SENTINEL = object()
 
 # These titles describe a progress snapshot only. They must never be carried into
 # the final publication metadata, where they make a live page look unfinished.
@@ -2717,6 +2721,15 @@ def _prepare_page_title(params, document, *, immutable=False):
 
 
 def cmd_upload(params):
+    from delivery_requirements import restore_boundary
+    blocked=restore_boundary(params)
+    if blocked: return blocked
+    from delivery_requirements import live_required
+    if live_required(params) and params.get('_progress_write_sentinel') is not _PROGRESS_WRITE_SENTINEL:
+        if params.get('live_data_mode') not in ('live','mixed'):
+            return _evidence_error('LIVE_REQUIREMENT_NOT_SATISFIED','本轮自动更新要求不能以静态上传完成')
+        live_error=_validate_publish_data_evidence(params, enforce_live_delivery=True)
+        if live_error: return live_error
     try:
         if EP.load(_fork_task_id(params)):
             return _retired_path_error("PLANNED_PAGE_ALREADY_CREATED", "计划任务已有目标页；不重复upload，用原page_id经publish_verified发布", params)
@@ -2967,6 +2980,15 @@ def _record_direct_update_delivery(params, task, out, body, html):
 
 
 def cmd_update(params):
+    from delivery_requirements import restore_boundary
+    blocked=restore_boundary(params)
+    if blocked: return blocked
+    from delivery_requirements import live_required
+    if live_required(params) and params.get('_progress_write_sentinel') is not _PROGRESS_WRITE_SENTINEL:
+        if params.get('live_data_mode') not in ('live','mixed'):
+            return _evidence_error('LIVE_REQUIREMENT_NOT_SATISFIED','本轮自动更新尚未核验；保留原页')
+        live_error=_validate_publish_data_evidence(params, enforce_live_delivery=True)
+        if live_error: return live_error
     if not params.get("page_id"):
         return {"code": 1, "message": "update 需要 page_id（要替换哪个已发布页面）"}
     route_error = _existing_page_update_error(params)
@@ -3002,6 +3024,17 @@ def cmd_update(params):
         except PTC.TitleError as exc:
             return exc.as_dict()
     if _is_preserve_html_qbs_live(params):
+        import page_baseline
+        baseline=page_baseline.expected(params)
+        if not baseline and not params.get('file_publish_dir'):
+            observed=cmd_template({'page_id':params['page_id']})
+            if observed.get('code')!=0:
+                return observed
+            baseline=_template_record(observed).get('current_version_id')
+            if not baseline:
+                return {'code':1,'error':'PUBLISH_VERSION_REQUIRED'}
+        if baseline:
+            params={**params,'expected_current_version_id':baseline}
         return _cmd_update_preserve(params, endpoint=endpoint, api_key=api_key)
     try:
         params, html, title_check = _prepare_page_title(params, html, immutable=bool(publication_plan))
@@ -3052,10 +3085,14 @@ def cmd_update(params):
         return metadata_err
 
     body = {"page_id": params["page_id"], "html": html}
-    for k in ("title", "description", "ttl_days", "scene_tags", "paradigm_tags", "user_query", "tagging_method", "tagging_source", "tagging_meta", "page_context", "agent_reply_template", "reply_contract_binding", "change_note", "change_aspect", "trace_evidence"):
+    for k in ("title", "description", "ttl_days", "scene_tags", "paradigm_tags", "user_query", "tagging_method", "tagging_source", "tagging_meta", "page_context", "agent_reply_template", "reply_contract_binding", "change_note", "change_aspect", "trace_evidence", "expected_current_version_id"):
         if params.get(k) is not None:
             body[k] = params[k]
     body.setdefault("change_note", "更新页面内容")
+    import page_baseline
+    baseline = page_baseline.expected(params)
+    if baseline:
+        body['expected_current_version_id'] = baseline
     if params.get('verify_existing_publication') is True and not publication_plan:
         return {'code':1,'error':'PUBLISH_PLAN_REQUIRED','message':'只读复验必须有已确认的计划和发布收据；未写入'}
     if "page_context" in params and params.get("page_context") is None:
@@ -3073,6 +3110,13 @@ def cmd_update(params):
                        content_kind=params.get("_planned_content_kind", "candidate"),
                        read_only=params.get('verify_existing_publication') is True)
     else:
+        if not body.get('expected_current_version_id'):
+            observed = cmd_template({'page_id':params['page_id']})
+            current = _template_record(observed) if observed.get('code') == 0 else {}
+            baseline = current.get('current_version_id') or current.get('version_id')
+            if not baseline:
+                return {'code':1,'error':'EXPECTED_CURRENT_VERSION_REQUIRED'}
+            body['expected_current_version_id'] = baseline
         out = C.http_json("POST", C.api_url(endpoint, _PATH["update"]), C.headers(api_key), body, timeout=_UPLOAD_TIMEOUT)
     out = PTC.acknowledgement(out, title_check['title'])
     route_transition = _transition_existing_page_to_fork(params, out)
@@ -3377,6 +3421,15 @@ def _validate_static_after_probe(params, route):
 
 
 def _validate_live_receipts(params, route, *, allow_partial=False, resolve_path=None):
+    # read_params configures the trace globals, but does not copy host identity
+    # into tool arguments. Receipt validation must use that same trusted turn
+    # when a caller omits it, never a saved turn or the route's own identity.
+    try:
+        host = C.host_trace_context(params)
+    except C.TraceContextError as exc:
+        return _evidence_error(exc.code, '发布参数与当前宿主身份冲突')
+    if host:
+        params = {**params, 'task_id': host['task_id'], 'turn_id': host.get('turn_id') or ''}
     identity_error = _validate_route_identity(route, params)
     if identity_error:
         return identity_error
@@ -3524,7 +3577,8 @@ def _validate_live_receipts(params, route, *, allow_partial=False, resolve_path=
     return None
 
 
-def _validate_publish_data_evidence(params, *, source_credential_count=0, allow_partial=False):
+def _validate_publish_data_evidence(params, *, source_credential_count=0, allow_partial=False,
+                                    enforce_live_delivery=False):
     params = params or {}
     if str(params.get("validation_not_required_reason") or "").strip():
         return _legacy_waiver_error(params, "自由文本 validation_not_required_reason 已停用；必须使用结构化 live_data_mode 和收据")
@@ -3533,20 +3587,49 @@ def _validate_publish_data_evidence(params, *, source_credential_count=0, allow_
         return _evidence_error("LIVE_DATA_MODE_REQUIRED", "发布必须显式指定 live、verified_snapshot、mixed、static_content_only 或 static_after_live_probe")
     try:
         plan = EP.load(_fork_task_id(params))
+        from delivery_requirements import live_delivery_error, live_required
+        if enforce_live_delivery:
+            blocked = live_delivery_error(params, plan)
+            if blocked:
+                return blocked
+        if plan and live_required(params) and not plan.get('require_live_data'):
+            return _evidence_error('CURRENT_LIVE_PLAN_REQUIRED',
+                '本轮要求实时；先修订当前计划及所需数据角色，不能沿用旧快照计划发布',
+                next_action={'command':'execution_plan','params':{
+                    'task_id':plan['task_id'],'expected_revision':plan['revision'],
+                    'require_live_data':True,'revision_reason':'current_live_requirement'}})
         if plan and plan.get("require_live_data") and mode not in ("live", "mixed"):
             if plan.get('delivery_kind') not in ('partial_research', 'methodology') or plan.get('research_status') not in ('partial', 'unavailable'):
                 return _evidence_error("PLAN_LIVE_DATA_REQUIRED", "用户要求实时，快照只能按注明限制的部分研究交付")
         if plan:
-            for key in ('research_contract', 'research_status', 'delivery_kind'):
-                if key in params and params[key] != plan.get(key, {'research_status':'unknown','delivery_kind':'result'}.get(key)):
-                    return _evidence_error('RESEARCH_PLAN_CONFLICT', '研究合同/完成状态与当前计划不一致')
+            conflicts = [key for key in ('research_contract', 'research_status', 'delivery_kind')
+                         if key in params and params[key] != plan.get(
+                             key, {'research_status':'unknown','delivery_kind':'result'}.get(key))]
+            if conflicts:
+                return _evidence_error('RESEARCH_PLAN_CONFLICT',
+                    '发布参数与当前研究计划不一致；先核对冲突字段并显式修订计划，保留已有候选与证据',
+                    conflicting_fields=conflicts,
+                    current_revision=plan['revision'], current_plan_hash=plan['plan_hash'],
+                    next_action={'command':'execution_plan','params':{
+                        'task_id':plan['task_id'],'expected_revision':plan['revision'],
+                        'revision_reason':'reconcile_publication_research_state'},
+                        'instruction':'核对 conflicting_fields 与真实研究证据，补齐需修订的字段；合同变更仍须遵循当前用户要求。取得新计划后按返回命令重新构建，不进入方法页降级。'})
         if plan and plan.get("target_scope", {}).get("kind") in ("single_asset", "basket", "sector", "index", "market") and mode == "static_content_only" and plan.get("delivery_kind") != "methodology":
             return _evidence_error("PLAN_DATA_EVIDENCE_REQUIRED", "金融研究范围不能声明无行情数据；使用验证收据或明确的部分交付路径")
     except EP.PlanError as exc:
         return exc.as_dict()
     if mode in ("verified_snapshot", "mixed"):
         if not plan or not plan.get("snapshot_roles"):
-            return _evidence_error("SNAPSHOT_PLAN_REQUIRED", "静态金融数据必须有计划绑定的已验证快照，不能手填数据冒充")
+            action_params = {'task_id': _fork_task_id(params),
+                             'revision_reason': 'bind_verified_snapshot_roles'}
+            current = {}
+            if plan:
+                action_params['expected_revision'] = plan['revision']
+                current = {'current_revision': plan['revision'], 'current_plan_hash': plan['plan_hash']}
+            return _evidence_error("SNAPSHOT_PLAN_REQUIRED", "静态金融数据必须有计划绑定的已验证快照，不能手填数据冒充",
+                **current, recoverable=True, terminal=False,
+                next_action={'command': 'execution_plan', 'params': action_params,
+                    'instruction': '先通过现有验证/物化流程取得或复用当前任务的可信快照，再显式绑定 snapshot_roles（role_id、snapshot_receipt_file、snapshot_receipt_sha256）。若尚无计划，先完成当前任务路由并建立计划。取得新计划后按返回命令重新构建并发布；保留已有候选与证据，不进入方法页降级。'})
         if source_credential_count and mode == "verified_snapshot":
             return _evidence_error("SNAPSHOT_SOURCE_RUNTIME_CONFLICT", "仍在继承来源运行时，不能仅改标静态；先按目标计划重组")
         try:
@@ -4396,7 +4479,9 @@ def _validate_progress_evidence(params):
 
 
 def _progress_publish_payload(params, html, *, require_page_id=False, state=None):
-    payload = {"html": html}
+    # Only internally rendered progress snapshots may precede live result evidence.
+    # A JSON flag must never exempt a caller's result HTML from the publish gate.
+    payload = {"html": html, "_progress_write_sentinel": _PROGRESS_WRITE_SENTINEL}
     if require_page_id:
         payload["page_id"] = params.get("page_id")
     payload["ensure_share_shell"] = params.get("ensure_share_shell", True)
@@ -5914,6 +5999,9 @@ def cmd_new_asset_page(params):
 
 
 def cmd_new_page(params):
+    from delivery_requirements import restore_boundary
+    blocked=restore_boundary(params)
+    if blocked: return blocked
     params = dict(params or {})
     routing_decision, routing_error = _validate_routing_decision(params)
     if routing_error:
@@ -6258,6 +6346,14 @@ def _check_publish_routing_consistency(params, fork_task_binding, routing_overri
 
 
 def cmd_publish_final(params):
+    from delivery_requirements import live_delivery_error, restore_boundary
+    blocked=restore_boundary(params)
+    if blocked: return blocked
+    from delivery_requirements import live_required
+    if live_required(params) and params.get('live_data_mode') not in ('live','mixed'):
+        return _evidence_error('LIVE_REQUIREMENT_NOT_SATISFIED','本轮要求自动更新，不能以静态页完成；保留原页并修复取数链路')
+    blocked=live_delivery_error(params)
+    if blocked: return blocked
     params = dict(params or {})
     if not params.get("page_id"):
         return {"code": 1, "message": "publish_final 需要 page_id（要发布到哪个活页链接）"}
@@ -6487,6 +6583,7 @@ def _observe_published_template(page_id):
 
 
 def _publish_verified_once(params):
+    from delivery_requirements import live_required
     params = dict(params or {})
     if not params.get("page_id"):
         return {"code": 1, "error": "PAGE_ID_REQUIRED", "message": "publish_verified 需要 page_id"}
@@ -6551,7 +6648,8 @@ def _publish_verified_once(params):
                 "credential_count": credential_count,
                 "stages": stages,
             }
-        data_evidence_error = _validate_publish_data_evidence(params, source_credential_count=credential_count)
+        data_evidence_error = _validate_publish_data_evidence(
+            params, source_credential_count=credential_count, enforce_live_delivery=True)
         if data_evidence_error:
             return {**data_evidence_error, "published": False, "verified": False, "stages": stages, "timing": timings}
         stages["live_data_evidence"] = {
@@ -6563,7 +6661,8 @@ def _publish_verified_once(params):
         started = time.perf_counter()
         local_profile = 'self-built' if quality_required else 'fork-local'
         stages["local_browser"] = _run_page_verifier(target, local_profile, card_runtime=card_runtime,
-                                                    expected_title=(stages.get('page_title') or {}).get('title'))
+                                                    expected_title=(stages.get('page_title') or {}).get('title'),
+                                                    **({'require_live_data': True} if live_required(params) or params.get('live_data_mode') in ('live', 'mixed') else {}))
         timings["local_browser_ms"] = round((time.perf_counter() - started) * 1000)
         if not (isinstance(stages["local_browser"], dict) and stages["local_browser"].get("code") == 0):
             return {"code": 1, "published": False, "verified": False, "stages": stages, "timing": timings}
@@ -6595,7 +6694,8 @@ def _publish_verified_once(params):
         expected_title = (stages.get('page_title') or {}).get('title')
         started = time.perf_counter()
         stages["public_smoke"], smoke_attempts = _public_smoke_with_retry(public_url, card_runtime=card_runtime,
-                                                                          expected_title=expected_title)
+                                                                          expected_title=expected_title,
+                                                                          require_live_data=live_required(params) or params.get('live_data_mode') in ('live','mixed'))
         timings["public_smoke_ms"] = round((time.perf_counter() - started) * 1000)
         if smoke_attempts > 1:
             timings["public_smoke_attempts"] = smoke_attempts
@@ -6654,18 +6754,19 @@ def _public_smoke_retry_delay_sec():
         return 15.0
 
 
-def _public_smoke_with_retry(public_url, *, card_runtime=False, expected_title=None):
+def _public_smoke_with_retry(public_url, *, card_runtime=False, expected_title=None, require_live_data=False):
     """public-smoke with one in-call retry for network_unreachable (CDN propagation).
 
     Content failures are returned at once. Total attempts are capped at two;
     the first failed report is kept as previous_attempt for diagnosis.
     """
-    first = _run_page_verifier(public_url, "public-smoke", card_runtime=card_runtime, expected_title=expected_title)
+    live_options = {'require_live_data': True} if require_live_data else {}
+    first = _run_page_verifier(public_url, "public-smoke", card_runtime=card_runtime, expected_title=expected_title, **live_options)
     if not (isinstance(first, dict) and first.get("code") not in (None, 0)
             and first.get("failure_kind") == _NETWORK_UNREACHABLE):
         return first, 1
     time.sleep(_public_smoke_retry_delay_sec())
-    second = _run_page_verifier(public_url, "public-smoke", card_runtime=card_runtime, expected_title=expected_title)
+    second = _run_page_verifier(public_url, "public-smoke", card_runtime=card_runtime, expected_title=expected_title, **live_options)
     if isinstance(second, dict) and second.get("code") not in (None, 0):
         second["previous_attempt"] = {key: first.get(key) for key in ("code", "failure_kind", "message", "problems", "fetch_error") if first.get(key) is not None}
     return second, 2
@@ -6840,6 +6941,20 @@ def _finalize_public_publication(params, stages, result, public_url, verified):
                 )
                 _apply_delivery_policy(result_contract)
             result["agent_reply_contract"] = result_contract
+            mode_params = dict(params)
+            published = stages['publish_final']
+            inferred_mode = published.get('live_data_mode')
+            if not inferred_mode:
+                if published.get('is_live') is True:
+                    inferred_mode = 'mixed' if (
+                        params.get('snapshot_roles') or published.get('snapshot_roles')
+                    ) else 'live'
+                elif published.get('is_live') is False:
+                    inferred_mode = 'static_content_only'
+                else:
+                    inferred_mode = 'unknown'
+            mode_params.setdefault('live_data_mode', inferred_mode)
+            _attach_reply_data_contract(result,mode_params)
             for key in ("reply_data_evidence_file", "reply_data_evidence_sha256", "reply_data_availability"):
                 if result_contract.get(key) not in (None, ""):
                     result[key] = result_contract[key]
@@ -6865,6 +6980,7 @@ def cmd_verify_published(params):
     Never revises the execution plan, never writes the page and never spends
     the repair budget. On success the delivery state is marked verified.
     """
+    from delivery_requirements import live_required
     params = dict(params or {})
     task_id = _fork_task_id(params)
     if not task_id:
@@ -6894,9 +7010,13 @@ def cmd_verify_published(params):
                 "message": "目标页尚无已确认的正式写入；verify_published 只复验已写入页面",
                 "next_action": _planned_publish_next_action(task_id) or {"command": "delivery_status", "params": {"task_id": task_id}}}
     if DS.flags(state)["verified"] and not params.get("force"):
-        return {**base, "code": 0, "published": True, "verified": True, "written": True, "public_reachable": True,
+        result = {**base, "code": 0, "published": True, "verified": True, "written": True, "public_reachable": True,
                 "public_url": _delivery_public_url((write.get("remote") or {}).get("url")),
                 "message": "目标页当前版本已通过公开验收", "already_verified": True}
+        from finish_research_delivery import reply_validation_action
+        action=reply_validation_action(task_id,params.get('turn_id') or C.current_trace_context().get('turn_id'),plan,state)
+        if action: result['next_action']=action
+        return result
     try:
         pending = json.loads(C.task_temp_path(task_id, _PENDING_PUBLIC_VERIFICATION_FILE).read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -6935,7 +7055,8 @@ def cmd_verify_published(params):
     timings = {}
     started = time.perf_counter()
     stages["public_smoke"] = _run_page_verifier(public_url, "public-smoke", card_runtime=bool(pending.get("card_runtime")),
-                                               expected_title=(stages.get("page_title") or {}).get("title"))
+                                               expected_title=(stages.get("page_title") or {}).get("title"),
+                                               **({'require_live_data':True} if live_required(run_params) or run_params.get('live_data_mode') in ('live','mixed') else {}))
     timings["public_smoke_ms"] = round((time.perf_counter() - started) * 1000)
     verified, failure_kind = _confirm_public_publication(run_params, stages, record)
     if not verified and failure_kind is None:
@@ -6961,6 +7082,9 @@ def cmd_verify_published(params):
         return result
     result = _finalize_public_publication(run_params, stages, result, public_url, True)
     if result.get("code") == 0:
+        from finish_research_delivery import reply_validation_action
+        action=reply_validation_action(task_id,params.get('turn_id') or C.current_trace_context().get('turn_id'),plan,DS.load(task_id,page_id))
+        if action: result['next_action']=action
         try:
             C.task_temp_path(task_id, _PENDING_PUBLIC_VERIFICATION_FILE).unlink()
         except OSError:
@@ -7154,6 +7278,14 @@ def _plan_conflict_next_action(result, params):
 
 
 def cmd_publish_verified(params):
+    from delivery_requirements import live_delivery_error, restore_boundary
+    blocked=restore_boundary(params)
+    if blocked: return blocked
+    from delivery_requirements import live_required
+    if live_required(params) and params.get('live_data_mode') not in ('live','mixed'):
+        return _evidence_error('LIVE_REQUIREMENT_NOT_SATISFIED','本轮要求自动更新，不能以静态页完成；保留原页并修复取数链路')
+    blocked=live_delivery_error(params)
+    if blocked: return blocked
     import delivery_recovery as recovery
     try:
         blocked = recovery.before(params)
@@ -7238,7 +7370,7 @@ def _publish_verified_cli_result(result, task_id, report_name="publish-verified-
             "agent_reply_template_file", "contract_artifact_error", "qbv_job_lifecycle",
             "presentation", "presentation_notice", "repair_attempts_remaining", "recovery_phase", "research_status", "delivery_kind", "live_data_mode", "artifact_file", "artifact_sha256", "artifact_verified", "recovery_result",
             "failure_summary", "failure_kind", "written", "public_reachable", "operation", "already_verified",
-            "current_revision", "current_plan_hash", "stale_plan_hash", "terminal",
+            "current_revision", "current_plan_hash", "stale_plan_hash", "terminal", "conflicting_fields",
         )
         if persisted_result.get(key) is not None
     }
@@ -7425,9 +7557,10 @@ def cmd_interpret(params):
     cfg = C.load_config_require_key()
     endpoint, api_key = C.endpoint_of(cfg), cfg.get("api_key", "")
     url = str(params.get("url") or "").strip()
-    if not url:
+    page_id = str(params.get('page_id') or '').strip()
+    if not url and not page_id:
         return {"code": 1, "error": "PAGE_URL_REQUIRED", "message": "interpret 需要 QuantBuddy 页面 url"}
-    query = _up.urlencode({"url": url, "need_data": "true"})
+    query = _up.urlencode({**({'url':url} if url else {'page_id':page_id}), 'need_data':'true'})
     result = C.http_json(
         "GET",
         C.api_url(endpoint, _PATH["download"]) + "?" + query,
@@ -7435,6 +7568,12 @@ def cmd_interpret(params):
         timeout=_UPLOAD_TIMEOUT,
     )
     task_id = _routing_task_id(params)
+    if isinstance(result,dict) and result.get('code')==0:
+        meta=_template_record(result)
+        import page_baseline
+        page_baseline.remember(task_id,meta.get('page_id'),meta.get('current_version_id'))
+        url=url or meta.get('url') or meta.get('public_url') or ''
+        result['expected_current_version_id']=meta.get('current_version_id')
     reference = _existing_page_reference_from_interpret(result, url) if task_id else None
     if not reference:
         return result
@@ -7451,6 +7590,19 @@ def cmd_interpret(params):
     if binding_error:
         return binding_error
     enriched = dict(result)
+    live_request = bool(re.search(r'实时|持续刷新|自动更新', query))
+    if live_request and meta.get('is_live') is True and meta.get('package_ids'):
+        enriched['runtime_state'] = {
+            'already_live': True,
+            'package_ids': list(meta.get('package_ids') or []),
+            'current_version_no': meta.get('current_version_no'),
+            'latest_change_at': meta.get('latest_change_at'),
+            'instruction': '当前页已经是健康实时页。先只读执行 verify_published 并依据页面当前成员答复；不要为了重复确认另起 QBS readData，也不要写页。',
+        }
+        enriched['next_action'] = {
+            'command': 'verify_published',
+            'params': {'task_id': task_id, 'page_id': meta.get('page_id')},
+        }
     if _existing_page_route_mode(reference) == "in_place":
         enriched["existing_page_route"] = {
             "required": True,
@@ -7587,7 +7739,14 @@ def cmd_download(params):
         "expires_at": meta.get("expires_at"),
         "current_version_id": meta.get("current_version_id"),
         "current_version_no": meta.get("current_version_no"),
+        "expected_current_version_id": meta.get("current_version_id"),
     }
+
+    if not sha_ok:
+        return {'code':1,'error':'PAGE_DOWNLOAD_HASH_MISMATCH','page_id':meta.get('page_id')}
+    import page_baseline
+    page_baseline.remember(params.get('task_id') or C.current_trace_context().get('task_id'),
+                           meta.get('page_id'),meta.get('current_version_id'))
 
     # 4) 落盘或回传 html
     save = params.get("save")
@@ -10073,7 +10232,7 @@ def _run_card_runtime_verify(
     return data
 
 
-def _run_page_verifier(target, profile, *, card_runtime=False, timeout_sec=180, expected_title=None):
+def _run_page_verifier(target, profile, *, card_runtime=False, timeout_sec=180, expected_title=None, require_live_data=False):
     cmd = [
         "node",
         os.path.join(C.SKILL_ROOT, "scripts", "verify_file_snapshot.mjs" if profile == "file-snapshot" else "verify_page.mjs"),
@@ -10084,6 +10243,8 @@ def _run_page_verifier(target, profile, *, card_runtime=False, timeout_sec=180, 
     ]
     if card_runtime:
         cmd.append("--card-runtime")
+    if require_live_data:
+        cmd.append('--require-live-data')
     if expected_title is not None:
         cmd.extend(['--expected-title', expected_title])
     try:
@@ -10503,6 +10664,9 @@ def cmd_delivery_status(params):
         # hashed file (legacy states are derived from the write journal).
         out = {"code": 0, "page_id": plan["target_page_id"], "execution_plan": plan, "delivery_state": state,
                "direct_maintenance": direct_maintenance, **DS.flags(state)}
+        from finish_research_delivery import reply_validation_action
+        action=reply_validation_action(task,params.get('turn_id') or C.current_trace_context().get('turn_id'),plan,state)
+        if action: out['next_action']=action
         if params.get("refresh_remote"):
             out["remote"] = cmd_template({"page_id": plan["target_page_id"]})
             if (state.get("last_write") or {}).get("idempotency_key"):
@@ -10517,6 +10681,11 @@ def cmd_delivery_status(params):
 
 
 def cmd_execution_plan(params):
+    from delivery_requirements import live_required, restore_boundary
+    if not params.get('view'):
+        blocked=restore_boundary(params)
+        if blocked: return blocked
+    if live_required(params): params={**params,'require_live_data':True}
     task_id = _routing_task_id(params)
     cred, _, error = _read_routing_credential(task_id)
     if error:
@@ -10555,11 +10724,32 @@ def cmd_reconcile_delivery(params):
 
 
 def cmd_compose_page(params):
+    from delivery_requirements import restore_boundary
+    blocked=restore_boundary(params)
+    if blocked: return blocked
     import compose_page
     return _plan_conflict_next_action(compose_page.build(params), params)
 
 
+def cmd_versions(params):
+    import page_versions
+    return page_versions.versions(params)
+
+
+def cmd_version(params):
+    import page_versions
+    return page_versions.version(params)
+
+
+def cmd_rollback(params):
+    import page_versions
+    return page_versions.rollback(params)
+
+
 _COMMANDS = {
+    'versions': cmd_versions,
+    'version': cmd_version,
+    'rollback': cmd_rollback,
     "file_prepare": cmd_file_prepare,
     "file_status": cmd_file_status,
     "file_confirm_delivery": cmd_file_confirm_delivery,
@@ -10608,6 +10798,7 @@ _COMMANDS = {
 }
 
 _TRACE_REQUIRED_COMMANDS = {
+    'rollback',
     "prepare_maintenance", "file_prepare", "file_status", "file_confirm_delivery", "file_assess_source",
     "reconcile_delivery",
     "new_asset_page", "new_page", "update_progress", "publish_final", "publish_verified", "upload", "update", "direct_deliver", "direct_finalize", "fork_validate", "image_upload",

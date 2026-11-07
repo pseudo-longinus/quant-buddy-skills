@@ -790,4 +790,7 @@ const QB = (function () {
     fmtDate
   };
 })();
+// Custom pages commonly check window.QB before querying. The lexical const
+// remains compatible; publish the same API rather than silently skipping live.
+if (typeof window !== 'undefined') window.QB = QB;
 /* QB_DATA_KERNEL_END:v2 */

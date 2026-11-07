@@ -325,7 +325,10 @@ def ensure_mount(task: str, presentation: Any, panel_id: str, title: str) -> dic
         raise _error("PRESENTATION_PANEL_ID_INVALID", "恢复挂载点id非法")
     raw = path.read_text(encoding="utf-8")
     marker = f'data-qb-panel="{panel_id}"'
-    if marker not in raw:
+    parser = _SafePresentationParser()
+    parser.feed(raw)
+    parser.close()
+    if panel_id not in parser.all_mounts:
         close = raw.rfind("</main>")
         if close < 0:
             raise _error("PRESENTATION_MAIN_REQUIRED", "presentation 缺少 main")

@@ -420,11 +420,13 @@ def _delivery_constraint_errors(contract, draft):
     }], table_count
 
 
-def _live_page_delivery_errors(public_url, draft, data_mode=None, *, file_publication=False):
+def _live_page_delivery_errors(public_url, draft, data_mode=None, *, file_publication=False, link_label=None):
     """Require the share link to be the natural final Markdown block."""
     if not public_url or public_url not in draft:
         return []
-    label = "可分享活页" if file_publication else {"verified_snapshot": "可分享静态研究页", "mixed": "可分享活页（部分实时、部分静态）", "static_content_only": "策略与核验方法研究页"}.get(data_mode, "可分享实时活页")
+    label = "可分享活页" if file_publication else {"verified_snapshot": "可分享静态研究页", "mixed": "可分享活页（部分实时、部分静态）", "static_content_only": "策略与核验方法研究页",'unknown':'可分享研究页（数据模式待核验）'}.get(data_mode, "可分享实时活页")
+    if not file_publication and link_label in ('可分享静态研究页','策略与核验方法研究页','可分享活页（部分实时、部分静态）','可分享实时活页','可分享研究页（数据模式待核验）'):
+        label=link_label
     expected = f"{label}：[{public_url}]({public_url})\n{_LIVE_PAGE_UPGRADE_HINT}"
     if str(draft).rstrip().endswith(expected):
         return []
@@ -463,7 +465,7 @@ def validate_reply(contract_payload, draft):
     elif public_url not in draft:
         errors.append({"code": "PUBLIC_URL_MISSING", "message": "最终回复未包含终态 public_url"})
     else:
-        errors.extend(_live_page_delivery_errors(public_url, draft, contract.get("delivery_data_mode"), file_publication=contract.get("file_publication_schema") == "qbv_file_publication_v1"))
+        errors.extend(_live_page_delivery_errors(public_url, draft, contract.get("delivery_data_mode"), file_publication=contract.get("file_publication_schema") == "qbv_file_publication_v1",link_label=contract.get('delivery_link_label')))
 
     if contract.get("require_page_id_in_reply") is True:
         page_id = str(contract.get("page_id") or "").strip()
