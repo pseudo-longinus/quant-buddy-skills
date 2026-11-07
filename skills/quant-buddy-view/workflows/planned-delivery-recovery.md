@@ -162,7 +162,9 @@ python scripts/static_page.py recover_snapshot @recovery-params.json
 - 工具转换数据面板绑定、保留正文/标题/原草稿，修订同页计划并返回 compose_page 参数。继承页只借原来源布局；unmatched 保持原创路由，用 original 模块组装，不伪装 fork。
 - **继续整理研究草稿**：自动表格只是数据绑定起点。将已有本地研究的结论、回测表、图表、栏目和口径迁移到返回的参数文件；处理未分配面板和必需产出，不能把三股50策略缩水成行情快照。原始数据验证不等于回测计算验证；保留数据、脚本、参数与结果的对应关系并核对派生结果。
 - **优先恢复为 Presentation Mode**：找到可验证 handoff 时，先绑定 snapshot role，并生成/补齐 `presentation.html` 挂载点；保留既有高质量候选。普通 QBS 公式收据缺 `snapshot_receipt_file` 会返回 `QBS_RECEIPT_NEEDS_BRIDGE`，应走同任务恢复/handoff桥，不得重复提交同一收据或降级为无数据方法页。
-- **质量 warning**：`composeQuality.warnings` 记录首屏结论缺失、长表前置、交互要求降级等问题；本阶段不阻断发布，但不能用搬长表、假指标或删除数据角色来消除。
+- **降级页不裸表格**：partial 冻结恢复在草稿无手写 presentation 时自动生成机器保底骨架（`presentation_origin=machine`，按最终面板重建挂载点），保证降级页永远有 hero + 挂载叙事结构；手写 presentation 只追加挂载点、不会被覆盖，替换骨架后把草稿 presentation_origin 改为 authored。
+- **researched_static 联网研究静态页**：无任何可冻结 QBS 证据时不再直接落无数据方法页，而是降级为联网研究静态页——按 next_action 指令联网检索（来源+发布日期、关键数字双源、查无实据写缺口），手写 presentation 替换机器骨架并保留 `data-qb-sources` 来源区，把来源写入 `sources_manifest_file`；查无可信来源才用 execution_plan 修订回 unavailable/methodology + `static_content_only`。四条红线与发布门禁见 [研究合同与恢复](research-contract-delivery.md) 与 [researched-static-fallback 指南](../guides/researched-static-fallback.md)。
+- **质量 warning**：`composeQuality.warnings` 记录首屏结论缺失、长表前置、交互要求降级、降级交付机器骨架未替换（`PRESENTATION_AUTHORED_MISSING`）等问题；本阶段不阻断发布，但不能用搬长表、假指标或删除数据角色来消除。
 - 按 next_action 执行 `compose_page → publish_verified → reply_validation_command`，真实验收成功后补链接。恢复成功只表示候选参数已准备，不是发布成功。
 - snapshot 标注实际数据时点和不会自动更新；有效动态角色保留时为 mixed。`require_live_data:true` 不被技术恢复取消，静态部分不能冒充完整实时交付。
 - 相同确定性错误和参数不循环重试。注册未知不重发，公开写入未知按 delivery_status 核对。恢复路径仍缺必要数据/权限或服务持续不可用时，保留原可读页面及研究产物，如实说明缺口，不绕过门禁显示成功。

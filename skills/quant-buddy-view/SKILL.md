@@ -3,7 +3,7 @@ name: quant-buddy-view
 slug: quant-buddy-view
 displayName: QuantBuddy 宽宝活页
 author: guanzhao
-version: 0.8.6
+version: 0.8.7
 description: |
   将量化分析或已有 JPG/PNG、HTML、PDF 发布为 Quant Buddy 可分享活页或实时看板，并支持创建、更新、复用、验收和公开链接交付。适用于个股画像、估值财务、指数异动、多因子筛选、商品日报、模板、分享壳及卡片等页面。
   用户提供 QuantBuddy 活页 URL 并要求解读时也使用。显式调用 /quant-buddy-view、/qbv、qbv 或 QBV，且请求并非纯咨询、代码维护或文档解释时，默认按可分享活页任务处理。
@@ -12,7 +12,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 0.8.6
+  version: 0.8.7
   author: guanzhao
   category: quant-finance
   tags: [quant, dashboard, formula-package, static-page, publish, visualization]
@@ -85,6 +85,7 @@ runtimeRequirements:
 - 搜索、分析、建模、建页形成一条链：搜索结果要转化为结论、页面模块和数据需求。
 - 用户明确要求纯文字时不要建页；最终回复不超过 1200 字，不使用多级标题，不附页面链接。
 - 页面构建最多重试 2 次；第 2 次验证失败后降级到最简可交付版本，保留已验证数据和结论，不得无限循环。
+- **降级页也要回答用户问题**：恢复链降级一律走 Presentation Mode（机器保底骨架防裸表格，交付前手写 presentation 替换）；QBS 无可恢复证据时降级为 researched_static 联网研究静态页——联网检索回答原始问题，公开来源逐条带发布日期并写入 `sources_manifest_file`，页面含 `data-qb-sources` 来源区；查无可信来源才落无数据方法页。该档只能由 recover_delivery 触发，不得主动选择绕过 QBS 验证；详见 [guides/researched-static-fallback.md](guides/researched-static-fallback.md) 与 [研究合同与恢复](workflows/research-contract-delivery.md)。
 - 快速通道页面（new_asset_page）保留页面自身的「边界与风险」；Agent 最终文字回复只保留一个「六、综合观察」，把页面/QBS 数据与本轮可靠公开背景融合，说明印证、矛盾、观察条件和证据缺口。来源与发布日期放在该节末尾，不得再另起“背景与关注点”章节；无外部证据时在该节写明缺口。
 
 ## 页面构建策略（自建整页一律模型手写）
@@ -231,7 +232,7 @@ Compose 数据页默认补 [Presentation Mode](guides/compose-presentation.md)�
 
 用户提供已有 JPG/PNG、HTML、PDF 或其他可读取文件，并要求转活页、网页活化、用 QBV 做成可分享页面时，按语义触发，不依赖“转活页”固定词。即使同时要求检查错误、补充指标、研究或重做 HTML，也必须先把来源转换为可阅读的静态 HTML、发布并验收、先交付链接，再考虑 QBS 数据接入。不得先查数据、匹配资产、查询范式或等待 Handoff/计算胶囊；这些工作均移到静态交付之后。仅阅读/分析/导出文件、未要求发布，或明确“先不要发布”时不触发。
 
-执行 [已有文件静态优先工作流](workflows/existing-file-static-first.md)：先 `static_page.py file_prepare` 保存原件并生成最小承载HTML及可恢复发布参数，再原样使用返回的 `file_publish_dir` 与 `snapshot_only:true` 执行 upload/update；先验收原始静态版本；返回required_user_message后，下一次工具调用前先把该链接发给用户，再运行file_confirm_delivery确认，然后继续已授权的纠错、研究和数据增强。不得用虚假确认代替实际发消息。 用户要求重做内容时，主体HTML交给同页managed update（file_enhancement_mode:content）自动编译分享壳并验收，不转入bespoke/fork流程，不先对未编译主体跑ui-refinement或增加未要求的字号门槛。不等待查数、范式匹配、公式验证或内容重做。第一版与续跑绑定同一 page_id/URL，阶段记录留在当前任务持久工作区；增强失败不得先覆盖为旧快照。未知写入结果用 file_status 核对，禁止盲目重复创建。只读文件分析或明确不发布不触发；真实公开边界、文件读取、转换、首次托管问题如实处理，不许假称成功。
+执行 [已有文件静态优先工作流](workflows/existing-file-static-first.md)：先 `static_page.py file_prepare` 保存原件并生成最小承载HTML及可恢复发布参数，再原样使用返回的 `file_publish_dir` 与 `snapshot_only:true` 执行 upload/update；先验收原始静态版本；返回required_user_message后，下一次工具调用前先把该链接发给用户，再运行file_confirm_delivery确认，然后继续已授权的纠错、研究和数据增强。普通模板/新建/Compose/发布通道带“如图、下图、截图、图片、附件”等来源语义时会被 `EXISTING_FILE_ROUTE_REQUIRED` 硬拦截；这是防绕过门禁，不是失败。只有取得并保留 `file_publish_dir` 后才允许继续同页命令。不得用虚假确认代替实际发消息。 用户要求重做内容时，主体HTML交给同页managed update（file_enhancement_mode:content）自动编译分享壳并验收，不转入bespoke/fork流程，不先对未编译主体跑ui-refinement或增加未要求的字号门槛。不等待查数、范式匹配、公式验证或内容重做。第一版与续跑绑定同一 page_id/URL，阶段记录留在当前任务持久工作区；增强失败不得先覆盖为旧快照。未知写入结果用 file_status 核对，禁止盲目重复创建。只读文件分析或明确不发布不触发；真实公开边界、文件读取、转换、首次托管问题如实处理，不许假称成功。
 
 ## 新会话路由：单股快速返回 / 其余查范式卡
 

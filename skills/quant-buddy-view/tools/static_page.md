@@ -725,7 +725,9 @@ live tag 规则：未声明 `data-qb-live-mode` 的 div 默认就是未转换的
 
 > ⚠️ 拿到 `is_live=false` 时，可能是 HTML 没有 `queryFormulaPackage` / `queryDataGrant` 取数调用，也可能是没有绑定任何 `package_id` / `grant_id`。若本意是 live 看板，应按数据性质补回对应实时通道再 `update`：普通行情、估值和财务优先 Data Grant，需要计算时才使用 Formula Package，不要为了变成实时页强行改写成公式；如确为一次性静态报告，可忽略提示。发布前把 `notice` 转告用户。
 >
-> `publish_final` 的公开验收同样遵守这一定义：显式 `live_data_mode=static_content_only|verified_snapshot|static_after_live_probe`（或已绑定为 methodology / partial_research 的受限交付）允许 `is_live=false`，不会把它误判为发布失败；只有声明实时取数的页面才要求 `is_live=true`。
+> `publish_final` 的公开验收同样遵守这一定义：显式 `live_data_mode=static_content_only|verified_snapshot|static_after_live_probe|researched_static`（或已绑定为 methodology / partial_research 的受限交付）允许 `is_live=false`，不会把它误判为发布失败；只有声明实时取数的页面才要求 `is_live=true`。
+>
+> `researched_static` 是恢复链专属的联网研究静态档：仅 `recover_delivery` 产出的 `partial_research + partial` 降级计划可发布（恢复状态登记 `researched_static_plan_hash`，否则 `RESEARCHED_RECOVERY_ORIGIN_REQUIRED`）；必须 `market_data_required:false`、不传 `asset` 与任何实时收据；必须提交 `sources_manifest_file`（`researched_sources_v1`：`sources[]` 每条 `title/url(https)/publisher/published_at(YYYY-MM-DD)/supports`，位于任务输出目录），且 HTML 含 `data-qb-sources` 来源汇总区。发布校验通过后回执 `researched_sources_file/_sha256`，回复链接标签为「可分享研究静态页（公开来源）」。
 
 ## 标签（场景 / 范式 / 推荐）
 
@@ -838,6 +840,8 @@ python scripts/static_page.py unpublish_community '{"page_id":"page_xxx"}'
 ## 可恢复的文件准备与发布
 
 ### `file_prepare`
+
+带“如图/下图/截图/图片/附件”等已有来源语义的建页请求，普通模板、新建、上传、Compose、发布和恢复通道会先返回 `EXISTING_FILE_ROUTE_REQUIRED`。该错误表示必须先执行本节流程；有目标页时把`page_id`传给`file_prepare`，已保留`file_publish_dir`则直接按原记录继续，不能新建替代页或把附件任务降级为方法页。
 
 输入 `source_file`、`work_dir`（均绝对路径）、`task_id`、`publish_authorized:true`，可选明确目标 `page_id` 和原始 `user_query`。输出 `params_file`、`publish_command`、`publish_params`、原件SHA256、资源清单和交互损失说明。支持HTML/HTM、JPG/JPEG、PNG、PDF；PDF需PyMuPDF，动态HTML需Node/Playwright。work_dir使用任务可恢复工作区，不使用Skill目录或worker私有tmp。
 

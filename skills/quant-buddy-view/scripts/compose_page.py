@@ -156,7 +156,11 @@ def build(params):
         if not params.get('plan_hash'): raise EP.PlanError('PLAN_HASH_REQUIRED', 'Compose构建必须绑定当前plan_hash')
         plan = EP.require(task, page_id=params.get('page_id'), plan_hash=params['plan_hash'])
         if plan['build_mode'] != 'compose_page': raise EP.PlanError('COMPOSE_ROUTING_REQUIRED', '当前计划不是Compose')
-        if plan['target_scope'].get('kind') == 'unspecified' and plan.get('delivery_kind') != 'methodology': raise EP.PlanError('PLAN_SCOPE_REQUIRED', '先用execution_plan明确资产/研究范围')
+        if (plan['target_scope'].get('kind') == 'unspecified' and plan.get('delivery_kind') != 'methodology'
+                and not (plan.get('delivery_kind') == 'partial_research' and params.get('live_data_mode') == 'researched_static')):
+            # researched_static carries no QBS scope by design: its provenance is
+            # the sources manifest, gated by the recovery-origin lock at publish.
+            raise EP.PlanError('PLAN_SCOPE_REQUIRED', '先用execution_plan明确资产/研究范围')
         routing, _, error = SP._read_routing_credential(task)
         if error: return error
         if (routing or {}).get('page_id') != plan['target_page_id']:
@@ -279,7 +283,8 @@ def build(params):
                    'data_mode': built.get('data_mode', built['mode']), 'snapshot_bindings': built.get('snapshot_bindings', {}), 'verification': 'candidate_only',
                    'compose_quality': compose_quality,
                    **({} if presentation_info is None else {'presentation': {'version': presentation_info['version'], 'design': presentation_info['design'],
-                                                                              'file': presentation_info['file'], 'file_sha256': presentation_info['file_sha256']}})}
+                                                                              'file': presentation_info['file'], 'file_sha256': presentation_info['file_sha256'],
+                                                                              **({'origin': params['presentation_origin']} if params.get('presentation_origin') else {})}})}
         receipt_path = C.task_temp_path(task, RECEIPT_FILE, create_parent=True)
         EP.atomic_json(receipt_path, receipt)
         research = [{k: v for k, v in panel.items() if k not in ('signature', 'target_selector')} for panel in panels]
@@ -291,7 +296,8 @@ def build(params):
         EP.atomic_json(built['manifest'], manifest)
         publish = {k: params[k] for k in ('task_id', 'title', 'description', 'page_context', 'agent_reply_template',
                    'live_data_mode', 'route_receipt_file', 'validation_receipt_files', 'grant_validation_receipt_files',
-                   'market_data_required', 'agent_intent', 'asset', 'turn_id', 'handoff_validation_receipt_files','expected_current_version_id') if k in params}
+                   'market_data_required', 'agent_intent', 'asset', 'turn_id', 'handoff_validation_receipt_files',
+                   'sources_manifest_file','expected_current_version_id') if k in params}
         publish.update(page_id=plan['target_page_id'], html_file=str(artifact), plan_hash=plan['plan_hash'], require_live_data=plan.get('require_live_data',False))
         import page_baseline
         baseline=page_baseline.expected(publish)

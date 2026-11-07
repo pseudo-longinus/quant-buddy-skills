@@ -102,6 +102,12 @@ def evaluate(task: str, plan: dict[str, Any], panels: list[dict[str, Any]],
         warnings.append("FIRST_SCREEN_EVIDENCE_NOT_READABLE")
     if result_kind and data_indices and not presentation:
         warnings.append("COMPOSE_PRESENTATION_RECOMMENDED")
+    # Degraded deliveries (recovery ladder) carry a machine fallback presentation
+    # so they never ship as bare tables; an authored replacement is still due.
+    degraded_delivery = str(plan.get("delivery_kind") or params.get("delivery_kind") or "") in ("partial_research", "methodology") \
+        or str(params.get("live_data_mode") or "") == "researched_static"
+    if degraded_delivery and str(params.get("presentation_origin") or "") == "machine":
+        warnings.append("PRESENTATION_AUTHORED_MISSING")
 
     return {
         "version": 1,

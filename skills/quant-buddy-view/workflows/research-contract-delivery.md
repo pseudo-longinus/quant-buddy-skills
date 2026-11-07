@@ -18,7 +18,9 @@ ranking 来自 research_contract，指定 rank_by、rank_order、rank_limit。To
 
 publish_verified 首屏失败时查看报告中的 firstScreenDiagnostics：失败元素、top、height、width、viewportHeight。执行返回的 recover_delivery；最多两轮针对性修复，相同候选不重复验收。`python scripts/static_page.py recover_delivery @recovery.json` 参数为 task_id 和当前 plan_hash，必要时附 user_query 或 research_contract。按新的 next_action 编辑、compose_page、publish_verified、验收回复，保持同一 task/turn/page。
 
-两轮后优先复用验证收据物化快照。完整快照为 result；缺条件或未满足明确实时要求为 partial_research + partial；全部数据缺失为 methodology + unavailable。方法页需要确认的研究范围，不使用数字占位，不填假股票，不把缺数据写成符合为零。方法页检查首屏可读研究摘要；其他结果页继续检查手机首屏真实数据。所有页面继续检查公开地址、内容正确性、手机可读性和错误/占位内容。
+两轮后优先复用验证收据物化快照。完整快照为 result；缺条件或未满足明确实时要求为 partial_research + partial；全部数据缺失时优先降级为 **researched_static 联网研究静态页**（partial_research + partial + `live_data_mode=researched_static`）：Agent 联网检索后手写 presentation 回答用户原始问题，公开来源逐条带发布日期；查无可信来源才落 methodology + unavailable。方法页需要确认的研究范围，不使用数字占位，不填假股票，不把缺数据写成符合为零。方法页检查首屏可读研究摘要；其他结果页继续检查手机首屏真实数据。所有页面继续检查公开地址、内容正确性、手机可读性和错误/占位内容。
+
+researched_static 四条红线（发布门禁在 `_validate_publish_data_evidence` 强制）：① 只能由 recover_delivery 降级计划发布（恢复状态绑定 plan_hash，Agent 不得主动选择此档绕过 QBS 验证）；② 不绑定 asset/行情合同、不混入实时收据（`market_data_required:false`）；③ 来源清单 `sources_manifest_file`（researched_sources_v1，每条 title/url/publisher/published_at/supports）硬校验并落 sha256 收据；④ 页面必须含 `data-qb-sources` 来源汇总区，浏览器门禁仍走 self-built 五视口。链接标签固定「可分享研究静态页（公开来源）」，回复不得声称实时或已通过 QBS 验证。宿主预算收尾（finish_research_delivery）无 Agent 可联网检索，保持 methodology 方法页路径。降级交付（partial_snapshot/handoff_snapshot/researched_static）默认生成机器保底 presentation，`presentation_origin=machine` 会记 `PRESENTATION_AUTHORED_MISSING` 诊断；交付前应手写 presentation 替换并把草稿 presentation_origin 改为 authored。
 
 已有正确页面不能被错误或缺数据页覆盖；恢复返回 PRESERVED_LAST_GOOD_PAGE 时保留旧版本，说明本轮尚未更新。未知写入先查 delivery_status 和远端版本，不盲目重发。注册未知也不盲目重试。发布服务不可用时交付生成的完整 HTML 备用文件及其真实状态，明确未公开发布，并保存计划与恢复信息，不能声称公开活页交付。
 

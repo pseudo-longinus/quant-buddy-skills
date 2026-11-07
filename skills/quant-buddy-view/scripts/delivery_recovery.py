@@ -3,6 +3,7 @@ import copy
 import hashlib
 import json
 import re
+from html import escape as _esc
 from pathlib import Path
 import common as C
 import execution_plan as EP
@@ -327,39 +328,61 @@ def _find_handoff(task, params):
     return _latest_task_handoff(task)
 
 
-def _default_handoff_presentation(task, snapshot_roles):
+def _handoff_panel_id(seed):
+    panel_id='handoff-'+re.sub(r'[^A-Za-z0-9_.-]+','-',str(seed or 'data')).strip('-')
+    return panel_id if re.fullmatch(r'[A-Za-z][A-Za-z0-9_.-]*',panel_id) else 'handoff-data'
+
+
+def _ensure_panel_ids(panels, prefix):
+    """Fill unique mountable ids for panels; existing valid ids are preserved."""
+    used={str(p.get('id') or '') for p in panels}
+    for index,panel in enumerate(panels):
+        current=str(panel.get('id') or '').strip()
+        if current and re.fullmatch(r'[A-Za-z][A-Za-z0-9_.-]*',current):continue
+        base=re.sub(r'[^A-Za-z0-9_.-]+','-',str(panel.get('title') or '')).strip('-')
+        panel_id=f'{prefix}-{base}' if base else f'{prefix}-panel-{index+1}'
+        candidate,counter=panel_id,2
+        while candidate in used:candidate=f'{panel_id}-{counter}';counter+=1
+        panel['id']=candidate;used.add(candidate)
+
+
+def _machine_presentation(task,mounts,title,summary,metrics,filename,sources_note=None):
+    """Machine-authored fallback presentation (draft presentation_origin='machine').
+
+    It exists so a degraded page never ships as bare auto tables; the recovery
+    instruction requires the agent to replace it with an authored presentation
+    before delivery. mounts: list of (panel_id, mount title).
+    """
     root=CI.editable_root(task); root.mkdir(parents=True,exist_ok=True)
-    path=root/'handoff-presentation.html'
-    mounts=''.join(
-        f'<section class="qb-handoff-panel"><h3>{role.get("role_id") or "已验证数据"}</h3>'
-        f'<div data-qb-panel="handoff-{re.sub(r"[^A-Za-z0-9_.-]+","-",str(role.get("role_id") or "data")).strip("-")}"></div></section>'
-        for role in snapshot_roles
+    path=root/filename
+    mount_html=''.join(
+        f'<section class="qb-handoff-panel"><h3>{_esc(str(mount_title),quote=True)}</h3>'
+        f'<div data-qb-panel="{_esc(str(panel_id),quote=True)}"></div></section>'
+        for panel_id,mount_title in mounts
     )
-    style='<style>.qb-handoff-hero{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.qb-handoff-panel{margin-top:20px}</style>'
-    body=('<main data-qb-page-design="compose-bespoke-v1"><h1>已验证研究结果</h1>'
-          '<p data-qb-summary>本页展示本轮已通过QBS handoff校验的数据快照；结论只覆盖已验证角色，缺失角色不视为零命中。</p>'
-          '<div class="qb-handoff-hero"><div data-qb-metric>已验证数据组 '+str(len(snapshot_roles))+'</div>'
-          '<div data-qb-metric>数据模式 verified snapshot</div></div>'+mounts+'</main>')
+    metric_html=''.join(f'<div data-qb-metric>{_esc(str(metric),quote=True)}</div>' for metric in metrics)
+    sources_html=('')
+    if sources_note:
+        sources_html=(f'<section class="qb-researched-sources" data-qb-sources><h2>数据来源</h2>'
+                      f'<p>{_esc(str(sources_note),quote=True)}</p></section>')
+    style=('<style>.qb-handoff-hero{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}'
+           '.qb-handoff-panel{margin-top:20px}.qb-researched-sources{margin-top:24px}</style>')
+    body=(f'<main data-qb-page-design="compose-bespoke-v1"><h1>{_esc(str(title),quote=True)}</h1>'
+          f'<p data-qb-summary>{_esc(str(summary),quote=True)}</p>'
+          '<div class="qb-handoff-hero">'+metric_html+'</div>'+mount_html+sources_html+'</main>')
     path.write_text(style+body,encoding='utf-8')
     return {'version':1,'mode':'bespoke','html_file':str(path),'design':'compose-bespoke-v1'}
 
 
-def _mount_recovery_panels(task, changes, panels):
-    """Keep generated/retained recovery panels valid in Presentation Mode."""
-    if not isinstance(changes.get('presentation'),dict): return
-    used={str(panel.get('id')) for panel in panels if panel.get('id')}
-    for index,panel in enumerate(panels):
-        if not panel.get('id'):
-            base=f'recovery-panel-{index+1}'
-            panel_id=base
-            suffix=1
-            while panel_id in used:
-                panel_id=f'{base}-{suffix}'
-                suffix+=1
-            panel['id']=panel_id
-            used.add(panel_id)
-        changes['presentation']=CP.ensure_mount(
-            task,changes['presentation'],panel['id'],str(panel.get('title') or panel['id']))
+def _machine_presentation_for_panels(task, panels, title, summary, metrics, filename, sources_note=None):
+    """Regenerate the machine fallback presentation to match the CURRENT panels.
+
+    Machine presentations are ours: regenerating each recovery round keeps
+    mounts 1:1 with panels even when panels were rebuilt. Authored files are
+    never touched here (ensure_mount appends inert mounts instead).
+    """
+    mounts=[(str(p['id']), str(p.get('title') or p['id'])) for p in panels]
+    return _machine_presentation(task,mounts,title,summary,metrics,filename,sources_note=sources_note)
 
 
 def _handoff_snapshot_recovery(params,plan,changes,modules,panels):
@@ -370,15 +393,15 @@ def _handoff_snapshot_recovery(params,plan,changes,modules,panels):
     snapshot_roles=bundle.get('snapshot_roles') or []
     if not snapshot_roles:
         return {'bundle':bundle,'phase':'methodology'}
-    if not isinstance(changes.get('presentation'),dict):
-        changes['presentation']=_default_handoff_presentation(plan['task_id'],snapshot_roles)
+    # Authored presentations (explicit origin, or legacy drafts without one) are
+    # preserved and only receive appended mounts; machine ones regenerate below.
+    prior_authored=isinstance(changes.get('presentation'),dict) and changes.get('presentation_origin') in (None,'authored')
     text_panels=[copy.deepcopy(p) for p in panels if p.get('type') in ('text','image')]
     default_module=modules[0] if modules else '已验证研究结果'
     for role in snapshot_roles:
         title=str(role.get('role_id') or '已验证数据')
-        panel_id='handoff-'+re.sub(r'[^A-Za-z0-9_.-]+','-',title).strip('-')
-        if not panel_id or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_.-]*',panel_id): panel_id='handoff-data'
-        if isinstance(changes.get('presentation'),dict):
+        panel_id=_handoff_panel_id(role.get('role_id') or title)
+        if prior_authored:
             changes['presentation']=CP.ensure_mount(plan['task_id'],changes['presentation'],panel_id,title)
         text_panels.append({
             'type':'table','id':panel_id,'title':title,'compose_module':default_module,
@@ -394,7 +417,18 @@ def _handoff_snapshot_recovery(params,plan,changes,modules,panels):
                    '\n'.join('缺失角色：'+str(role) for role in missing)+
                    '\n缺失角色未被当作零命中或已核验条件。'
         })
-    _mount_recovery_panels(plan['task_id'],changes,text_panels)
+    # Presentation Mode requires every panel to own a mount, text panels included.
+    _ensure_panel_ids(text_panels,'handoff')
+    if prior_authored:
+        for panel in text_panels:
+            changes['presentation']=CP.ensure_mount(plan['task_id'],changes['presentation'],panel['id'],str(panel.get('title') or panel['id']))
+        changes['presentation_origin']='authored'
+    else:
+        changes['presentation']=_machine_presentation_for_panels(plan['task_id'],text_panels,'已验证研究结果',
+            '本页展示本轮已通过QBS handoff校验的数据快照；结论只覆盖已验证角色，缺失角色不视为零命中。',
+            ['已验证数据组 '+str(sum(1 for p in text_panels if p.get('type') not in ('text','image'))),'数据模式 verified snapshot'],
+            'handoff-presentation.html')
+        changes['presentation_origin']='machine'
     changes.update(
         runtime_roles=[],snapshot_roles=snapshot_roles,panels=text_panels,
         unassigned_panels=[],live_data_mode='verified_snapshot',
@@ -507,6 +541,14 @@ def _network_only_failure(task, plan):
     return None
 
 
+def _researched_title(topic):
+    """Readable draft title for the researched_static fallback; agent aligns h1."""
+    text=re.sub(r'\s+',' ',str(topic or '')).strip()
+    text=re.split(r'[。？！?！;；\n]',text)[0].strip()
+    if len(text)>32:text=text[:32].rstrip()+'…'
+    return (text+' · 公开来源研究') if text else '公开来源研究'
+
+
 def recover(params):
     task = params['task_id']
     plan = EP.load(task)
@@ -542,6 +584,12 @@ def _recover(params):
     import static_page as SP
     import verified_snapshot as VS
     task = params['task_id']
+    if not params.get('file_publish_dir') and C.existing_file_intent(params):
+        return {'code': 1, 'error': 'EXISTING_FILE_ROUTE_REQUIRED', 'recoverable': True, 'terminal': False,
+                'message': '用户请求以已有图片/文件为来源；先file_prepare原样托管并交付首链，不能降级为方法页或researched_static',
+                'next_action': {'command': 'file_prepare',
+                                'params': {'task_id': task, 'user_query': params.get('user_query'),
+                                           **({'page_id': params['page_id']} if params.get('page_id') else {})}}}
     if not EP.load(task):
         import bootstrap_publication as bootstrap
         boot=bootstrap.load(task)
@@ -680,6 +728,22 @@ def _recover(params):
                            'text':'本页展示已验证数据快照，快照不会自动更新。\n'+
                                   ('\n'.join(gap_lines) if gap_lines else '其余维度数据待补。')+
                                   '\n已确认的策略条件保持不变，缺失条件未被视为通过。'})
+        # Degraded snapshot deliveries never ship as bare auto tables: give every
+        # panel a mountable id and default a machine presentation; authored
+        # presentations keep their file and only get recovery mounts appended.
+        _ensure_panel_ids(panels,'frozen')
+        if isinstance(changes.get('presentation'),dict) and changes.get('presentation_origin') in (None,'authored'):
+            for panel in panels:
+                changes['presentation']=CP.ensure_mount(task,changes['presentation'],panel['id'],str(panel.get('title') or panel['id']))
+            changes['presentation_origin']='authored'
+        else:
+            data_count=sum(1 for p in panels if p.get('type') not in ('text','image'))
+            fallback_title=changes.get('title') or '已验证数据研究页'
+            changes['presentation']=_machine_presentation_for_panels(task,panels,fallback_title,
+                '本页为本轮可恢复的已验证数据快照；当前为机器保底版式，交付前应替换为手写presentation并保留数据缺口说明。',
+                ['已验证数据组 '+str(data_count),'数据模式 verified snapshot'],
+                'recovery-presentation.html')
+            changes['presentation_origin']='machine'
     else:
         from delivery_requirements import current_query, live_required
         contract = plan.get('research_contract') or params.get('research_contract')
@@ -693,21 +757,55 @@ def _recover(params):
             from qbs_job_lifecycle import find_job
             _,job,_=find_job(task_id=task,turn_id=context['turn_id'])
             query=(job or {}).get('handoff',{}).get('user_query')
-        changes['title']='策略研究与核验方法'
         if not descriptions and not query:
             raise EP.PlanError('METHODOLOGY_INTENT_REQUIRED', '需原始用户研究范围或已确认合同，不能生成空方法页')
-        text = ('已确认研究范围\n'+('\n'.join(descriptions) if descriptions else str(query))+
+        methodology_text = ('已确认研究范围\n'+('\n'.join(descriptions) if descriptions else str(query))+
                 '\n\n核验方法\n按上述条件逐项核对股票范围、阈值、基准、字段实际日期与排序。只有全部条件的证据齐备后，才生成符合条件的名单。'
                 '\n\n数据覆盖\n本轮尚未取得足以验证标的的数据。未验证不代表符合条件的股票为零；当前不输出标的或虚构数值。'
                 '\n\n后续核验\n补齐同口径的数据来源与观察日，再在本页更新研究结果。')
-        panels = [{'type':'text','title':'研究范围与核验方法','compose_module':modules[0] if modules else '研究方法','text':text,'as_of_mode':'historical'}]
-        modules = [str((panels[0] if panels else {}).get('compose_module') or (modules[0] if modules else '研究方法'))]
-        for key in ('asset','route_receipt_file','validation_receipt_files','grant_validation_receipt_files','handoff_validation_receipt_files'):
+        for key in ('asset','route_receipt_file','validation_receipt_files','grant_validation_receipt_files','handoff_validation_receipt_files','sources_manifest_file'):
             changes.pop(key,None)
         changes['market_data_required'] = False
-        changes.update(research_contract=contract, research_status='unavailable',delivery_kind='methodology',
-                       runtime_roles=[],snapshot_roles=[],panels=panels,live_data_mode='static_content_only',
-                       description='已确认策略与核验方法研究页；本页为研究方法说明，数据待补。')
+        if params.get('methodology_only'):
+            # Host finisher (finish_research_delivery) runs without a live agent:
+            # no web research is possible, keep the no-data methodology contract.
+            changes['title']='策略研究与核验方法'
+            panels = [{'type':'text','title':'研究范围与核验方法','compose_module':modules[0] if modules else '研究方法','text':methodology_text,'as_of_mode':'historical'}]
+            modules = [str((panels[0] if panels else {}).get('compose_module') or (modules[0] if modules else '研究方法'))]
+            changes.pop('presentation',None); changes.pop('presentation_origin',None)
+            changes.update(research_contract=contract, research_status='unavailable',delivery_kind='methodology',
+                           runtime_roles=[],snapshot_roles=[],panels=panels,live_data_mode='static_content_only',
+                           description='已确认策略与核验方法研究页；本页为研究方法说明，数据待补。')
+        else:
+            # researched_static: no recoverable QBS evidence, so the degraded page
+            # answers the original question from cited public sources instead of
+            # shipping a data-less methodology skeleton. Publish is gated by the
+            # researched_static_plan_hash origin lock in static_page.
+            research_topic = str(descriptions[0]) if descriptions else str(query)
+            changes['title'] = _researched_title(research_topic)
+            answer_text = ('研究问题\n'+str(query or research_topic)+
+                    '\n\n联网检索要求\n先联网检索回答上述问题；每个关键数字在 sources_manifest_file 登记公开来源（title/url/publisher/published_at/supports），关键数字尽量双源交叉；查无实据写明证据缺口，不得臆测或填占位数字。'
+                    '\n\n边界\n本页数据来自公开来源，未能通过 QBS 实时验证；不与实时行情混排，不冒充实时研究，交付标签为可分享研究静态页（公开来源）。')
+            panels = [
+                {'type':'text','id':'web_research_answer','title':'公开来源研究','compose_module':'公开来源研究','text':answer_text,'as_of_mode':'historical'},
+                {'type':'text','id':'methodology_note','title':'研究方法与边界','compose_module':'研究方法','text':methodology_text,'as_of_mode':'historical'},
+            ]
+            modules = ['公开来源研究','研究方法']
+            _ensure_panel_ids(panels,'researched')
+            if isinstance(changes.get('presentation'),dict) and changes.get('presentation_origin') in (None,'authored'):
+                for panel in panels:
+                    changes['presentation']=CP.ensure_mount(task,changes['presentation'],panel['id'],str(panel.get('title') or panel['id']))
+                changes['presentation_origin']='authored'
+            else:
+                changes['presentation']=_machine_presentation_for_panels(task,panels,changes['title'],
+                    '本页为公开来源研究静态页的机器保底骨架；联网检索后用手写presentation替换：首屏=结论+关键数字+来源日期，保留 data-qb-sources 来源汇总区。',
+                    ['数据模式 公开来源','QBS验证 未执行'],
+                    'researched-presentation.html',
+                    sources_note='待联网检索后逐条列出来源、发布方与发布日期；替换骨架时保留本区块。')
+                changes['presentation_origin']='machine'
+            changes.update(research_contract=contract, research_status='partial',delivery_kind='partial_research',
+                           runtime_roles=[],snapshot_roles=[],panels=panels,live_data_mode='researched_static',
+                           description='公开来源研究静态页：以带来源的公开信息回答用户问题，未经QBS实时验证。')
     # Recovery retains page/source identity, but uses an original readable shell.
     if changes.get('research_status',plan.get('research_status')) in ('partial','unavailable','unknown'):
         from prose_contract import research_claim_errors
@@ -721,13 +819,27 @@ def _recover(params):
     data_modules=[m for m in used if any(p['compose_module']==m and p.get('type') not in ('text','image') for p in panels)]
     changes['module_order'] = data_modules+[m for m in used if m not in data_modules]
     if not changes.get('title'): changes['title'] = '策略研究与核验结果'
-    _mount_recovery_panels(task,changes,panels)
+    researched = (not frozen) and not params.get('methodology_only')
     out = SP.cmd_execution_plan(changes)
-    out.update(recovery_phase=('partial_snapshot' if (missing or evidence_roles) else 'handoff_snapshot') if frozen else 'methodology',
+    out.update(recovery_phase=('partial_snapshot' if (missing or evidence_roles) else 'handoff_snapshot') if frozen else ('researched_static' if researched else 'methodology'),
                original_page_id=plan['target_page_id'], preserved_candidate_file=preserved_candidate_file,
                **({} if frozen else {
                    'downgraded_from': {'research_status':plan.get('research_status'),'delivery_kind':plan.get('delivery_kind'),'plan_hash':plan.get('plan_hash')},
-                   'downgrade_reason': 'no_recoverable_qbs_snapshot_or_runtime_evidence',
+                   'downgrade_reason': 'no_recoverable_qbs_snapshot_or_runtime_evidence_web_research_fallback' if researched else 'no_recoverable_qbs_snapshot_or_runtime_evidence',
                }))
+    if researched:
+        # Arm the recovery-origin lock for the exact plan researched_static may
+        # publish under, then regenerate the handoff so the initial draft's
+        # diagnostics no longer carry the origin-lock error.
+        new_plan = out.get('execution_plan') or {}
+        if new_plan.get('plan_hash'):
+            with EP.locked(task):
+                state = _turn_state(task, params)
+                state['researched_static_plan_hash'] = new_plan['plan_hash']
+                _save_state(task, state)
+            try:
+                out.update(CI.prepare(new_plan, {}))
+            except EP.PlanError:
+                pass
     if evidence_roles: out['evidence_roles_bound'] = len(evidence_roles)
     return out

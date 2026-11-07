@@ -8,6 +8,8 @@
 
 先建立当前 Trace，再 `file_prepare → upload/update → 用户可见首链 → file_confirm_delivery → 同页增强`。不能在第一版之前执行 QBS 查数、模板匹配、公式注册或内容研究；不得用空白进度页代替原文件页。
 
+`static_page.py` 对来源语义启用了硬门禁：普通 `templates/new_page/upload/update/direct/fork/execution_plan/compose/publish/recover` 路径缺少 `file_publish_dir` 时返回 `EXISTING_FILE_ROUTE_REQUIRED`。收到该错误必须改走 `file_prepare`（有目标页时携带page_id；已保留`file_publish_dir`则直接按原记录继续），不得重绘图片、联网替代原图或继续降级链。
+
 ## 首链交付检查点（必须先于下一次工具调用）
 
 首次upload/update返回 `required_user_message` 后，**下一次工具调用之前，先把这句话发成用户可见消息**。不能只把URL留在工具结果，不能等最终总结再发。宿主支持同一消息带文字和工具调用时，文字先展示，再继续工具调用。

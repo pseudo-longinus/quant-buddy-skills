@@ -30,7 +30,7 @@ VOID_TAGS = set()
 ALLOWED_ATTRS = {"class", "id", "open", "style"}
 ALLOWED_DATA_ATTRS = {
     "data-qb-panel", "data-qb-summary", "data-qb-metric", "data-qb-page-design",
-    "data-qb-page-title",
+    "data-qb-page-title", "data-qb-sources",
 }
 ALLOWED_CSS_PROPERTIES = {
     "align-items", "background", "background-color", "border", "border-color",

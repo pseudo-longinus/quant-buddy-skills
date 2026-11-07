@@ -20,9 +20,9 @@ def _build_contract_reply(plan,contract,live):
     intro={'methodology':'本页为研究方法说明，数据待补；已交付策略、缺口与核验方法。',
            'partial_research':'已交付部分研究成果，部分数据待补。'}.get(kind,'已交付研究成果，具体覆盖范围以核验记录为准。')
     mode={'verified_snapshot':'页面为已验证快照，不会自动刷新。','static_content_only':'页面为静态展示，不会自动刷新。',
-          'live':'已核验自动取数能力。','mixed':'页面含实时与静态内容，按各字段日期与状态查看。'}.get(live,'页面自动更新能力待核验。')
+          'live':'已核验自动取数能力。','mixed':'页面含实时与静态内容，按各字段日期与状态查看。','researched_static':'页面来自公开来源研究，未能实时验证。'}.get(live,'页面自动更新能力待核验。')
     url=contract['public_url']
-    label=contract.get('delivery_link_label') or ('策略与核验方法研究页' if kind=='methodology' else {'verified_snapshot':'可分享静态研究页','static_content_only':'可分享静态研究页','live':'可分享实时活页','mixed':'可分享活页（部分实时、部分静态）'}.get(live,'可分享研究页（数据模式待核验）'))
+    label=contract.get('delivery_link_label') or ('策略与核验方法研究页' if kind=='methodology' else {'verified_snapshot':'可分享静态研究页','static_content_only':'可分享静态研究页','live':'可分享实时活页','mixed':'可分享活页（部分实时、部分静态）','researched_static':'可分享研究静态页（公开来源）'}.get(live,'可分享研究页（数据模式待核验）'))
     reply='**'+str(plan.get('title') or '策略研究与核验方法')+'**\n\n**一句话总结**：'+intro+'\n\n'
     reply+='## 这份活页做了什么\n\n保留原始研究条件，呈现已核验内容及尚未完成的部分。\n\n'
     reply+='## 核心模块\n\n'+'\n'.join('- '+str(module) for module in modules)+'\n\n'
@@ -125,6 +125,14 @@ def finish(params):
     query=str(params.get('user_query') or context.get('user_query') or '').strip()
     query=re.sub(r'(?i)(?:api_key|signature|authorization|access_token)\s*[=:]\s*\S+','[凭证已移除]',query)
     if not query or len(query)>30000: return {'code':1,'error':'METHODOLOGY_INTENT_REQUIRED'}
+    # The host finisher is methods-only and must never replace an uploaded file
+    # with a methodology/researched fallback. Internal SP calls bypass the CLI
+    # route guard, so enforce the same file-first contract before reading plans.
+    if not params.get('file_publish_dir') and C.existing_file_intent({'task_id':task,'user_query':query}):
+        return {'code':1,'error':'EXISTING_FILE_ROUTE_REQUIRED','recoverable':True,'terminal':False,
+                'message':'用户请求以已有图片/文件为来源；宿主收尾不得降级，先file_prepare原样托管并交付首链',
+                'next_action':{'command':'file_prepare','params':{'task_id':task,'user_query':query,
+                           **({'page_id':params['page_id']} if params.get('page_id') else {})}}}
     plan=EP.load(task)
     if plan and (DS.load(task,plan['target_page_id']).get('last_write') or {}).get('status') in ('pending','unknown'):
         return recovery.backup_html({'task_id':task,'turn_id':turn,'user_query':query},plan)
@@ -173,7 +181,10 @@ def finish(params):
                      research_contract=contract,research_status='unavailable',delivery_kind='methodology',
                      require_live_data=params.get('require_live_data',False))
     prepared=recovery.recover({'task_id':task,'turn_id':turn,'plan_hash':plan['plan_hash'],
-                               'force_fallback':True,'user_query':query})
+                               'force_fallback':True,'user_query':query,
+                               # Host finisher runs without a live agent: no web
+                               # research possible, keep the methodology contract.
+                               'methodology_only':True})
     if prepared.get('code')!=0:return prepared
     if not prepared.get('next_action'):
         return {'code':1,'error':'HOST_RECOVERY_CANDIDATE_MISSING','message':'恢复未返回可执行候选参数','recovery':prepared}

@@ -5,6 +5,13 @@
 
 ---
 
+## [0.8.7] — 2026-11-07
+
+- **已有文件硬路由**：用户请求含“如图/下图/截图/图片/附件”等已有文件语义且要走建页时，普通模板、新建、上传、Compose、发布和恢复通道在缺少 `file_publish_dir` 时返回 `EXISTING_FILE_ROUTE_REQUIRED`，强制先 `file_prepare` 原样托管、真实首链交付和 `file_confirm_delivery`；宿主收尾也不得把附件任务降级成方法页或 `researched_static`。
+- **新增 researched_static 联网研究静态页档**：QBS 无可恢复证据时不再直接落无数据方法页，而是降级为 `partial_research + partial + live_data_mode=researched_static`。Agent 联网检索回答用户原始问题，来源写入 `sources_manifest_file`，页面含 `data-qb-sources`；发布受恢复状态 origin 锁、禁实时收据、来源清单硬校验和 HTML 来源区门禁约束。
+- **降级交付统一机器保底 Presentation**：partial 冻结 / handoff 恢复无手写 presentation 时生成机器骨架并按最终面板重建挂载点；机器骨架记 `PRESENTATION_AUTHORED_MISSING`，交付前手写替换，不再以裸自动表格交付。
+- `finish_research_delivery` 宿主收尾传 `methodology_only`，无 Agent 场景保持原方法页路径；新增 researched static 写作指南并同步恢复合同文档。
+
 ## [0.8.6] — 2026-11-07
 
 - 重复恢复已生效的历史内容时核验当前恢复版本，生成本轮只读证明；保留当前编号，不重复写入。

@@ -219,6 +219,36 @@ def host_managed_lifecycle():
     }
 
 
+_EXISTING_FILE_INTENT_RE = re.compile(
+    r"如[图幅]|上图|下图|本图|原图|截图|截圖|附件|上传.{0,12}[图圖]片?|[图圖]片?.{0,12}(?:转|轉|做|生成|发布|發布|活化)|\battachment\b|screenshot\b|uploaded\s+(?:image|file)|user\s+image|\b(?:jpe?g|png|pdf|html)\s*(?:文件|格式)?\s*(?:转|轉|做|生成|发布|發布|活化)",
+    re.I,
+)
+
+
+def existing_file_intent(params=None):
+    """Return whether the current page request semantically starts from a user file.
+
+    This is a route guard, not attachment proof. Strong file/image wording in the
+    active user query forces the existing-file static-first path; normal market
+    research wording remains untouched. Commands can also declare an explicit
+    source file. The host may supply a manifest later; until then the conservative
+    cue is better than silently rebuilding an uploaded image from scratch.
+    """
+    params = params if isinstance(params, dict) else {}
+    if params.get("source_file") or params.get("file_publish_dir"):
+        return True
+    task_id = str(params.get("task_id") or "").strip()
+    persisted = read_task_trace_context(task_id).get("current_user_query") if task_id else ""
+    query = str(
+        params.get("user_query")
+        or params.get("userQuery")
+        or os.environ.get("QB_HOST_USER_QUERY")
+        or persisted
+        or ""
+    )
+    return bool(_EXISTING_FILE_INTENT_RE.search(query))
+
+
 class TraceContextError(ValueError):
     def __init__(self, code, message):
         super().__init__(message)

@@ -16,7 +16,7 @@ POINTER='receipts/compose-draft.json'
 PASS_FIELDS=('title','subtitle','description','page_context','agent_reply_template','live_card','agent_intent','market_data_required',
              'route_receipt_file','validation_receipt_files','grant_validation_receipt_files','handoff_validation_receipt_files','turn_id','asset',
              'research_contract','research_checks','research_status','delivery_kind','live_data_mode','missing_conditions',
-             'presentation','expected_current_version_id')
+             'presentation','presentation_origin','sources_manifest_file','expected_current_version_id')
 
 
 def editable_root(task):
@@ -293,5 +293,14 @@ def prepare(plan,params=None):
             index+=1;path=root/f'compose-r{plan["revision"]}-{digest[:16]}-{index}.json'
         if not path.exists():EP.atomic_json(path,draft)
         EP.atomic_json(C.task_temp_path(task,POINTER,create_parent=True),{'task_id':task,'page_id':plan['target_page_id'],'plan_hash':plan['plan_hash'],'params_file':str(path),'revision':plan['revision']})
-        return {'next_action':{'command':'compose_page','params_file':str(path),'instruction':'先处理draft_diagnostics，再填写标题和研究文字。自动table只是数据绑定起点，不能直接当最终版式：先写首屏结论、3-4个核心指标和主图，长表放折叠明细；数据页优先补presentation.html挂载点。排名页先做最强/最弱原始数值柱图，再保留一张明确排序、单位和日期的完整表；百分比按已验证源值声明scale。可以调整面板类型/顺序但保留runtime_role_id及必需outputs。不编辑内部收据；不要把长表搬到首屏来消除warning。'},
+        instruction=('先处理draft_diagnostics，再填写标题和研究文字。自动table只是数据绑定起点，不能直接当最终版式：先写首屏结论、3-4个核心指标和主图，长表放折叠明细；数据页优先补presentation.html挂载点。排名页先做最强/最弱原始数值柱图，再保留一张明确排序、单位和日期的完整表；百分比按已验证源值声明scale。可以调整面板类型/顺序但保留runtime_role_id及必需outputs。不编辑内部收据；不要把长表搬到首屏来消除warning。')
+        if draft.get('live_data_mode')=='researched_static':
+            instruction=('降级为联网研究静态页（researched_static）：①先联网检索回答用户原始问题，公开来源必须带发布日期，关键数字尽量双源交叉，查无实据写证据缺口，不得臆测；'
+                         '②手写 presentation.html 替换机器骨架，首屏=结论+关键数字+来源日期，图表用CSS柱图/表格，正文保留 data-qb-sources 公开来源汇总区（逐条来源+发布日期），替换后把草稿 presentation_origin 改为 authored；'
+                         '③把来源写入 sources_manifest_file（researched_sources_v1：sources 数组，每条 title/url/publisher/published_at/supports）；'
+                         '④查无可信来源不要编造：用 execution_plan 修订 research_status=unavailable、delivery_kind=methodology（带 expected_revision+revision_reason），并把草稿 live_data_mode 改为 static_content_only；'
+                         '⑤页面与回复不得声称实时或已通过QBS验证，链接标签固定为「可分享研究静态页（公开来源）」。')
+        elif draft.get('presentation_origin')=='machine':
+            instruction='本稿为降级恢复，presentation 是机器保底骨架（禁止直接当最终版式交付；机器骨架因首屏缺真实关键值通不过浏览器验收）。交付前手写 presentation.html 替换：首屏=结论+关键数字+主图挂载，正文保留数据缺口说明；确实无法手写时删除草稿中的 presentation 字段回退标准模块渲染，不得把机器骨架直接交付。'+instruction
+        return {'next_action':{'command':'compose_page','params_file':str(path),'instruction':instruction},
                 'draft_diagnostics':issues,'quality_warnings':quality_warnings,'draft_ready':not issues,'plan_hash':plan['plan_hash']}
