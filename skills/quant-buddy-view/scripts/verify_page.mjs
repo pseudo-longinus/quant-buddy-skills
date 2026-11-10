@@ -23,6 +23,7 @@ import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { findBrowser, playwrightLaunchAttempts, playwrightSearchRoots } from './browser_dependencies.mjs';
 import { parseExtraViewport, resolveVerificationProfile, CORE_ERROR_RE, TRACKER_NOISE_RE, isCoreConsoleError } from './verification_profiles.mjs';
+import { publicPreviewContextProblems, shareShellHeaderProblems } from './public_preview_context.mjs';
 import { staticImageProblems } from './image_verification.mjs';
 import { cardVisualContractProblems } from './card_visual_contract.mjs';
 import { dashboardDesignMetrics } from './dashboard_design_checks.mjs';
@@ -234,7 +235,7 @@ async function readHtml(v) {
 }
 
 function staticChecks(html) {
-  const problems = [];
+  const problems = publicPreviewContextProblems(html);
   const placeholders = ['QB_SHARED_', 'replace_with_signature', 'pkg_replace', '__PLACEHOLDER__'];
   for (const token of placeholders) {
     if (html.includes(token)) problems.push(`占位符残留: ${token}`);
@@ -807,12 +808,67 @@ async function shareModalChecksExpression() {
   };
 }
 
+async function shareShellHeaderChecksExpression() {
+  const inspect = () => {
+    const host = document.querySelector('[data-qb-live-page-header-host]');
+    const frame = document.getElementById('qbLivePageHeaderFrame');
+    const fallback = document.querySelector('[data-qb-live-page-header-fallback]');
+    const present = !!(host || frame);
+    const visible = el => {
+      if (!el) return false;
+      const style = getComputedStyle(el);
+      const rect = el.getBoundingClientRect();
+      return style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity || 1) !== 0
+        && rect.width > 1 && rect.height > 1;
+    };
+    const frameRect = frame?.getBoundingClientRect();
+    const src = String(frame?.getAttribute('src') || '');
+    let officialUrl = false;
+    let paramsValid = false;
+    try {
+      const parsed = new URL(src);
+      const pageId = (location.pathname.match(/page_([0-9a-f]{24})\.html/i) || [])[1];
+      officialUrl = parsed.origin === 'https://www.quantbuddy.cn' && parsed.pathname === '/embed/live-page-header';
+      paramsValid = !!pageId
+        && parsed.searchParams.get('page_id') === `page_${pageId}`
+        && parsed.searchParams.get('page_url') === location.href
+        && parsed.searchParams.get('parent_origin') === location.origin;
+    } catch {}
+    const fallbackVisible = !!(fallback && visible(fallback));
+    const buttons = fallback ? [...fallback.querySelectorAll('button')].filter(visible) : [];
+    const headerState = host ? String(host.getAttribute('data-qb-header-state') || '') : '';
+    return {
+      checked: true,
+      present,
+      fallback: { visible: fallbackVisible, hostVisible: !!(host && visible(host)), buttonCount: buttons.length },
+      iframe: {
+        src,
+        officialUrl,
+        paramsValid,
+        visible: !!(frame && visible(frame)),
+        width: Number(frameRect?.width || 0),
+        height: Number(frameRect?.height || 0),
+        readyStateAvailable: ['loading', 'ready', 'fallback'].includes(headerState),
+        ready: headerState === 'ready',
+      },
+    };
+  };
+  const deadline = Date.now() + 6000;
+  let result = inspect();
+  while (Date.now() < deadline && !result.fallback.visible && result.iframe.ready !== true) {
+    await new Promise(resolve => setTimeout(resolve, 100));
+    result = inspect();
+  }
+  return inspect();
+}
+
 async function playwrightBrowserChecks(pw, url, options = {}) {
   const browser = await launchPlaywrightBrowser(pw, options.relaxSecurity);
   const results = [];
   const consoleErrors = [];
   const nonCoreWarnings = [];
   const imageNetworkErrors = [];
+  const headerResponses = [];
   const viewports = VIEWPORTS;
   const settleMs = 1200;
   let documentHtml = null;
@@ -835,6 +891,9 @@ async function playwrightBrowserChecks(pw, url, options = {}) {
         }
       });
       page.on('response', response => {
+        if (/^https:\/\/www\.quantbuddy\.cn\/embed\/live-page-header\?/i.test(response.url())) {
+          headerResponses.push(response.status());
+        }
         const action=liveAction(response.url());
         if (action) {
           const entry={action,http:response.status(),business_ok:false,output_count:0};
@@ -866,6 +925,9 @@ async function playwrightBrowserChecks(pw, url, options = {}) {
       // 始终保留一个稳定窗口，防止“图先出现，宿主 Grant 后完成又清空图表”被瞬时采样放过。
       await page.waitForTimeout(hasRuntime ? settleMs : Math.max(settleMs, 3000));
       if (options.requireLiveData) await Promise.race([Promise.allSettled(liveReads),delay(3000)]);
+      const shareShellHeader = await page.evaluate(shareShellHeaderChecksExpression);
+      const headerResponseStatus = headerResponses.find(status => status >= 200 && status < 400) || headerResponses.at(-1) || 0;
+      shareShellHeader.iframe.httpStatus = headerResponseStatus;
       const presentation = await page.evaluate(inspectChartPresentation);
       const imageMetrics = await page.evaluate(prepareImagesExpression);
       const shareModalMetrics = options.checkShareModal ? await page.evaluate(shareModalChecksExpression) : null;
@@ -876,6 +938,7 @@ async function playwrightBrowserChecks(pw, url, options = {}) {
       metrics.images = imageMetrics;
       metrics.presentation = presentation;
       metrics.shareModal = shareModalMetrics;
+      metrics.shareShellHeader = shareShellHeader;
       if (options.captureHtml && documentHtml === null) {
         try { documentHtml = await page.evaluate(() => document.documentElement.outerHTML); } catch (_) {}
       }
@@ -1294,6 +1357,7 @@ function viewportResult(viewport, metrics, options = {}) {
     liveValues: metrics.liveValues || { modules: 0, emptyValues: [] },
     visibleFonts: metrics.visibleFonts || { minimumPx: null, smallest: [] },
     shareModal: metrics.shareModal || null,
+    shareShellHeader: metrics.shareShellHeader || null,
     images: {
       ...(metrics.images || {}),
       broken: (metrics.images?.broken || []).map(item => ({ ...item, src: sanitizeBrowserText(item.src) })),
@@ -1573,6 +1637,7 @@ async function cdpBrowserChecks(url, options = {}) {
     const imageNetworkErrors = [];
     let currentViewport = 'unknown';
     let documentHtml = null;
+    const headerResponses = [];
     const documentRequests = new Map();
     const documentStatuses = new Map();
     let liveResponses=[];
@@ -1599,7 +1664,11 @@ async function cdpBrowserChecks(url, options = {}) {
         documentStatuses.set(msg.params.frameId, Number(msg.params?.response?.status || 0) || null);
       }
       if (msg.method === 'Network.responseReceived') {
-        const action=liveAction(msg.params?.response?.url);
+        const responseUrl = String(msg.params?.response?.url || '');
+        if (/^https:\/\/www\.quantbuddy\.cn\/embed\/live-page-header\?/i.test(responseUrl)) {
+          headerResponses.push(Number(msg.params?.response?.status || 0));
+        }
+        const action=liveAction(responseUrl);
         if (action) liveResponses.push({requestId:msg.params.requestId,action,http:Number(msg.params.response.status)});
       }
       if (msg.method === 'Network.responseReceived' && msg.params?.type === 'Image' && Number(msg.params?.response?.status || 0) >= 400) {
@@ -1655,6 +1724,11 @@ async function cdpBrowserChecks(url, options = {}) {
       });
       // 与 Playwright 路径一致：即使 QB_DATA_RUNTIME 已 ready，也等待宿主异步渲染稳定。
       await delay(runtimePresent.result && runtimePresent.result.value ? settleMs : Math.max(settleMs, 3000));
+      const shareShellHeaderResult = await cdp.send('Runtime.evaluate', {expression: `(${shareShellHeaderChecksExpression.toString()})()`, returnByValue:true, awaitPromise:true});
+      if (shareShellHeaderResult.exceptionDetails) throw new Error('Share Shell header checks failed');
+      const shareShellHeader = shareShellHeaderResult.result?.value || {checked:false};
+      shareShellHeader.iframe = shareShellHeader.iframe || {};
+      shareShellHeader.iframe.httpStatus = headerResponses.find(status => status >= 200 && status < 400) || headerResponses.at(-1) || 0;
       const presentation = await cdp.send('Runtime.evaluate', {expression: `(${inspectChartPresentation.toString()})()`, returnByValue:true, awaitPromise:true});
       const preparedImages = await cdp.send('Runtime.evaluate', {
         expression: `(${prepareImagesExpression.toString()})()`,
@@ -1693,6 +1767,7 @@ async function cdpBrowserChecks(url, options = {}) {
       if (designMetrics.exceptionDetails) throw new Error('Dashboard design checks failed to execute');
       evaluated.result.value.dashboardDesign = designMetrics.result?.value || null;
       evaluated.result.value.shareModal = shareModalMetrics?.result?.value || null;
+      evaluated.result.value.shareShellHeader = shareShellHeader;
       const liveRequests=[];
       for (const response of liveResponses) {
         let entry={action:response.action,http:response.http,business_ok:false,output_count:0};
@@ -1763,6 +1838,8 @@ function summarize(staticResult, browserResult, options) {
       if(r.presentation?.status==='degraded') warnings.push(`${r.viewport}: 图表资源不可用，已验证数据表替代`);
       if(r.presentation?.source==='oss') warnings.push(`${r.viewport}: 主图表源不可用，已切换OSS`);
       for (const problem of pageTitleProblems(r.pageTitle, expectedTitle)) problems.push(`${r.viewport}: ${problem}`);
+      const headerProblems = options.checkShareShellHeader === true ? shareShellHeaderProblems(r.shareShellHeader) : [];
+      for (const problem of headerProblems) problems.push(`${r.viewport}: ${problem}`);
       if (options.checkLayout !== false && r.horizontalOverflow) problems.push(`${r.viewport}: 存在横向溢出`);
       for (const problem of r.dashboardDesign?.problems || []) problems.push(`${r.viewport}: 自建页设计底线：${problem}`);
       if (!r.hasH1) problems.push(`${r.viewport}: 缺少可见 h1`);
@@ -1930,6 +2007,7 @@ try {
       requireLiveData,
       requireDashboardDesign: verificationProfile.requireDashboardDesign,
       checkShareModal: verificationProfile.checkShareModal,
+      checkShareShellHeader: verificationProfile.checkShareShellHeader,
       minVisibleFontPx,
       relaxSecurity: false,
       captureHtml: true,
@@ -2046,6 +2124,7 @@ try {
     requireLiveData,
     requireDashboardDesign: verificationProfile.requireDashboardDesign,
     checkShareModal: verificationProfile.checkShareModal,
+    checkShareShellHeader: verificationProfile.checkShareShellHeader,
     minVisibleFontPx,
     // fork-local 在本地 file://(origin=null) 下放开同源策略，让真实取数能跑完渲染；
     // public-smoke 仍用浏览器默认安全策略，核心数据接口 CORS 仍严格拦截。

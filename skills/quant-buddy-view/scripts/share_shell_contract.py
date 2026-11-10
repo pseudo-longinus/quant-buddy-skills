@@ -11,6 +11,29 @@ import re
 SKILL_ROOT = pathlib.Path(__file__).resolve().parents[1]
 CONTRACT_PATH = SKILL_ROOT / "assets" / "share-shell" / "contract.json"
 MARKERS = ("CSS", "HEADER", "RESEARCH_WAREHOUSE", "FOOTER", "MODAL", "JS")
+PUBLIC_PREVIEW_CONTEXT_ERROR = {
+    "code": 1,
+    "error": "PUBLIC_PREVIEW_CONTEXT_FORBIDDEN",
+    "message": "公开活页禁止携带 WebAgent Preview 上下文；请删除 qb-live-page-embed-context meta 和 qb-preview-shell-visibility 样式",
+}
+
+_WEB_AGENT_PREVIEW_META_RE = re.compile(
+    r"<meta\b(?=[^>]*\bname\s*=\s*([\"\'])qb-live-page-embed-context\1)"
+    r"(?=[^>]*\bcontent\s*=\s*([\"\'])webagent-preview\2)[^>]*>",
+    re.I,
+)
+_WEB_AGENT_PREVIEW_STYLE_RE = re.compile(
+    r"<style\b(?=[^>]*\bid\s*=\s*([\"\'])qb-preview-shell-visibility\1)[^>]*>",
+    re.I,
+)
+
+
+def public_preview_context_error(html):
+    """Return a fixed error when host-only WebAgent Preview context reaches public HTML."""
+    text = str(html or "")
+    if _WEB_AGENT_PREVIEW_META_RE.search(text) or _WEB_AGENT_PREVIEW_STYLE_RE.search(text):
+        return dict(PUBLIC_PREVIEW_CONTEXT_ERROR)
+    return None
 
 
 def load_contract(path: pathlib.Path = CONTRACT_PATH):

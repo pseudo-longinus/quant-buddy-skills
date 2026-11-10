@@ -433,6 +433,25 @@ python scripts/static_page.py download '{"page_id":"page_other","save":"output/p
 python scripts/static_page.py update   '{"page_id":"page_other","html_file":"output/pages/x.html"}'
 ```
 
+## 提交与复制时的资源归属
+
+上传、更新和恢复页面时，实际使用的数据授权、公式包必须属于页面所有者；管理员维护他人页面时，目标是该页原所有者，而不是管理员自己。沙箱实例本身暂不检查或转接归属；`sandbox_data` 若作为已登记数据授权使用，仍校验该授权的 owner，不改变沙箱隔离规则。
+
+提交失败仍读取既有 `code/error_code` 和 `message`。`PAGE_RESOURCE_OWNER_MISMATCH` 时按 message 修复：用页面所有者的 API Key，按原查询参数/公式注册独立资源，再同时替换正文、`data-qbv-stock-instance`、Card manifest 顶层及嵌套引用的 ID 和 signature 后重提。不能只改页面用户名或 ID；不能删掉分析内容以通过检查。无法使用目标身份时联系页面管理员。`PAGE_RESOURCE_NOT_FOUND` 需补齐真实资源；`PAGE_RESOURCE_CHECK_FAILED` 属于核验不可用，原样稍后重试，不自动重复注册；`PAGE_RESOURCE_BINDING_UNREADABLE` 则先修正 HTML/脚本/JSON 中的明确绑定，不能当作网络问题反复重试。
+
+页面管理员也不能直接绕过检查。仅当任务明确需要转接原资源时，使用新命令：
+
+```bash
+# 默认只预览；不传 html_file 时读取现有页，传入则检查拟提交内容
+python scripts/static_page.py resource_transfer '{"page_id":"page_xxx","html_file":"output/pages/updated.html"}'
+# 说明预览的原/目标用户、共享页面及后续取数计费影响，取得用户明确确认后执行
+python scripts/static_page.py resource_transfer '{"page_id":"page_xxx","html_file":"output/pages/updated.html","confirm":true,"confirm_token":"<预览原样返回的token>"}'
+```
+
+接口为 `POST /skill/transferStaticPageResources`。新建页可省略 `page_id`、提供 HTML 及 `target_user_name`（默认管理员自己）；已有页的转接目标固定为实际页面所有者，不能自行指定其他人。转接不发布页面，完成后仍须按原流程提交和验收。它会更改原资源 owner 和后续取数扣费用户，影响共享该资源的页面；不会复制资源或轮换签名。未取得明确确认时不得自动携带 `confirm:true`；`RESOURCE_TRANSFER_CONFIRMATION_CHANGED` 时必须重新预览。`is_test` 不等于页面管理员。
+
+一键复制/另存给用户采用独立资源：为目标用户重新注册实际依赖，替换全部 ID/签名后再发布，并再次核验归属；不得把源资源直接转接给目标，也不得因可凭签名取数就复用源用户的资源。未知依赖或未完成重绑定时不交付成功链接。
+
 ## 官方精选：读取 / 复用（`templates` / `template`）
 
 官方精选 = 后台打了推荐标签 `recommend:官方精选` 的优质页面。接口沿用 `templates` / `template` 的历史命名，但发现口径已经是纯标签：不再要求 `is_template:true` 或 `template_status:published`。

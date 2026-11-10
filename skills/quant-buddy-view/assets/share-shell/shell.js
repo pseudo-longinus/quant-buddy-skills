@@ -142,6 +142,7 @@
   }
   function showHeaderFallback(){
     const host=headerHost(), fallback=typeof document.querySelector==="function" ? document.querySelector("[data-qb-live-page-header-fallback]") : null;
+    if(host && typeof host.setAttribute==="function") host.setAttribute("data-qb-header-state","fallback");
     if(host) host.classList.add("qb-header-fallback-visible");
     if(fallback) fallback.setAttribute("aria-hidden","false");
   }
@@ -151,6 +152,7 @@
   }
   function hideHeaderFallback(){
     const host=headerHost(), fallback=typeof document.querySelector==="function" ? document.querySelector("[data-qb-live-page-header-fallback]") : null;
+    if(host && headerReady && typeof host.setAttribute==="function") host.setAttribute("data-qb-header-state","ready");
     if(host) host.classList.remove("qb-header-fallback-visible");
     if(fallback) fallback.setAttribute("aria-hidden","true");
   }
@@ -158,13 +160,17 @@
     if(isWebAgentPreviewContext()) return null;
     const frame=headerFrame();
     if(!frame || !pageContext) return null;
+    const host=headerHost();
     if(!frame.dataset.qbHeaderLoadBound){
       frame.addEventListener("load",()=>{
         headerReady=false;
+        const host=headerHost();
+        if(host && typeof host.setAttribute==="function") host.setAttribute("data-qb-header-state","loading");
         scheduleHeaderFallback();
       });
       frame.dataset.qbHeaderLoadBound="1";
     }
+    if(host && typeof host.setAttribute==="function") host.setAttribute("data-qb-header-state","loading");
     if(!frame.src){
       const params="?page_id="+encodeURIComponent(pageContext.pageId)+"&page_url="+encodeURIComponent(pageContext.pageUrl)+"&parent_origin="+encodeURIComponent(headerParentOrigin());
       frame.src=pageContext.headerEmbedUrl+params;

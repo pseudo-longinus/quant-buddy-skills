@@ -18,6 +18,7 @@ import sys
 from urllib.parse import quote
 
 import common as C
+import share_shell_contract as SSC
 
 
 SHARED_DIR = os.path.join(C.SKILL_ROOT, "assets", "share-shell")
@@ -144,6 +145,9 @@ _HARDCODED_LIST_CALL_RE = re.compile(
 def _check(html):
     problems = []
     warnings = []
+    preview_error = SSC.public_preview_context_error(html)
+    if preview_error:
+        problems.append(preview_error["message"])
     if re.search(r'<script\s+src=["\'][^"\']*(qr-mini|data-kernel|_shared)', html):
         problems.append("仍包含未内联的本地 script src")
     if "QB_SHARED_" in html or "__QB_LOGO_SRC__" in html:
@@ -173,8 +177,21 @@ def cmd_compile(params):
         base = os.path.splitext(os.path.basename(src_path))[0]
         out_file = os.path.join(C.SKILL_ROOT, "output", "pages", base + ".html")
     out_path = _resolve(out_file)
-    html = _compile(_read(src_path), params)
+    source_html = _read(src_path)
+    source_preview_error = SSC.public_preview_context_error(source_html)
+    if source_preview_error:
+        return {
+            **source_preview_error,
+            "message": source_preview_error["message"],
+            "problems": [source_preview_error["message"]],
+            "warnings": [],
+            "size": len(source_html.encode("utf-8")),
+        }
+    html = _compile(source_html, params)
     problems, warnings, size = _check(html)
+    preview_error = SSC.public_preview_context_error(html)
+    if preview_error:
+        return {**preview_error, "problems": [preview_error["message"]], "warnings": warnings, "size": size}
     if problems and not params.get("allow_placeholders"):
         return {"code": 1, "message": "编译后静态检查未通过", "problems": problems, "warnings": warnings, "size": size}
     os.makedirs(os.path.dirname(out_path), exist_ok=True)

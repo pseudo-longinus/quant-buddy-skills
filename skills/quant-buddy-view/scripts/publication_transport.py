@@ -10,6 +10,7 @@ import urllib.parse
 import common as C
 import execution_plan as EP
 import delivery_state as DS
+import share_shell_contract as SSC
 
 UPDATE_PATH = '/skill/updateStaticPage'
 CONSISTENCY = 'local_journal_and_server_cas'
@@ -101,6 +102,9 @@ def _check_ack(plan, intent, result):
 
 
 def write(plan, body, endpoint, key, observe, content_kind='candidate', read_only=False):
+    preview_error = SSC.public_preview_context_error(body.get('html') if isinstance(body, dict) else '')
+    if preview_error:
+        return {**preview_error, 'publish_phase': 'client_pre_write_validation', 'page_write_applied': False, 'retry_safe': True}
     invalid_aspect = validate_change_aspect(body)
     if invalid_aspect:
         return invalid_aspect

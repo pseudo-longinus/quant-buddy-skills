@@ -6,6 +6,7 @@ from urllib.parse import urlencode
 import common as C
 import execution_plan as EP
 import delivery_requirements as DR
+import share_shell_contract as SSC
 
 
 def _error(code, **fields):
@@ -64,6 +65,31 @@ def version(params):
         SP._atomic_write_bytes(str(path),content)
         result['html_file']=str(path)
     return result
+
+
+def _rollback_preview_context_error(page, version_id, expected_sha256):
+    """Download a rollback target once and reject host-only preview context before writing."""
+    result = _request('getStaticPageVersion', {'page_id': page, 'version_id': version_id})
+    if result.get('code') != 0:
+        return result
+    detail = dict(result.get('version') or {})
+    preview = detail.get('preview_url')
+    if not preview:
+        return _error('VERSION_PREVIEW_UNAVAILABLE')
+    import static_page as SP
+    html, fetch_error = SP._fetch_oss(preview)
+    if fetch_error:
+        return _error('VERSION_PREVIEW_DOWNLOAD_FAILED')
+    import hashlib as _hashlib
+    if _hashlib.sha256(html.encode('utf-8')).hexdigest() != str(expected_sha256 or ''):
+        return _error('VERSION_PREVIEW_HASH_MISMATCH')
+    context_error = SSC.public_preview_context_error(html)
+    if context_error:
+        return _error(
+            'ROLLBACK_TARGET_PUBLIC_PREVIEW_CONTEXT_FORBIDDEN',
+            message=context_error['message'],
+        )
+    return None
 
 
 def _journal_path(task,page):
@@ -253,6 +279,9 @@ def rollback(params):
                                    **({'source_version_id':target_id} if expected!=target_id else {})}}
                 EP.atomic_json(path,journal)
                 return _verify(journal,path)
+            preview_context_error = _rollback_preview_context_error(page, target_id, target.get('sha256'))
+            if preview_context_error:
+                return preview_context_error
             operation=params.get('operation_id') or 'rollback_'+EP.digest([task,turn,page,target_id,expected])[:48]
             if not re.fullmatch(r'[A-Za-z0-9_-]{16,100}',operation): return _error('INVALID_OPERATION')
             body={'task_id':task,'page_id':page,'version_id':target_id,'operation_id':operation,

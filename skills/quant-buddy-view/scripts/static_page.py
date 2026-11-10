@@ -183,6 +183,7 @@ import page_title_contract as PTC
 _PATH = {
     "upload":    "/skill/uploadStaticPage",
     "update":    "/skill/updateStaticPage",
+    "resource_transfer": "/skill/transferStaticPageResources",
     "download":  "/skill/getPageDetail",
     "list":      "/skill/listPages",
     "revoke":    "/skill/revokeStaticPage",
@@ -1291,6 +1292,9 @@ def _read_html(params):
             html = f.read()
     if not html:
         return None, {"code": 1, "message": "upload 需要 html 或 html_file 之一"}
+    preview_error = SSC.public_preview_context_error(html)
+    if preview_error:
+        return None, preview_error
     return html, None
 
 
@@ -2286,6 +2290,9 @@ def _is_preserve_html_qbs_live(params):
 
 
 def _publish_html_error(html):
+    preview_error = SSC.public_preview_context_error(html)
+    if preview_error:
+        return preview_error
     size = len(str(html or "").encode("utf-8"))
     if size > _MAX_HTML_BYTES:
         return {"code": 1, "message": f"HTML 体积 {size} 字节，超过单页上限 2MB（请精简内联数据/资源）"}
@@ -10865,6 +10872,26 @@ def cmd_compose_page(params):
     return _plan_conflict_next_action(compose_page.build(params), params)
 
 
+def cmd_resource_transfer(params):
+    """Page admins: preview by default; execute only with explicit confirmation and the same preview token."""
+    if params.get("confirm") is True and not params.get("confirm_token"):
+        return {"code": 1, "message": "先不带 confirm 调用 resource_transfer 预览，说明原/目标归属、共享页面和计费影响；取得用户明确确认后，再用相同参数及返回的 confirm_token、confirm:true 转接。"}
+    body = {key: params[key] for key in ("page_id", "target_user_name", "html", "confirm_token") if params.get(key) is not None}
+    if params.get("html_file"):
+        filename = params["html_file"]
+        filename = filename if os.path.isabs(filename) else os.path.join(C.SKILL_ROOT, filename)
+        if not os.path.isfile(filename):
+            return {"code": 1, "message": f"html_file 不存在: {filename}"}
+        with open(filename, encoding="utf-8") as stream:
+            body["html"] = stream.read()
+    if not body.get("page_id") and not body.get("html"):
+        return {"code": 1, "message": "已有页传 page_id，可选 html_file 为拟更新正文；新建页需传 html_file，并指定 target_user_name（省略时为当前管理员本人）。"}
+    body["confirm"] = params.get("confirm") is True
+    cfg = C.load_config_require_key()
+    return C.http_json("POST", C.api_url(C.endpoint_of(cfg), _PATH["resource_transfer"]),
+                       C.headers(cfg.get("api_key", "")), body, timeout=_DEFAULT_TIMEOUT)
+
+
 def cmd_versions(params):
     import page_versions
     return page_versions.versions(params)
@@ -10881,6 +10908,7 @@ def cmd_rollback(params):
 
 
 _COMMANDS = {
+    'resource_transfer': cmd_resource_transfer,
     'versions': cmd_versions,
     'version': cmd_version,
     'rollback': cmd_rollback,
