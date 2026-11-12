@@ -1272,6 +1272,18 @@ function pageMetricsExpression() {
         if (node.namespaceURI === 'http://www.w3.org/2000/svg' || ['SCRIPT', 'STYLE', 'NOSCRIPT'].includes(node.tagName)) continue;
         if (!isVisible(node) || node.children.length) continue;
         const raw = String(node.textContent || '').replace(/\u00a0/g, ' ').trim();
+        // Replaced media and CSS-painted geometry render without text. They
+        // are not data slots. Keep empty semantic value cells under the gate,
+        // even if their container has a background; placeholders still fail.
+        if (raw === '') {
+          if (['CANVAS', 'IMG', 'VIDEO', 'AUDIO', 'HR', 'BR', 'WBR'].includes(node.tagName)) continue;
+          const valueSlot = node.matches('td,th,dd,output,[data-qb-value],[data-qb-live-value],[data-value],[data-field],[role="cell"],[role="gridcell"],[role="status"]')
+            || /(?:^|[-_\s])(?:val|value|metric|price|amount|number|datum|kpi)(?:$|[-_\s])/i.test(`${node.id} ${node.className}`.replace(/([a-z0-9])([A-Z])/g, '$1 $2'));
+          const style = getComputedStyle(node);
+          const painted = style.backgroundImage !== 'none'
+            || !['transparent', 'rgba(0, 0, 0, 0)'].includes(style.backgroundColor);
+          if (!valueSlot && painted) continue;
+        }
         const empty = raw === ''
           || /^(?:--?|—+|nan)(?:\s*(?:%|％|元|万亿|亿|万|股|手|倍|次))?$/i.test(raw);
         if (empty) {

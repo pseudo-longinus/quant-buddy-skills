@@ -16,6 +16,23 @@ def _url(value):
     return value
 
 
+def _written_preview(state, task, turn, page):
+    """Expose an actual current-turn write without certifying its acceptance."""
+    write = state.get('last_write') or {}
+    remote = write.get('remote') or {}
+    url = _url(remote.get('url'))
+    version = remote.get('version_no')
+    if (state.get('task_id') != task or state.get('turn_id') != turn or state.get('page_id') != page
+            or write.get('status') != 'confirmed' or write.get('turn_id') != turn
+            or remote.get('page_id') != page
+            or type(version) is not int or version < 1
+            or not re.fullmatch(r'[a-f0-9]{64}', str(remote.get('sha256') or '')) or not url
+            or urlsplit(url).path.rsplit('/', 1)[-1] not in (page, page + '.html')):
+        return {}
+    return {'progress_url': url, 'version_no': version,
+            'content_kind': 'progress' if write.get('content_kind') == 'progress' else 'candidate'}
+
+
 def export(task, turn, reply_text='', *, finalize_reply=False, plan_only=False):
     result = {'schema_version': 1, 'task_id': task, 'turn_id': turn, 'status': 'unknown',
               'page_delivery_required': False}
@@ -45,6 +62,10 @@ def export(task, turn, reply_text='', *, finalize_reply=False, plan_only=False):
                         return result
                     result['page_id'] = page
                     result['page_delivery_required'] = True
+                    result.update(_written_preview(state, task, turn, page))
+                    write = state.get('last_write') or {}
+                    if write.get('status') in ('pending','unknown','confirmed','rejected'):
+                        result['write_outcome'] = write['status']
                     good = state.get('last_good_version') or {}
                     if (state.get('execution_status') == 'succeeded' and state.get('delivery_state') == 'published'
                             and state.get('verified') and _url(good.get('url')) and isinstance(good.get('version_no'), int)):
@@ -55,6 +76,9 @@ def export(task, turn, reply_text='', *, finalize_reply=False, plan_only=False):
                     if error.get('error_code'):
                         return {**result, 'status': 'failed', 'failure_stage': error.get('stage'),
                                 'error_code': error['error_code']}
+                    if result.get('progress_url'):
+                        result['status'] = 'failed' if state.get('execution_status') == 'failed' else 'waiting_input' if state.get('execution_status') == 'waiting_input' else 'unknown'
+                        return result
                 except Exception:
                     pass
             import fast_page_delivery as fast
@@ -98,8 +122,7 @@ def export(task, turn, reply_text='', *, finalize_reply=False, plan_only=False):
         if write.get('status') in ('pending','unknown','confirmed','rejected'):
             result['write_outcome']=write['status']
         remote = write.get('remote') or {}
-        if public == 'placeholder' and remote.get('page_id') == plan['target_page_id']:
-            result['progress_url'] = _url(remote.get('url'))
+        result.update(_written_preview(state, task, turn, plan['target_page_id']))
         result['status'] = ('failed' if execution == 'failed' else 'waiting_input' if execution == 'waiting_input'
                             else 'placeholder' if public == 'placeholder' else 'unknown')
         good = state.get('last_good_version') or {}
