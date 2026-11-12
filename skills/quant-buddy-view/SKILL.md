@@ -3,7 +3,7 @@ name: quant-buddy-view
 slug: quant-buddy-view
 displayName: QuantBuddy 宽宝活页
 author: guanzhao
-version: 0.8.9
+version: 0.8.10
 description: |
   将量化分析或已有 JPG/PNG、HTML、PDF 发布为 Quant Buddy 可分享活页或实时看板，并支持创建、更新、复用、验收和公开链接交付。适用于个股画像、估值财务、指数异动、多因子筛选、商品日报、模板、分享壳及卡片等页面。
   用户提供 QuantBuddy 活页 URL 并要求解读时也使用。显式调用 /quant-buddy-view、/qbv、qbv 或 QBV，且请求并非纯咨询、代码维护或文档解释时，默认按可分享活页任务处理。
@@ -12,7 +12,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 0.8.9
+  version: 0.8.10
   author: guanzhao
   category: quant-finance
   tags: [quant, dashboard, formula-package, static-page, publish, visualization]
@@ -60,12 +60,20 @@ networkEndpoints:
 runtimeRequirements:
   python: "3.8+"
   packages:
+    - name: tree-sitter
+      required: false
+      description: 显式 runtime_loading 原位维护时解析并冻结未授权修改的原JavaScript语句；缺失时不写入。
+    - name: tree-sitter-javascript
+      required: false
+      description: 与tree-sitter配合，用于加载逻辑维护；普通发布和展示维护不依赖它。
     - name: PyMuPDF
       required: false
       description: file_prepare 将PDF按原顺序渲染为完整页图时使用；HTML和图片准备不依赖它。
 ---
 
 ## 当前要求与交付状态
+
+- 单资产盘中 OHLC 可用 `收盘价/开盘价/最高价/最低价(资产,最后一日分钟刷新)`，从验证开始保留参数并用 false/缺省执行合同，随后原样登记公式包；A股及派生输出按 `cn.chart:intra` 更新。不要把它误判为原生分钟K线或自动改成 `use_minute_data:true`；已有 true 收据需重新验证，详见 [公式包](tools/formula_package.md#最后一日分钟刷新取价)。
 
 - 当前身份和原始问题以 `QB_HOST_TASK_ID / QB_HOST_TURN_ID / QB_HOST_USER_QUERY` 为准；旧记录不得覆盖，显式冲突报错。
 - 昨日查询允许注明实际日期的静态快照；明确要求实时时，先 `interpret` 当前页并修订计划，保留页面身份与有效绑定。集合结果须有同范围、同观察时点的完整动态覆盖证据；自动取数未通过则保留原页，说明本轮未完成。
@@ -99,7 +107,7 @@ runtimeRequirements:
 - **只要本轮路由为 `unmatched`，整页必须由模型直接写 HTML + CSS + JS**；`build_dashboard` 不得生成整页替代 bespoke 自建页。
 - 页面布局、信息层级、图表组合、视觉语言由模型设计，不受标准面板卡片系统约束。
 - 在 HTML 中嵌入 Data Grant（`grant_id + signature`）或 Formula Package（`package_id + signature`）实现实时数据绑定。
-- 可使用 Chart.js、ECharts、自定义 SVG/Canvas 等交互式图表；`build_dashboard.py` 仅允许 `emit:"panel_block"` 生成局部图表脚本，外层页面仍必须模型手写。
+- 可使用 Chart.js、ECharts、自定义 SVG/Canvas 等交互式图表；`build_dashboard.py` 仅允许 `emit:"panel_block"` 生成局部图表脚本，外层页面仍必须模型手写。ECharts 必须通过该局部运行时或 `QB_CHART_RUNTIME` + `QBCharts.render` 接入异步双源与完整数据表降级，禁止保留外部 ECharts script（含 async/defer）。bespoke 图表声明 `data-qb-chart` 和初始加载文字，取数前调用 `QBCharts.prepare` 并行预加载；各模块就绪即绘图，不等待无关公式包；见 [bespoke 接入指南](guides/bespoke-page.md#echarts-必须接入共享运行时)。
 - 设计原则：
   - 首屏决策：最重要的结论和最关键数字必须在首屏可见，大字号高亮。
   - 图文交替：标题 → 结论 → 图表 → 白话解读，避免连续表格或等权卡片堆叠。

@@ -19,6 +19,7 @@ from urllib.parse import quote
 
 import common as C
 import share_shell_contract as SSC
+import chart_dependency as CD
 
 
 SHARED_DIR = os.path.join(C.SKILL_ROOT, "assets", "share-shell")
@@ -80,6 +81,8 @@ def _compile(html, params):
     replacements = params.get("replacements") if isinstance(params.get("replacements"), dict) else {}
     for old, new in replacements.items():
         html = html.replace(str(old), str(new))
+
+    html = _replace(html, '<!-- QB_CHART_RUNTIME -->', '<script>\n' + CD.runtime_source() + '\n</script>')
 
     shell = _read(os.path.join(SHARED_DIR, "shell.html"))
     html = _replace(
@@ -145,6 +148,9 @@ _HARDCODED_LIST_CALL_RE = re.compile(
 def _check(html):
     problems = []
     warnings = []
+    chart_error = CD.contract_error(html)
+    if chart_error:
+        problems.append(chart_error['message'])
     preview_error = SSC.public_preview_context_error(html)
     if preview_error:
         problems.append(preview_error["message"])
@@ -188,6 +194,9 @@ def cmd_compile(params):
             "size": len(source_html.encode("utf-8")),
         }
     html = _compile(source_html, params)
+    chart_error = CD.contract_error(html)
+    if chart_error:
+        return {**chart_error, 'problems': [chart_error['message']], 'warnings': [], 'size': len(html.encode('utf-8'))}
     problems, warnings, size = _check(html)
     preview_error = SSC.public_preview_context_error(html)
     if preview_error:

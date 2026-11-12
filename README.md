@@ -297,7 +297,7 @@ QBV 支持把 RSI、RSRS、选股逻辑或回测研究提交到 L1–L5 自动�
 
 ## 最近的能力进展
 
-- **当前版本**：仓库远端当前记录为 QBS `4.25.49`、QBV `0.6.87`；安装 QBS 时，支持 companion 的版本会在首次 `newSession` 检查并按需安装/更新 QBV。
+- **当前版本**：QBS `4.25.67`、QBV `0.8.10`；安装 QBS 时，支持 companion 的版本会在首次 `newSession` 检查并按需安装/更新 QBV。
 - **大结果读取更可控**：QBS 现在按场景区分 `signature`、`last_column_full`、`last_day_stats`、`range_data`、`per_asset_sample` 等读取模式；QBV 公式包会检查 `is_truncated`，不把摘要结果当完整名单。
 - **K 线已走实时运行时**：普通 K 线活页使用同一份 OHLCV Data Grant 绘制蜡烛、成交量和均线；只有明确要求图片时才走 PNG 渲染路径。
 - **QBS → QBV 交接更完整**：验证过的计算结果、数据范围和页面意图可以一起交给 QBV，减少重复查数和手工拼页面。

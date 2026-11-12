@@ -1,6 +1,14 @@
 # formula_package — 公式任务包（注册一组公式 → 凭包凭证取数）
 
-包验证、登记和路由沿用日频 `{formulas, reads, begin_date}`；分钟执行合同额外保留 `use_minute_data:true` 并产生不同指纹。当前服务端不支持分钟公式包，注册前返回 `MINUTE_PACKAGE_UNSUPPORTED`，不得删字段绕过。详见 [分钟边界](../guides/answer-first.md)。单批也返回包级证明，不得为绕过收据问题增加公式。已有资源恢复见[已验证资源恢复](../workflows/validated-resource-recovery.md)。
+包验证、登记和路由沿用 `{formulas, reads, begin_date}`；四类取价函数的 `最后一日分钟刷新` 参数仍使用日频时间轴，可以保留参数按 false/缺省合同验证、登记，并按盘中类别刷新。`use_minute_data:true` 是另一种执行合同，额外保留该字段并产生不同指纹；当前服务端仍不支持该开关的公式包，注册前返回 `MINUTE_PACKAGE_UNSUPPORTED`，不得删字段绕过。详见 [分钟边界](../guides/answer-first.md)。单批也返回包级证明，不得为绕过收据问题增加公式。已有资源恢复见[已验证资源恢复](../workflows/validated-resource-recovery.md)。
+
+## 最后一日分钟刷新取价
+
+单资产盘中监控使用 `收盘价(贵州茅台,最后一日分钟刷新)`；开盘价、最高价、最低价采用同样写法，枚举参数不加引号。结果保留日频历史，末日分别为盘中最新价、当日开盘、当日累计最高/最低，不是分钟K线。
+
+从第一次 QBS 验证起显式写入参数，并用 `use_minute_data:false` 或省略开关；登记时原样保留公式及完整上游定义、reads 和验证收据。不要只把页面报价换成盘中值而让均线、涨跌幅或榜单继续使用普通收盘公式。此前若用 true 模式验证，应以完整显式参数公式重新验证，不能改掉旧收据的模式字段后复用。
+
+验收时确认A股取价和派生输出包含 `cn.chart:intra`，跨刷新周期查询会按交易时段和 refresh_interval 重算过期节点后取数；正常读缓存只能在依赖仍新鲜时复用。历史包的旧日频 marker 也需按带参公式和依赖闭包识别盘中类别。页面轮询、显示日期及行情更新时间共同验证；实际间隔由行情源和系统缓存策略决定，不能仅凭定时请求宣称分钟更新已完成。
 
 > 把一组公式注册成「任务包」，得到 `package_id` + `signature`；之后**无需 API Key**，凭这两个凭证就能反复取数。底层数据更新后服务端自动重算，取数永远拿最新结果。
 > 看板（`build_dashboard`）正是消费这里产出的 `package_id` + `signature`。

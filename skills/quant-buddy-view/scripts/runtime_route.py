@@ -17,6 +17,19 @@ def bind(params):
     if context.get('turn_id') and context['turn_id'] != turn:
         raise EP.PlanError('ROUTE_TURN_MISMATCH', '轮次与当前Trace身份不一致')
     plan = EP.require(task, page_id=params.get('page_id'), plan_hash=params.get('plan_hash'))
+    # A follow-up may publish resources validated in earlier turns of the same
+    # task. Require an explicit request and an authenticated same-page route;
+    # the registration and original proof are still checked in full below.
+    reuse_registered = params.get('reuse_verified_registrations') is True
+    if reuse_registered:
+        import static_page as SP
+        credential, _, error = SP._read_routing_credential(task)
+        reference = (credential or {}).get('existing_page_reference') or {}
+        if (error or reference.get('page_id') != plan['target_page_id']
+                or reference.get('can_update_in_place') is not True
+                or reference.get('access_role') not in ('owner', 'page_admin')):
+            raise EP.PlanError('ROUTE_REUSE_AUTHORIZATION_REQUIRED',
+                               '先interpret并确认同一目标页的原位维护权限，再复用已注册证据')
     # Historical evidence may only be re-attested for a currently authorized,
     # verified presentation-only maintenance candidate. Never rewrite originals.
     recovery = None
@@ -45,7 +58,7 @@ def bind(params):
         if registered_proof != proof and not same_original:
             raise EP.PlanError('ROUTE_RECEIPT_MISMATCH', '必须使用注册时核验的原始收据')
         receipt = json.loads(Path(receipt_path).read_text(encoding='utf-8'))
-        if receipt.get('turn_id') and receipt['turn_id'] != turn and recovery is None:
+        if receipt.get('turn_id') and receipt['turn_id'] != turn and recovery is None and not reuse_registered:
             raise EP.PlanError('ROUTE_TURN_MISMATCH', '验证收据属于其他轮次')
         contract = record['contract']
         if EP.digest(contract) != role['contract_fingerprint']:
@@ -67,6 +80,9 @@ def bind(params):
              'static_fallback_allowed': False, 'required_roles': [r['role_id'] for r in roles],
              'attempted_roles': [r['role_id'] for r in roles], 'selected_routes': selected,
              'attempts': [{'role': r['role_id'], 'route': 'registered_runtime', 'status': 'success'} for r in roles]}
+    if reuse_registered:
+        route['evidence_reuse'] = {'mode': 'same_task_verified_registrations',
+                                  'authorization': 'interpreted_same_page', 'page_id': plan['target_page_id']}
     if scope.get('kind') == 'single_asset':
         route['asset'] = scope.get('asset') or scope.get('name')
         if not route['asset']:

@@ -62,6 +62,8 @@ dynamic 的图表、数字与正文必须消费同一轮运行数据；dynamic �
 
 ## 分钟合同
 
+`收盘价/开盘价/最高价/最低价(资产,最后一日分钟刷新)` 属于保留日频轴的末日盘中更新，可以从首次验证起使用 false/缺省合同并原样登记，A股输出按 `cn.chart:intra` 刷新。下面的 unsupported 限制专指 `use_minute_data:true` 合同；已有 true 证据要重新验证显式参数公式，不能删字段复用。
+
 adapter 遇到分钟执行合同会返回 `formula_runtime_action:unsupported_minute_package` 和 `runtime_warning:MINUTE_PACKAGE_UNSUPPORTED`；已物化结果仍可复用，但不能作为日频包重新登记。
 
 bridge 的验证执行与收据保留 use_minute_data；`registration_params` 也保留，注册器在鉴权/网络之前拒绝当前未支持的分钟包。日频 false/缺省保持旧指纹，true 使用不同合同。不得删除该字段、换用旧收据或跳过指纹比较。

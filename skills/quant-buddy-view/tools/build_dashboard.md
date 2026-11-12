@@ -36,6 +36,10 @@ legacy 标准页维护可使用整页生成；新自建场景先读 [自建质�
 > 把「实时取数凭证 + 看板 spec」编译成一份自包含 HTML（Formula Package、Data Grant 可单独使用或同页混用；样式内联，图表使用固定 ECharts 5.6.0 主 CDN / OSS 双源加载）。可顺带上传发布。
 > 通过本地脚本 `scripts/build_dashboard.py` 调用（单命令，无子命令）。
 
+标准页、Compose 与 `panel_block` 共用 `QBCharts.ensureLibrary()`：CDN 最长等待 3 秒，再切换 QuantBuddy OSS（最长 5 秒），多图表共享加载结果。使用可中止的 CORS fetch 获取后内联执行，避免外部 async script 拖住 iframe load/官网预览就绪事件。两源不可用时显示完整数据表。bespoke 宿主页不得再插入外部 ECharts `<script>`；手写图表使用 `<!-- QB_CHART_RUNTIME -->` 与 `QBCharts.render()`，并提供完整 `table.columns/rows`，见 [bespoke 图表运行时](../guides/bespoke-page.md)。编译与直接发布均检查此约束。
+
+标准图表提前加载依赖、按 output 就绪独立展示，依赖等待期间显示加载提示。bespoke 用 `data-qb-chart` 与 `QBCharts.prepare()` 在取数前启动同样的预加载；prepare 刷新期间保留已有结果。各模块取数成功后分别 render，不等待无关公式包。
+
 > 分支门禁：同一 `task_id` 已由 `fork_prepare` 绑定为 prepared fork 时，本命令返回 `FORK_TASK_BOUND`，并指向应继续编辑的 `working_html_file`；此时必须改走 `static_page.py fork_validate`，不能重建通用看板。
 
 ## 调用方式

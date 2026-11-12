@@ -85,11 +85,9 @@ PAGES_DIR = os.path.join(C.SKILL_ROOT, "output", "pages")
 ASSETS_DIR = os.path.join(C.SKILL_ROOT, "assets")
 SHARED_SHELL_DIR = os.path.join(C.SKILL_ROOT, "assets", "share-shell")
 
-_ECHARTS_CDN = "https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js"
-_CHART_SOURCES = [
-    {"name": "cdn", "url": _ECHARTS_CDN, "timeout": 3000},
-    {"name": "oss", "url": "https://quant-buddy-prod.oss-cn-hangzhou.aliyuncs.com/vendor/echarts/5.6.0/echarts.min.js", "timeout": 5000},
-]
+import chart_dependency as CD
+_CHART_SOURCES = CD.SOURCES
+_ECHARTS_CDN = _CHART_SOURCES[0]["url"]
 _DEFAULT_OFFICIAL_URL = "https://www.quantbuddy.cn"
 _DEFAULT_LOGO_PATH = os.path.join(ASSETS_DIR, "logo.svg")
 _MAX_INLINE_LOGO_BYTES = 1_300_000
@@ -1504,7 +1502,7 @@ def _render_js_for_boot(boot):
     render_template = _RENDER_JS_TEMPLATE
     if not label_runtime:
         render_template = render_template.replace('    qbApplyDataLabel(panel, made.body);\n', '')
-    chart_runtime = _read_text(os.path.join(ASSETS_DIR, 'chart-dependency.js')).lstrip('\ufeff').replace('__CHART_SOURCES__', json.dumps(_CHART_SOURCES))
+    chart_runtime = CD.runtime_source() + "\n" + _read_text(os.path.join(ASSETS_DIR, 'chart-dependency.js')).lstrip('\ufeff')
     full = render_template.replace("__BOOT__", boot_json).replace('__CHART_DEPENDENCY_RUNTIME__', chart_runtime).replace(
         '__PROSE_BINDING_RUNTIME__', _read_text(os.path.join(ASSETS_DIR, 'prose-bindings.js'))).replace(
         '__DATA_LABEL_RUNTIME__\n', label_runtime + '\n' if label_runtime else '')

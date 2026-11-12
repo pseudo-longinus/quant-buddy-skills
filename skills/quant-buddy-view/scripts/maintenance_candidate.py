@@ -6,6 +6,7 @@ Publication continues through the normal browser, data and version gates.
 import hashlib
 import json
 import re
+from html.parser import HTMLParser
 from pathlib import Path
 import common as C
 import execution_plan as EP
@@ -15,6 +16,51 @@ import page_title_contract as PTC
 VERSION = 'qbv_presentation_maintenance_v1'
 
 
+class _BespokeRuntime(HTMLParser):
+    """Keep authored data scripts and declarative bindings immutable.
+
+    Explicit presentation scripts are DOM-only additions, sealed separately by
+    the candidate hash. They cannot replace existing runtime scripts.
+    """
+    BINDINGS = {'data-package-role', 'data-outputs', 'data-formulas', 'data-stats',
+                'data-unit', 'data-qb-runtime-src', 'data-grant-id', 'data-package-id'}
+    NETWORK = re.compile(r'\b(?:fetch|XMLHttpRequest|WebSocket|EventSource|sendBeacon|'
+                         r'importScripts|eval|Function|QB_DATA_RUNTIME|DATA|FORMULAS|'
+                         r'package_id|grant_id|signature)\b|https?://|\bimport\s*\(')
+
+    def __init__(self):
+        super().__init__(convert_charrefs=False)
+        self.scripts, self.bindings = [], []
+        self.active = None
+        self.bespoke = False
+
+    def handle_starttag(self, tag, attrs):
+        values = dict(attrs)
+        if values.get('data-qb-page-design') == 'bespoke-v1':
+            self.bespoke = True
+        bindings = sorted((k, v) for k, v in attrs if k in self.BINDINGS)
+        if bindings:
+            self.bindings.append((tag, values.get('id'), bindings))
+        if tag == 'script':
+            self.active = [sorted(attrs), '', values.get('data-qb-presentation-script') == 'true']
+
+    def handle_data(self, data):
+        if self.active is not None:
+            self.active[1] += data
+
+    def handle_endtag(self, tag):
+        if tag != 'script' or self.active is None:
+            return
+        attrs, body, presentation = self.active
+        if presentation:
+            if dict(attrs).get('src') or self.NETWORK.search(body):
+                raise EP.PlanError('MAINTENANCE_PRESENTATION_SCRIPT_INVALID',
+                                   '展示脚本只能操作DOM，不能加载外部脚本、取数或改写数据合同')
+        else:
+            self.scripts.append((attrs, body))
+        self.active = None
+
+
 def sha(text):
     return hashlib.sha256(text.encode('utf-8')).hexdigest()
 
@@ -22,8 +68,16 @@ def sha(text):
 def contract(document):
     document = document.replace('\r\n', '\n')
     matches = re.findall(r'^const BOOT = (.+);$', document, re.M)
+    kernels = re.findall(r'/\* QB_DATA_KERNEL_START:v2 \*/.*?/\* QB_DATA_KERNEL_END:v2 \*/', document, re.S)
+    if not matches:
+        parsed = _BespokeRuntime()
+        parsed.feed(document)
+        if not parsed.bespoke or len(kernels) != 1 or not parsed.scripts or parsed.active is not None:
+            raise EP.PlanError('MAINTENANCE_RUNTIME_UNSUPPORTED', '维护要求标准BOOT或具备完整数据内核的bespoke-v1页面')
+        return EP.digest({'kind': 'bespoke-v1', 'scripts': parsed.scripts,
+                          'bindings': parsed.bindings, 'kernel_sha256': sha(kernels[0])})
     if len(matches) != 1:
-        raise EP.PlanError('MAINTENANCE_RUNTIME_UNSUPPORTED', '此维护入口要求唯一标准看板BOOT合同')
+        raise EP.PlanError('MAINTENANCE_RUNTIME_UNSUPPORTED', '标准看板必须保留唯一BOOT合同')
     try:
         boot = json.loads(matches[0])
     except (ValueError, TypeError) as exc:
@@ -31,7 +85,6 @@ def contract(document):
     # Only presentation panels/share labels/build time may change. Sources,
     # credentials, read configuration and any future unknown fields stay equal.
     source = {k: v for k, v in boot.items() if k not in ('panels', 'share', 'generatedAt')}
-    kernels = re.findall(r'/\* QB_DATA_KERNEL_START:v2 \*/.*?/\* QB_DATA_KERNEL_END:v2 \*/', document, re.S)
     if len(kernels) != 1:
         raise EP.PlanError('MAINTENANCE_RUNTIME_UNSUPPORTED', '维护必须保留唯一标准实时取数内核')
     return EP.digest({'boot': source, 'kernel_sha256': sha(kernels[0])})
@@ -84,10 +137,22 @@ def prepare(sp, params):
         source, error = sp._fetch_oss(base['url'])
         if error or sha(source) != base['sha256']:
             raise EP.PlanError('MAINTENANCE_BASE_DOCUMENT_MISMATCH', '线上正文与权威版本哈希不一致')
+        mode = params.get('maintenance_mode', 'presentation')
+        if mode not in ('presentation', 'runtime_loading'):
+            raise EP.PlanError('MAINTENANCE_MODE_INVALID', '仅支持presentation或runtime_loading维护')
         runtime = contract(source)
-        if contract(document) != runtime:
+        loading_review = None
+        if mode == 'runtime_loading':
+            import loading_maintenance as LM
+            # Validate standard bespoke/kernel eligibility before the narrow hook review.
+            contract(document)
+            loading_review = LM.review(source, document)
+            runtime = contract(document)
+        elif contract(document) != runtime:
             raise EP.PlanError('MAINTENANCE_DATA_CONTRACT_CHANGED', '此入口仅支持展示层维护；数据源或实时取数合同变化需要重新验证构建')
         normalized, title_check = PTC.prepare(document, params)
+        if mode == 'runtime_loading' and normalized != document:
+            raise EP.PlanError('MAINTENANCE_LOADING_CONTRACT_CHANGED', '加载维护必须先对齐标题，不能隐式改写候选正文')
         if normalized != document:
             path = path.with_name(path.stem + '-title-candidate.html')
             path.write_bytes(normalized.encode('utf-8'))
@@ -99,6 +164,8 @@ def prepare(sp, params):
                   'page_title': title_check,
                   'plan_hash': plan['plan_hash'], 'turn_id': turn, 'base': base,
                   'html_file': str(path), 'html_sha256': candidate_hash, 'runtime_digest': runtime}
+        if loading_review is not None:
+            record.update(maintenance_mode=mode, loading_review=loading_review)
         if params.get('recover_runtime_evidence'):
             mapping = params.get('receipt_path_map', {})
             if not isinstance(mapping, dict) or any(not isinstance(k, str) or not isinstance(v, str) for k, v in mapping.items()):
@@ -108,7 +175,7 @@ def prepare(sp, params):
         receipt = C.task_temp_path(plan['task_id'], 'receipts/maintenance/' + digest + '.json', create_parent=True)
         EP.atomic_json(receipt, record)
         publish = {k: v for k, v in params.items() if not k.startswith('_')}
-        publish.update(maintenance_mode='presentation', maintenance_receipt_file=str(receipt),
+        publish.update(maintenance_mode=mode, maintenance_receipt_file=str(receipt),
                        maintenance_receipt_sha256=digest, html_file=str(path), plan_hash=plan['plan_hash'], turn_id=turn,
                        title=title_check['title'])
         if params.get('recover_runtime_evidence'):
@@ -121,7 +188,8 @@ def prepare(sp, params):
         publish_path = path.parent / ('maintenance-publish-' + digest[:12] + '.json')
         EP.atomic_json(publish_path, publish)
         return {'code': 0, 'terminal': False, 'page_id': plan['target_page_id'], 'base': base,
-                'candidate_sha256': candidate_hash, 'runtime_unchanged': True,
+                'candidate_sha256': candidate_hash, 'runtime_unchanged': mode == 'presentation',
+                **({'loading_review': loading_review} if loading_review is not None else {}),
                 'maintenance_receipt_file': str(receipt),
                 'next_action': {'command': 'publish_verified', 'params_file': str(publish_path)}}
     except EP.PlanError as exc:
@@ -131,8 +199,8 @@ def prepare(sp, params):
 
 
 def validate(sp, params, plan):
-    if params.get('maintenance_mode') != 'presentation':
-        raise EP.PlanError('MAINTENANCE_MODE_INVALID', '仅支持presentation维护')
+    if params.get('maintenance_mode') not in ('presentation', 'runtime_loading'):
+        raise EP.PlanError('MAINTENANCE_MODE_INVALID', '仅支持presentation或runtime_loading维护')
     digest = str(params.get('maintenance_receipt_sha256') or '')
     if not re.fullmatch(r'[a-f0-9]{64}', digest):
         raise EP.PlanError('MAINTENANCE_RECEIPT_REQUIRED', '先prepare_maintenance绑定候选')
@@ -145,6 +213,8 @@ def validate(sp, params, plan):
         raise EP.PlanError('MAINTENANCE_RECEIPT_INVALID', '维护收据不可读取') from exc
     if EP.digest(record) != digest or record.get('version') != VERSION:
         raise EP.PlanError('MAINTENANCE_RECEIPT_INVALID', '维护收据哈希不一致')
+    if record.get('maintenance_mode', 'presentation') != params.get('maintenance_mode'):
+        raise EP.PlanError('MAINTENANCE_MODE_INVALID', '维护模式与候选收据不一致')
     required = {'task_id': plan['task_id'], 'page_id': plan['target_page_id'],
                 'plan_hash': plan['plan_hash'], 'turn_id': C.current_trace_context().get('turn_id')}
     if not required['turn_id'] or any(record.get(k) != v for k, v in required.items()):
@@ -161,4 +231,9 @@ def validate(sp, params, plan):
     base, _ = _context(sp, params, plan)
     if base != record['base']:
         raise EP.PlanError('MAINTENANCE_BASE_CHANGED', '维护基线已改变，停止覆盖')
+    if params.get('maintenance_mode') == 'runtime_loading':
+        import loading_maintenance as LM
+        source, error = sp._fetch_oss(base['url'])
+        if error or sha(source) != base['sha256'] or LM.review(source, document) != record.get('loading_review'):
+            raise EP.PlanError('MAINTENANCE_LOADING_CONTRACT_CHANGED', '加载维护原文或受保护语句发生变化')
     return record

@@ -1295,6 +1295,10 @@ def _read_html(params):
     preview_error = SSC.public_preview_context_error(html)
     if preview_error:
         return None, preview_error
+    import chart_dependency
+    chart_error = chart_dependency.contract_error(html)
+    if chart_error:
+        return None, chart_error
     return html, None
 
 
@@ -2293,6 +2297,10 @@ def _publish_html_error(html):
     preview_error = SSC.public_preview_context_error(html)
     if preview_error:
         return preview_error
+    import chart_dependency
+    chart_error = chart_dependency.contract_error(html)
+    if chart_error:
+        return chart_error
     size = len(str(html or "").encode("utf-8"))
     if size > _MAX_HTML_BYTES:
         return {"code": 1, "message": f"HTML 体积 {size} 字节，超过单页上限 2MB（请精简内联数据/资源）"}

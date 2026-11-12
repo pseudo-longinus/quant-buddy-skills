@@ -4,6 +4,33 @@
 
 新建 bespoke 同样遵守 [自建质量底线](self-build-quality.md)：主内容结构来自用户问题，正文根及语义节点声明设计检查标记；采用自定义布局不能跳过桌面/手机截图与发布验收。已有 HTML 迁移仍遵守下面的原样保留合同。
 
+## ECharts 必须接入共享运行时
+
+禁止在最终 HTML 中保留外部 ECharts `<script src>`（包括 async/defer），也不能直接依赖 `window.echarts` 执行同步初始化。标准图表优先使用 `panel_block`；手写交互图表在业务脚本前放入 `<!-- QB_CHART_RUNTIME -->`，编译后内联与标准面板共用的异步 Loader：CDN 3 秒、OSS 5 秒。多图共享一次加载和稳定库引用，数据刷新及 Share Shell 启动不等待图表依赖。
+
+```html
+<div id="customChart" data-qb-chart style="height:360px" role="region" aria-label="价格趋势">正在加载数据…</div>
+<!-- QB_CHART_RUNTIME -->
+<script>
+// 取数前调用，不 await；DOM 就绪时也会自动准备 data-qb-chart 容器。
+QBCharts.prepare('#customChart');
+function drawPrice(option, rows) {
+  return QBCharts.render(document.getElementById('customChart'), {
+    title: '价格趋势', type: 'line', option,
+    table: {columns: ['日期', '价格（元）'], rows}
+  });
+}
+</script>
+```
+
+`option` 与 `table` 必须来自同一份已验证数据，保留全部行、日期、单位、缩放和缺失值。复杂交互可传 `draw(lib)` 代替 `option`，在回调里使用 `lib.init(container)`、原有 `setOption` 和按钮绑定，并返回该 ECharts 实例；不要再写第二个依赖加载器。`render` 返回 Promise，成功返回实例，依赖失效或绘图异常返回 null，并在容器记录验收状态。每张图分别调用，不能先 await 一张图才启动其它模块。
+
+首次展示必须有加载文字，不能留下空容器；`data-qb-chart` 与 `QBCharts.prepare(容器/选择器/节点列表)` 提前启动共享依赖加载，与取数并行。刷新前再次 prepare 会保留已有图表或完整数据表并提示暂显示上次结果，render 完成后自动清除提示。prepare 不等待业务数据，不接管取数错误：调用方必须结束失败模块的等待状态，清除更新提示、设置 `aria-busy="false"`，保留旧结果及其日期或显示明确错误。
+
+取数任务并行启动，在各自成功回调中立即 render；不要等全部公式包的 `Promise.allSettled` 结束才统一 redraw。单图确有多个 output 依赖时只等待该图所需数据，并保留刷新轮次检查，防止旧响应覆盖新一轮。标准 Dashboard、Compose 和 panel_block 已按 output 就绪独立渲染；不需要重写其取数链路。
+
+双源均失败时自动展示完整数据表；数据无效或绘图抛错显示失败，不能冒充降级成功。重复 render 会处置旧实例，旧请求不能覆盖新数据。编译与 upload/update 入口均检查 `ECHARTS_RUNTIME_REQUIRED`，`allow_placeholders` 不豁免；历史页面不会被批量改写，维护时显式迁移图表。没有 ECharts 的静态 SVG/Canvas 不受影响。
+
 ## 正文图片
 
 bespoke 页面不得直接引用本地路径、HTTP 图片或其他 page_id 的托管图片。先 `image_upload`，再使用绝对 `https://pages.quantbuddy.cn/pages/assets/{当前 page_id}/{asset_id}.webp`。每个 `<img>` 明确写 `width`、`height`、有意义的 `alt` 和稳定布局尺寸；首屏或 `[data-qb-poster-target]` 内图片禁止 lazy，正文下方图片可使用 `loading="lazy" decoding="async"`。

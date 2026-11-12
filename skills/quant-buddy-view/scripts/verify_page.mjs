@@ -1268,7 +1268,8 @@ function pageMetricsExpression() {
     for (const root of roots) {
       if (!isVisible(root)) continue;
       for (const node of root.querySelectorAll('*')) {
-        if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'SVG', 'PATH'].includes(node.tagName)) continue;
+        // SVG tagName is lower-case in browsers; geometry has no text by design.
+        if (node.namespaceURI === 'http://www.w3.org/2000/svg' || ['SCRIPT', 'STYLE', 'NOSCRIPT'].includes(node.tagName)) continue;
         if (!isVisible(node) || node.children.length) continue;
         const raw = String(node.textContent || '').replace(/\u00a0/g, ' ').trim();
         const empty = raw === ''

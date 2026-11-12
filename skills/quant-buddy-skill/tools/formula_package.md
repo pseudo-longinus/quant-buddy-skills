@@ -3,12 +3,22 @@
 **入口边界**：本手册面向明确的接口开发或公式包管理请求。用户要每天看行情、可刷新看板或研究活页时，先走 `workflows/quant-standard.md` 查询并给出已验证的业务答案，再走 `workflows/answer-first.md` 交接 QBV；不能用注册包代替 QBS 查询，也不能把看板设计当作首答。包注册和页面运行时选择由首答后的 QBV 流程处理。
 
 > 把一组公式注册成一个「任务包」，得到 `package_id` + `signature`；之后**无需 API Key**，
-> 凭这两个凭证就能反复取数。实际日期以返回数据为准；公式包不保证所有字段同时更新，当前注册服务尚不支持分钟执行合同，不能把分钟查询静默注册为日频包。
+> 凭这两个凭证就能反复取数。实际日期以返回数据为准；公式包不保证所有字段同时更新，当前注册服务尚不支持 `use_minute_data:true` 执行合同，不能删除模式字段绕过。
 > 适合给**前端页面 / 第三方**做只读数据接入（如本地 HTML 直接渲染）。
 >
 > ⚠️ 本工具**不是**平台原生 MCP 工具，通过本地脚本 `scripts/formula_package.py` 调用，
 > 走的是公式包专用 REST 端点（`/skill/registerFormulaPackage` 等），与 `runMultiFormulaBatchStream`
 > 的执行/计费池**不同**。何时用它 vs 用 `runMultiFormulaBatchStream` 见文末「选型」。
+
+## 页面归属与提交拒绝恢复
+
+单资产盘中 OHLC 使用 `收盘价(贵州茅台,最后一日分钟刷新)`（开盘价、最高价、最低价同理），从首次验证起保留显式参数并用 false/缺省合同，登记时原样保留公式和完整上游依赖。它仍是日频序列，A股取价及派生结果按 `cn.chart:intra` 刷新；已有 true 收据须重新验证显式参数公式，不能直接删除开关复用。详见 [盘中刷新模式](run_multi_formula.md#盘中刷新模式)。
+
+- 注册资源的 owner 由当次 API Key 决定。用于活页的公式包、数据授权必须与页面所有者一致；管理员替他人维护时也以页面原 owner 为准，不以管理员为准。
+- 上传、更新或恢复返回 `PAGE_RESOURCE_OWNER_MISMATCH` 时，继续读取现有 `message`；不需要额外解析一组新字段。用页面所有者的 Key 按原 formulas、reads、begin_date 或授权查询参数重新注册，取得真实的新 ID 和 signature，交接 QBV 同时替换正文、股票实例块、卡片清单顶层及嵌套引用后重提。不能复用源凭证、仅改 ID 或删掉数据展示。
+- 无法使用目标身份时联系页面管理员。管理员可用 QBV `static_page.py resource_transfer` 预览实际 owner、共享引用和计费变化；向用户说明后，取得明确确认再提交返回的 `confirm_token` 与 `confirm:true`。转接原资源后需重新提交页面；`is_test` 身份不能替代 `is_page_admin`。
+- `PAGE_RESOURCE_NOT_FOUND` 需重新注册真实资源；`PAGE_RESOURCE_CHECK_FAILED` 时原样稍后重试，不因临时核验失败重复注册。签名是取数能力凭证，不豁免归属检查。
+- 一键复制/另存必须为目标用户注册独立资源，保留源资源及原页面；只有管理员明确要调整原资源归属时才使用转接流程。沙箱实例本身不检查、不转接；如果使用已登记的 `sandbox_data` 数据授权，仍检查该授权归属。
 
 ## 端点
 

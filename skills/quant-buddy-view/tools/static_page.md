@@ -584,6 +584,8 @@ python scripts/publish_workflow.py '@output/forks/page_xxx/page_xxx.publish-plan
 
 已公开验收的计划/Compose页面做展示层维护时，先 `prepare_maintenance @params.json` 绑定当前线上基线与候选，随后使用其生成参数运行 `publish_verified`。此入口保持原ID、URL及数据合同，不用于首次构建或数据源变化。完整约束见[浏览器批注维护](../guides/browser-feedback-refinement.md)。
 
+仅加载逻辑的已授权修改可显式传 `maintenance_mode:"runtime_loading"`；需要可选 JavaScript 语法解析依赖，锁定原金融/绘图语句、查询参数及页面布局，单独封存 load/redraw 和加载辅助逻辑差异。默认 presentation 模式继续禁止业务脚本修改；两种模式均要求原始数据证据、当前轮次收据及完整浏览器验收。
+
 | 字段 | 类型 | 必填 | 默认 | 说明 |
 |---|---|---|---|---|
 | `page_id` | string | ✅ | — | 要替换的页面（来自上次 upload / list） |

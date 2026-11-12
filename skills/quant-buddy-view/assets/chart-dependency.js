@@ -3,50 +3,7 @@ function chartLibrary() {
   return window.__QB_ECHARTS_LOADER__?.library || window.echarts || globalThis.echarts;
 }
 function ensureChartLibrary() {
-  const usable = lib => !!lib && typeof lib.init === 'function' && typeof lib.getInstanceByDom === 'function';
-  const shared = window.__QB_ECHARTS_LOADER__ ||= {library:null, promise:null, attempts:[], source:null};
-  if (usable(shared.library)) return Promise.resolve(shared.library);
-  if (shared.promise) return shared.promise;
-  if (usable(window.echarts)) {
-    shared.library=window.echarts; shared.source='host';
-    return shared.promise=Promise.resolve(shared.library);
-  }
-  const sources = __CHART_SOURCES__;
-  const load = (url, timeout) => new Promise(resolve => {
-    const script=document.createElement('script');
-    const attempt={url, status:'pending'}; shared.attempts.push(attempt);
-    let finished=false;
-    const finish=(lib,status)=>{
-      if(finished)return; finished=true; clearTimeout(timer);
-      script.onload=null; script.onerror=null; attempt.status=status; resolve(lib);
-    };
-    const timer=setTimeout(()=>finish(null,'timeout'),timeout);
-    script.onload=()=>finish(usable(window.echarts)?window.echarts:null,usable(window.echarts)?'ready':'invalid_api');
-    script.onerror=()=>finish(null,'error');
-    script.src=url; script.async=true; script.dataset.qbChartDependency='true';
-    document.head.appendChild(script);
-  });
-  const hostWait = () => new Promise(resolve=>{
-    const started=Date.now();
-    const scripts=[...document.scripts];
-    const finish=lib=>{clearInterval(poll);scripts.forEach(s=>s.removeEventListener('load',check));resolve(lib);};
-    const check=()=>{if(usable(window.echarts))finish(window.echarts);else if(Date.now()-started>=8000)finish(null);};
-    const poll=setInterval(check,50);
-    scripts.forEach(s=>s.addEventListener('load',check));
-  });
-  shared.promise=(async()=>{
-    if(BOOT.include_echarts_cdn === false){
-      shared.library=await hostWait(); shared.source=shared.library?'host':null;
-    }else{
-      for(const source of sources){
-        const lib=await load(source.url,source.timeout);
-        if(lib){shared.library=lib;shared.source=source.name;break;}
-      }
-    }
-    if(!shared.library) throw new Error('ECHARTS_DEPENDENCY_UNAVAILABLE');
-    return shared.library;
-  })();
-  return shared.promise;
+  return window.QBCharts.ensureLibrary({external: BOOT.include_echarts_cdn !== false});
 }
 const CHART_TYPES = new Set(['line','bar','radar','candlestick']);
 function chartOption(el,tab,panel) {
@@ -75,6 +32,7 @@ function chartTable(option,tab,panel) {
   return {columns:[panel.x || tab.columns[0],...series.map(s=>s.name+(panel.unit?'（'+panel.unit+'）':''))],rows:dates.map((d,i)=>[d,...series.map(s=>s.data[i])])};
 }
 function setChartError(body,error) {
+  body.setAttribute('aria-busy','false');
   body.dataset.qbPresentation='failed'; body.dataset.qbRenderError=String(error);
   delete body.__qbPresentationEvidence;
   body.innerHTML='<p class="empty err">渲染失败: '+esc(error)+'</p>';
@@ -84,9 +42,11 @@ function renderChartPanel(body,tab,panel,span) {
   body.dataset.qbChartType=panel.type;
   body.dataset.qbPanelTitle=panel.title || panel.output || panel.type;
   body.dataset.qbPresentation='pending';
+  body.setAttribute('aria-busy','true');
   delete body.dataset.qbRenderError;
   delete body.__qbPresentationEvidence;
   const old=chartLibrary()?.getInstanceByDom?.(body); if(old)old.dispose();
+  body.innerHTML='<p class="empty" role="status">正在加载图表…</p>';
   let option, table;
   try {
     if(!tab.rows.length) throw new Error('图表展示窗口内无有效数据');
@@ -104,6 +64,7 @@ function renderChartPanel(body,tab,panel,span) {
       window.addEventListener('resize',body.__qbResize);
       body.__qbPresentationEvidence={option,chart};
       body.dataset.qbPresentation='chart_ready';
+      body.setAttribute('aria-busy','false');
       delete body.dataset.qbFallbackReason;
     }catch(error){lib.getInstanceByDom?.(body)?.dispose();setChartError(body,error);}
   },error=>{
@@ -117,6 +78,7 @@ function renderChartPanel(body,tab,panel,span) {
       body.insertAdjacentHTML('afterbegin','<p data-qb-chart-fallback-notice>图表资源暂不可用，已改为数据表展示</p>');
       body.style.height='auto'; body.style.maxHeight='600px'; body.style.overflow='auto';body.style.minWidth='0';
       body.dataset.qbPresentation='table_fallback';body.dataset.qbFallbackReason=String(error.message);
+      body.setAttribute('aria-busy','false');
       delete body.dataset.qbRenderError;
     }catch(err){setChartError(body,err);}
   });

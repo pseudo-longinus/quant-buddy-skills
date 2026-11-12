@@ -3,7 +3,7 @@ name: quant-buddy-skill
 slug: quant-buddy-skill
 displayName: QuantBuddy 宽宝量化技能
 author: guanzhao
-version: 4.25.65
+version: 4.25.67
 description: |
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据；支持查询 A 股股票所属行业。
   显式日期的单值快照可同时返回按实际更新日对齐的日频行情与估值；字段日期不同时按字段自身日期展示，不将较晚刷新字段误判为无数据。
@@ -21,7 +21,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.25.65
+  version: 4.25.67
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -101,6 +101,10 @@ runtimeRequirements:
 - 常见单均线回测可采用 quant-standard 的披露默认值继续执行；用户明确不要网页时不建页。
 
 ## 平台工具参数速查（高频踩坑，先看这一段）
+
+**取价函数盘中刷新**：`收盘价/开盘价/最高价/最低价(资产,最后一日分钟刷新)` 保留日频序列，最近交易日使用盘中行情。`use_minute_data:true` 执行时服务端会为四类普通取价调用补上该参数，已带参数的调用不重复追加。做活页公式包时，从验证开始就显式保留参数，并使用普通执行合同（`use_minute_data:false` 或省略）；A股结果及其派生结果应按 `cn.chart:intra` 刷新。不要把已验证的 true 合同直接删字段重登记。详见 [盘中刷新模式](tools/run_multi_formula.md#盘中刷新模式)。
+
+**活页资源归属**：交接 QBV 前，数据授权和公式包须使用目标页面所有者的 API Key 注册。签名可公开取数不代表可跨用户复用；复制页面须为目标用户创建独立资源。遇到提交归属拒绝，按原有 `message` 更换注册身份、重建原口径资源并完整替换 ID 与 signature 后重提；不得只改页面用户名、只替换 ID 或删除分析内容。管理员也须先预览影响并取得明确确认后才转接，详见 [公式包与页面归属](tools/formula_package.md#页面归属与提交拒绝恢复)。沙箱实例本身暂不处理归属。
 
 > 下表是 LLM 最容易写错的三个 schema。任何调用前先核对，不要凭"看起来合理"猜参数名。
 
@@ -337,14 +341,14 @@ SKILL_ROOT/
 │   ├── cases_index.yaml         106 张案例卡片目录（量化标准场景必读，快速查数无需）
 │   ├── assets.yaml              常用资产（99 行精选，可一次读完）
 │   ├── assets_db/               全量资产字典（按类型分文件，⚠️ 仅 grep 检索，禁止 read_file 整文件；不含指数成分股映射）
-│   │   ├── stock_a.yaml             A 股 5316 条（SH/SZ，含场内 ETF）
-│   │   ├── stock_hk.yaml            港股 2858 条（HK 前缀；行情优先，财务以 fast_query 返回为准）
-│   │   ├── stock_us.yaml            美股及境外ETF 1069 条（.N/.O/.A/.BAT；行情优先，财务以 fast_query 返回为准）
-│   │   ├── index.yaml               指数 513 条
-│   │   └── future.yaml              期货 239 条
-│   ├── functions.yaml           常用函数（170 条）
+│   │   ├── stock_a.yaml             A 股 5326 条（SH/SZ，含场内 ETF）
+│   │   ├── stock_hk.yaml            港股 2854 条（HK 前缀；行情优先，财务以 fast_query 返回为准）
+│   │   ├── stock_us.yaml            美股及境外ETF 1070 条（.N/.O/.A/.BAT；行情优先，财务以 fast_query 返回为准）
+│   │   ├── index.yaml               指数 534 条
+│   │   └── future.yaml              期货 237 条
+│   ├── functions.yaml           常用函数（171 条）
 │   ├── data_catalog.yaml        常用精选数据集（高频 index_title）
-│   ├── index_info_catalog/      系统支持数据名全量索引（2566 条，按业务分类分 YAML，grep 检索）
+│   ├── index_info_catalog/      系统支持数据名全量索引（2779 条，按业务分类分 YAML，grep 检索）
 │   ├── dimensions.yaml          已物化指标候选的本地快照，用于 selectByComposition 的常见快速映射
 │   │                            ⚠️ 细分指标、快照未命中项和实时可选状态，用 `listDimensionIndicators` 在线确认；公式口径用 `getIndicatorFormulas`
 │   ├── sectors.yaml             行业板块（742 条，10 个分类）
