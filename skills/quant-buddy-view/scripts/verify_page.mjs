@@ -106,17 +106,21 @@ function sanitizeBrowserText(value) {
     .replace(/([?&](?:x-amz-[^=]+|signature)\s*=)[^&\s]+/gi, '$1[REDACTED]');
 }
 
-function emit(obj) {
-  fs.writeSync(1, JSON.stringify(obj, null, 2) + '\n');
+async function emit(obj) {
+  // Wait for the stream callback, including backpressure and partial socket
+  // writes, before process.exit can discard queued diagnostic bytes.
+  await new Promise((resolve, reject) => {
+    process.stdout.write(JSON.stringify(obj, null, 2) + '\n', error => error ? reject(error) : resolve());
+  });
 }
 
-function fail(message) {
-  emit({ code: 1, message });
+async function fail(message) {
+  await emit({ code: 1, message });
   process.exit(1);
 }
 
 if (!target) {
-  fail('用法: node scripts/verify_page.mjs <html_file_or_url> [--profile full|fork-local|public-smoke|ui-refinement|live-only] [--extra-viewport [name:]WIDTHxHEIGHT] [--min-visible-font-px N] [--manifest manifest.json] [--require-browser] [--card-runtime] [--card-runtime-only] [--card-runtime-structure-only] [--require-card-visual-contract] [--card-screenshot output.png]');
+  await fail('用法: node scripts/verify_page.mjs <html_file_or_url> [--profile full|fork-local|public-smoke|ui-refinement|live-only] [--extra-viewport [name:]WIDTHxHEIGHT] [--min-visible-font-px N] [--manifest manifest.json] [--require-browser] [--card-runtime] [--card-runtime-only] [--card-runtime-structure-only] [--require-card-visual-contract] [--card-screenshot output.png]');
 }
 
 function delay(ms) {
@@ -2046,7 +2050,7 @@ try {
         warnings: [], problems,
       };
       updateManifest(manifestPath, result);
-      emit(result);
+      await emit(result);
       process.exit(1);
     }
     const staticResult = staticChecks(browserHtml);
@@ -2068,7 +2072,7 @@ try {
       non_core_console_warnings: summary.non_core_console_warnings, warnings: summary.warnings, problems: summary.problems,
     };
     updateManifest(manifestPath, result);
-    emit(result);
+    await emit(result);
     process.exit(summary.ok ? 0 : 1);
   }
   const html = resolved.html;
@@ -2104,7 +2108,7 @@ try {
       problems,
     };
     updateManifest(manifestPath, result);
-    emit(result);
+    await emit(result);
     process.exit(problems.length ? 1 : 0);
   }
   if (cardRuntimeOnly) {
@@ -2130,7 +2134,7 @@ try {
       problems: cardRuntimeResult.problems,
     };
     updateManifest(manifestPath, result);
-    emit(result);
+    await emit(result);
     process.exit(cardRuntimeResult.ok ? 0 : 1);
   }
   const browserOptions = {
@@ -2178,7 +2182,7 @@ try {
     if (!summary.ok) result.failure_kind = browserNetworkFailure(browserResult) ? 'network_unreachable' : 'content';
   }
   updateManifest(manifestPath, result);
-  emit(result);
+  await emit(result);
   process.exit(summary.ok ? 0 : 1);
 } catch (err) {
   const out = { code: 1, target, message: err && err.message ? err.message : String(err) };
@@ -2186,6 +2190,6 @@ try {
     out.fetch_error = { message: err.message, attempts: err.attempts };
     out.failure_kind = err.network ? 'network_unreachable' : 'content';
   }
-  emit(out);
+  await emit(out);
   process.exit(1);
 }

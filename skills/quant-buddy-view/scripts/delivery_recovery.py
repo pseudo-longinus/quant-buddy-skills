@@ -419,12 +419,14 @@ def _handoff_snapshot_recovery(params,plan,changes,modules,panels):
         })
     # Presentation Mode requires every panel to own a mount, text panels included.
     _ensure_panel_ids(text_panels,'handoff')
+    if changes.get('title') in ('策略研究与核验方法','',None):
+        changes['title']='策略研究与核验结果'
     if prior_authored:
         for panel in text_panels:
             changes['presentation']=CP.ensure_mount(plan['task_id'],changes['presentation'],panel['id'],str(panel.get('title') or panel['id']))
         changes['presentation_origin']='authored'
     else:
-        changes['presentation']=_machine_presentation_for_panels(plan['task_id'],text_panels,'已验证研究结果',
+        changes['presentation']=_machine_presentation_for_panels(plan['task_id'],text_panels,changes['title'],
             '本页展示本轮已通过QBS handoff校验的数据快照；结论只覆盖已验证角色，缺失角色不视为零命中。',
             ['已验证数据组 '+str(sum(1 for p in text_panels if p.get('type') not in ('text','image'))),'数据模式 verified snapshot'],
             'handoff-presentation.html')
@@ -439,8 +441,6 @@ def _handoff_snapshot_recovery(params,plan,changes,modules,panels):
                          'missing_roles':missing},
         description='已验证Handoff快照的研究页，展示实际观察日、数据来源与研究边界。'
     )
-    if changes.get('title') in ('策略研究与核验方法',''):
-        changes['title']='策略研究与核验结果'
     return {'bundle':bundle,'phase':'partial_snapshot' if missing else 'handoff_snapshot'}
 
 
