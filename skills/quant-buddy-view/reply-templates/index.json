@@ -2,6 +2,26 @@
   "version": "reply_templates_v2",
   "templates": [
     {
+      "id": "same_page_maintenance_v1",
+      "title": "Same Page Maintenance Confirmation",
+      "file": "same_page_maintenance_v1.md",
+      "source_playbooks": [],
+      "default_reply_scope": "full_answer",
+      "output_format": "markdown",
+      "status": "active",
+      "task_only": true,
+      "reply_render_policy": {
+        "version": "reply_render_policy_v1",
+        "required_sections": ["本次改动", "范围与限制"],
+        "optional_sections": [],
+        "at_least_one_groups": [],
+        "required_markers": ["本轮未开展新研究或重新核算数据"],
+        "omit_all_missing_columns": true,
+        "omit_all_missing_rows": true,
+        "placeholder_policy": "partial_only"
+      }
+    },
+    {
       "id": "meta_tooling_response_v1",
       "title": "Meta Tooling Response",
       "file": "meta_tooling_response_v1.md",

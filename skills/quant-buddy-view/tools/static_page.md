@@ -1,5 +1,7 @@
 # static_page — 静态页托管（上传 / 替换 HTML → 公开可分享链接）
 
+纯备注或样式同页直写依据可信原请求核验原页版本、正文哈希与修改范围，保留原正文、标题、脚本、数据绑定和研究元信息，沿用已有图表及数据运行库。备注须为原请求引号内文本的独立节点（可用内联样式）；不得为通过新页面编译门禁顺带迁移运行时。混合研究、无基线或越界改动拒绝此维护路径；实际公开验收和任务侧维护回复校验仍然必需。
+
 > **量化先答场景优先**：先按 [先答后建页](../guides/answer-first.md) 查询验证、发送完整非终止业务答案，再执行快页、模板或创建。此场景所有渠道均在页面验收和适用回复校验通过后补链接；本篇及工具 hint 的“立即发送模板/进度首链”要求不适用。URL 仅供内部继续执行，发布门禁保持不变。已有文件托管仍须实际首链交付及 file_confirm_delivery。
 
 
@@ -30,6 +32,10 @@ python scripts/static_page.py rollback @rollback.json
 `download/interpret` 返回并记录 `expected_current_version_id`，Compose 草稿与后续更新须沿用该值。不要用发布前的新版本号替换旧编辑基线来绕过冲突。没有既有编辑基线的普通更新会先读取版本并传给服务端；版本号缺失则拒绝写入。受控文件流程的每次更新与失败恢复同样使用其读到的版本 ID。
 
 ## 计划、Compose与恢复
+
+维护人员纠正已发布筛选页误配的单股回复合同时，使用 [受限回复合同纠错](../workflows/reply-contract-repair.md)。`repair_reply_contract` 默认只预览，不因缺证据自动降级；不修改公开页面或历史聊天。
+
+明确只追加备注或修改样式、不做新研究的同页追问，公开验收后自动封存任务侧 `same_page_maintenance_v1` 维护确认合同。页面原有 `agent_reply_template`、page_context、Grant 及数据合同保留；未知或含新研究的混合要求仍使用原研究合同。必须读取返回的合同并按 `reply_validation_command` 校验最终回复，`valid=true` 后才发送 `validated_markdown`。页面验收成功只表示待回复校验，不代表任务完成。维护确认绑定当前 task/turn/page/version/hash，版本变化或不能核验时拒绝完成；该模板不可显式指定为页面模板。
 
 `recover_snapshot` 接受 task_id、当前 plan_hash 和 roles（每项 role_id、validation_receipt_file），将已有验证数据绑定为同页快照并返回 compose_page 参数；不重试未知注册、不直接发布。可传现有标题和 panels 保留研究内容。详见 [同页恢复](../workflows/planned-delivery-recovery.md#同页恢复而非停留在失败页)。
 

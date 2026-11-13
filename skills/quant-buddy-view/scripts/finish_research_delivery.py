@@ -74,7 +74,11 @@ def _finish_verified_reply(task,turn,plan,state,reply_text=None):
         inputs=_verified_reply_inputs(task,turn,plan,state)
         if inputs is None: return None
         params,contract=inputs
+        import maintenance_reply as MR
+        if contract.get('template_ref') == MR.TEMPLATE:
+            MR.check_binding(contract, task)
         reply=(reply_text if reply_text is not None else
+               MR.reply(contract) if contract.get('template_ref') == MR.TEMPLATE else
                _build_contract_reply(plan,contract,state.get('live_data_mode') or contract.get('delivery_data_mode')))
         from validate_agent_reply import validate_reply
         checked=validate_reply(contract,reply)
@@ -134,6 +138,27 @@ def finish(params):
                 'next_action':{'command':'file_prepare','params':{'task_id':task,'user_query':query,
                            **({'page_id':params['page_id']} if params.get('page_id') else {})}}}
     plan=EP.load(task)
+    if not plan and C.task_temp_path(task, DS.FILE).is_file():
+        # Direct same-page writes have a journal but no execution plan. Never
+        # discard that identity and create a replacement methodology page.
+        try:
+            page,state,direct_plan=SP._load_direct_maintenance_delivery(task)
+        except EP.PlanError as error:
+            return error.as_dict()
+        if state.get('turn_id') != turn:
+            return {'code':1,'error':'PRESERVED_LAST_GOOD_PAGE','page_id':page}
+        from delivery_requirements import recovery_boundary
+        blocked=recovery_boundary(params,direct_plan,state)
+        if blocked is not None: return blocked
+        if (state.get('last_write') or {}).get('status') != 'confirmed':
+            return {'code':1,'error':'PRESERVED_DIRECT_WRITE','page_id':page}
+        verified=SP.cmd_verify_published({'task_id':task,'page_id':page})
+        if verified.get('code') != 0: return verified
+        state=DS.load(task,page)
+        completed=_finish_verified_reply(task,turn,direct_plan,state)
+        if completed is not None: return completed
+        return {'code':1,'error':'DIRECT_DELIVERY_REPLY_REQUIRED','page_id':page,
+                'next_action':reply_validation_action(task,turn,direct_plan,state)}
     if plan and (DS.load(task,plan['target_page_id']).get('last_write') or {}).get('status') in ('pending','unknown'):
         return recovery.backup_html({'task_id':task,'turn_id':turn,'user_query':query},plan)
     from delivery_requirements import recovery_boundary

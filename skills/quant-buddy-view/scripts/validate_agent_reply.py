@@ -425,7 +425,7 @@ def _live_page_delivery_errors(public_url, draft, data_mode=None, *, file_public
     if not public_url or public_url not in draft:
         return []
     label = "可分享活页" if file_publication else {"verified_snapshot": "可分享静态研究页", "mixed": "可分享活页（部分实时、部分静态）", "static_content_only": "策略与核验方法研究页","researched_static":"可分享研究静态页（公开来源）",'unknown':'可分享研究页（数据模式待核验）'}.get(data_mode, "可分享实时活页")
-    if not file_publication and link_label in ('可分享静态研究页','策略与核验方法研究页','可分享活页（部分实时、部分静态）','可分享实时活页','可分享研究静态页（公开来源）','可分享研究页（数据模式待核验）'):
+    if not file_publication and link_label in ('原活页','可分享静态研究页','策略与核验方法研究页','可分享活页（部分实时、部分静态）','可分享实时活页','可分享研究静态页（公开来源）','可分享研究页（数据模式待核验）'):
         label=link_label
     expected = f"{label}：[{public_url}]({public_url})\n{_LIVE_PAGE_UPGRADE_HINT}"
     if str(draft).rstrip().endswith(expected):
@@ -475,6 +475,10 @@ def validate_reply(contract_payload, draft):
             errors.append({"code": "PAGE_ID_MISSING", "message": "最终回复未在公开链接之外单独包含终态 page_id"})
 
     sections = _section_bodies(draft)
+    if contract.get('template_ref') == 'same_page_maintenance_v1':
+        changes = next((s['body'] for s in sections if s['heading'] == '本次改动'), '')
+        if _placeholder_only(changes):
+            errors.append({'code': 'MAINTENANCE_CHANGE_REQUIRED', 'message': '维护确认必须说明本轮实际改动'})
     actual = [item["heading"] for item in sections]
     render_policy = contract.get("reply_render_policy")
     required = []
@@ -503,7 +507,14 @@ def validate_reply(contract_payload, draft):
     if contract.get("required"):
         registry_policy = RTR.get_reply_render_policy(contract.get("template_ref")) if contract.get("template_ref") else None
         for marker in (registry_policy or {}).get("required_markers") or []:
-            if str(marker) not in draft:
+            present = str(marker) in draft
+            # Maintenance confirms two negative clauses. The actual public
+            # reply may join them with “也未” instead of the template's “或”.
+            # Keep this bounded equivalence out of all research contracts.
+            if (not present and contract.get('template_ref') == 'same_page_maintenance_v1'
+                    and marker == '本轮未开展新研究或重新核算数据'):
+                present = bool(re.search(r'本轮未开展新研究[，,、\s]*(?:也未|亦未|且未)重新核算数据', draft))
+            if not present:
                 errors.append({
                     "code": "REQUIRED_MARKER_MISSING",
                     "message": f"最终回复缺少必填收口标记：{marker}",
@@ -594,13 +605,21 @@ def main():
             result = validate_reply(contract, draft)
             task = str(params.get("task_id") or params.get("cleanup_task_id") or "")
             plan = EP.load(task) if task else None
+            raw_contract = contract.get("agent_reply_contract") if isinstance(contract.get("agent_reply_contract"), dict) else contract
+            import maintenance_reply as MR
+            if result.get('valid') and raw_contract.get('template_ref') == MR.TEMPLATE:
+                MR.check_binding(raw_contract, task)
+            if result.get('valid') and task and not plan and C.task_temp_path(task, DS.FILE).is_file():
+                import static_page as SP
+                _, _, plan = SP._load_direct_maintenance_delivery(task, raw_contract.get('page_id'))
             if result.get("valid") and plan:
-                raw_contract = contract.get("agent_reply_contract") if isinstance(contract.get("agent_reply_contract"), dict) else contract
                 if raw_contract.get("page_id") != plan["target_page_id"]:
                     raise EP.PlanError("REPLY_PAGE_CONFLICT", "回复合同与任务目标页不同")
                 result["delivery_state"] = DS.finish_reply(plan, params["contract_sha256"], result["validated_markdown_sha256"])
             if result.get("valid") and params.get("cleanup_task_id"):
                 result["cleaned_temp_files"] = C.cleanup_task_temp_files(params.get("cleanup_task_id"))
+    except EP.PlanError as exc:
+        result = {"code": 1, "valid": False, "errors": [{"code": exc.code, "message": str(exc)}]}
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         result = {"code": 1, "valid": False, "errors": [{"code": "INPUT_ERROR", "message": str(exc)}]}
     C.emit(result, out_name="reply_validation_out.txt")

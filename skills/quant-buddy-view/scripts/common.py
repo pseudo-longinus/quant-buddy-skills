@@ -160,6 +160,12 @@ def load_config():
             cfg["api_key"] = env_key
     if _API_KEY_OVERRIDE:
         cfg["api_key"] = _API_KEY_OVERRIDE
+    # The protected Host finisher executes installed code, whose packaged config
+    # may target another environment. Keep it on the active turn's signed proxy.
+    if os.environ.get('QB_HOST_FINISH_RESEARCH_DELIVERY') == '1' and host_managed_lifecycle():
+        endpoint = os.environ.get('QB_HOST_SKILL_ENDPOINT', '').strip()
+        if endpoint:
+            cfg['endpoint'] = endpoint
     return cfg
 
 

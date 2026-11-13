@@ -1,5 +1,6 @@
 """Read-only, bounded Host delivery projection. Never loads API credentials or calls APIs."""
 import argparse
+import hashlib
 import json
 import re
 from urllib.parse import urlsplit
@@ -31,6 +32,41 @@ def _written_preview(state, task, turn, page):
         return {}
     return {'progress_url': url, 'version_no': version,
             'content_kind': 'progress' if write.get('content_kind') == 'progress' else 'candidate'}
+
+
+def _verify_final_reply(result, task, turn, plan, state, reply_text, finalize_reply):
+    """Check the text being delivered, even if a different draft passed earlier.
+
+    This projection is read-only: a mismatch must not mutate an accepted page,
+    its sealed draft, or its historical delivery state.
+    """
+    if not finalize_reply or result.get('status') != 'succeeded':
+        return result
+    error = 'REPLY_CONTRACT_STALE'
+    try:
+        from finish_research_delivery import _verified_reply_inputs
+        inputs = _verified_reply_inputs(task, turn, plan, state)
+        if inputs is not None:
+            _, contract = inputs
+            import maintenance_reply as MR
+            if contract.get('template_ref') == MR.TEMPLATE:
+                # This credential-free projection has no Agent context. The
+                # Host task/turn identifies the already verified sealed journal;
+                # public version checks remain in publication/reply validation.
+                MR.check_binding(contract, task, observe=False, turn_id=turn)
+            from validate_agent_reply import validate_reply
+            checked = validate_reply(contract, reply_text)
+            if checked.get('valid') is True:
+                return {**result, 'reply_markdown_sha256': hashlib.sha256(reply_text.encode('utf-8')).hexdigest()}
+            error = 'FINAL_REPLY_CONTRACT_INVALID'
+    except (EP.PlanError, ValueError, TypeError, KeyError, OSError):
+        pass
+    rejected = {**result, 'status': 'failed', 'verified': False,
+                'failure_stage': 'reply_validation', 'error_code': error}
+    url = rejected.pop('result_url', None)
+    if url:
+        rejected['progress_url'] = url
+    return rejected
 
 
 def export(task, turn, reply_text='', *, finalize_reply=False, plan_only=False):
@@ -67,11 +103,23 @@ def export(task, turn, reply_text='', *, finalize_reply=False, plan_only=False):
                     if write.get('status') in ('pending','unknown','confirmed','rejected'):
                         result['write_outcome'] = write['status']
                     good = state.get('last_good_version') or {}
+                    if finalize_reply and reply_text and state.get('execution_status') != 'succeeded':
+                        import static_page as SP
+                        from finish_research_delivery import _finish_verified_reply
+                        _, _, direct_plan = SP._load_direct_maintenance_delivery(task, page)
+                        completed = _finish_verified_reply(task, turn, direct_plan, state, reply_text=reply_text)
+                        if completed is not None:
+                            return completed['delivery']
                     if (state.get('execution_status') == 'succeeded' and state.get('delivery_state') == 'published'
-                            and state.get('verified') and _url(good.get('url')) and isinstance(good.get('version_no'), int)):
-                        return {'schema_version': 1, 'task_id': task, 'turn_id': turn, 'status': 'succeeded',
+                            and state.get('verified') and good == write.get('remote')
+                            and state.get('reply_plan_hash') == state.get('plan_hash')
+                            and all(re.fullmatch(r'[0-9a-f]{64}', str(state.get(k) or '')) for k in ('reply_contract_hash','validated_markdown_sha256'))
+                            and _url(good.get('url')) and isinstance(good.get('version_no'), int)):
+                        direct_plan = {'task_id': task, 'target_page_id': page, 'plan_hash': state.get('plan_hash')}
+                        projected = {'schema_version': 1, 'task_id': task, 'turn_id': turn, 'status': 'succeeded',
                                 'page_delivery_required': True, 'page_id': page,
                                 'result_url': _url(good['url']), 'version_no': good['version_no']}
+                        return _verify_final_reply(projected, task, turn, direct_plan, state, reply_text, finalize_reply)
                     error = state.get('last_error') or {}
                     if error.get('error_code'):
                         return {**result, 'status': 'failed', 'failure_stage': error.get('stage'),
@@ -152,7 +200,8 @@ def export(task, turn, reply_text='', *, finalize_reply=False, plan_only=False):
                 result[dst] = value
     except (EP.PlanError, ValueError, TypeError, KeyError, OSError):
         return {'schema_version': 1, 'task_id': task, 'turn_id': turn, 'status': 'unknown'}
-    return {k:v for k,v in result.items() if v is not None}
+    return _verify_final_reply({k:v for k,v in result.items() if v is not None},
+                               task, turn, plan, state, reply_text, finalize_reply)
 
 
 if __name__ == '__main__':

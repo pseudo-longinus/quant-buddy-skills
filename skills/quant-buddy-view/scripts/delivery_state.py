@@ -285,6 +285,14 @@ def bind_reply_contract(plan, contract_hash):
 def finish_reply(plan, contract_hash, markdown_hash):
     with EP.locked(plan['task_id']):
         state = load(plan['task_id'], plan['target_page_id'])
+        if plan.get('direct_maintenance'):
+            context = C.current_trace_context()
+            write = state.get('last_write') or {}
+            if (context.get('task_id') != plan['task_id'] or context.get('turn_id') != state.get('turn_id')
+                    or write.get('turn_id') != state.get('turn_id') or write.get('status') != 'confirmed'
+                    or state.get('last_good_version') != write.get('remote')
+                    or not all(flags(state).get(k) for k in ('written','verified','public_reachable'))):
+                raise EP.PlanError('REPLY_CONTRACT_STALE', '同页回复与当前轮已验收写入不一致')
         if state.get('reply_contract_hash') != contract_hash or state.get('reply_plan_hash') != plan['plan_hash']:
             raise EP.PlanError('REPLY_CONTRACT_STALE', '回复合同不是当前已验收版本')
         if state['delivery_state'] != 'published' or not state.get('last_good_version'):

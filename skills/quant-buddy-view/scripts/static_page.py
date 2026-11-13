@@ -458,6 +458,8 @@ def _normalize_agent_reply_template(value, *, require_local_file=True):
         return None, {"code": 1, "message": "agent_reply_template 必须是对象、null 或空对象"}
     version = str(value.get("version") or "reply_template_v1").strip()
     template_ref = str(value.get("template_ref") or "").strip()
+    if template_ref == 'same_page_maintenance_v1':
+        return None, {"code": 1, "error": "TASK_ONLY_REPLY_TEMPLATE", "message": "维护确认仅由任务侧生成，不可设置为页面研究模板"}
     reply_scope = str(value.get("reply_scope") or "").strip()
     output_format = str(value.get("output_format") or "").strip()
     if version not in _REPLY_TEMPLATE_VERSIONS:
@@ -604,6 +606,12 @@ def _infer_page_context_from_publish_params(params, *, html=None, template_ref=N
         "reply_focus": _REPLY_FOCUS.get(template_ref, _REPLY_FOCUS["generic_live_page_delivery_v1"]),
         "limitations": "仅依据活页当前可用数据解释；结构性不存在的内容不展示，偶发缺值才标记为 --，不编造数据或提供保证性预测。",
     }
+    if template_ref == "generic_live_page_delivery_v1" and _is_screening_publish(params):
+        context.update(
+            summary="按用户确认的股票池与条件呈现筛选研究、候选名单及核验边界。",
+            primary_outputs=["筛选范围与条件", "候选名单与筛选依据", "数据日期与研究限制"],
+            reply_focus="先回答筛选结果，再说明范围、条件、数据日期与尚未核验的限制。",
+        )
     normalized, error = _normalize_page_context(context)
     return None if error else normalized
 
@@ -622,6 +630,16 @@ def _tag_names(value):
     return names
 
 
+def _is_screening_publish(params):
+    text = " ".join(str(params.get(key) or "") for key in ("title", "description", "user_query"))
+    return (
+        any(token in text for token in ("选股", "筛选", "榜单", "排行榜", "排名", "全A", "全 A"))
+        or re.search(r"TOP\s*(?:N|\d+)", text, flags=re.IGNORECASE) is not None
+        or re.search(r"(?:股票|主板|市场|池).{0,60}(?:找出|寻找|找|挑选).{0,40}(?:类似|相似|股票)", text) is not None
+        or re.search(r"(?:找出|寻找).{0,40}(?:类似|相似).{0,30}股票", text) is not None
+    )
+
+
 def _infer_agent_reply_template_from_publish_params(params):
     """Infer only high-confidence reply-template routes from publish metadata.
 
@@ -636,10 +654,7 @@ def _infer_agent_reply_template_from_publish_params(params):
     text = " ".join(str(params.get(key) or "") for key in ("title", "description", "user_query"))
     # 横截面选股/榜单即使同时含 PE、ROE、盈利、估值，也不是“单只股票估值质量”页面。
     # 必须先截断到通用交付骨架，避免标题关键词把 TopN 页面误绑到七节单股回复合同。
-    screening_signal = (
-        any(token in text for token in ("选股", "榜单", "排行榜", "排名", "全A", "全 A", "因子筛选"))
-        or re.search(r"TOP\s*(?:N|\d+)", text, flags=re.IGNORECASE) is not None
-    )
+    screening_signal = _is_screening_publish(params)
     if screening_signal:
         return dict(_GENERIC_LIVE_PAGE_REPLY_TEMPLATE)
     valuation_signal = any(token in text for token in ("估值", "PE", "PB", "PCF", "市盈率", "市净率"))
@@ -1279,7 +1294,7 @@ def _shell_bootstrap_script():
 </script>"""
 
 
-def _read_html(params):
+def _read_html(params, *, check_chart=True):
     """从 html 或 html_file 取出 HTML 文本，返回 (html, err)。"""
     html = params.get("html")
     if not html and params.get("html_file"):
@@ -1297,7 +1312,7 @@ def _read_html(params):
         return None, preview_error
     import chart_dependency
     chart_error = chart_dependency.contract_error(html)
-    if chart_error:
+    if check_chart and chart_error:
         return None, chart_error
     return html, None
 
@@ -2988,6 +3003,14 @@ def _record_direct_update_delivery(params, task, out, body, html):
         state = DS.record_write(plan, out)
         state["plan_hash"] = plan_hash
         state["direct_maintenance"] = True
+        import maintenance_reply as MR
+        # The original Host/trace question is authoritative, never the Agent's
+        # update parameters or a caller-supplied maintenance flag.
+        context = C.current_trace_context()
+        scope = MR.intent(context.get('user_query')) if context.get('task_id') == task else None
+        state.pop('maintenance_reply_intent', None)
+        if scope:
+            state['maintenance_reply_intent'] = scope
         if params.get("live_data_mode"):
             state["live_data_mode"] = params["live_data_mode"]
         DS._save(state)
@@ -3030,14 +3053,28 @@ def cmd_update(params):
 
     if publication_plan and _is_preserve_html_qbs_live(params):
         return {"code": 1, "error": "PLANNED_TRANSFORMATION_ROUTE_REQUIRED", "message": "文件转换需独立对齐计划，不能绕过条件发布入口"}
-    html, err = _read_html(params)
+    html, err = _read_html(params, check_chart=False)
     if err:
         return err
+    maintenance_preservation = None
+    if not publication_plan and params.get('_progress_write_sentinel') is not _PROGRESS_WRITE_SENTINEL:
+        import maintenance_reply as MR
+        try:
+            prepared = MR.prepare_update(sys.modules[__name__], params, html)
+            if prepared:
+                params, maintenance_preservation = prepared
+        except EP.PlanError as exc:
+            return exc.as_dict()
+    if not maintenance_preservation:
+        import chart_dependency
+        chart_error = chart_dependency.contract_error(html)
+        if chart_error:
+            return chart_error
     # Raw update callers can still arrive here with the progress title. Keep
     # progress snapshots unchanged, but normalize a final-looking update before
     # it reaches the server so the observed leak is fixed even when publish_final
     # was bypassed.
-    if params.get("_planned_content_kind") != "progress":
+    if not maintenance_preservation and params.get("_planned_content_kind") != "progress":
         try:
             params = _prepare_final_publish_title(params, html)
         except PTC.TitleError as exc:
@@ -3056,7 +3093,10 @@ def cmd_update(params):
             params={**params,'expected_current_version_id':baseline}
         return _cmd_update_preserve(params, endpoint=endpoint, api_key=api_key)
     try:
-        params, html, title_check = _prepare_page_title(params, html, immutable=bool(publication_plan))
+        if maintenance_preservation:
+            title_check = {'title': params.get('title')}
+        else:
+            params, html, title_check = _prepare_page_title(params, html, immutable=bool(publication_plan))
     except PTC.TitleError as exc:
         return exc.as_dict()
     transformation_validation, transformation_error = _validate_transformation_contract(params, html, endpoint=endpoint)
@@ -3083,7 +3123,10 @@ def cmd_update(params):
         if reply_error:
             return reply_error
     try:
-        html, shell_check = _ensure_share_shell(html, params)
+        if maintenance_preservation:
+            shell_check = maintenance_preservation
+        else:
+            html, shell_check = _ensure_share_shell(html, params)
     except ValueError as e:
         return {"code": 1, "message": str(e)}
     size = len(html.encode("utf-8"))
@@ -4725,10 +4768,15 @@ _EXISTING_PAGE_ROUTE_BYPASS = object()
 
 
 def _routing_task_id(params):
-    """路由门禁用的 task_id：先看显式参数，再看 QBV_TASK_ID 环境变量
-    （Agent harness 跨进程传递 trace 的通道）。刻意不读进程内 ambient trace，
-    避免单测里残留的全局 task_id 误触门禁。"""
+    """Use the locked Host identity, otherwise explicit/legacy CLI identity.
+
+    Never read ambient process trace state: unrelated standalone calls must not
+    inherit a prior task. Hosted calls may omit task_id, as the CLI contract allows.
+    """
     params = params if isinstance(params, dict) else {}
+    host = C.host_trace_context(params)
+    if host:
+        return host['task_id']
     return str(params.get("task_id") or os.environ.get("QBV_TASK_ID", "") or "").strip()
 
 
@@ -6539,6 +6587,14 @@ def cmd_publish_final(params):
             if params.get("maintenance_mode"):
                 import maintenance_candidate
                 maintenance_candidate.validate(sys.modules[__name__], params, plan)
+                import maintenance_reply as MR
+                state = DS.load(plan['task_id'], plan['target_page_id'])
+                state.pop('maintenance_reply_intent', None)
+                context = C.current_trace_context()
+                scope = MR.intent(context.get('user_query')) if context.get('task_id') == plan['task_id'] else None
+                if scope:
+                    state['maintenance_reply_intent'] = scope
+                DS._save(state)
             elif plan["build_mode"] == "compose_page":
                 import compose_page
                 compose_page.validate_candidate({**params, "task_id": plan["task_id"]})
@@ -6849,8 +6905,10 @@ def _publish_verified_once(params):
         if smoke_attempts > 1:
             timings["public_smoke_attempts"] = smoke_attempts
         verified, failure_kind = _confirm_public_publication(params, stages, stages["publish_final"])
-        if not verified and failure_kind == _NETWORK_UNREACHABLE:
-            # Keep the confirmed write's reply contract for a later verify_published.
+        if not verified:
+            # A transient runtime fetch can be classified as a content failure.
+            # Preserve the confirmed write's exact contract for read-only recheck;
+            # failure classification still controls retries and repair guidance.
             try:
                 _save_pending_public_verification(params, stages, card_runtime)
             except (EP.PlanError, OSError, ValueError, TypeError):
@@ -6978,7 +7036,8 @@ def _verify_published_action(params):
 
 
 _PENDING_PARAM_KEYS = ("task_id", "turn_id", "page_id", "title", "plan_hash", "live_data_mode",
-                       "qbv_job_id", "qbv_job_file", "job_file", "qbv_job_dir", "target_skill_id", "card_runtime_required")
+                       "qbv_job_id", "qbv_job_file", "job_file", "qbv_job_dir", "target_skill_id", "card_runtime_required",
+                       "maintenance_mode")
 
 
 def _save_pending_public_verification(params, stages, card_runtime):
@@ -7024,9 +7083,16 @@ def _persist_maintenance_delivery_state(params, stages, result, public_url):
     try:
         import delivery_state as _DS
         state = _DS.load(task_id, page_id)
-        state.update(execution_status='succeeded', current_step='reply_validated',
+        write = state.get('last_write') or {}
+        remote = write.get('remote') or {}
+        if (write.get('status') != 'confirmed' or write.get('turn_id') != state.get('turn_id')
+                or remote.get('page_id') != page_id or remote.get('version_no') != version
+                or remote.get('url') != url or not re.fullmatch(r'[0-9a-f]{64}', str(remote.get('sha256') or ''))):
+            return
+        state.update(execution_status='running', current_step='reply_validation',
                      delivery_state='published', verified=True, written=True, public_reachable=True,
-                     last_good_version={'page_id': page_id, 'url': url, 'version_no': version})
+                     last_good_version=dict(remote))
+        state.pop('validated_markdown_sha256', None)
         state.pop('last_error', None)
         _DS._save(state)
     except Exception:
@@ -7109,6 +7175,15 @@ def _finalize_public_publication(params, stages, result, public_url, verified):
                     result[key] = result_contract[key]
         if stages["publish_final"].get("agent_reply_template_file"):
             result["agent_reply_template_file"] = stages["publish_final"]["agent_reply_template_file"]
+        if params.get('maintenance_mode'):
+            import maintenance_reply as MR
+            maintenance_contract = MR.contract(params['task_id'], result['page_id'], public_url)
+            if maintenance_contract:
+                for key in ('presentation', 'presentation_notice'):
+                    if result.get(key) is not None:
+                        maintenance_contract[key] = result[key]
+                result['agent_reply_contract'] = maintenance_contract
+                result['agent_reply_template_file'] = maintenance_contract['template_file']
         if isinstance(result.get("agent_reply_contract"), dict):
             try:
                 result.update(_write_agent_reply_artifacts(params.get("task_id"), result))
@@ -9147,6 +9222,8 @@ def _write_agent_reply_artifacts(task_id, finalized):
     with open(contract_file, "wb") as handle:
         handle.write(contract_bytes)
     plan = EP.load(str(task_id or ""))
+    if not plan and C.task_temp_path(task_id, DS.FILE).is_file():
+        _, _, plan = _load_direct_maintenance_delivery(task_id, contract.get('page_id'))
     if plan:
         DS.bind_reply_contract(plan, contract_sha256)
     validator_params = {
@@ -10915,7 +10992,13 @@ def cmd_rollback(params):
     return page_versions.rollback(params)
 
 
+def cmd_repair_reply_contract(params):
+    import repair_reply_contract
+    return repair_reply_contract.repair(params)
+
+
 _COMMANDS = {
+    "repair_reply_contract": cmd_repair_reply_contract,
     'resource_transfer': cmd_resource_transfer,
     'versions': cmd_versions,
     'version': cmd_version,
@@ -10968,6 +11051,7 @@ _COMMANDS = {
 }
 
 _TRACE_REQUIRED_COMMANDS = {
+    "repair_reply_contract",
     'rollback',
     "prepare_maintenance", "file_prepare", "file_status", "file_confirm_delivery", "file_assess_source",
     "reconcile_delivery",
