@@ -23,7 +23,7 @@ def project_result(result, resource):
     return {key: result[key] for key in allowed if key in result}
 
 
-def capture(task_id,contract,result,resource='grant',hydrate_csv=False):
+def capture(task_id,contract,result,resource='grant',hydrate_csv=False,query_asset=None):
     if not task_id or not isinstance(result,dict) or result.get('code') not in (0,None) or result.get('success') is False:
         raise EP.PlanError('SNAPSHOT_VALIDATION_REQUIRED','只可保存已成功验证的数据')
     if resource not in ('grant','package'):raise EP.PlanError('SNAPSHOT_RESOURCE_INVALID','未知数据源类型')
@@ -39,6 +39,9 @@ def capture(task_id,contract,result,resource='grant',hydrate_csv=False):
     body={'version':VERSION,'task_id':task_id,'resource':resource,'contract':contract,
           'contract_fingerprint':EP.digest(contract),'captured_at':datetime.now(timezone.utc).isoformat(),
           'result':result,'materialized':materialized}
+    if query_asset is not None:
+        if not isinstance(query_asset, str) or not query_asset.strip():raise EP.PlanError('INVALID_ASSET','样例资产必须为非空字符串')
+        body['query_asset']=query_asset.strip()
     # Never accept credentials as snapshot payload. Values/CSV references stay local; only normalized data is rendered.
     EP._no_secrets(body)
     data_path=C.task_temp_path(task_id,'verified-snapshots/data-'+EP.digest(body)+'.json',create_parent=True)
@@ -128,9 +131,15 @@ def materialize_registered(params):
             raise EP.PlanError('SNAPSHOT_ENDPOINT_MISMATCH','当前endpoint与原注册身份不同')
         credential=client.load_credential(identifier,task_id=task)
         if resource=='grant':
-            result=DG.query_grant(endpoint,identifier,credential['signature'],api_key=key)
             contract=registration['contract']
             kind=contract['kind']
+            query_asset=params.get('asset') if kind=='query_kline' else None
+            if kind=='query_kline' and not query_asset:return {'code':1,'error':'KLINE_ASSET_REQUIRED','message':'恢复K线数据时须提供当前asset；授权未保存资产'}
+            result=DG.query_grant(endpoint,identifier,credential['signature'],api_key=key,**({'asset':query_asset} if query_asset is not None else {}))
+            if kind=='query_kline':
+                from kline_contract import validate_result
+                evaluated=validate_result({**contract['payload'],'asset':query_asset},result)
+                if not evaluated.get('success'):return {'code':1,'error':evaluated.get('error_code')}
             if kind=='fast_query_minute':
                 import grant_capabilities as GC
                 evaluated=GC.evaluate_minute(contract['payload'],result)
@@ -153,6 +162,6 @@ def materialize_registered(params):
                 value=outputs.get(read.get('output')) or {}
                 if value.get('error') or BD._inspect_output_data(value.get('data')) is not None:
                     raise EP.PlanError('SNAPSHOT_DATA_EMPTY','公式包缺少必需有效产出')
-        return {'code':0,**capture(task,registration['contract'],result,resource,hydrate_csv=True),
+        return {'code':0,**capture(task,registration['contract'],result,resource,hydrate_csv=True, **({'query_asset': query_asset} if resource=='grant' and query_asset is not None else {})),
                 'data_mode':'snapshot','message':'已保存数据快照；不会自动更新，页面必须标明数据时点'}
     except EP.PlanError as exc:return exc.as_dict()

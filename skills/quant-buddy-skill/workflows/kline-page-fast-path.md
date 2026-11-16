@@ -1,54 +1,34 @@
 # K线活页快路径（QBS → QBV）
 
-> 适用于用户要求“以后还能打开”的 K线/蜡烛图/OHLC/开高低收活页。普通 K线活页不调用图片型 `renderKLine`。只有用户明确“只要PNG/只要图片、不需要活页”时，才进入旧的图片交付流程。
+适用于单资产日K线/蜡烛图/OHLC/开高低收活页。先读 [query_kline](../tools/query_kline.md)。分钟和多资产沿相应专用工具；只有明确只要PNG/图片时进入旧的renderKLine流程。
 
-## 固定顺序
+## 数据与首答
 
-```text
-确认唯一资产与日期锚点
-→ QBS fast_query(window) 查询开盘价、最高价、最低价、收盘价、成交量
-→ 必要时 fetch_fastquery_csv.py 写入完整 artifact
-→ 计算/核对实际首末日期、有效观测数、单位和复权口径
-→ 发送本轮完整业务首答
-→ prepare-fast-query-page / Handoff 交给 QBV
-→ QBV 注册同一份 OHLCV Grant
-→ build_dashboard type:candlestick
-→ 公开页验收同一数据源的图表、成交量和均线
-→ 补真实链接
-```
+1. 确认用户的单个资产名称、简称或代码和窗口；可直接使用asset，由服务端按fast_query相同规则解析。
+2. 调用query_kline，例如 `{"asset":"贵州茅台","limit_candles":120,"indicators":["ma5","ma20","macd"]}`。核对返回的标准ticker与asset_resolution。取得同轴OHLCV和服务端指标，无需逐字段fast_query或自写MA公式。普通日K线活页不调用图片型renderKLine。
+3. 核对实际first_date、last_date、data_points、末日收盘价与指标值，保留warnings。均线/BOLL/MACD/RSI预热已由服务端处理；历史不足的null不能补0。
+4. 发送本轮完整业务首答：资产、实际窗口、日频、所选指标及其周期、最新值和限制。单位/复权未返回时说明未核验，不能用请求起点或今天冒充实际数据日期。
 
-## 数据合同
+基础OHLCV/仅volume为2RU；含任意计算指标整次3RU。一次选择多个指标不会按条累加。
 
-同一份授权序列必须包含：`日期`、`开盘价`、`最高价`、`最低价`、`收盘价`；用户要求带量时还必须包含`成交量`。MA5/MA20等指标应作为同一页面的按日期对齐叠加序列；可以来自本轮已验证的公式输出，但不能从另一套图片或另一轮行情复制。
+## 活页交接
 
-首答必须使用实际返回的日期和数量，不把`window_days`当成实际样本数，不把请求起点当成图表首日；接口未返回复权方式时明确写“复权口径未核验”。
+沿answer-first的 `prepare-validated-page` 生成Capsule/Handoff/Job：kline角色的contract为 `{"kind":"query_kline","payload":{"limit_candles":120,"indicators":["ma5","ma20","macd"]}}`，data或artifact_file保存本轮真实结构化结果；page_intent.primary_visualization为candlestick。不得改用只接受fast_query格式的prepare-fast-query-page来包装新响应。ticker/asset/task_id/turn_id不塞进授权payload。资产放在asset_resolution、本轮数据或页面asset中；QBV验证时用外层asset作为样例，它不参与注册合同。
 
-## 页面合同
+QBV按其 `tools/query_kline.md` 使用validate_grant_set验证该合同并生成注册参数，再登记kind=query_kline；合同只含窗口和指标，样例asset在合同外，注册与refresh不取数。已由QBV验证的合同和收据沿用，不重复验证同一个未改动合同。授权注册与重新校验各3RU，页面凭grant_id/signature取数0RU。
 
-QBV spec使用：
+QBV candlestick面板直接绑定这一份Grant：
 
 ```json
-{
-  "type": "candlestick",
-  "grant_id": "dg_...",
-  "open": "开盘价",
-  "high": "最高价",
-  "low": "最低价",
-  "close": "收盘价",
-  "volume": "成交量",
-  "overlays": ["MA20"]
-}
+{"type":"candlestick","grant_id":"dg_...","asset":"SH600519","asset_source":{"query_param":"asset"},"overlay_source":"grant","open":"open","high":"high","low":"low","close":"close","volume":"volume","overlays":["ma5","ma20"],"x_range":{"start_date":"实际first_date"}}
 ```
 
-页面运行时直接从Grant绘制蜡烛、成交量和均线；不得先生成PNG再上传作为普通K线活页主链。
+overlays只填已请求且有效的价格指标；BOLL用boll_up/boll_mid/boll_dn，volma使用volume_overlays绑定成交量轴，MACD/RSI用同源副图。构建与公开验收核对同一Grant的实际日期、OHLCV和指标后补真实链接。
 
-## 追加指标
+## 同页追加指标
 
-用户在同一活页上说“加MA20”时，当前轮必须：
+用户说“加MA20”时，将ma20纳入query_kline指标列表重新查询核对，先说明真实值、区间和口径，再交QBV验证并注册新合同，以原page_id更新原页。页面不能通过queryDataGrant参数自行增加授权外指标。纯标题、颜色、布局维护沿现有同页维护规则，无需重新查数。
 
-1. 重新查询并核对MA20；
-2. 先发送MA20数值、计算区间、单位、口径和限制；
-3. 再以原`page_id`更新同一页面；
-4. 验收公开页面中的MA20与首答一致。
+同一query_kline Grant内的指标列使用 `overlay_source:"grant"`，避免将ma20等列名误识别为独立公式包产出；历史跨来源公式overlays继续沿原规则。
 
-纯标题、颜色、布局等不产生新数据的维护不受该首答门禁阻塞。
+切换资产时沿用同一grant_id/signature，每次queryDataGrant传asset（名称或代码）；页面默认asset不属于授权范围。仅修改指标/窗口时需重新注册。

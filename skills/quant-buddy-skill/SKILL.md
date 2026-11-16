@@ -3,16 +3,17 @@ name: quant-buddy-skill
 slug: quant-buddy-skill
 displayName: QuantBuddy 宽宝量化技能
 author: guanzhao
-version: 4.25.67
+version: 4.25.70
 description: |
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据；支持查询 A 股股票所属行业。
   显式日期的单值快照可同时返回按实际更新日对齐的日频行情与估值；字段日期不同时按字段自身日期展示，不将较晚刷新字段误判为无数据。
   查询最近N个交易日的价格序列、日涨跌幅序列、窗口最高价、最低价、振幅等短期统计。
+  查询单资产日K线及MA/BOLL/MACD/RSI等指标用query_kline，asset支持名称、简称及多种代码格式，支持query_kline数据授权供活页持续刷新。
   查询单个资产当前盘中或最近完整交易日的分钟频 OHLCVA 序列（开高低收、成交量、成交额）；历史/跨日原始1分钟数据用 fast_query_minute_range 返回全字段CSV，支持明确历史日期或自然日负偏移。
   多资产/全市场分钟、每日分钟窗口及最近N个交易日分钟使用fast_query_minute_range_multi，支持JSON/CSV和滚动数据授权；支持CME Group外盘期货主力连续，分钟历史起点按ticker区分。
   查询上市公司最近报告期的营业收入、净利润、归母净利润、ROE、总资产、资产负债率等财务指标（A股及部分港/美股字段，以工具返回为准）。
   查询单只股票的预计算及千维动态指标画像，按估值、财务分析、资金流向、波动率、宏观胜率背景、资产走势等维度返回最新值与上一有效值。
-  查询部分美股及国内商品期权槽位的当前对应合约、空槽状态和滚动窗口换约信息，支持可更新活页数据授权。
+  查询国内期货期权槽位行情，包含沪深300、上证50、中证1000三个股指标的；部分美股及国内商品期权另支持当前对应合约、空槽和滚动换约查询。槽位行情不等于完整期权链。
   支持A股选股筛选、因子计算、策略回测、净值对比、行业聚合排名、上传自有因子CSV、渲染图表。
   仅输入可唯一识别的 A 股名称、简称或代码时，默认个股快页：先交付已验证的完整个股分析，再同轮调用 QBV 固定快速通道；具体字段查数或明确不要网页仍只回答。
   港股、美股优先支持行情价格查询；财务/报告期字段应先尝试 fast_query(report)，按工具实际返回决定。
@@ -21,7 +22,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.25.67
+  version: 4.25.70
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -120,7 +121,11 @@ runtimeRequirements:
 
 ---
 
-## 美股及国内商品期权对应合约查询
+## 国内期货期权行情与合约映射
+
+**国内期货期权数据不只包含商品**：现有槽位行情还包含沪深300（数据列 `沪深300主连 / IF.CFE`，期权代码 IO）、上证50（`上证50主连 / IH.CFE`，HO）、中证1000（`中证1000主连 / IM.CFE`，MO）。查询价格、IV、持仓量或成交额时先走 [股指期权槽位行情](workflows/cn-index-options.md)，使用目录中的 `国内期货期权-*` 数据，不因合约映射接口限制直接答“没有股指期权数据”。32个目录字段不保证每个标的、每槽、每日都有有效值；完整期权链和具体合约映射须分别确认。
+
+### 美股及国内商品期权对应合约查询
 
 用户问槽位对应合约、换约/换月，或要解释期权IV、价格、持仓量变化时，读取 [tools/query_option_contracts.md](tools/query_option_contracts.md)，使用 `query_option_contracts`。参数为 `asset + query_type`：snapshot查最新已生效映射，window用lookback_days查自然日窗口。美股按纽约日期，国内按北京时间及品种夜盘归属交易日；国内empty为空槽，不能补旧合约，E1/E2不等同于期货主力/次主力。支持QBV `option_contracts` 动态授权。保留实际trade_date，按行情实际日与选约生效日对齐，不把拼接价格当持有收益。skill_server将公开参数转换为各市场Celery五字段日期查询；国内依赖新增dataServer查询任务，未部署不得假装成功。
 
@@ -155,7 +160,7 @@ runtimeRequirements:
    - 同一对话追问可复用当前 session；新问题必须新建 session。
    - 所有业务 HTTP/SSE 请求统一携带 `x-skill-name: quant-buddy-skill` 与当前 `x-task-id`，用于跨 Skill Trace 聚合；quant-buddy-view 上游任务不得切换 task_id。
 2. **原生工具优先，禁止脚本包装**：
-   - 平台已有原生工具时，必须直接调用原生工具：`fast_query`、`fast_query_minute`、`fast_query_minute_range`、`fast_query_minute_range_multi`、`confirmDataMulti`、`selectByComposition`、`runMultiFormulaBatchStream`、`resumeJob`、`readData`、`renderKLine`、`renderChart` 等；但普通K线活页必须先走 `kline-page-fast-path.md`，不可调用 `renderKLine`。
+   - 平台已有原生工具时，必须直接调用原生工具：`fast_query`、`query_kline`、`fast_query_minute`、`fast_query_minute_range`、`fast_query_minute_range_multi`、`confirmDataMulti`、`selectByComposition`、`runMultiFormulaBatchStream`、`resumeJob`、`readData`、`renderKLine`、`renderChart` 等；但普通K线活页必须先走 `kline-page-fast-path.md`，不可调用 `renderKLine`。
    - 禁止用 Bash / shell / Python / `scripts/call.py` / `run_skill_script` 包装已有原生平台工具。唯一编排例外是 quant-buddy-view 的 `qbs_bridge.py`，它只负责继承 task_id 和隔离 session，不改写业务参数或结果。
    - 只有平台明确不存在等价原生工具，且 workflow 明确允许脚本兜底时，才可使用本地脚本。
    - **许可例外（csv 解析）**：当 `fast_query` 返回 `mode:"csv"` + `csv_url`（数据点 > 500 的正常交付）时，调用 `python scripts/fetch_fastquery_csv.py "<csv_url>"` 下载并解析该 csv 属于**许可路径**——这是消费工具返回的 OSS 产物（平台无等价原生解析工具），不算"包装原生工具"。历史分钟长表使用 `scripts/fetch_minute_range_csv.py @output/minute-manifest.json --output output/minute-data.json`，不能套用日频宽表解析器。但仍禁止用裸 `curl` / 自写临时脚本替代该脚本。
@@ -320,6 +325,7 @@ SKILL_ROOT/
 │   ├── confirm_data_multi.md    → 工具名 `confirmDataMulti`    批量确认数据项存在性与维度（写公式前必查）
 │   ├── run_multi_formula.md     → 工具名 `runMultiFormulaBatchStream`  执行公式批次（选股/回测/因子计算）
 │   ├── read_data.md             → 工具名 `readData`            读取公式计算结果（需传 data_id，非 expression_id）
+│   ├── query_kline.md           → 结构化日K线OHLCV与技术指标；基础2RU/含指标3RU，可授权活页
 │   ├── render_kline.md          → 工具名 `renderKLine`         渲染 K 线图（直接传 ticker，无需提前跑公式）
 │   ├── stock_profile.md         → 工具名 `stockProfile`        单股预计算指标画像（估值/财务/资金/波动/走势）
 │   ├── select_by_composition.md → 工具名 `selectByComposition` 已物化维度组合选股/筛选（不走公式引擎）
@@ -413,6 +419,7 @@ SKILL_ROOT/
 
 | 场景 | 触发词 | 目标 leaf workflow |
 |------|--------|----------|
+| 国内股指期权槽位行情 / 数据覆盖 | 沪深300/上证50/中证1000 + 期权/IV/隐含波动率/ATM/25C/25P/E1/E2；国内期货期权是否含股指 | `global-rules.md` → `cn-index-options.md`；槽位行情走数据目录与公式/读取，不用合约映射接口判断行情覆盖；完整链另行核验 |
 | 单资产历史/跨日分钟 | 用户明确历史交易日或跨日区间的原始1分钟/分时CSV | 确认唯一资产 → `tools/fast_query_minute_range.md` → `fast_query_minute_range`；不传fields/format/remove_nan |
 | 多资产/全市场分钟、每日时段或交易日滚动 | 多个资产、market、分钟范围、最近N个交易日或current_trade_day规则 | `tools/fast_query_minute_range_multi.md` → `fast_query_minute_range_multi`；用assets/asset/market三选一，不传tickers/fields/format |
 | 单资产日内分钟 / 分时序列 | 明确要求分钟、分时、1分钟、每分钟、日内 OHLCV、逐分钟开高低收/成交量；不含历史日期、区间或多资产 | 先按资产库规则确认唯一资产 → 直接调用 `fast_query_minute` → 成功即停 |
@@ -424,7 +431,7 @@ SKILL_ROOT/
 | 最新上市/退市/更名/换代码或资产状态冲突 | 现在上市了吗、最新代码、是否退市；或本地资产库命中但平台返回 `ASSET_NOT_FOUND` | `global-rules.md` → `external-fact-verification.md`；外部事实与 Quant Buddy 数据状态必须分开判断 |
 | 单资产标准历史字段同图 | 一个资产 + 2～4 个价格/成交/估值标准历史字段 + “放在一张图里/画成图/同图比较” | **只读 `visual-page-fast-path.md`**；先 route，再一次 `fast_query`，一次命令准备 capsule + Handoff + Job；禁止进入 `quant-standard.md`、`render-kline.md` 和静态渲染 |
 | 申万一级行业近N日涨跌幅排名图 | 申万一级行业/行业板块 + 最近N日/最近一个月 + 涨跌幅 + 排名图/柱状图/可视化 | **只读 `industry-ranking-fast.md`**；固定一条行业聚合公式，只读 `indexinfo_id`，直接准备已物化 QBV Job；禁止进入 `global-rules.md`、`quant-standard.md`、行业 recipe 和 `renderChart` |
-| K线活页（可持续打开） | 明确出现 K线/K 线/蜡烛图/OHLC/开高低收，且没有明确只要图片 | **只读 `kline-page-fast-path.md`**；QBS `fast_query(window)` 验证 OHLCV 后先答，再交给 QBV 的 `candlestick` 运行时面板；禁止调用图片型 `renderKLine` |
+| K线活页（可持续打开） | 明确出现 K线/K 线/蜡烛图/OHLC/开高低收，且没有明确只要图片 | **只读 `kline-page-fast-path.md`**；QBS `query_kline` 验证 OHLCV 和所选指标后先答，再交给 QBV 的 `candlestick` 运行时面板；禁止调用图片型 `renderKLine` |
 | K线图片（明确只要PNG/图片） | 用户明确不要网页、只要图片 artifact | `global-rules.md` → `render-kline.md`；此时才允许 `renderKLine` |
 | 固定区间累计涨跌幅 | 从A到B、某年某月至某年某月、区间收益、累计涨跌幅、区间表现、多资产区间对比 | `global-rules-lite.md` → `period-return-compare.md` |
 | 数据下载 / 导出本地 CSV | 下载成CSV、导出到本地、保存到本地、下载历史数据 | `global-rules.md` → `recipes/download-data.md`；单资产单字段时序优先 `runMultiFormulaBatchStream` → `downloadData` → `write_skill_file`，禁止 Bash 兜底 |
@@ -446,6 +453,7 @@ SKILL_ROOT/
 
 | 用户意图特征 | 禁止进入 | 强制导向 | 判断依据 |
 |-------------|---------|---------|---------|
+| 国内股指期权的槽位价格、IV、持仓量或成交额 | 普通行情`fast-snapshot`；用`query_option_contracts`判断行情是否存在 | `cn-index-options.md` | `国内期货期权-*`矩阵包含IF/IH/IM股指维度；行情目录与合约映射准入独立 |
 | 盘中/实时/当前/现在/今天/今日/当日 + 查询日内行情（涨幅排名、涨停、日内跌幅等） | `quick-snapshot` `quick-window` | `quant-standard.md`（优先匹配分钟频卡片） | 需要分钟频卡片的专用公式；`use_minute_data: true` 已是全局默认 |
 | 盘中/实时/当前/今天/今日/当日 + 全市场/板块 + TopN/排名/阈值名单/选股/筛选/信号 | `quick-snapshot` `quick-window` | `quant-standard.md` → 优先命中"实时横截面 TopN 排名"或"盘中阈值筛选_名单查询"微流程 | 这类高频短题有专用封闭微流程 |
 | 给出明确起止日期，只问区间累计涨跌幅/收益 | `event-study` `quick-window` `quant-standard` | `period-return-compare.md` | 本质是固定区间收益比较，不是因果窗口分析，也不是复杂量化流程 |
@@ -503,7 +511,7 @@ SKILL_ROOT/
 - 营收 / 净利润 / ROE / 总资产 / 总负债 / 资产负债率 → `quick-report-period`
 
 禁止：
-- 普通K线活页不得优先调用 `renderKLine`；先读 `kline-page-fast-path.md` 并用 `fast_query(window)` 取得OHLCV。只有用户明确只要PNG/图片时才调用 `renderKLine`
+- 普通K线活页不得优先调用 `renderKLine`；先读 `kline-page-fast-path.md` 并用 `query_kline` 取得OHLCV与服务端技术指标。只有用户明确只要PNG/图片时才调用 `renderKLine`
 - 先做分析性扩写，再补充结构化数值
 - **在读取对应 leaf workflow 之前**直接调用 `runMultiFormulaBatchStream` / `renderKLine` / `scanDimensions` / `stockProfile` / 输出“无法联网”或“无法获取实时数据”
 - 资产已唯一命中 `presets/assets_db/future.yaml` 时，静态输出“平台不支持期货/期权”或“期货无法查询”；应先按行情/窗口序列工具链尝试，失败后只按工具返回说明当前品种或字段暂不可得
@@ -539,7 +547,7 @@ SKILL_ROOT/
 
 | ✅ 支持 | ⚠️ 有条件支持 | ❌ 不支持（短期内不会支持） |
 |------|------|------|
-| A股个股（沪深主板/创业板/科创板/北交所） | ETF / LOF / 场外基金（先 grep 本地资产库，能唯一命中则正常执行；未命中才告知不支持）；期货行情/窗口序列（先 grep `presets/assets_db/future.yaml`，唯一命中后按工具返回尝试行情字段；不承诺估值/财务/K线图）；部分美股及国内商品期权槽位合约映射、空槽及换约（query_option_contracts，以实际返回为准） | 完整期权链及未覆盖市场/标的的期权 |
+| A股个股（沪深主板/创业板/科创板/北交所） | ETF / LOF / 场外基金（先 grep 本地资产库，能唯一命中则正常执行；未命中才告知不支持）；期货行情/窗口序列（先 grep `presets/assets_db/future.yaml`，唯一命中后按工具返回尝试行情字段；不承诺估值/财务/K线图）；国内期货期权槽位行情含沪深300/上证50/中证1000，按实际字段和日期验证；部分美股及国内商品期权槽位合约映射、空槽及换约（query_option_contracts，以实际返回为准） | 当前未提供完整期权链接口；未覆盖市场/标的的期权 |
 | 港股个股（HK + 代码，如 HK0001） | | 台股 / 韩股 / 日股 / 德股等其他境外市场 |
 | 美股个股（NASDAQ: 代码.N；NYSE: 代码.O；AMEX: 代码.A） | | |
 | 主要宽基指数（沪深300、中证500、万得全A等） | | |

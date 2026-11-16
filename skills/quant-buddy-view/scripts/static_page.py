@@ -1629,11 +1629,32 @@ def _extract_package_credentials(html):
 
 
 def _extract_grant_credentials(html):
-    return [
-        {"grant_id": item["credential_id"], "signature": item["signature"]}
+    pairs = [
+        {'grant_id': item['credential_id'], 'signature': item['signature']}
         for item in FRC.discover_credential_pairs(html, reject_ambiguous=False)
-        if item.get("kind") == "grant"
+        if item.get('kind') == 'grant'
     ]
+    # Page-owned initial assets are query context, not credential or registration scope.
+    # Standard BOOT JSON and declared JSON source objects are inspectable without executing page scripts.
+    assets = {}
+    known = {(item['grant_id'], item['signature']) for item in pairs}
+    if '"asset"' in str(html):
+        for fragment in _iter_braced_blocks(html):
+            if '"grant_id"' not in fragment or '"asset"' not in fragment:
+                continue
+            try:
+                item = json.loads(fragment)
+            except (ValueError, TypeError):
+                continue
+            if (not isinstance(item, dict) or not isinstance(item.get('grant_id'), str) or not isinstance(item.get('signature'), str)
+                    or not isinstance(item.get('asset'), str) or not item['asset'].strip() or len(item['asset']) > 100):
+                continue
+            key = (item.get('grant_id'), item.get('signature'))
+            if key not in known:
+                continue
+            assets.setdefault(key, set()).add(item['asset'].strip())
+    return [dict(pair, **({'asset': asset} if asset is not None else {}))
+            for pair in pairs for asset in sorted(assets.get((pair['grant_id'], pair['signature']), [])) or [None]]
 
 
 def _signature_hashes(html):
@@ -4295,7 +4316,7 @@ def _validate_registered_qbs_credentials(endpoint, packages, grants):
         import data_grant as DG
         for item in grants:
             try:
-                response = DG.query_grant(endpoint, item["grant_id"], item["signature"])
+                response = DG.query_grant(endpoint, item["grant_id"], item["signature"], **({"asset": item["asset"]} if "asset" in item else {}))
             except Exception as exc:
                 response = {"code": 1, "error": "QUERY_EXCEPTION", "message": str(exc)}
             ok = isinstance(response, dict) and response.get("code") == 0
@@ -9120,9 +9141,9 @@ def _direct_query_package(package_id, signature):
     })
 
 
-def _direct_query_grant(grant_id, signature):
+def _direct_query_grant(grant_id, signature, asset=None):
     import data_grant as DG
-    return DG.cmd_query({"grant_id": grant_id, "signature": signature})
+    return DG.cmd_query({"grant_id": grant_id, "signature": signature, **({"asset": asset} if asset is not None else {})})
 
 
 def _redact_direct_payload(value):
@@ -9283,7 +9304,8 @@ def _run_direct_deliver(task_id, page_id, expected_revision):
     package_ids = _unique_strings(record.get("package_ids"))
     grant_ids = _unique_strings(record.get("grant_ids"))
     package_credentials = _direct_credential_map(_extract_package_credentials(html), "package_id")
-    grant_credentials = _direct_credential_map(_extract_grant_credentials(html), "grant_id")
+    grant_sources = _extract_grant_credentials(html)
+    grant_credentials = _direct_credential_map(grant_sources, "grant_id")
     missing_package_ids = sorted(item for item in package_ids if len(package_credentials.get(item, set())) != 1)
     missing_grant_ids = sorted(item for item in grant_ids if len(grant_credentials.get(item, set())) != 1)
     if missing_package_ids or missing_grant_ids:
@@ -9312,21 +9334,17 @@ def _run_direct_deliver(task_id, page_id, expected_revision):
     grant_query_results = []
     for grant_id in grant_ids:
         signature = next(iter(grant_credentials[grant_id]))
-        result = _direct_query_grant(grant_id, signature)
-        if not (isinstance(result, dict) and result.get("code") == 0):
-            return _direct_failure(
-                "DIRECT_DATA_QUERY_FAILED",
-                "数据授权实时查询失败，未执行 finalize",
-                failed_kind="data_grant",
-                failed_id=grant_id,
-                result=_redact_direct_payload(result),
-            )
-        redacted_result = _redact_direct_payload(result)
-        grant_query_results.append({"grant_id": grant_id, "result": redacted_result})
-        grant_results.append({
-            "grant_id": grant_id,
-            "result_file": _write_direct_grant_result(task_id, grant_id, result),
-        })
+        assets = [item.get('asset') for item in grant_sources if item['grant_id'] == grant_id and item['signature'] == signature]
+        for asset in assets or [None]:
+            result = _direct_query_grant(grant_id, signature, **({'asset': asset} if asset is not None else {}))
+            if not (isinstance(result, dict) and result.get('code') == 0):
+                return _direct_failure('DIRECT_DATA_QUERY_FAILED', '数据授权实时查询失败，未执行finalize',
+                                       failed_kind='data_grant', failed_id=grant_id, result=_redact_direct_payload(result))
+            redacted_result = _redact_direct_payload(result)
+            identity = {'grant_id': grant_id, **({'asset': asset} if asset is not None else {})}
+            grant_query_results.append({**identity, 'result': redacted_result})
+            artifact_id = grant_id + ('_' + hashlib.sha256(asset.encode()).hexdigest()[:12] if asset is not None else '')
+            grant_results.append({**identity, 'result_file': _write_direct_grant_result(task_id, artifact_id, result)})
 
     template_meta = record.get("agent_reply_template") if isinstance(record.get("agent_reply_template"), dict) else {}
     template_ref = str(template_meta.get("template_ref") or "").strip()

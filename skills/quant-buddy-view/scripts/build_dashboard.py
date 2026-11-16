@@ -127,30 +127,43 @@ def _resolve_credential(params):
 
 
 def _resolve_grant_panels(panels, task_id=None):
-    """扫描 panels 找 grant_id 引用（与公式包 output 面板并存）：signature 缺省用本地凭证补全，
-    并把 panel.output 归一成 grant_id、打 _source 标记，使下游校验/渲染管线无需区分来源。
-    返回 (grants:[{grant_id,signature}] 去重, err|None)。"""
-    seen = {}
-    grants = []
+    """Bind reusable grants to page-owned asset sources, independently of grant identity."""
+    seen, signatures, grants = {}, {}, []
     for p in panels:
-        if not isinstance(p, dict):
+        if not isinstance(p, dict) or not p.get('grant_id'):
             continue
-        gid = p.get("grant_id")
-        if not gid:
-            continue
-        p["_source"] = "grant"
-        if not p.get("output"):
-            p["output"] = gid
-        if gid in seen:
-            continue
-        sig = p.get("signature")
+        gid = p['grant_id']
+        p['_source'] = 'grant'
+        binding = {}
+        if 'asset' in p or 'asset_source' in p:
+            asset = p.get('asset')
+            if not isinstance(asset, str) or not asset.strip() or len(asset) > 100:
+                return None, {'code': 1, 'error': 'KLINE_ASSET_REQUIRED', 'message': '动态资产面板需要默认asset供构建验证；它属于页面，不写入授权'}
+            binding['asset'] = asset.strip()
+            source = p.get('asset_source')
+            if source is not None:
+                if (not isinstance(source, dict) or len(source) != 1 or not set(source) <= {'query_param', 'selector'}
+                    or any(not isinstance(v, str) or not v.strip() or len(v) > 200 for v in source.values())):
+                    return None, {'code': 1, 'error': 'KLINE_ASSET_SOURCE_INVALID', 'message': 'asset_source只支持一个query_param或selector'}
+                binding['asset_source'] = {k: v.strip() for k, v in source.items()}
+            output = gid + '__' + hashlib.sha256(json.dumps(binding, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:16]
+            p['output'] = output
+        else:
+            output = gid
+            p.setdefault('output', gid)
+        sig = p.get('signature')
         if not sig:
             cred = DG.load_credential(gid, task_id=task_id) if task_id else DG.load_credential(gid)
-            sig = cred.get("signature") if cred else None
+            sig = cred.get('signature') if cred else None
         if not sig:
-            return None, {"code": 1, "message": f"grant_id={gid} 缺 signature（可在 panel 里指定，或先 register/query 落一份本地凭证 output/data_grants/{gid}.json）"}
-        seen[gid] = sig
-        grants.append({"grant_id": gid, "signature": sig})
+            return None, {'code': 1, 'message': f'grant_id={gid} 缺signature，须先注册或恢复本地凭据'}
+        if gid in signatures and signatures[gid] != sig:
+            return None, {'code': 1, 'error': 'GRANT_SIGNATURE_CONFLICT', 'message': '同一授权出现不同签名'}
+        signatures[gid] = sig
+        if output in seen:
+            continue
+        seen[output] = sig
+        grants.append({'grant_id': gid, 'signature': sig, **({'output': output, **binding} if binding else {})})
     return grants, None
 
 
@@ -385,6 +398,22 @@ function normalize(data) {
 function normalizeGrantData(kind, data) {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return data;
   var k = (kind || '').toLowerCase();
+  if (k === 'query_kline') {
+    if (data.schema_version!==1 || data.period!=='1d' || typeof data.ticker!=='string' || !Array.isArray(data.labels) || !data.labels.length || !Array.isArray(data.indicators) || !data.indicator_data || typeof data.indicator_data!=='object' || Array.isArray(data.indicator_data)) throw new Error('KLINE_RESPONSE_INVALID');
+    const names=[...new Set(data.indicators.map(v=>{if(typeof v!=='string')throw new Error('KLINE_INDICATORS_MISMATCH');return v.trim().toLowerCase();}))].sort();
+    if(names.length>32 || names.some(n=>!['volume','boll','macd','rsi'].includes(n) && !(/^(?:vol)?ma([1-9]\d{0,2})$/.test(n) && Number(n.match(/\d+$/)[0])<=250)))throw new Error('KLINE_INDICATORS_MISMATCH');
+    const expected=names.flatMap(n=>({volume:[],boll:['boll_mid','boll_up','boll_dn'],macd:['macd_dif','macd_dea','macd_bar']}[n] || [n])).sort();
+    if(JSON.stringify(Object.keys(data.indicator_data).sort())!==JSON.stringify(expected))throw new Error('KLINE_INDICATORS_MISMATCH');
+    const cols=Object.assign(Object.fromEntries(['open','high','low','close','volume'].map(k=>[k,data[k]])), data.indicator_data);
+    if(Object.values(cols).some(v=>!Array.isArray(v) || v.length!==data.labels.length))throw new Error('KLINE_DATA_MISMATCH');
+    if(data.data_points!==data.labels.length || data.first_date!==data.labels[0] || data.last_date!==data.labels.at(-1) || !Array.isArray(data.warnings))throw new Error('KLINE_WINDOW_INVALID');
+    return data.labels.map((day,i)=>{
+      if(typeof day!=='string' || !/^\d{8}$/.test(day) || dailyKey(day).replace(/-/g,'')!==day || Number(day.slice(0,4))<1900 || i>0 && day<=data.labels[i-1])throw new Error('KLINE_DATES_INVALID');
+      for(const [k,v] of Object.entries(cols))if(!(v[i]===null && !['open','high','low','close'].includes(k)) && (typeof v[i]!=='number' || !Number.isFinite(v[i])))throw new Error('KLINE_VALUES_INVALID');
+      if(Math.min(data.open[i],data.high[i],data.low[i],data.close[i])<=0 || data.low[i]>Math.min(data.open[i],data.close[i]) || data.high[i]<Math.max(data.open[i],data.close[i]) || data.volume[i]!==null && data.volume[i]<0)throw new Error('KLINE_VALUES_INVALID');
+      return Object.assign({日期:day},Object.fromEntries(Object.entries(cols).map(([k,v])=>[k,v[i]])));
+    });
+  }
   if (k === 'option_contracts') {
     if (!Array.isArray(data.records)) throw new Error('合约授权records格式错误');
     return data.records;
@@ -849,6 +878,14 @@ function renderCandlestickChart(el, tab, panel, recorder) {
   }
   const hasVolume=ix.volume>=0 && panel.show_volume!==false;
   if (hasVolume) series.push({type:'bar',name:(panel.output_labels||{})[tab.columns[ix.volume]]||'成交量',data:rows.map(r=>r[ix.volume] ?? null),xAxisIndex:1,yAxisIndex:1,itemStyle:{color:'#9ab6cc'}});
+  if ((panel.volume_overlays || []).length && !hasVolume) throw new Error('成交量均线需要成交量面板');
+  for (const name of panel.volume_overlays || []) {
+    const label=(panel.output_labels || {})[name] || name, index=tab.columns.indexOf(label);
+    if(index<0)throw new Error('成交量叠加字段缺失: '+name);
+    const values=rows.map(r=>r[index] ?? null);
+    if(!values.some(v=>typeof v==='number' && Number.isFinite(v)) || values.some(v=>v!=null && (typeof v!=='number' || !Number.isFinite(v))))throw new Error('成交量叠加序列在展示窗口无有效数值: '+name);
+    series.push({type:'line',name:label,data:values,showSymbol:false,connectNulls:false,xAxisIndex:1,yAxisIndex:1,lineStyle:{width:1.5}});
+  }
   const chart=recorder || chartLibrary().init(el);
   const grids=[{left:56,right:24,top:34,bottom:hasVolume?'30%':'14%'}];
   const xs=[{type:'category',data:dates,axisLabel:{color:'#697586'}}];
@@ -894,6 +931,7 @@ function panelOutputNames(panel) {
   if (panel.date_binding) return panel.date_binding.outputs;
   if (panel.binding) return [...new Set(Object.values(panel.binding.values || {}).map(ref => ref.output))];
   if (Array.isArray(panel.outputs) && panel.outputs.length) return panel.outputs;
+  if (panel.output && panel.overlay_source === 'grant') return [panel.output];
   if (panel.output) return [panel.output].concat(Array.isArray(panel.overlays) ? panel.overlays : []);
   return [];
 }
@@ -1259,7 +1297,7 @@ function parseSSE(text) {
 function markPackagePanelsError(msg) {
   PANEL_REG.forEach(reg => {
     if (reg.filled) return;
-    if (reg.panel._source === 'grant' && !(reg.panel.overlays || []).length) return;
+    if (reg.panel._source === 'grant' && (reg.panel.overlay_source === 'grant' || !(reg.panel.overlays || []).length)) return;
     if ((reg.panel.type || 'table') === 'text') return;
     renderPanelBody(reg.body, reg.panel, reg.span, {tab: null, out: {error: msg}});
   });
@@ -1344,21 +1382,44 @@ async function fetchPackageLive() {
 }
 
 // 数据授权取数：普通 JSON（非 SSE，不重算），各 grant 并发独立请求、互不阻塞
+let grantAssetEpoch = 0;
+function resolveGrantAsset(g) {
+  const source=g.asset_source || {};
+  let value;
+  if(source.query_param) value=new URLSearchParams(location.search).get(source.query_param);
+  if(source.selector) value=document.querySelector(source.selector)?.value;
+  return typeof value==='string' && value.trim() ? value.trim() : g.asset;
+}
 async function fetchGrantsLive() {
-  const grants = BOOT.grants || [];
+  const grants = BOOT.grants || [], epoch=grantAssetEpoch;
   await Promise.all(grants.map(async (g) => {
     let out;
+    const output=g.output || g.grant_id;
     try {
-      const grantOut = await QB.queryGrant({endpoint: BOOT.endpoint, grant_id: g.grant_id, signature: g.signature});
+      const asset=resolveGrantAsset(g);
+      const grantOut = await QB.queryGrant({endpoint: BOOT.endpoint, grant_id: g.grant_id, signature: g.signature, ...(asset == null ? {} : {asset})});
       const item = grantOut[g.grant_id];
       out = {data: normalizeGrantData(item.kind, item.data), error: item.error || null};
     } catch (e) {
-      out = {data: null, error: '取数失败（可能是跨域/网络）：' + e};
+      out = {data: null, error: '取数失败: ' + e};
     }
-    LAST_OUTPUTS[g.grant_id] = out;
-    applyOutput(g.grant_id, out);
+    if(epoch!==grantAssetEpoch)return;
+    LAST_OUTPUTS[output] = out;
+    applyOutput(output, out);
     syncLiveCard(LAST_OUTPUTS);
   }));
+}
+function refreshGrantAssetSources() {
+  grantAssetEpoch++;
+  if(activeFetch) {const pending=activeFetch;return pending.finally(()=>fetchLive());}
+  return fetchLive();
+}
+function bindGrantAssetSources() {
+  if(!(BOOT.grants || []).some(g=>g.asset_source))return;
+  document.addEventListener('change', event => {
+    if((BOOT.grants || []).some(g=>g.asset_source?.selector && event.target?.matches(g.asset_source.selector))) void refreshGrantAssetSources();
+  });
+  window.addEventListener('popstate', ()=>{if((BOOT.grants || []).some(g=>g.asset_source?.query_param))void refreshGrantAssetSources();});
 }
 
 let activeFetch = null;
@@ -1367,6 +1428,7 @@ function fetchLive() {
   return activeFetch;
 }
 async function fetchLiveEpoch() {
+  const epoch=grantAssetEpoch;
   buildSkeletons();          // 先把面板骨架铺出来，产出到一个就渲染一个
   LAST_OUTPUTS = {};
   Object.entries(BOOT.snapshots || {}).forEach(([name, out]) => { LAST_OUTPUTS[name] = out; applyOutput(name, out); });
@@ -1374,6 +1436,7 @@ async function fetchLiveEpoch() {
   if (resolvePackages().length) tasks.push(fetchPackageLive());
   if (BOOT.grants && BOOT.grants.length) tasks.push(fetchGrantsLive());
   if (tasks.length) await Promise.all(tasks.map(task => task.catch(() => null)));
+  if(epoch!==grantAssetEpoch)return;
   renderBoundProse();
   // 收尾：始终没等到产出的非 text 面板，标注无产出
   PANEL_REG.forEach(reg => {
@@ -1460,6 +1523,7 @@ document.addEventListener('DOMContentLoaded', () => {
       getPosterData: getDashboardPosterData
     });
   }
+  bindGrantAssetSources();
   fetchLive();
 });
 })();
@@ -1478,7 +1542,8 @@ _BOOTSTRAP_BLOCK_RE = re.compile(
 _EMBEDDED_BOOTSTRAP = (
     "(function () {\n"
     "  window.QBV = window.QBV || {};\n"
-    "  window.QBV.refresh = fetchLive;\n"
+    "  window.QBV.refresh = refreshGrantAssetSources;\n"
+    "  bindGrantAssetSources();\n"
     "  fetchLive();\n"
     "})();\n"
     "})();\n"  # 闭合模板最外层的渲染引擎 IIFE（_RENDER_JS_TEMPLATE 开头新增的那一层）
@@ -1954,6 +2019,9 @@ def _normalize_grant_data(kind, data):
     if not isinstance(data, dict):
         return data
     k = (kind or "").lower()
+    if k == "query_kline":
+        from kline_contract import rows_from_data
+        return rows_from_data(data)
     if k == "option_contracts":
         if not isinstance(data.get("records"), list):
             raise ValueError("合约授权records格式错误")
@@ -2130,7 +2198,9 @@ def _panel_output_names(panel):
     if panel.get('binding'):
         return list(dict.fromkeys(ref['output'] for ref in panel['binding']['values'].values()))
     if panel.get("_source") == "grant" and (panel.get('type') or '').lower() == 'candlestick':
-        base = str(panel.get('grant_id') or panel.get('output') or '').strip()
+        base = str(panel.get('output') or panel.get('grant_id') or '').strip()
+        if panel.get('overlay_source') == 'grant':
+            return [base]
         overlays = panel.get('overlays') or []
         return [base] + [str(name).strip() for name in overlays if str(name).strip() and str(name).strip() != base]
     if panel.get("_source") != "grant":
@@ -2146,7 +2216,7 @@ def _panel_formula_output_names(panel):
         return []
     names = _panel_output_names(panel)
     if panel.get('_source') == 'grant':
-        return [name for name in names if name != (panel.get('grant_id') or panel.get('output'))]
+        return [name for name in names if name != (panel.get('output') or panel.get('grant_id'))]
     return names
 
 
@@ -2738,7 +2808,7 @@ def _build_authorized(params):
     for g in grants:
         try:
             gr = FQCSV.hydrate_query_result(
-                lambda g=g: DG.query_grant(endpoint, g["grant_id"], g["signature"]),
+                lambda g=g: DG.query_grant(endpoint, g["grant_id"], g["signature"], **({"asset": g["asset"]} if "asset" in g else {})),
                 timeout=20,
                 max_workers=4,
             )
@@ -2753,7 +2823,7 @@ def _build_authorized(params):
             normalized = _normalize_grant_data(gr.get("kind"), gr.get("data"))
         except ValueError as exc:
             return {"code": 1, "error": "GRANT_DATA_SHAPE_INVALID", "message": str(exc), "grant_id": g["grant_id"]}
-        verify_outputs[g["grant_id"]] = {"data": normalized, "error": None,
+        verify_outputs[g.get("output") or g["grant_id"]] = {"data": normalized, "error": None,
                                          "source_mode": (gr.get("data") or {}).get("source_mode")}
     percent_error = _validate_csv_percent_references(panels, verify_outputs)
     if percent_error:

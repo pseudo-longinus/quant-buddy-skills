@@ -6,6 +6,7 @@ import re
 from datetime import datetime
 
 TOOL_BY_KIND = {
+    'query_kline': 'query_kline',
     'option_contracts': 'query_option_contracts',
     'fast_query': 'fast_query',
     'fast_query_minute': 'fast_query_minute',
@@ -33,7 +34,7 @@ def contract_errors(contract, role_id=''):
     kind, payload = contract.get('kind'), contract.get('payload')
     if not isinstance(kind, str) or kind not in TOOL_BY_KIND:
         add('GRANT_KIND_UNSUPPORTED', '不支持的Grant kind；支持：' + ', '.join(TOOL_BY_KIND))
-    if not isinstance(payload, dict) or not payload:
+    if not isinstance(payload, dict) or (not payload and kind != 'query_kline'):
         add('GRANT_PAYLOAD_INVALID', 'Grant payload必须是非空对象')
         return errors
     if kind == 'option_contracts':
@@ -56,6 +57,9 @@ def contract_errors(contract, role_id=''):
             if (not isinstance(slots, list) or not 1 <= len(slots) <= 8 or
                 any(not isinstance(s,str) or s not in allowed_slots for s in slots) or len(set(slots)) != len(slots)):
                 add('OPTION_SLOTS_INVALID', 'slots需要1～8个不重复合法槽位')
+    if kind == 'query_kline':
+        from kline_contract import validate_request
+        for code, message in validate_request(payload, grant=True): add(code, message)
     if kind == 'fast_query_minute':
         extra = sorted(set(payload) - {'asset', 'fields'})
         if extra:

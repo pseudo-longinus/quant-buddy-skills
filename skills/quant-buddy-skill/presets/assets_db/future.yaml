@@ -12,7 +12,6 @@ future | CBOT5年期美国国债 | FV.CBT |  | 5年期美国国债
 future | CBOT小麦 | W.CBT |  | 小麦
 future | CBOT燕麦 | O.CBT |  | 燕麦
 future | CBOT稻谷 | RR.CBT |  | 稻谷
-future | CBOT豆油 | BO.CBT |  | 豆油,美豆油
 future | CBOT豆粕 | SM.CBT |  | 美豆粕
 future | CBOT超国债 | UL.CBT |  |
 future | CBOT迷你小麦 | YW.CBT |  | 迷你小麦
@@ -28,13 +27,9 @@ future | CMX-白银 | SI.CMX |  | 白银,comex银,comex白银,COMEX银,COMEX白�
 future | CMX-铜 | HG.CMX |  | 铜,COMEX铜,comex铜,CMX铜
 future | CMX-黄金 | GC.CMX |  | 黄金,comex黄金,comex金,COMEX黄金,COMEX金
 future | COMEX迷你白银 | QI.CMX |  |
-future | ICE NYH(RBOB)汽油 | N.IPE |  | NYH(RBOB)汽油
-future | ICE WTI原油 | T.IPE |  | WTI原油,WTI原油期货
 future | ICE冷冻浓缩橙汁 | OJ.NYB |  | 冷冻浓缩橙汁
-future | ICE取暖油 | O.IPE |  | 取暖油
 future | ICE可可 | CC.NYB |  | 可可
 future | ICE咖啡 | KC.NYB |  | 咖啡
-future | ICE白糖期货 | W.IPE |  |
 future | IPE-布伦特原油 | B.IPE |  | 布伦特原油
 future | IPE-柴油 | G.IPE |  | 柴油
 future | LME-铅 | PB.LME |  | 铅
@@ -133,7 +128,6 @@ future | 粤钯主力合约 | PD.GFE |  |
 future | 粤铂主力合约 | PT.GFE |  |
 future | 纳斯达克100小型期货 | NQ.CME |  |
 future | 纳斯达克100微型迷你期货 | MNQ.CME |  |
-future | 美国天然气 | HH.NYM |  | 美国天然气
 future | 连PVC主连 | V.DCE |  | PVC
 future | 连PVC次主连 | V_S.DCE |  | PVC
 future | 连乙二醇主连 | EG.DCE |  | 乙二醇

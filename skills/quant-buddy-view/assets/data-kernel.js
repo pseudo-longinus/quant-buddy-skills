@@ -545,12 +545,12 @@ const QB = (function () {
   }
 
   async function _requestGrantBody(cfg) {
-    const { endpoint, grant_id, signature } = cfg;
+    const { endpoint, grant_id, signature, asset } = cfg;
     // 跨域取数改用表单 POST（CORS 安全列表内的 Content-Type）且不带自定义头，
     // 避免页面(pages.quantbuddy.cn)->接口(www.quantbuddy.cn)时触发 OPTIONS 预检被拦；
     // grant_id/signature 语义不变，服务端按表单字段解析，响应仍是 JSON。
     const formBody = 'grant_id=' + encodeURIComponent(grant_id) +
-      '&signature=' + encodeURIComponent(signature);
+      '&signature=' + encodeURIComponent(signature) + (asset == null ? '' : '&asset=' + encodeURIComponent(asset));
     const resp = await fetch(apiUrl(endpoint, '/skill/queryDataGrant'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -572,6 +572,10 @@ const QB = (function () {
     const { endpoint, grant_id, signature } = cfg || {};
     if (!endpoint || !grant_id || !signature)
       throw new Error('取数内核：endpoint / grant_id / signature 三者必填');
+    const rawAsset = typeof cfg.asset === 'function' ? await cfg.asset() : cfg.asset;
+    if (rawAsset != null && (typeof rawAsset !== 'string' || !rawAsset.trim() || rawAsset.length > 100)) throw new Error('INVALID_ASSET: asset必须是单个资产名称或代码');
+    // Capture once for this call; a selector changing mid-request must not affect its retry or response identity.
+    const asset = rawAsset == null ? undefined : rawAsset.trim();
 
     if (typeof location !== 'undefined' &&
         location.protocol === 'https:' && /^http:\/\//i.test(endpoint)) {
@@ -581,7 +585,7 @@ const QB = (function () {
     }
 
     return _withRuntime('none', async () => {
-      let body = await _requestGrantBody({ endpoint, grant_id, signature });
+      let body = await _requestGrantBody({ endpoint, grant_id, signature, asset });
       for (let attempt = 0; attempt < 2; attempt++) {
         if (body && body.data && String(body.data.mode || '').toLowerCase() === 'csv') {
           _runtimeTransport('csv');
@@ -589,7 +593,7 @@ const QB = (function () {
             body = Object.assign({}, body, { data: body.kind === 'fast_query_minute_range_multi' ? await _hydrateMinuteRangeMultiCsv(body.data) : body.data.query_type === 'minute_range' ? await _hydrateMinuteRangeCsv(body.data) : await _hydrateFastQueryCsv(body.data) });
           } catch (error) {
             if (attempt === 0 && error && error.retryable) {
-              body = await _requestGrantBody({ endpoint, grant_id, signature });
+              body = await _requestGrantBody({ endpoint, grant_id, signature, asset });
               continue;
             }
             throw error;

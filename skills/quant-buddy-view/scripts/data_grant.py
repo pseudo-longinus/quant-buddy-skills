@@ -121,9 +121,13 @@ def cmd_register(params):
         return {"code": 1, "error": "REGISTRATION_PERSIST_FAILED", "retryable": False, "next_action": "registration_status"}
 
 
-def query_grant(endpoint, grant_id, signature, api_key=""):
+def query_grant(endpoint, grant_id, signature, api_key="", asset=None):
     """取数核心：普通 JSON POST（非 SSE，不重算）。供 build_dashboard 复用。"""
     body = {"grant_id": grant_id, "signature": signature}
+    if asset is not None:
+        if not isinstance(asset, str) or not asset.strip() or len(asset) > 100:
+            return {"code": 1, "error": "INVALID_ASSET", "message": "asset必须为单个非空资产名称或代码，不超过100字符"}
+        body['asset'] = asset.strip()
     res = C.http_json("POST", C.api_url(endpoint, _PATH["query"]),
                       C.headers(api_key), body, timeout=_DEFAULT_TIMEOUT)
     # 外层统一带 grant_id；失败时服务端返回 code:1 + error:{code,message}（见 tools/data_grant.md）
@@ -143,6 +147,8 @@ def cmd_query(params):
             sig = cred.get("signature")
     if not gid or not sig:
         return {"code": 1, "message": "query 需要 grant_id + signature（signature 可由本地凭证补全）"}
+    if params.get('asset') is not None:
+        return query_grant(endpoint, gid, sig, api_key=api_key, asset=params['asset'])
     return query_grant(endpoint, gid, sig, api_key=api_key)
 
 

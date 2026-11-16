@@ -3,16 +3,17 @@ name: quant-buddy-view
 slug: quant-buddy-view
 displayName: QuantBuddy 宽宝活页
 author: guanzhao
-version: 0.8.13
+version: 0.8.16
 description: |
   将量化分析或已有 JPG/PNG、HTML、PDF 发布为 Quant Buddy 可分享活页或实时看板，并支持创建、更新、复用、验收和公开链接交付。适用于个股画像、估值财务、指数异动、多因子筛选、商品日报、模板、分享壳及卡片等页面。
+  国内期货期权槽位行情页面包含沪深300、上证50、中证1000；通过QBS验证后用公式包绑定，不能以股指合约映射接口未开放为由判定无行情，也不能把槽位页称为完整期权链。
   用户提供 QuantBuddy 活页 URL 并要求解读时也使用。显式调用 /quant-buddy-view、/qbv、qbv 或 QBV，且请求并非纯咨询、代码维护或文档解释时，默认按可分享活页任务处理。
   输入可唯一识别的 A 股名称、简称或代码，或简单要求单股综合分析（如“贵州茅台”“600519”“分析一下贵州茅台”）均默认请求个股快页；宿主开启 page_first_fast 时，取得 task_id 后立即并行调用 new_asset_page 与有限公开搜索，页面 ready 后先展示页面和前五章数据，搜索完成后再补综合观察；其它模式先通过 QBS 验证并回复完整个股分析，再同轮 new_asset_page，无需用户补说“生成页面”。
   WebAgent 宿主要求金融问题统一交付问答与活页时，一次性行情、涨跌幅、估值、概念解释和口语近况问题也在 QBS 首答后交接本技能。无此宿主约定时一次性问题由 QBS 回答；复盘、监控、画图、回测、K线等操作仍默认有活页意图。明确不要网页或只回复文字时不建页。
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 0.8.13
+  version: 0.8.16
   author: guanzhao
   category: quant-finance
   tags: [quant, dashboard, formula-package, static-page, publish, visualization]
@@ -448,6 +449,10 @@ npx skills update pseudo-longinus/quant-buddy-skills -y
 - 公式注册与读取模式见 [tools/formula_package.md](tools/formula_package.md)，数据授权见 [tools/data_grant.md](tools/data_grant.md)，静态页命令和 metadata 见 [tools/static_page.md](tools/static_page.md)。
 - 普通自有页面用 `update` 保持 URL；published template 用 `template` 判定，除非用户明确维护原模板，否则只读复用或 fork。
 
+## 国内股指期权页面
+
+国内期货期权槽位行情也包含 **沪深300（IF.CFE / IO）、上证50（IH.CFE / HO）、中证1000（IM.CFE / MO）**；斜线前为数据列ticker，后为期权品种代码。价格、IV、持仓量和成交额页面按 [股指期权页面接入](guides/cn-index-options.md) 由 QBS 验证精确 `国内期货期权-*` 字段，再用 Formula Package 绑定。`option_contracts` Grant 的股指限制只涉及具体合约映射，不能据此宣称没有股指期权行情；已有槽位行情也不代表完整期权链已接入。
+
 ## 取数：实时页的两条通道
 
 实时页可使用 Formula Package 或 Data Grant：公式包在 HTML 内嵌 `package_id + signature`，打开时调用 `queryFormulaPackage`；数据授权内嵌 `grant_id + signature`，打开时调用 `queryDataGrant`。两类凭证可以同页混用，彼此独立取数；底层数据更新后无需重建页面，访问者打开或刷新即可取得最新数据。spec 不需要写 `mode` 字段。
@@ -468,7 +473,9 @@ npx skills update pseudo-longinus/quant-buddy-skills -y
 
 | 页面要展示的数据 | 用哪条通道 | 凭证 |
 |---|---|---|
-| 算出来的指标 / 回测净值 / IC / rankIC / 时序 / 自定义公式口径 | **公式包** | `package_id` |
+| 日K线OHLCV及内置MA/BOLL/MACD/RSI/成交量均线 | **query_kline数据授权** | `grant_id` |
+| 自定义指标 / 回测净值 / IC / rankIC / 自定义时序与公式口径 | **公式包** | `package_id` |
+| 国内期货期权槽位行情（含沪深300/上证50/中证1000的价格、IV、持仓量、成交额） | QBS验证精确数据名与范围后登记**公式包**；不是合约映射授权 | `package_id` |
 | 平台白名单直取的行情 / 估值 / 财务 / 资金流（收盘价、涨跌幅、PE/PB…） | 数据授权 `fast_query` | `grant_id` |
 | 部分美股及国内商品期权槽位当前合约 / 空槽 / 滚动窗口换约表 | 数据授权 `option_contracts`（snapshot/window，动态日期，真实trade_date） | `grant_id` |
 | 个股预计算画像卡（估值/财务质量等维度画像） | 数据授权 `stock_profile` | `grant_id` |
@@ -512,7 +519,7 @@ npx skills update pseudo-longinus/quant-buddy-skills -y
 | 脚本 | 命令 | 作用 | 文档 |
 |---|---|---|---|
 | `scripts/formula_package.py` | `register` / `query` / `list` / `revoke` / `refresh` | 公式任务包：注册取数能力；query 支持 `outputs` 与 `result_mode=full|summary|last_values`，direct 使用 summary | [tools/formula_package.md](tools/formula_package.md) |
-| `scripts/data_grant.py` | `register` / `query` / `list` / `revoke` / `refresh` | 数据授权：把一次 fastQuery（含分钟/多资产分钟）/stockProfile/selectByComposition/queryOptionContracts 请求规则钉死成 `grant_id`+`signature`，页面免 key 直取有界数据（取舍见「数据授权 vs 公式包」） | [tools/data_grant.md](tools/data_grant.md) |
+| `scripts/data_grant.py` | `register` / `query` / `list` / `revoke` / `refresh` | 数据授权：把一次 queryKLine/fastQuery（含分钟/多资产分钟）/stockProfile/selectByComposition/queryOptionContracts 请求规则钉死成 `grant_id`+`signature`，页面免 key 直取有界数据（取舍见「数据授权 vs 公式包」） | [tools/data_grant.md](tools/data_grant.md) |
 | `scripts/build_dashboard.py` | （单命令，`emit:"panel_block"` 走局部产出） | spec → live 实时取数看板 HTML；局部产出模式只生成带 marker 的图表 `<script>` 片段，供 bespoke 页面内嵌图表用 | [tools/build_dashboard.md](tools/build_dashboard.md) |
 | `scripts/stock_comparison.py` | `apply @params.json` | 为 `stock_analysis_instance_v1` 原生收盘价图并入基准序列、双 Y 轴和数据表；保持 `#priceChart` 单一 owner，拒绝用通用 panel 二次接管 | [tools/stock_comparison.md](tools/stock_comparison.md) |
 | `scripts/stock_window.py` | `apply @params.json` | 为 legacy `stock_analysis_instance_v1` 设置滚动展示窗口；生成受控 HTML 后必须浏览器预检并 update 原 `page_id` | [tools/stock_window.md](tools/stock_window.md) |
@@ -558,7 +565,7 @@ npx skills update pseudo-longinus/quant-buddy-skills -y
 
 ## K线活页
 
-普通K线活页使用 `build_dashboard` 的 `type:candlestick` 面板，直接绑定同一份OHLCV Grant，绘制蜡烛、成交量和均线；只有明确只要PNG/图片时才接受 `renderKLine` 图片artifact。
+普通日K线活页优先使用 `query_kline` Grant（见 [工具合同](tools/query_kline.md)），通过 `build_dashboard` 的 `type:candlestick` 面板绑定同一份OHLCV与服务端指标，绘制蜡烛、成交量和均线。授权只固定窗口和指标，资产由页面每次以asset传入（可来自URL/选择控件/业务状态）；QBS使用同名工具以asset验证，支持名称、简称及多种代码格式，复用fast_query资产匹配；基础2RU，含任意计算指标整次3RU；授权注册/重新校验各3RU，页面凭证取数0RU。仅明确只要PNG/图片时使用 `renderKLine`；分钟或多资产沿已有专用工具。
 
 
-K线页若包含MA/均线，必须放在同一个 `candlestick` 面板的 `overlays` 中，按日期与OHLCV对齐；禁止用独立 line/number 面板冒充K线叠加。
+query_kline同源指标列声明 `overlay_source:"grant"`。query_kline面板的asset属于页面数据源，不能写入注册payload。K线页若包含MA/均线，必须放在同一个 `candlestick` 面板的 `overlays` 中，按日期与OHLCV对齐；禁止用独立 line/number 面板冒充K线叠加。

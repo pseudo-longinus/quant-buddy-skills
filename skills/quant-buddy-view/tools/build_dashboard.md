@@ -269,7 +269,7 @@ FastQuery 的紧凑 JSON 与 CSV 原始值可能使用不同缩放，unit:"%" �
 
 ### `candlestick` K线面板
 
-K线活页直接使用同一份 QBS `fast_query(window)` 数据授权，不调用图片型 `renderKLine`。`grant_id` 对应的主序列必须同时包含 `日期`、`开盘价`、`最高价`、`最低价`、`收盘价`，可选 `成交量`；MA20 等独立公式序列用 `overlays:["MA20"]` 按日期并入同一K线面板。示例：
+日K线活页优先使用同一份 QBS `query_kline` 数据授权（见 [query_kline](query_kline.md)），不调用图片型 `renderKLine`。新类型会将labels与OHLCV、indicator_data归一成带日期的记录；open/high/low/close/volume及ma20等使用英文列名。旧fast_query授权继续支持原字段。旧fast_query类型的 `grant_id` 对应主序列需包含 `日期/开盘价/最高价/最低价/收盘价`，可选 `成交量`；MA20 等独立公式序列用 `overlays:["MA20"]` 按日期并入同一K线面板。示例：
 
 ```json
 {"type":"candlestick","grant_id":"dg_...","open":"开盘价","high":"最高价","low":"最低价","close":"收盘价","volume":"成交量","overlays":["MA20"]}
@@ -288,3 +288,9 @@ K线活页直接使用同一份 QBS `fast_query(window)` 数据授权，不调�
 
 
 浏览器回归准备：从上述固定 OSS 获取完整 5.6.0 到本地测试缓存（不入发布包），确认 SHA-256 为 `bf4a223524e40b77c304bec67e1222cf551f14880cf42c69dc046558e11c07b1`。设置 `QBV_TEST_ECHARTS_FILE` 为该文件绝对路径，执行 `node --test tests/test_chart_dependency_browser.mjs`。测试使用真实库与请求拦截，不依赖 CDN 当时是否故障；缺少浏览器、Playwright 或库文件时明确失败，不静默跳过。
+
+query_kline示例：`{"type":"candlestick","grant_id":"dg_...","asset":"SH600519","asset_source":{"query_param":"asset"},"overlay_source":"grant","open":"open","high":"high","low":"low","close":"close","volume":"volume","overlays":["ma5","ma20","boll_up","boll_mid","boll_dn"],"volume_overlays":["volma5"],"x_range":{"start_date":"实际first_date"}}`。MA/BOLL绑定价格轴，volma绑定成交量轴；MACD的macd_dif/macd_dea用line、macd_bar用bar，RSI用line，副图仍绑定同一Grant。窗口内全null的指标不可假装绘图成功，应说明历史不足。
+
+同一query_kline Grant内的指标列使用 `overlay_source:"grant"`，避免将ma20等列名误识别为独立公式包产出；历史跨来源公式overlays继续沿原规则。
+
+动态K线授权不含ticker/asset。面板asset是构建验证与首次加载的页面默认值，asset_source可选query_param或selector；每次刷新从页面源取当前资产，发送给queryDataGrant。相同grant_id的不同资产/来源自动分配独立输出，避免互相覆盖。自定义HTML可调用QB.queryGrant({endpoint,grant_id,signature,asset:()=>当前资产})。见query_kline工具合同；不要把资产塞回注册payload。

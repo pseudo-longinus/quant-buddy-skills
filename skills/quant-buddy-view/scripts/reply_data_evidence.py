@@ -229,6 +229,16 @@ def _find_dimensions(value):
 
 def compact_grant_result(kind, result):
     safe = redact(result if isinstance(result, dict) else {})
+    if kind == 'query_kline':
+        data = safe.get('data') or {}
+        from kline_contract import rows_from_data
+        rows = rows_from_data(data)
+        latest = rows[-1]
+        return {'kind': kind, 'asset': data['ticker'], 'computed_at': data.get('fetched_at'),
+                'first_date': data['first_date'], 'last_date': data['last_date'], 'data_points': data['data_points'],
+                'warnings': data['warnings'],
+                'indicators': [{'base_id': key, 'name': key, 'latest_value': value, 'latest_date': data['last_date'], 'unit': None}
+                               for key, value in latest.items() if key != '日期']}
     dimensions, owner = _find_dimensions(safe)
     compact = {"kind": str(kind or ""), "asset": None, "computed_at": None, "indicators": []}
     if isinstance(owner, dict):

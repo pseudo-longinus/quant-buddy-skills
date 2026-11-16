@@ -1445,7 +1445,7 @@ def _resolve_asset_data_result(call_script, params, env):
     }
 
 
-def _grant_validation_receipt(task_id, role_name, kind, fingerprint, snapshot=None):
+def _grant_validation_receipt(task_id, role_name, kind, fingerprint, snapshot=None, query_asset=None):
     root = C.task_temp_path(task_id, "grant_validation_receipts", create_parent=True)
     root.mkdir(parents=True, exist_ok=True)
     digest = hashlib.sha256(f"{task_id}:{role_name}:{fingerprint}".encode("utf-8")).hexdigest()
@@ -1463,9 +1463,11 @@ def _grant_validation_receipt(task_id, role_name, kind, fingerprint, snapshot=No
     if snapshot:
         try:
             import verified_snapshot as VS
-            payload.update(VS.capture(task_id, snapshot["contract"], snapshot["result"]))
+            payload.update(VS.capture(task_id, snapshot["contract"], snapshot["result"], **({'query_asset': query_asset} if query_asset is not None else {})))
         except (OSError, ValueError) as exc:
             payload["snapshot_warning"] = type(exc).__name__
+    if query_asset is not None:
+        payload['query_asset'] = query_asset
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return str(path)
 
@@ -1482,6 +1484,14 @@ def _validate_grant_set(call_script, params, env):
     user_query = str(params.get("user_query") or "").strip()
     tool_by_kind = GC.TOOL_BY_KIND
     errors = GC.grant_set_errors(grants)
+    from kline_contract import validate_request as validate_kline_request
+    for item in grants:
+        contract = item.get('contract') if isinstance(item, dict) else None
+        if isinstance(contract, dict) and contract.get('kind') == 'query_kline' and isinstance(contract.get('payload'), dict):
+            sample = item.get('asset') or params.get('asset')
+            for code, message in validate_kline_request({**contract['payload'], 'asset': sample}):
+                errors.append({'role_id': item.get('name') or item.get('role_id') or '', 'error_code': code,
+                               'message': 'K线验证需要外层asset样例名称、简称或代码（不写入授权）：' + message, 'retryable': False})
     if errors:
         return {"code": 1, "error": "GRANT_SET_INVALID", "errors": errors,
                 "message": "请一次修正全部Grant合同；尚未进行查询或注册", "retryable": False}
@@ -1500,12 +1510,15 @@ def _validate_grant_set(call_script, params, env):
         actual_fingerprint = FRC.contract_fingerprint(contract)
         if not name or name in names:
             return {"code": 1, "error": "INVALID_GRANT_NAME", "message": f"grants[{index}].name 缺失或重复"}
-        if kind not in tool_by_kind or not isinstance(payload, dict) or not payload:
+        if kind not in tool_by_kind or not isinstance(payload, dict) or (not payload and kind != 'query_kline'):
             return {"code": 1, "error": "INVALID_GRANT_CONTRACT", "message": f"grants[{index}] kind/payload 无效"}
         if fingerprint != actual_fingerprint:
             return {"code": 1, "error": "GRANT_FINGERPRINT_MISMATCH", "message": f"grants[{index}] fingerprint 不一致"}
         names.add(name)
         validation_payload = dict(payload)
+        query_asset = (item.get('asset') or params.get('asset')) if kind == 'query_kline' else None
+        if kind == 'query_kline':
+            validation_payload['asset'] = query_asset
         validation_payload.update({"task_id": task_id, "user_query": user_query})
         result, error = _invoke_payload(call_script, tool_by_kind[kind], validation_payload, env)
         if error:
@@ -1515,7 +1528,10 @@ def _validate_grant_set(call_script, params, env):
                 "missing_fields": [],
             })
             continue
-        if kind == "option_contracts":
+        if kind == "query_kline":
+            from kline_contract import validate_result
+            evaluation = validate_result({**payload, 'asset': query_asset}, result)
+        elif kind == "option_contracts":
             evaluation = GC.evaluate_option_contracts(payload, result)
         elif kind == "fast_query_minute":
             evaluation = GC.evaluate_minute(payload, result)
@@ -1587,12 +1603,13 @@ def _validate_grant_set(call_script, params, env):
                 **({'asset': evaluation['asset']} if evaluation.get('asset') else {}),
             })
             continue
-        receipt = _grant_validation_receipt(task_id, name, kind, fingerprint, snapshot={"contract": contract, "result": result})
+        receipt = _grant_validation_receipt(task_id, name, kind, fingerprint, snapshot={"contract": contract, "result": result}, **({'query_asset': query_asset} if query_asset is not None else {}))
         receipts.append(receipt)
         results.append({
             "name": name,
             "role": str(item.get("role") or name),
             "kind": kind,
+            **({'query_asset': query_asset} if query_asset is not None else {}),
             "status": _payload_status(result) or "completed",
             "contract_fingerprint": fingerprint,
             "validation_receipt_file": receipt,

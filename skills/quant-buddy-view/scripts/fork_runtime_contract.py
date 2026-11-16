@@ -659,6 +659,11 @@ def replace_asset_tokens(value, replacements):
 
 def _grant_contract(item, replacements):
     payload = copy.deepcopy(item.get("payload") if isinstance(item.get("payload"), dict) else {})
+    if item.get('kind') == 'query_kline' and '_contract_version' in payload:
+        if payload.pop('_contract_version') != 2:
+            raise ForkRuntimeError('GRANT_CONTRACT_UNSUPPORTED', '来源K线授权版本不受支持，不能静默改写合同')
+    if item.get('kind') == 'query_kline' and set(payload) - {'begin_date', 'limit_candles', 'indicators'}:
+        raise ForkRuntimeError('GRANT_CONTRACT_UNSUPPORTED', 'K线授权只包含窗口与指标，资产属于页面数据源')
     target_payload = copy.deepcopy(payload)
     asset_scope = []
     declared_scope = _unique_strings(item.get("allowed_asset_scope_fields") or item.get("asset_scope_fields"))
@@ -748,7 +753,7 @@ def _grant_review(role):
     # 这样 Agent能确认 CSV/inline、维度和窗口等继承关系，但不会接触任意底层参数。
     immutable_summary = {
         key: copy.deepcopy(payload[key])
-        for key in ("query_type", "fields", "dimensions", "window_days", "result_mode", "mode")
+        for key in ("query_type", "fields", "dimensions", "window_days", "result_mode", "mode", "begin_date", "limit_candles", "indicators")
         if key in payload
     }
     if contract.get("response_shape") is not None:
@@ -1617,7 +1622,7 @@ def validate_resolved_contracts(manifest, resolved):
         contract = grant.get("contract") or {}
         kind = contract.get("kind")
         payload = contract.get("payload")
-        if kind not in GC.TOOL_BY_KIND or not isinstance(payload, dict) or not payload:
+        if kind not in GC.TOOL_BY_KIND or not isinstance(payload, dict) or (not payload and kind != 'query_kline'):
             raise ForkRuntimeError("GRANT_CONTRACT_INVALID", f"{role_id} Grant kind/payload 无效")
         role = role_index.get(role_id) or {}
         if role.get("origin") == "augmented":

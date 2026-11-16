@@ -4,14 +4,15 @@
 
 > 脚本 `scripts/data_grant.py` 已可用；`build_dashboard` 与 `assets/data-kernel.js` 已支持 grant 面板。服务端设计见 `skill_server/docs/dataGrant相关文档/数据授权-技术设计文档.md`（v0.2）。
 
-> 把一次 `fastQuery` / `fastQueryMinute` / `fastQueryMinuteRange` / `stockProfile` / `selectByComposition` 请求在注册时**钉死**，得到 `grant_id` + `signature`；之后**无需 API Key**，页面凭这两个凭证就能反复取数。底层数据更新后，取数永远拿最新结果（钉死的是"查什么"，不是"某天的值"）。
+> 把一次 `queryKLine` / `fastQuery` / `fastQueryMinute` / `fastQueryMinuteRange` / `stockProfile` / `selectByComposition` 请求在注册时**钉死**，得到 `grant_id` + `signature`；之后**无需 API Key**，页面凭这两个凭证就能反复取数。底层数据更新后，取数永远拿最新结果（钉死的是"查什么"，不是"某天的值"）。
 >
-> 与公式任务包（`formula_package`）的关系：**同一套签名免 key 心智**。公式包钉死的是"一组公式 + 读取模式"；数据授权钉死的是"一次平台直取数请求"。**算出来的指标用公式包；平台白名单直取的行情/估值/画像/维度分 TopN 用数据授权**（取舍见 SKILL.md「数据授权 vs 公式包」）。
+> 与公式任务包（`formula_package`）的关系：**同一套签名免 key 心智**。公式包钉死的是"一组公式 + 读取模式"；数据授权钉死的是"一次平台直取数请求"。**自定义公式指标用公式包；内置日K线技术指标走query_kline授权，平台白名单直取的行情/估值/画像/维度分TopN用对应数据授权**（取舍见 SKILL.md「数据授权 vs 公式包」）。
 
-## 五种 kind
+## 支持的 kind
 
 | kind | 底层接口 | 钉死内容 | 页面拿到 |
 |------|---------|---------|---------|
+| `query_kline` | queryKLine | 只固定begin_date、limit_candles与指标；取数时动态传asset | 同轴日频OHLCV与服务端技术指标，见[工具合同](query_kline.md) |
 | `fast_query` | fastQuery | 一次快查请求（assets/query_type/fields…），字段须命中平台白名单 | 值 / 序列 |
 | `fast_query_minute_range` | fastQueryMinuteRange | `{asset,start_date,end_date}` 或 `{asset,start_offset,end_offset}`；历史全列，无fields/format/remove_nan | CSV分钟长表manifest，内核物化为columns/rows；见下方新增规则 |
 | `fast_query_minute_range_multi` | fastQueryMinuteRangeMulti | assets/asset/market三选一；absolute/rolling/current_trade_day及每日分钟窗口；无tickers/fields/format | JSON columns/data或CSV url；内核归一为含ticker的长表，见「多资产分钟授权」 |
@@ -66,7 +67,7 @@ python scripts/data_grant.py refresh '{"grant_id":"dg_xxx","rotate_signature":tr
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `kind` | `string` | ✅ | `option_contracts` / `fast_query` / `fast_query_minute` / `fast_query_minute_range` / `fast_query_minute_range_multi` / `stock_profile` / `composition_select` |
+| `kind` | `string` | ✅ | `query_kline` / `option_contracts` / `fast_query` / `fast_query_minute` / `fast_query_minute_range` / `fast_query_minute_range_multi` / `stock_profile` / `composition_select` |
 | `payload` | `object` | ✅ | 冻结的完整请求体，形状随 kind（见下） |
 | `ttl_days` | `number` | ❌ | 有效期（天），默认 365 |
 | `task_id` / `user_query` | `string` | ❌ | 随 audit 落库 |
@@ -216,7 +217,7 @@ kind为 `fast_query_minute_range_multi`，接入现有验证→注册→query→
 
 ## 美股及国内商品期权槽位合约授权
 
-支持部分美股和国内商品品种；国内股指期权暂未开放。合约身份只读assignment，不是行情检查或完整期权链。
+本kind支持部分美股和国内商品品种的**具体合约映射**；股指的具体合约映射暂未开放。此限制不适用于 `国内期货期权-*` 槽位行情：其中包含沪深300（IF.CFE / IO）、上证50（IH.CFE / HO）、中证1000（IM.CFE / MO），使用QBS验证后的Formula Package接入，见 [股指期权页面](../guides/cn-index-options.md)。合约身份只读assignment，不是行情检查或完整期权链；两种通道的日期和覆盖分别验证，不能相互推导。
 QBS使用query_option_contracts验证，QBV通过qbs_bridge.py validate_grant_set获取收据，再原样注册；无需公式包。
 国内依赖配套skill_server及新增dataServer任务，不能仅凭Skill更新宣称接口上线。
 
@@ -253,3 +254,7 @@ QBS使用query_option_contracts验证，QBV通过qbs_bridge.py validate_grant_se
 全市场用market=os_future替换assets。TU在2021-12-01前的缺口须在页面说明，不能截掉ES可用的更早记录；所有资产都越界时不注册。页面保留coverage_by_ticker/warnings，标明实际数据日期，不把起点或可刷新授权当作最新端已更新保证。
 
 外盘分钟Range授权附roll_events，RangeMulti授权仅解析去重后单资产时附同结构roll_events，多资产和market请求不附带；单日分钟授权的contract_info仅解释所选分钟会话来源合约。外盘fast_query日频授权不使用这些事件，日频换月信息当前缺失。kind/payload与计费不变。事件缺失/旧上游不支持时保留可用行情、披露警告，不把缺失当无换月；详见[外盘换月入口](../references/continuous-futures.md#外盘换月返回入口2026-10-28)。
+
+## 日K线授权
+
+kind=query_kline的payload只含begin_date?/limit_candles?/indicators?，禁止ticker/asset，注册和refresh只做规则校验，不试跑股票。queryDataGrant每次提交grant_id/signature/asset；同一授权可切换任意可唯一解析且数据源支持的资产。窗口与指标仍固定。注册和refresh各3RU，页面取数0RU；refresh不用于日常取数或续期。完整合同、页面资产源与验证流程见 [query_kline](query_kline.md)。

@@ -50,7 +50,6 @@ stock | FORTIOR | HK1304 |  |
 stock | FSM HOLDINGS | HK1721 | 材料 |
 stock | FUTURE BRIGHT | HK0703 | 可选消费 |
 stock | GBA集团 | HK0261 | 房地产 |
-stock | GC CONSTRUCTION | HK1489 | 材料 |
 stock | GHW INTL | HK9933 | 材料 |
 stock | GOLDWAY EDU | HK8160 | 可选消费 |
 stock | GUANZE MEDICAL | HK2427 | 医疗保健 |
@@ -153,6 +152,7 @@ stock | YGM TRADING | HK0375 | 可选消费 |
 stock | YUSEI | HK0096 | 材料 |
 stock | Z FIN | HK1168 | 房地产 |
 stock | 一元宇宙 | HK1616 | 可选消费 |
+stock | 一微科技 | HK2065 |  |
 stock | 一木集团 | HK8232 | 可选消费 | CLASSIFIED GP
 stock | 一脉阳光 | HK2522 |  |
 stock | 七元投资 | HK1660 | 工业 | 兆邦基生活
@@ -1105,6 +1105,7 @@ stock | 国开国际投资 | HK1062 | 金融 |
 stock | 国微控股 | HK2239 | 信息技术 |
 stock | 国恩控股 | HK8121 | 可选消费 |
 stock | 国恩科技 | HK2768 | 房地产 | 佳源国际控股
+stock | 国星宇航 | HK6935 |  |
 stock | 国民技术 | HK2701 |  |
 stock | 国泰君安国际 | HK1788 | 金融 |
 stock | 国泰海通 | HK2611 | 金融 |
@@ -1317,6 +1318,7 @@ stock | 宏基集团控股 | HK1718 | 工业 |
 stock | 宏安地产 | HK1243 | 房地产 |
 stock | 宏强控股 | HK8262 | 工业 |
 stock | 宏海控股集团 | HK8020 | 工业 |
+stock | 宏芯宇 | HK2681 |  |
 stock | 宏辉集团 | HK0183 | 房地产 |
 stock | 宜宾银行 | HK2596 |  |
 stock | 宜搜科技 | HK2550 |  |
@@ -1648,6 +1650,7 @@ stock | 新福港建设 | HK00301!AB |  |
 stock | 新秀丽 | HK1910 | 可选消费 |
 stock | 新纽科技 | HK9600 | 信息技术 |
 stock | 新耀莱 | HK0970 | 可选消费 |
+stock | 新荷花 | HK2206 |  |
 stock | 新质数字 | HK2322 | 工业 |
 stock | 新达控股 | HK8471 | 可选消费 |
 stock | 新都酒店 | HK8315 | 工业 |
@@ -1758,6 +1761,7 @@ stock | 智数科技集团 | HK1159 | 可选消费 |
 stock | 智昇集团控股 | HK8370 | 可选消费 |
 stock | 智欣集团控股 | HK2187 | 材料 |
 stock | 智汇矿业 | HK2546 |  |
+stock | 智盈科创 | HK1489 | 材料 | GC CONSTRUCTION
 stock | 智算能建 | HK1751 | 工业 | 景联集团,智算能建(二千)
 stock | 智谱 | HK2513 |  |
 stock | 曌生命 | HK8079 | 可选消费 | 仍志集团控股
@@ -1766,7 +1770,6 @@ stock | 曹操出行 | HK2643 |  |
 stock | 有利集团 | HK0406 | 工业 |
 stock | 有赞 | HK6051 |  |
 stock | 朗华国际集团 | HK8026 | 可选消费 | 朗华国际集团-新
-stock | 朗廷-SS | HK1270 | 可选消费 | 朗廷
 stock | 朗诗绿色生活 | HK1965 | 房地产 |
 stock | 朗诗绿色管理 | HK0106 | 房地产 |
 stock | 望尘科技控股 | HK2458 | 信息技术 |
@@ -1935,7 +1938,7 @@ stock | 泰达生物 | HK8189 | 材料 |
 stock | 泰锦控股 | HK8321 | 工业 |
 stock | 泸州银行 | HK1983 | 金融 |
 stock | 泽景股份 | HK2632 |  |
-stock | 洛阳钼业 | HK3993 | 材料 |
+stock | 洛阳钼业(五百) | HK3993 | 材料 | 洛阳钼业
 stock | 津上机床中国 | HK1651 | 工业 |
 stock | 洪桥集团 | HK8137 | 工业 |
 stock | 洲际船务 | HK2409 | 工业 |
@@ -2003,7 +2006,6 @@ stock | 港仔机器人 | HK0370 | 可选消费 |
 stock | 港华智慧能源 | HK1083 | 公用事业 |
 stock | 港娱国际 | HK8291 | 材料 |
 stock | 港深智能管理 | HK8181 | 房地产 |
-stock | 港灯-SS | HK2638 | 公用事业 | 港灯
 stock | 港誉智慧城市服务 | HK0265 | 可选消费 |
 stock | 港通控股 | HK0032 | 可选消费 |
 stock | 港铁公司 | HK0066 | 工业 |
@@ -2271,7 +2273,7 @@ stock | 精英汇集团 | HK1775 | 可选消费 |
 stock | 精锋医疗-B | HK2675 |  |
 stock | 紫元元 | HK8223 | 金融 |
 stock | 紫荆国际金融 | HK8340 | 金融 |
-stock | 紫金矿业 | HK2899 | 材料 |
+stock | 紫金矿业(五百) | HK2899 | 材料 | 紫金矿业
 stock | 紫金黄金国际 | HK2259 |  |
 stock | 红星冷链 | HK1641 |  |
 stock | 红星美凯龙 | HK1528 | 可选消费 |
@@ -2537,7 +2539,7 @@ stock | 路劲 | HK1098 | 房地产 |
 stock | 轩竹生物-B | HK2575 |  |
 stock | 轻松健康 | HK2661 |  |
 stock | 载通 | HK0062 | 工业 |
-stock | 辉煌明天 | HK1351 | 可选消费 |
+stock | 辉煌明天(新) | HK1351 | 可选消费 | 辉煌明天
 stock | 辰兴发展 | HK2286 | 房地产 |
 stock | 辰林教育 | HK1593 | 可选消费 |
 stock | 辽港股份 | HK2880 | 工业 |
@@ -2596,7 +2598,7 @@ stock | 邵氏兄弟控股 | HK0953 | 可选消费 |
 stock | 郑州银行 | HK6196 | 金融 |
 stock | 都市丽人 | HK2298 | 可选消费 |
 stock | 都都控股 | HK8250 | 日常消费 |
-stock | 酷派集团 | HK2369 | 信息技术 |
+stock | 酷派集团(五千) | HK2369 | 信息技术 | 酷派集团
 stock | 重塑能源 | HK2570 |  |
 stock | 重庆农村商业银行 | HK3618 | 金融 |
 stock | 重庆机电 | HK2722 | 工业 |
@@ -2771,7 +2773,7 @@ stock | 首控集团 | HK1269 | 可选消费 |
 stock | 首程控股 | HK0697 | 房地产 |
 stock | 首都信息 | HK1075 | 信息技术 |
 stock | 首都创投 | HK2324 | 金融 |
-stock | 首都金融控股-新 | HK8239 | 金融 | 首都金融控股
+stock | 首都金融控股 | HK8239 | 金融 | 首都金融控股-新
 stock | 首钢朗泽 | HK2553 |  |
 stock | 首钢资源 | HK0639 | 能源 |
 stock | 香格里拉(亚洲) | HK0069 | 可选消费 |
@@ -2786,7 +2788,6 @@ stock | 香港华人有限公司 | HK0655 | 房地产 |
 stock | 香港宽频 | HK1310 | 电信服务 |
 stock | 香港小轮(集团) | HK0050 | 房地产 |
 stock | 香港生力啤 | HK0236 | 日常消费 |
-stock | 香港电讯-SS | HK6823 | 电信服务 | 香港电讯
 stock | 香港科技探索 | HK1137 | 可选消费 |
 stock | 香港通讯国际控股 | HK0248 | 可选消费 |
 stock | 香港食品投资 | HK0060 | 日常消费 |
