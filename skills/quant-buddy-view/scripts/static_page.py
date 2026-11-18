@@ -1310,12 +1310,10 @@ def _read_html(params, *, check_chart=True):
             html = f.read()
     if not html:
         return None, {"code": 1, "message": "upload 需要 html 或 html_file 之一"}
-    if 'data-qb-asset-info-config' in str(html):
-        import asset_info as AI
-        info_error = AI.validate_html(html, C.endpoint_of(C.load_config()))
-        if info_error:
-            return None, info_error
-        info = AI.config_from_html(html)
+    info, info_error = _page_asset_info_config(html)
+    if info_error:
+        return None, info_error
+    if info is not None:
         _, info_error = _validate_registered_qbs_credentials(C.endpoint_of(C.load_config()), [], [info])
         if info_error:
             return None, info_error
@@ -2347,15 +2345,25 @@ def _is_preserve_html_qbs_live(params):
     return str((params or {}).get("transformation_mode") or "").strip() == _PRESERVE_HTML_QBS_LIVE_MODE
 
 
+def _page_asset_info_config(html):
+    import asset_info as AI
+    try:
+        info = AI.config_from_html(html)
+    except (ValueError, TypeError) as exc:
+        return None, {'code': 1, 'error': 'ASSET_INFO_PAGE_INVALID', 'message': str(exc)}
+    if info is None:
+        return None, None
+    return info, AI.validate_html(html, C.endpoint_of(C.load_config()))
+
+
 def _publish_html_error(html):
     import asset_info as AI
     required_info_error = AI.required_module_error(html)
     if required_info_error:
         return required_info_error
-    if 'data-qb-asset-info-config' in str(html or ''):
-        ai_error = AI.validate_html(html, C.endpoint_of(C.load_config()))
-        if ai_error:
-            return ai_error
+    _, ai_error = _page_asset_info_config(html)
+    if ai_error:
+        return ai_error
     preview_error = SSC.public_preview_context_error(html)
     if preview_error:
         return preview_error

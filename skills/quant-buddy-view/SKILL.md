@@ -3,7 +3,7 @@ name: quant-buddy-view
 slug: quant-buddy-view
 displayName: QuantBuddy 宽宝活页
 author: guanzhao
-version: 0.8.17
+version: 0.8.18
 description: |
   将量化分析或已有 JPG/PNG、HTML、PDF 发布为 Quant Buddy 可分享活页或实时看板，并支持创建、更新、复用、验收和公开链接交付。适用于个股画像、估值财务、指数异动、多因子筛选、商品日报、模板、分享壳及卡片等页面。
   国内期货期权槽位行情页面包含沪深300、上证50、中证1000；通过QBS验证后用公式包绑定，不能以股指合约映射接口未开放为由判定无行情，也不能把槽位页称为完整期权链。
@@ -13,7 +13,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 0.8.17
+  version: 0.8.18
   author: guanzhao
   category: quant-finance
   tags: [quant, dashboard, formula-package, static-page, publish, visualization]
@@ -76,7 +76,7 @@ runtimeRequirements:
 
 - 回执 `llm_billing:true` 时，紧邻最终交付链接之前独立展示 **AI 刷新计费提醒**，完整展示接口返回的 `billing_notice`，仅展示一次，可分句换行。收费条件和费用承担方以该说明为准，不自行补写另一套规则或预报积分；说明缺失时按回复校验缺项处理。功能异步加载提示放在计费段之前，不能代替计费提醒；卡片实际积分仍以本次结算回执为准。普通页面不加此提醒，字段未返回也不据此宣称免费。
 
-- 选股用户明确要求附带公司信息时，读取 [选股公司信息](guides/asset-info.md)，消费 Handoff 的可选 `asset_info_request`。默认主营业务＋近期事件、每股约300字、纯文本，仅在活页异步加载；沿用现有路由和展示数量，不参与量化筛选或首答。模块成功接入并验收后，最终回复在活页链接旁补充该指南的聊天交付提示，说明异步加载及卡片右上角积分规则入口。信息授权使用专属合同证明，不作为金融出数证据；普通选股不启用，匿名代扣默认关闭。
+- 选股用户明确要求附带公司信息时，读取 [选股公司信息](guides/asset-info.md)，消费 Handoff 的可选 `asset_info_request`。默认主营业务＋近期事件、每股约300字、纯文本，仅在活页异步加载，取数直连 skill_server，官方页头只提供身份凭证；沿用现有路由和展示数量，不参与量化筛选或首答。模块成功接入并验收后，最终回复在活页链接旁补充该指南的聊天交付提示，说明异步加载及卡片右上角积分规则入口。信息授权使用专属合同证明，不作为金融出数证据；普通选股不启用，匿名代扣默认关闭。
 
 - 单资产盘中 OHLC 可用 `收盘价/开盘价/最高价/最低价(资产,最后一日分钟刷新)`，从验证开始保留参数并用 false/缺省执行合同，随后原样登记公式包；A股及派生输出按 `cn.chart:intra` 更新。不要把它误判为原生分钟K线或自动改成 `use_minute_data:true`；已有 true 收据需重新验证，详见 [公式包](tools/formula_package.md#最后一日分钟刷新取价)。
 

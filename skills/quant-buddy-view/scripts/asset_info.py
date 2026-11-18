@@ -82,12 +82,37 @@ def resolve_config(value, task_id=None):
 
 
 def config_from_html(source):
-    matches = re.findall(r'<script\b[^>]*\bdata-qb-asset-info-config(?:=["\'][^"\']*["\'])?[^>]*>(.*?)</script\s*>', source or '', re.I | re.S)
-    if not matches:
+    marker = 'data-qb-asset-info-config'
+    if not source or marker not in source.lower():
         return None
-    if len(matches) != 1:
+
+    class ConfigScripts(HTMLParser):
+        def __init__(self):
+            super().__init__(convert_charrefs=False)
+            self.blocks = []
+            self.current = None
+
+        def handle_starttag(self, tag, attrs):
+            if tag == 'script' and marker in dict(attrs):
+                self.current = []
+                self.blocks.append(self.current)
+
+        def handle_endtag(self, tag):
+            if tag == 'script':
+                self.current = None
+
+        def handle_data(self, data):
+            if self.current is not None:
+                self.current.append(data)
+
+    parsed = ConfigScripts()
+    parsed.feed(source)
+    parsed.close()
+    if not parsed.blocks:
+        return None
+    if len(parsed.blocks) != 1:
         raise ValueError('页面只能登记一份asset_info展示集合')
-    value = json.loads(matches[0])
+    value = json.loads(''.join(parsed.blocks[0]))
     if not isinstance(value, dict) or value.get('kind') != 'asset_info':
         raise ValueError('asset_info页面配置无效')
     return value

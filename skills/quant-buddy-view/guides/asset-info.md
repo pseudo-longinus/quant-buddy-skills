@@ -26,6 +26,8 @@ python scripts/asset_info.py prepare @information.json
 
 ## 页面绑定
 
+取数路径为“活页 → skill_server `/skill/queryDataGrant` → 活页渲染”。官方页头仅提供120秒有效的页面身份凭证及同环境Skill地址；官方SDK缓存、到期续取凭证，并在直连接口时携带 `x-asset-info-context`。报价和分享确认也直连Skill，生成中轮询传 `cache_only:true`，不能触发生成。页面沿用下述SDK调用，不手签凭证、不放作者或模型API Key；官网 `/webapi/asset-info` 只用于身份获取，不中转取数、生成或计费。
+
 Compose草稿、build_dashboard局部面板或compile_bespoke_page参数顶层加：
 
 ```json
@@ -62,11 +64,11 @@ publish_workflow可与金融Grant一起登记，但专属收据单列为asset_in
 
 新任务维护旧页时，在同一 QBV_STATE_ROOT 中只读核验原任务的授权登记，保留原 ID、签名和登记归属；不复制凭证到新任务、不重新注册。仍须通过同账号、同 endpoint、合同指纹、签名、有效期和未撤销校验。只有旧签名文件或原始登记已清理时，不能推断归属，需先恢复原登记证据。
 
-匿名默认只读，不调用assetInfoPageShare开启代扣。生成与计费走真实官方页头；普通作者、已授权匿名、其他用户及管理员权限按服务端决定。禁止伪造身份或签发页头上下文。
+匿名默认只读，不调用assetInfoPageShare开启代扣。生成与计费由skill_server处理，身份凭证取自真实官方页头；普通作者、已授权匿名、其他用户及管理员权限按服务端决定。禁止伪造身份或签发页头上下文。
 
 官方返回restricted或execution_allowed=false时，显示只读状态；这不代表Grant合同或量化选股失败。登录失效而返回unknown时仍可读取缓存，只有尚未收到官方身份上下文时才等待页头就绪；没有真实生成与结算回执不能标记生成验收通过。
 
-网页登录成功不代表具备生成权限。若官方 `/webapi/asset-info` 返回 `viewer_kind=restricted`、`execution_allowed=false`，应保留只读提示；测试用户、页面管理员或运营预览不能用于生成验收。无需重新注册授权或更换选股合同，待普通作者会话可用后读取同一页面继续验收。
+网页登录成功不代表具备生成权限。若官方页头的身份响应（`GET /webapi/asset-info`）返回 `viewer_kind=restricted`、`execution_allowed=false`，应保留只读提示；测试用户、页面管理员或运营预览不能用于生成验收。无需重新注册授权或更换选股合同，待普通作者会话可用后读取同一页面继续验收。
 
 Test环境与“测试用户”身份是两个概念：Test环境内的普通作者可以生成，具有测试用户标记的作者只读。用户授权使用测试账号后，继续验收量化取数、公司信息需求绑定、只读缓存和异常隔离；真实生成与计费保持待验收，不修改账号标记或开启匿名代扣。说明缺项时直接给出官方权限响应，避免让用户反复换账号试错。本地Agent测试器支持 `python scripts/asset_info.py prepare @output/参数.json`，仅开放prepare子命令，沿用输出目录参数限制；它与Test Agent候选部署是不同验收层次。
 
@@ -77,4 +79,4 @@ Test环境与“测试用户”身份是两个概念：Test环境内的普通作
 
 本地测试为QBS的tests/test_asset_info_handoff.py及QBV的tests/test_asset_info.py；浏览器运行 `node tests/test_asset_info_browser.cjs`，支持QBV_TEST_PYTHON、CHROME_PATH、QBV_PLAYWRIGHT_MODULE_ROOT指定依赖，QBV_BROWSER_EVIDENCE_DIR保存截图。合成协议fixture与真实Test证据分开记录；真实公开URL验收桌面/390px/320px、普通作者生成、缓存复用、强刷和实际计费。缺真实身份或结算证据不能标通过。历史页面先出本地候选，按授权原链接更新；Test业务验收后再按授权正式发布。
 
-本次集成同时涉及 QBV 和官网 `public/asset-info-bridge.js`，须合入同一轮候选并部署同环境 SDK。浏览器测试可通过 QBV_ASSET_INFO_SDK_SOURCE 校验 fixture 与候选官方源码一致；官网独立运行 `node --test tests/assetInfoBridge.test.cjs tests/assetInfoHeader.test.cjs`。共同候选确定后再做 Test 真实业务验收，不能把离线协议测试算作已部署验收。
+本次集成同时涉及 QBV 和官网 `public/asset-info-bridge.js`，须合入同一轮候选并部署同环境 SDK。浏览器测试可通过 QBV_ASSET_INFO_SDK_SOURCE 校验 fixture 与候选官方源码一致；官网独立运行 `node --test tests/assetInfoBridge.test.cjs tests/assetInfoHeader.test.cjs tests/assetInfoDirect.test.cjs`，另运行 `node tests/assetInfoDirect.browser.cjs` 验证真实跨域预检及活页直连。共同候选确定后再做 Test 真实业务验收，不能把离线协议测试算作已部署验收。

@@ -1,6 +1,6 @@
 # data_grant — 数据授权（把一次直取数请求钉死成签名凭证 → 页面免 key 取数）
 
-选股活页附公司信息使用 `kind:asset_info`：注册固定prompt/word_count/output_format，不传股票、不生成、不试跑QBS。先按 [公司信息接入](../guides/asset-info.md) 取得专属需求合同证明，再登记；页面通过官方页头桥接按当前股票加载。它属于辅助内容能力，不对应QBS原生查询工具、不作为金融出数证据。
+选股活页附公司信息使用 `kind:asset_info`：注册固定prompt/word_count/output_format，不传股票、不生成、不试跑QBS。先按 [公司信息接入](../guides/asset-info.md) 取得专属需求合同证明，再登记；页面通过官方SDK直连 skill_server 按当前股票加载，页头只提供身份凭证。它属于辅助内容能力，不对应QBS原生查询工具、不作为金融出数证据。
 
 `validate_grant_set` 对日频 CSV 下载并逐资产验证后才生成收据；`status:partial/failed` 不表示全部通过。注册失败时按返回的 recover_snapshot/materialize_snapshot 继续同页研究；未知注册不重复发送。历史快照不会自动更新，不能冒充实时授权。
 
