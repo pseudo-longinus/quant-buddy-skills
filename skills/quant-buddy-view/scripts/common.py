@@ -188,6 +188,26 @@ def endpoint_of(cfg):
     return endpoint
 
 
+def identity_endpoint(endpoint):
+    """Use the host's stable upstream for identity, keeping HTTP on its proxy.
+
+    A per-run loopback proxy is not an account/environment change. Only its
+    matching local config may identify the upstream; stale or unrelated config
+    cannot override a caller's endpoint. Legacy proxy-only records are not
+    inferred or migrated by this resolver.
+    """
+    from urllib.parse import urlsplit
+    actual = str(endpoint).rstrip('/')
+    parsed = urlsplit(actual)
+    if parsed.scheme == 'http' and parsed.hostname in {'127.0.0.1', 'localhost', '::1'}:
+        cfg = load_config()
+        configured = str(cfg.get('endpoint') or '').rstrip('/')
+        upstream = str(cfg.get('_claw_upstream_endpoint') or '').rstrip('/')
+        if actual == configured and upstream:
+            return upstream
+    return actual
+
+
 def api_url(endpoint, path):
     """Join endpoint and API path without duplicating /skill.
 

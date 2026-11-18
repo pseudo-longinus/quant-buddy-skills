@@ -18,7 +18,7 @@
 
 响应data含schema_version:1、标准ticker、asset_resolution:{asset,ticker}、period:1d、labels、open/high/low/close/volume、indicators、indicator_data、data_points、first_date/last_date、fetched_at、warmup_days、warnings。asset_resolution记录本次输入与解析代码，用于核对名称查询；所有列按同一日期轴对齐、等长；日期为YYYYMMDD字符串。
 
-指标输出：maN/volmaN同名；boll→boll_mid/boll_up/boll_dn；macd→macd_dif/macd_dea/macd_bar，bar=2×(DIF−DEA)；rsi同名。预热段不返回，历史不足时返回null和INSUFFICIENT_HISTORY，不能补0或宣称指标完整。零成交量有效，缺失量为null。
+指标输出：maN/volmaN同名；boll→boll_mid/boll_up/boll_dn；macd→macd_dif/macd_dea/macd_bar，bar=2×(DIF−DEA)；rsi同名。indicator_data各列在完整计算后统一四舍五入到最多3位小数，返回数值而非字符串，不补末尾零；原始OHLCV保持原值，快捷查询和授权取数相同。预热段不返回，历史不足时返回null和INSUFFICIENT_HISTORY，不能补0或宣称指标完整。零成交量有效，缺失量为null。
 
 业务首答使用实际first_date/last_date/data_points及末日close和所选指标值，注明日频与数据警告。fetched_at是拉取时间，last_date不保证已收盘或盘中实时；未返回单位、币种或复权口径时如实说明未核验。
 

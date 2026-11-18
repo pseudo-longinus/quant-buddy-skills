@@ -847,6 +847,9 @@ def _agent_reply_template_contract(record, *, operation=None):
         "require_page_id_in_reply": template_ref == "preserve_html_qbs_live_delivery_v1",
     }
     _apply_delivery_policy(contract)
+    if isinstance(record.get("llm_billing"), bool):
+        contract["llm_billing"] = record["llm_billing"]
+        contract["billing_notice"] = record.get("billing_notice") or ""
     if not contract["terminal"]:
         contract.update({
             "required": False,
@@ -1307,6 +1310,15 @@ def _read_html(params, *, check_chart=True):
             html = f.read()
     if not html:
         return None, {"code": 1, "message": "upload 需要 html 或 html_file 之一"}
+    if 'data-qb-asset-info-config' in str(html):
+        import asset_info as AI
+        info_error = AI.validate_html(html, C.endpoint_of(C.load_config()))
+        if info_error:
+            return None, info_error
+        info = AI.config_from_html(html)
+        _, info_error = _validate_registered_qbs_credentials(C.endpoint_of(C.load_config()), [], [info])
+        if info_error:
+            return None, info_error
     preview_error = SSC.public_preview_context_error(html)
     if preview_error:
         return None, preview_error
@@ -1634,6 +1646,12 @@ def _extract_grant_credentials(html):
         for item in FRC.discover_credential_pairs(html, reject_ambiguous=False)
         if item.get('kind') == 'grant'
     ]
+    import asset_info as AI
+    info = AI.config_from_html(html)
+    if info:
+        for pair in pairs:
+            if pair['grant_id'] == info.get('grant_id') and pair['signature'] == info.get('signature'):
+                pair['kind'] = 'asset_info'
     # Page-owned initial assets are query context, not credential or registration scope.
     # Standard BOOT JSON and declared JSON source objects are inspectable without executing page scripts.
     assets = {}
@@ -2330,6 +2348,14 @@ def _is_preserve_html_qbs_live(params):
 
 
 def _publish_html_error(html):
+    import asset_info as AI
+    required_info_error = AI.required_module_error(html)
+    if required_info_error:
+        return required_info_error
+    if 'data-qb-asset-info-config' in str(html or ''):
+        ai_error = AI.validate_html(html, C.endpoint_of(C.load_config()))
+        if ai_error:
+            return ai_error
     preview_error = SSC.public_preview_context_error(html)
     if preview_error:
         return preview_error
@@ -3395,6 +3421,8 @@ def _valid_formula_receipt(receipt, task_id, resolve_path=None):
     return secrets.compare_digest(actual_outputs_sha256, expected_outputs_sha256)
 
 def _valid_grant_receipt(receipt, task_id):
+    if isinstance(receipt, dict) and receipt.get("kind") == "asset_info":
+        return False  # Auxiliary request proof never stands in for financial data.
     return (
         isinstance(receipt, dict)
         and receipt.get("version") == _GRANT_VALIDATION_RECEIPT_VERSION
@@ -3612,6 +3640,8 @@ def _validate_live_receipts(params, route, *, allow_partial=False, resolve_path=
         if not isinstance(item, dict):
             return _evidence_error("LIVE_DATA_SELECTED_ROUTE_INVALID", f"selected_routes[{index}] 必须是对象")
         kind = str(item.get("kind") or "").strip()
+        if kind == 'asset_info':
+            return _evidence_error('ASSET_INFO_NOT_FINANCIAL_EVIDENCE', '公司信息合同不能代替量化选股出数证据；请使用独立信息模块登记')
         receipt_file = str(item.get("receipt_file") or "").strip()
         path_key = _normalized_evidence_path(receipt_file)
         if not path_key:
@@ -4315,6 +4345,17 @@ def _validate_registered_qbs_credentials(endpoint, packages, grants):
     if grants:
         import data_grant as DG
         for item in grants:
+            if item.get('kind') == 'asset_info':
+                import runtime_credentials as RC
+                try:
+                    task = C.current_trace_context().get('task_id')
+                    cfg = C.load_config_require_key()
+                    binding = RC.verify_asset_info_registration(task, item['grant_id'], item['signature'], endpoint, cfg.get('api_key', ''))
+                    checks.append({'kind': 'asset_info', 'credential_id': item['grant_id'], 'ok': True,
+                        'validation_scope': 'registration_only', 'registration_task_id': binding['task_id']})
+                except RC.CredentialError as exc:
+                    return checks, exc.as_dict()
+                continue
             try:
                 response = DG.query_grant(endpoint, item["grant_id"], item["signature"], **({"asset": item["asset"]} if "asset" in item else {}))
             except Exception as exc:
@@ -7151,11 +7192,17 @@ def _load_direct_maintenance_delivery(task_id, page_id=None):
 
 def _finalize_public_publication(params, stages, result, public_url, verified):
     """Shared success tail of publish_verified and verify_published."""
+    for key in ("llm_billing", "billing_notice"):
+        if key in stages["publish_final"]:
+            result[key] = stages["publish_final"][key]
     if verified:
         _persist_maintenance_delivery_state(params, stages, result, public_url)
         contract = stages["publish_final"].get("agent_reply_contract")
         if isinstance(contract, dict):
             result_contract = {**contract, "operation": "publish_verified"}
+            for key in ("llm_billing", "billing_notice"):
+                if key in result:
+                    result_contract[key] = result[key]
             presentation = stages.get("public_smoke", {}).get("presentation")
             if isinstance(presentation, dict):
                 result["presentation"] = presentation
@@ -7200,7 +7247,7 @@ def _finalize_public_publication(params, stages, result, public_url, verified):
             import maintenance_reply as MR
             maintenance_contract = MR.contract(params['task_id'], result['page_id'], public_url)
             if maintenance_contract:
-                for key in ('presentation', 'presentation_notice'):
+                for key in ('presentation', 'presentation_notice', 'llm_billing', 'billing_notice'):
                     if result.get(key) is not None:
                         maintenance_contract[key] = result[key]
                 result['agent_reply_contract'] = maintenance_contract
@@ -7613,7 +7660,7 @@ def _publish_verified_cli_result(result, task_id, report_name="publish-verified-
             "reply_validation_env", "reply_validation_env_keys",
             "compose_quality", "reply_data_evidence_file", "reply_data_evidence_sha256", "reply_data_availability",
             "agent_reply_template_file", "contract_artifact_error", "qbv_job_lifecycle",
-            "presentation", "presentation_notice", "repair_attempts_remaining", "recovery_phase", "research_status", "delivery_kind", "live_data_mode", "artifact_file", "artifact_sha256", "artifact_verified", "recovery_result",
+            "presentation", "presentation_notice", "llm_billing", "billing_notice", "repair_attempts_remaining", "recovery_phase", "research_status", "delivery_kind", "live_data_mode", "artifact_file", "artifact_sha256", "artifact_verified", "recovery_result",
             "failure_summary", "failure_kind", "written", "public_reachable", "operation", "already_verified",
             "current_revision", "current_plan_hash", "stale_plan_hash", "terminal", "conflicting_fields",
         )
@@ -7971,6 +8018,8 @@ def cmd_download(params):
         "sha256": sha,
         "sha256_match": sha_ok,
         "is_live": bool(meta.get("is_live")),
+        "llm_billing": meta.get("llm_billing") is True,
+        "billing_notice": meta.get("billing_notice") or "",
         "package_ids": meta.get("package_ids") or [],
         "grant_ids": meta.get("grant_ids") or [],
         "page_context": meta.get("page_context"),
@@ -9334,6 +9383,10 @@ def _run_direct_deliver(task_id, page_id, expected_revision):
     grant_query_results = []
     for grant_id in grant_ids:
         signature = next(iter(grant_credentials[grant_id]))
+        if any(item.get('kind') == 'asset_info' and item['grant_id'] == grant_id for item in grant_sources):
+            # Content is auxiliary and loaded by the trusted header after selection.
+            # A direct delivery must never query a ticker-less info grant or await LLM content.
+            continue
         assets = [item.get('asset') for item in grant_sources if item['grant_id'] == grant_id and item['signature'] == signature]
         for asset in assets or [None]:
             result = _direct_query_grant(grant_id, signature, **({'asset': asset} if asset is not None else {}))
@@ -9456,8 +9509,21 @@ def cmd_direct_deliver(params):
     This command intentionally owns template detail loading, credential extraction,
     one query per current package/grant, and the single terminal finalize call.
     """
+    if params.get('asset_info_request') is not None:
+        return _direct_failure('DIRECT_ASSET_INFO_ENHANCEMENT_REQUIRED',
+                               '本轮需要附加公司信息，请沿现有compose/bespoke路由构建候选，不能直接交付未增强的模板')
     previous_context = C.current_trace_context()
+    from asset_info_request import requires_request
+    if requires_request(params.get('user_query') or previous_context.get('user_query')):
+        return _direct_failure('DIRECT_ASSET_INFO_ENHANCEMENT_REQUIRED',
+                               '原问题明确要求选股附公司资料，请补齐信息需求并沿compose/bespoke路由接入官方异步模块')
     task_id = str(params.get("task_id") or previous_context.get("task_id") or "").strip()
+    persisted = C.read_task_trace_context(task_id) if task_id else {}
+    handoff = persisted.get('handoff_context') if isinstance(persisted, dict) else None
+    reuse = handoff.get('computation_reuse') if isinstance(handoff, dict) else None
+    if isinstance(reuse, dict) and reuse.get('asset_info_request') is not None:
+        return _direct_failure('DIRECT_ASSET_INFO_ENHANCEMENT_REQUIRED',
+                               '本轮交接需要附加公司信息，请沿现有compose/bespoke路由构建候选，不能直接交付未增强的模板')
     page_id = str(params.get("page_id") or "").strip()
     expected_revision = str(params.get("template_revision") or "").strip()
     if not task_id or not page_id or not expected_revision:

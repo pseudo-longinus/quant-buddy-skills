@@ -109,15 +109,7 @@ def publication_endpoint(sp, endpoint):
     Only the host's matching config pair can supply the stable identity. Network
     requests keep using the current proxy and its signing/billing boundary.
     """
-    from urllib.parse import urlsplit
-    cfg = sp.C.load_config()
-    actual = str(endpoint).rstrip('/')
-    configured = str(cfg.get('endpoint') or '').rstrip('/')
-    upstream = str(cfg.get('_claw_upstream_endpoint') or '').rstrip('/')
-    parsed = urlsplit(actual)
-    if actual == configured and parsed.scheme == 'http' and parsed.hostname in {'127.0.0.1', 'localhost', '::1'} and upstream:
-        return upstream
-    return actual
+    return sp.C.identity_endpoint(endpoint)
 
 
 def register_binding(state, root):

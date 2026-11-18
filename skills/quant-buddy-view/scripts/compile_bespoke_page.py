@@ -78,6 +78,14 @@ def _replace(html, token, value):
 
 
 def _compile(html, params):
+    if params.get('asset_info') is not None:
+        import asset_info as AI
+        if '<!-- QB_ASSET_INFO -->' not in html:
+            raise ValueError('bespoke接入asset_info须在选股脚本前预留<!-- QB_ASSET_INFO -->')
+        if html.count('<!-- QB_ASSET_INFO -->') != 1:
+            raise ValueError('bespoke接入asset_info须保留唯一的<!-- QB_ASSET_INFO -->占位符')
+        config = AI.resolve_config(params['asset_info'], params.get('task_id'))
+        html = html.replace('<!-- QB_ASSET_INFO -->', AI.markup(config, C.endpoint_of(C.load_config())))
     replacements = params.get("replacements") if isinstance(params.get("replacements"), dict) else {}
     for old, new in replacements.items():
         html = html.replace(str(old), str(new))
@@ -133,6 +141,13 @@ def _compile(html, params):
     html = re.sub(r'src=["\'][^"\']*assets/logo\.svg["\']', 'src="' + _logo_data_uri() + '"', html)
     # 把 data-kernel 里的版本占位符替换成本次构建所用的 quant-buddy-view 版本，供实时取数上报 audit
     html = html.replace("__QBV_SKILL_VERSION__", C.SKILL_VERSION or "")
+    import asset_info as AI
+    required_info_error = AI.required_module_error(html, params)
+    if required_info_error:
+        raise ValueError(required_info_error['error'] + ': ' + required_info_error['message'])
+    info_config = AI.config_from_html(html)
+    if info_config is not None:
+        AI.validate_panel_structure(html, info_config)
     return html
 
 

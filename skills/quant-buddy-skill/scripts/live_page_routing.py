@@ -708,6 +708,7 @@ def build_qbv_handoff(
     validation_receipts: Any = None,
     computation_capsule: Any = None,
     display_contract: Any = None,
+    asset_info_request: Any = None,
     requires_persistence_confirmation: bool = False,
     research_contract: Any = None,
     research_checks: Any = None,
@@ -786,6 +787,16 @@ def build_qbv_handoff(
         handoff["computation_capsule"] = capsule
     if normalized_display_contract is not None:
         handoff["display_contract"] = normalized_display_contract
+    from asset_info_request import normalize_request, requires_request
+    if asset_info_request is None and requires_request(query_value):
+        raise LivePageRoutingError('ASSET_INFO_REQUEST_REQUIRED',
+            '原问题明确要求选股附公司资料；请传asset_info_request，引用已验证selection_role，并保留原题主题、日期和来源要求。不要以手写静态资料替代异步模块。')
+    if asset_info_request is not None:
+        try:
+            handoff['asset_info_request'] = normalize_request(
+                asset_info_request, (capsule or {}).get('validated_outputs') or handoff['validated_outputs'])
+        except ValueError as exc:
+            raise LivePageRoutingError('ASSET_INFO_REQUEST_INVALID', str(exc)) from exc
     from research_contract import metadata, load_for_delivery
     try:
         if research_contract is None:
@@ -823,6 +834,7 @@ def validate_qbv_handoff(payload: Any) -> Dict[str, Any]:
         validation_receipts=payload.get("validation_receipts"),
         computation_capsule=payload.get("computation_capsule"),
         display_contract=payload.get("display_contract"),
+        asset_info_request=payload.get("asset_info_request"),
         research_contract=payload.get('research_contract'),
         research_checks=payload.get('research_checks'),
         research_status=payload.get('research_status', 'unknown'),
@@ -853,6 +865,8 @@ def idempotency_key_for(handoff: Dict[str, Any]) -> str:
         ],
         "formula_runtime_contract": (capsule.get("formula_runtime_contract") or {}).get("contract_fingerprint"),
     }
+    if valid.get("asset_info_request") is not None:
+        lineage["asset_info_request"] = valid["asset_info_request"]
     lineage_hash = hashlib.sha256(json.dumps(lineage, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
     source = "\n".join((
         valid["task_id"],
@@ -1243,6 +1257,7 @@ def prepare_validated_page(
     formula_runtime_contract: Any = None,
     answer_structure: Any = None,
     display_contract: Any = None,
+    asset_info_request: Any = None,
     research_contract: Any = None,
     research_checks: Any = None,
     research_status: str = 'unknown',
@@ -1337,6 +1352,7 @@ def prepare_validated_page(
         validation_receipts=capsule["validation_receipts"],
         computation_capsule=capsule,
         display_contract=effective_display_contract,
+        asset_info_request=asset_info_request,
         research_contract=research_contract, research_checks=research_checks,
         research_status=research_status, delivery_kind=delivery_kind,
         requires_persistence_confirmation=False,

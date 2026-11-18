@@ -150,6 +150,8 @@ The input HTML must already contain one complete set of the six stable markers. 
 
 Local previews may pass `pageUrl`, `embedOrigin`, and `navigationOrigin` to `QBShareShell.init()`; production pages omit them and derive the current public page URL directly.
 
+Company-information pages should set `embedOrigin` to their official SDK environment. If omitted, the shell derives the default from the exact official `/asset-info-bridge.js` URL only when the company-information config is present. An explicit origin retains priority; arbitrary hosts, credentials, query strings and fragments never provide an inferred origin. The SDK and publication checks still reject mixed environments.
+
 The 投研仓 iframe keeps its existing preload and new-window fallback behavior on ordinary public pages. The `webagent-preview` embed context is host-only: the official WebAgent Preview response proxy injects it at response time, and in that context the Parent Bridge must not load the Header iframe or preload 投研仓. QBV source HTML, replacement inputs, compiled candidates, upload/update parameters, and public HTML must never carry that context or its preview-only hiding style; remove both and recompile if they appear. The authentication iframe is not loaded or used for hidden session probing; it is created only after the user clicks the header brand or “问一问”. Both protocols validate the official origin, exact iframe source, channel, and request/page identifier. The static page never reads cookies or receives tokens, user identity, or folder details.
 
 ## Retrofitting Old Pages

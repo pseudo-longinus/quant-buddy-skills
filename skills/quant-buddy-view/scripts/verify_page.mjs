@@ -29,6 +29,7 @@ import { cardVisualContractProblems } from './card_visual_contract.mjs';
 import { dashboardDesignMetrics } from './dashboard_design_checks.mjs';
 import { pageTitleMetrics, pageTitleProblems } from './page_title_checks.mjs';
 import { liveAction, liveResponse, liveRequestProblems } from './live_request_verification.mjs';
+import { assetInfoSelectionMetrics } from './asset_info_selection_checks.mjs';
 // Optional diagnostics must not turn an old successful page into a failure.
 const labelChecks = await import('./data_label_checks.mjs').catch(() => ({
   readDataLabels: async () => ({checked:false, advisory:true, warnings:['LABEL_CHECK_UNAVAILABLE']}),
@@ -832,7 +833,11 @@ async function shareShellHeaderChecksExpression() {
     try {
       const parsed = new URL(src);
       const pageId = (location.pathname.match(/page_([0-9a-f]{24})\.html/i) || [])[1];
-      officialUrl = parsed.origin === 'https://www.quantbuddy.cn' && parsed.pathname === '/embed/live-page-header';
+      const bridge = document.querySelector('script[src$="/asset-info-bridge.js"]');
+      const bridgeOrigin = bridge ? new URL(bridge.src).origin : null;
+      officialUrl = ['https://www.quantbuddy.cn', 'https://test.quantbuddy.cn'].includes(parsed.origin)
+        && !parsed.username && !parsed.password && parsed.pathname === '/embed/live-page-header'
+        && (!bridgeOrigin || bridgeOrigin === parsed.origin);
       paramsValid = !!pageId
         && parsed.searchParams.get('page_id') === `page_${pageId}`
         && parsed.searchParams.get('page_url') === location.href
@@ -895,7 +900,7 @@ async function playwrightBrowserChecks(pw, url, options = {}) {
         }
       });
       page.on('response', response => {
-        if (/^https:\/\/www\.quantbuddy\.cn\/embed\/live-page-header\?/i.test(response.url())) {
+        if (/^https:\/\/(?:www|test)\.quantbuddy\.cn\/embed\/live-page-header\?/i.test(response.url())) {
           headerResponses.push(response.status());
         }
         const action=liveAction(response.url());
@@ -938,6 +943,7 @@ async function playwrightBrowserChecks(pw, url, options = {}) {
       const metrics = await page.evaluate(pageMetricsExpression);
       metrics.data_labels = await labelChecks.readDataLabels(fn => page.evaluate(fn));
       metrics.pageTitle = await page.evaluate(pageTitleMetrics);
+      metrics.assetInfo = await page.evaluate(assetInfoSelectionMetrics);
       metrics.dashboardDesign = await page.evaluate(dashboardDesignMetrics, options.requireDashboardDesign === true);
       metrics.images = imageMetrics;
       metrics.presentation = presentation;
@@ -1364,6 +1370,7 @@ function viewportResult(viewport, metrics, options = {}) {
     verticalOverflow: metrics.scrollHeight > metrics.clientHeight + 2,
     hasH1: metrics.hasH1,
     pageTitle: metrics.pageTitle || null,
+    assetInfo: metrics.assetInfo || null,
     data_labels: metrics.data_labels || null,
     presentation: metrics.presentation || null,
     placeholderHits: metrics.placeholderHits,
@@ -1682,7 +1689,7 @@ async function cdpBrowserChecks(url, options = {}) {
       }
       if (msg.method === 'Network.responseReceived') {
         const responseUrl = String(msg.params?.response?.url || '');
-        if (/^https:\/\/www\.quantbuddy\.cn\/embed\/live-page-header\?/i.test(responseUrl)) {
+        if (/^https:\/\/(?:www|test)\.quantbuddy\.cn\/embed\/live-page-header\?/i.test(responseUrl)) {
           headerResponses.push(Number(msg.params?.response?.status || 0));
         }
         const action=liveAction(responseUrl);
@@ -1778,6 +1785,11 @@ async function cdpBrowserChecks(url, options = {}) {
       });
       if (titleMetrics.exceptionDetails) throw new Error('Page title checks failed to execute');
       evaluated.result.value.pageTitle = titleMetrics.result?.value || null;
+      const assetInfoMetrics = await cdp.send('Runtime.evaluate', {
+        expression: `(${assetInfoSelectionMetrics.toString()})()`, returnByValue: true,
+      });
+      if (assetInfoMetrics.exceptionDetails) throw new Error('Company selection checks failed to execute');
+      evaluated.result.value.assetInfo = assetInfoMetrics.result?.value || null;
       const designMetrics = await cdp.send('Runtime.evaluate', {
         expression: `(${dashboardDesignMetrics.toString()})(${options.requireDashboardDesign === true})`, returnByValue: true,
       });
@@ -1850,6 +1862,7 @@ function summarize(staticResult, browserResult, options) {
   const nonCoreWarnings = [...(browserResult.nonCoreWarnings || [])];
   if (browserResult.checked) {
     for (const r of browserResult.viewports) {
+      for (const problem of r.assetInfo?.problems || []) problems.push(`${r.viewport}: ${problem}`);
       if (options.requireLiveData) for (const problem of liveRequestProblems(r.liveRequests,r.runtime)) problems.push(`${r.viewport}: ${problem}`);
       for (const problem of chartPresentationProblems(r.presentation)) problems.push(`${r.viewport}: ${problem}`);
       if(r.presentation?.status==='degraded') warnings.push(`${r.viewport}: 图表资源不可用，已验证数据表替代`);

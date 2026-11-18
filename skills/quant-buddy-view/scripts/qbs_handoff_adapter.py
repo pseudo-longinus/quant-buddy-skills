@@ -306,6 +306,12 @@ def evaluate_handoff(handoff: Any, required_roles: Any = None) -> Dict[str, Any]
         "validation_receipts": list(capsule.get("validation_receipts") or []) if isinstance(capsule.get("validation_receipts"), list) else [],
         "next_step": "templates" if coverage == "covered" else "qbs_bridge_missing_roles",
     }
+    if handoff.get('asset_info_request') is not None:
+        from asset_info_request import normalize_request
+        try:
+            result['asset_info_request'] = normalize_request(handoff['asset_info_request'], outputs)
+        except ValueError as exc:
+            return _unusable('asset_info_request_invalid', str(exc))
     if display_contract is not None:
         result["display_contract"] = display_contract
         result["delivery_mode"] = display_contract["render_mode"]

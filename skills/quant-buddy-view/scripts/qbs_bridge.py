@@ -1510,11 +1510,25 @@ def _validate_grant_set(call_script, params, env):
         actual_fingerprint = FRC.contract_fingerprint(contract)
         if not name or name in names:
             return {"code": 1, "error": "INVALID_GRANT_NAME", "message": f"grants[{index}].name 缺失或重复"}
-        if kind not in tool_by_kind or not isinstance(payload, dict) or (not payload and kind != 'query_kline'):
+        if kind not in GC.SUPPORTED_KINDS or not isinstance(payload, dict) or (not payload and kind != 'query_kline'):
             return {"code": 1, "error": "INVALID_GRANT_CONTRACT", "message": f"grants[{index}] kind/payload 无效"}
         if fingerprint != actual_fingerprint:
             return {"code": 1, "error": "GRANT_FINGERPRINT_MISMATCH", "message": f"grants[{index}] fingerprint 不一致"}
         names.add(name)
+        if kind == 'asset_info':
+            import asset_info as AI
+            receipt = C.task_temp_path(task_id, 'receipts/asset-info/' + fingerprint + '.json', create_parent=True)
+            proof = {'version': AI.RECEIPT_VERSION, 'kind': kind, 'task_id': task_id, 'role': name,
+                     'contract': contract, 'contract_fingerprint': fingerprint, 'status': 'contract_validated',
+                     'success': True, 'validation_scope': 'request_contract', 'content_generated': False}
+            import execution_plan as EP
+            EP.atomic_json(receipt, proof)
+            receipts.append(str(receipt))
+            results.append({'name': name, 'role': name, 'kind': kind, 'status': 'contract_validated',
+                            'validation_scope': 'request_contract', 'content_generated': False,
+                            'contract_fingerprint': fingerprint, 'validation_receipt_file': str(receipt),
+                            **_registration_handoff('grant', task_id, contract, str(receipt))})
+            continue
         validation_payload = dict(payload)
         query_asset = (item.get('asset') or params.get('asset')) if kind == 'query_kline' else None
         if kind == 'query_kline':
@@ -1621,7 +1635,7 @@ def _validate_grant_set(call_script, params, env):
         "code": 1 if blocking else 0,
         "error": "GRANT_VALIDATION_FAILED" if blocking else None,
         "success": not blocking,
-        "status": ('partial' if results else 'failed') if blocking else 'completed',
+        "status": ('partial' if results else 'failed') if blocking else ('contract_validated' if results and all(x['kind'] == 'asset_info' for x in results) else 'completed'),
         "required_roles_complete": not blocking,
         "task_id": task_id,
         "grant_count": len(results),

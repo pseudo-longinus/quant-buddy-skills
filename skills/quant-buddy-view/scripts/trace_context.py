@@ -429,6 +429,10 @@ def _validate_handoff(handoff):
     missing = [name for name in required if not str(handoff.get(name) or "").strip()]
     if missing:
         return {"code": 1, "error": "HANDOFF_FIELDS_REQUIRED", "missing": missing}
+    from asset_info_request import requires_request
+    if handoff.get('asset_info_request') is None and requires_request(handoff.get('user_query')):
+        return {'code': 1, 'error': 'ASSET_INFO_REQUEST_REQUIRED',
+                'message': '原问题明确要求选股附公司资料；请补齐asset_info_request及已验证selection_role，保留主题、日期和来源要求。'}
     source_skill_id = str(handoff.get("source_skill_id") or "").strip() or None
     source_status = str(handoff.get("source_skill_id_status") or ("available" if source_skill_id else "unavailable")).strip()
     if source_status not in {"available", "unavailable"}:
@@ -462,6 +466,12 @@ def _handoff_instruction(reuse):
         "已复用 QBS 的 task_id + turn_id，禁止再次 begin/beginTurn。"
         "继续执行 QBV 完整 SOP，自行判断 direct/fork/unmatched 与页面 ownership；"
     )
+    if (reuse or {}).get('asset_info_request') is not None:
+        base += (
+            "本轮含asset_info_request：先读取guides/asset-info.md，使用asset_info.py prepare验证需求合同并登记信息授权，"
+            "编译时传asset_info并绑定当前展示名单。即使量化数据按verified_snapshot交付，也须保留官方异步模块；"
+            "不得用手写公司资料或搜索摘要替代，不等待公司信息生成。"
+        )
     if coverage == "covered":
         return base + f"计算胶囊已覆盖 [{covered}]，禁止通过 qbs_bridge 重复识别资产或重算这些角色；继续完成页面构建、运行时注册、发布和验收。"
     if coverage == "partial":

@@ -16,7 +16,7 @@ POINTER='receipts/compose-draft.json'
 PASS_FIELDS=('title','subtitle','description','page_context','agent_reply_template','live_card','agent_intent','market_data_required',
              'route_receipt_file','validation_receipt_files','grant_validation_receipt_files','handoff_validation_receipt_files','turn_id','asset',
              'research_contract','research_checks','research_status','delivery_kind','live_data_mode','missing_conditions',
-             'presentation','presentation_origin','sources_manifest_file','expected_current_version_id')
+             'presentation','presentation_origin','sources_manifest_file','expected_current_version_id','asset_info')
 
 
 def editable_root(task):

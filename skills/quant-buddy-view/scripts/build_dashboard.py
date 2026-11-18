@@ -126,6 +126,22 @@ def _resolve_credential(params):
     return None, None, {"code": 1, "message": "未能确定 package_id：请在 spec 里指定，或先 register 落一份本地凭证"}
 
 
+def _resolve_asset_info(params, panels):
+    import asset_info as AI
+    config = AI.resolve_config(params.get('asset_info'), params.get('task_id'))
+    if config is None:
+        return None
+    matches = [p for p in panels if (p.get('type') or 'table') == 'table'
+               and config['selection_output'] in (
+                   [p.get('output') if ('asset' in p or 'asset_source' in p) else p['grant_id']]
+                   if p.get('grant_id') else [p.get('output')] + list(p.get('outputs') or []))]
+    if len(matches) != 1:
+        raise ValueError('asset_info.selection_output必须绑定唯一的真实选股table面板')
+    if matches[0].get('grant_id') and matches[0].get('output') != config['selection_output']:
+        raise ValueError('Grant选股table须使用解析后的output（普通授权为grant_id），不能另起别名')
+    return config
+
+
 def _resolve_grant_panels(panels, task_id=None):
     """Bind reusable grants to page-owned asset sources, independently of grant identity."""
     seen, signatures, grants = {}, {}, []
@@ -491,7 +507,7 @@ function normalizeGrantData(kind, data) {
     var out = rs.map(function (r) {
       return {'排名': r.rank, '名称': r.name, '代码': r.code, '行业': r.industry, '得分': r.score};
     });
-    return out.length ? out : data;
+    return Array.isArray(data.results) ? out : data;
   }
   if (k === 'stock_profile') {
     var dims = data.dimensions || {}, drows = [];
@@ -601,6 +617,10 @@ function renderTable(el, tab, panel, coverage) {
     return av!=null&&bv!=null ? (panel.rank_order==='asc'?1:-1)*(av-bv) : av!=null?-1:bv!=null?1:0;
   });
   const limit = ranked ? (Number.isInteger(panel.rank_limit)&&panel.rank_limit>0?panel.rank_limit:10) : rows.length;
+  if (typeof window !== 'undefined' && window.QBAssetInfoPanel && panelOutputNames(panel).includes(window.QBAssetInfoPanel.selectionOutput)) {
+    if (ranked && ri == null && rows.length) window.QBAssetInfoPanel.unavailable('选股排序字段缺失');
+    else window.QBAssetInfoPanel.setTable(tab.columns, rows.slice(0, limit));
+  }
   const memberIndex=colIdx(tab,'name') ?? colIdx(tab,'名称') ?? colIdx(tab,'asset') ?? colIdx(tab,'代码');
   const table = data => '<table'+(ranked?' data-qb-rank-order="'+panel.rank_order+'" data-qb-rank-by="'+esc(panel.rank_by)+'" data-qb-rank-limit="'+limit+'" data-qb-rank-cell="'+idx.indexOf(ri)+'"':'')+'><thead><tr>' + cols.map(c => '<th scope="col">' + esc(label(c)) + '</th>').join('') + '</tr></thead><tbody>' + data.map(r=>
     '<tr'+(ranked&&ri!=null&&typeof r[ri]==='number'?' data-qb-rank-value="'+esc(r[ri])+'" data-qb-rank-display="'+esc(cell(r[ri],rankColumn))+'" data-qb-rank-member="'+esc(memberIndex==null?'':r[memberIndex])+'"':'')+'>'+idx.map((i,n)=>'<td>'+esc(cell(i==null?null:r[i],cols[n]))+'</td>').join('')+'</tr>').join('')+'</tbody></table>';
@@ -1133,6 +1153,7 @@ function renderPanelBody(body, panel, span, merged) {
   const type = panel.type || 'table';
   body.__qbChartToken = null;
   const out = merged.out;
+  if (out && out.error && typeof window !== 'undefined' && window.QBAssetInfoPanel && panelOutputNames(panel).includes(window.QBAssetInfoPanel.selectionOutput)) window.QBAssetInfoPanel.unavailable('本轮选股结果暂不可用，保留上次公司信息');
   if (out && out.error) { body.innerHTML = '<p class="empty err">取数失败：' + esc(out.error) + '</p>'; if(body.dataset){body.dataset.qbRenderError=String(out.error);body.dataset.qbPresentation='failed';} return; }
   if (!merged.tab) { if(CHART_TYPES.has(type)){setChartError(body,'图表无有效产出');return;} body.innerHTML = '<p class="empty">无产出：' + (panel.output || (panel.outputs || []).join('、') || '') + '</p>'; return; }
   if (out && out.error) { body.innerHTML = '<p class="empty err">取数失败：' + out.error + '</p>'; return; }
@@ -1428,6 +1449,7 @@ function fetchLive() {
   return activeFetch;
 }
 async function fetchLiveEpoch() {
+  if (window.QBAssetInfoPanel) window.QBAssetInfoPanel.pause();
   const epoch=grantAssetEpoch;
   buildSkeletons();          // 先把面板骨架铺出来，产出到一个就渲染一个
   LAST_OUTPUTS = {};
@@ -1515,6 +1537,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   if (window.QBShareShell) {
     QBShareShell.init({
+      embedOrigin: BOOT.asset_info ? BOOT.share.officialUrl : undefined,
       templateName: (BOOT.share && BOOT.share.pageType) || '标准实时看板',
       title: () => (BOOT.share && BOOT.share.title) || document.title,
       subtitle: () => (BOOT.share && BOOT.share.subtitle) || '',
@@ -1698,6 +1721,13 @@ def _render_html(spec, *, title, subtitle, panels, endpoint, package_id, signatu
         "skillName": C.SKILL_NAME,
     }
 
+    import asset_info as AI
+    info_config = _resolve_asset_info(spec, panels)
+    if info_config:
+        boot['asset_info'] = info_config
+        boot['share']['officialUrl'] = AI.bridge_url(endpoint).rsplit('/', 1)[0]
+    info_markup = AI.markup(info_config, endpoint)
+
     if data_label_report is not None:
         boot['data_labels'] = data_label_report
     title_esc = html_escape(title or "看板")
@@ -1780,6 +1810,7 @@ def _render_html(spec, *, title, subtitle, panels, endpoint, package_id, signatu
     </div>
   </section>
   <div id="grid"></div>
+  {info_markup}
 </main>
 {shared_footer}
 {shared_modal}
@@ -1958,6 +1989,14 @@ def cmd_panel_block(params):
         "skillName": C.SKILL_NAME,
     }
 
+    import asset_info as AI
+    try:
+        info_config = _resolve_asset_info(params, panels)
+    except ValueError as exc:
+        return {'code': 1, 'error': 'ASSET_INFO_BINDING_INVALID', 'message': str(exc)}
+    if info_config:
+        boot['asset_info'] = info_config
+    info_markup = AI.markup(info_config, endpoint)
     render_js = _render_js_for_boot(boot)
 
     include_kernel = params.get("include_data_kernel")
@@ -1985,7 +2024,8 @@ def cmd_panel_block(params):
     cdn_tag = ""
     kernel_block = (data_kernel_js + "\n") if data_kernel_js else ""
     script_html = (
-        cdn_tag
+        info_markup
+        + cdn_tag
         + "<script>\n"
         + kernel_block
         + render_js + "\n"
@@ -2774,6 +2814,11 @@ def _build_authorized(params):
     grants, grant_err = _resolve_grant_panels(panels, task_id=params.get("task_id"))
     if grant_err:
         return grant_err
+
+    try:
+        _resolve_asset_info(params, panels)
+    except ValueError as exc:
+        return {'code': 1, 'error': 'ASSET_INFO_BINDING_INVALID', 'message': str(exc)}
 
     snapshots, snapshot_bindings, snapshot_error = _resolve_snapshot_panels(panels, params.get("task_id"))
     if snapshot_error:

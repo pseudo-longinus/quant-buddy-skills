@@ -15,6 +15,8 @@ TOOL_BY_KIND = {
     'stock_profile': 'stockProfile',
     'composition_select': 'selectByComposition',
 }
+SUPPORTED_KINDS = frozenset(TOOL_BY_KIND) | {'asset_info'}
+
 MINUTE_FIELDS = {
     'open': 'open', '开盘价': 'open', 'high': 'high', '最高价': 'high',
     'low': 'low', '最低价': 'low', 'close': 'close', '收盘价': 'close',
@@ -32,11 +34,14 @@ def contract_errors(contract, role_id=''):
         add('GRANT_PAYLOAD_INVALID', 'Grant contract必须是对象')
         return errors
     kind, payload = contract.get('kind'), contract.get('payload')
-    if not isinstance(kind, str) or kind not in TOOL_BY_KIND:
-        add('GRANT_KIND_UNSUPPORTED', '不支持的Grant kind；支持：' + ', '.join(TOOL_BY_KIND))
+    if not isinstance(kind, str) or kind not in SUPPORTED_KINDS:
+        add('GRANT_KIND_UNSUPPORTED', '不支持的Grant kind；支持：' + ', '.join(sorted(SUPPORTED_KINDS)))
     if not isinstance(payload, dict) or (not payload and kind != 'query_kline'):
         add('GRANT_PAYLOAD_INVALID', 'Grant payload必须是非空对象')
         return errors
+    if kind == 'asset_info':
+        from asset_info import contract_errors as validate_asset_info
+        for code, message in validate_asset_info(payload): add(code, message)
     if kind == 'option_contracts':
         allowed = {'asset', 'query_type', 'slots', 'lookback_days', 'mode'}
         extra = sorted(set(payload) - allowed)

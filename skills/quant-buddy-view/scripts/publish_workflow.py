@@ -284,6 +284,8 @@ def _write_live_route_receipt(task_id, asset, package_results, grant_results):
             continue
         role = str(item.get("role") or item.get("name") or f"grant_{index}").strip()
         kind = str(item.get("kind") or "").strip()
+        if kind == 'asset_info':
+            continue  # Request validation is not financial output evidence.
         receipt_file = str(item.get("validation_receipt_file") or "").strip()
         fingerprint = str(item.get("contract_fingerprint") or "").strip()
         if role not in required_roles:
@@ -316,6 +318,14 @@ def _write_live_route_receipt(task_id, asset, package_results, grant_results):
     path = root / f"{digest}.json"
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return str(path)
+
+
+def _split_grant_receipts(grants, receipt_files):
+    financial, information = [], []
+    for grant, receipt in zip(grants, receipt_files):
+        target = information if (grant.get('contract') or {}).get('kind') == 'asset_info' else financial
+        target.append(receipt)
+    return financial, information
 
 def _replace_once(html, marker, value, label):
     count = html.count(marker)
@@ -562,6 +572,7 @@ def _run_workflow_v1(params):
             return _failure("GRANT_FINGERPRINT_MISMATCH", f"Grant验证与注册合同不一致: {grant.get('name')}")
     package_route_results = _validation_route_items(packages, validation.get("packages"), receipts, kind="formula")
     grant_route_results = _validation_route_items(grants, grant_validation.get("grants"), grant_receipts, kind="grant")
+    financial_grant_receipts, info_contract_receipts = _split_grant_receipts(grants, grant_receipts)
     route_asset = _infer_route_asset(publish_params.get("asset") or params.get("asset"), grants)
     route_receipt_file = _write_live_route_receipt(
         task_id,
@@ -639,7 +650,8 @@ def _run_workflow_v1(params):
         "live_data_mode": "live",
         "route_receipt_file": route_receipt_file,
         "validation_receipt_files": receipts,
-        "grant_validation_receipt_files": grant_receipts,
+        "grant_validation_receipt_files": financial_grant_receipts,
+        "asset_info_contract_receipt_files": info_contract_receipts,
         "_via_publish_workflow": SP._VIA_PUBLISH_WORKFLOW_SENTINEL,
     })
     published = SP.cmd_publish_verified(verified_params)
@@ -655,7 +667,8 @@ def _run_workflow_v1(params):
         "uploaded_images": uploaded_images,
         "card_runtime_preflight": card_runtime_preflight,
         "validation_receipt_files": receipts,
-        "grant_validation_receipt_files": grant_receipts,
+        "grant_validation_receipt_files": financial_grant_receipts,
+        "asset_info_contract_receipt_files": info_contract_receipts,
         "route_receipt_file": route_receipt_file,
         "prepared_html_file": str(prepared_file),
         "publish_verified": published,
@@ -863,6 +876,7 @@ def _run_workflow_v2(params):
         return _failure("GRANT_SET_RECEIPTS_INCOMPLETE", "grant-set 收据数量与 Grant 数量不一致", timing=timings)
     package_route_results = _validation_route_items(packages, package_validation.get("packages"), receipts, kind="formula")
     grant_route_results = _validation_route_items(grants, grant_validation.get("grants"), grant_receipts, kind="grant")
+    financial_grant_receipts, info_contract_receipts = _split_grant_receipts(grants, grant_receipts)
     route_asset = _infer_route_asset(publish_params.get("asset") or params.get("asset"), grants)
     route_receipt_file = _write_live_route_receipt(
         task_id,
@@ -960,7 +974,8 @@ def _run_workflow_v2(params):
         "live_data_mode": "live",
         "route_receipt_file": route_receipt_file,
         "validation_receipt_files": receipts,
-        "grant_validation_receipt_files": grant_receipts,
+        "grant_validation_receipt_files": financial_grant_receipts,
+        "asset_info_contract_receipt_files": info_contract_receipts,
         "_via_publish_workflow": SP._VIA_PUBLISH_WORKFLOW_SENTINEL,
     })
     verified_params.update(reply_evidence_contract)
@@ -983,7 +998,8 @@ def _run_workflow_v2(params):
         "registered_grants": registered_grants,
         "uploaded_images": uploaded_images,
         "validation_receipt_files": receipts,
-        "grant_validation_receipt_files": grant_receipts,
+        "grant_validation_receipt_files": financial_grant_receipts,
+        "asset_info_contract_receipt_files": info_contract_receipts,
         "route_receipt_file": route_receipt_file,
         "card_runtime_preflight": card_runtime_preflight,
         "timing": timings,

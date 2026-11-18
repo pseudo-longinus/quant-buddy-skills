@@ -38,10 +38,22 @@
   let updateTimer=0;
   let updateHandshakeTimer=0;
   function callMaybe(v){ return typeof v === "function" ? v() : v; }
+  function assetInfoOrigin(){
+    // Bespoke pages may omit embedOrigin. Their compiler-installed SDK pins the
+    // official environment; keep the header on that same origin by default.
+    if(typeof document.querySelector!=="function" || !document.querySelector("[data-qb-asset-info-config]")) return "";
+    try{
+      const script=document.querySelector('script[src$="/asset-info-bridge.js"]');
+      const url=new URL(script && script.src);
+      if((url.origin===OFFICIAL_ORIGIN || url.origin==="https://test.quantbuddy.cn")
+          && url.href===url.origin+"/asset-info-bridge.js") return url.origin;
+    }catch(e){}
+    return "";
+  }
   function serviceOrigin(){
     try{
-      const candidate=new URL(state.embedOrigin || OFFICIAL_ORIGIN);
-      if(candidate.origin===OFFICIAL_ORIGIN) return OFFICIAL_ORIGIN;
+      const candidate=new URL(state.embedOrigin || assetInfoOrigin() || OFFICIAL_ORIGIN);
+      if(candidate.origin===OFFICIAL_ORIGIN || candidate.origin==="https://test.quantbuddy.cn") return candidate.origin;
       if((candidate.protocol==="http:" || candidate.protocol==="https:") && /^(127\.0\.0\.1|localhost)$/.test(candidate.hostname)) return candidate.origin;
     }catch(e){}
     return OFFICIAL_ORIGIN;

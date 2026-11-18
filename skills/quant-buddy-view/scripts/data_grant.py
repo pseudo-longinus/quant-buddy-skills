@@ -66,7 +66,7 @@ import grant_capabilities as GC
 import runtime_credentials as RC
 import execution_plan as EP
 
-_ALLOWED_KINDS = frozenset(GC.TOOL_BY_KIND)
+_ALLOWED_KINDS = GC.SUPPORTED_KINDS
 _CRED_DIR = os.path.join(SKILL_ROOT, "output", "data_grants")
 
 
@@ -104,6 +104,18 @@ def cmd_register(params):
             "message": "数据授权注册参数预检失败",
             "_preflight": preflight,
         }
+    if params.get('kind') == 'asset_info':
+        import asset_info as AI
+        try:
+            if not params.get('task_id'):
+                raise ValueError('asset_info需要当前task_id')
+            from pathlib import Path
+            proof = json.loads(Path(params.get('validation_receipt_file', '')).read_text(encoding='utf-8'))
+            fingerprint = EP.digest({'kind': params['kind'], 'payload': params['payload']})
+            if not AI.valid_receipt(proof, params['task_id'], fingerprint):
+                raise ValueError('asset_info需要专属需求合同收据，不能复用已出数收据')
+        except (OSError, ValueError, TypeError):
+            return {'code': 1, 'error': 'ASSET_INFO_CONTRACT_PROOF_REQUIRED', 'message': '先运行asset_info.py prepare验证需求合同'}
     endpoint, api_key = _config(require_key=True)
     body = {"kind": params.get("kind"), "payload": params.get("payload")}
     for k in ("ttl_days", "task_id", "user_query"):

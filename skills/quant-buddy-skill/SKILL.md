@@ -3,7 +3,7 @@ name: quant-buddy-skill
 slug: quant-buddy-skill
 displayName: QuantBuddy 宽宝量化技能
 author: guanzhao
-version: 4.25.70
+version: 4.25.71
 description: |
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据；支持查询 A 股股票所属行业。
   显式日期的单值快照可同时返回按实际更新日对齐的日频行情与估值；字段日期不同时按字段自身日期展示，不将较晚刷新字段误判为无数据。
@@ -22,7 +22,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.25.70
+  version: 4.25.71
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -79,6 +79,8 @@ runtimeRequirements:
 ---
 
 ## 筛选正确性与交付恢复
+
+明确要求选股时附公司信息，且现有路由需要活页时，在 `prepare-validated-page` / Handoff 顶层增加可选 `asset_info_request`，引用已验证选股 `selection_role`；默认主营业务＋近期事件、300字、text，自定义主题写入prompt并保留日期与来源要求。首答只交付量化名单、口径和量化分析，不逐股搜索或撰写主营与事件；公司资料由活页官方模块异步查询。按 [交接说明](workflows/answer-first.md#选股页附公司信息) 同轮交给QBV；模块成功接入并交付活页时，补充异步加载及卡片积分入口提示，聊天收费说明统一沿用QBV回执的 `llm_billing/billing_notice`，不重复编写规则。需求不进入已验证结论、不参与筛选和排名；普通选股不启用，“不要网页”优先。
 
 涉及选股、TopN、确认后的过滤条件时，先阅读 [研究合同与恢复](workflows/research-contract-delivery.md)。研究与页面状态分开记录；缺数据或结果为空仍交付可读研究页，不得把未验证写成零命中。
 

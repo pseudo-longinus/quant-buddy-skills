@@ -5,6 +5,7 @@ Uncertain writes never trigger another registration automatically.
 """
 import copy
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -74,7 +75,9 @@ def _proof(task,fingerprint,path,required=False,resolve_path=None):
     try:
         raw=Path(path).read_bytes();value=json.loads(raw)
     except (OSError,ValueError,TypeError) as exc:raise CredentialError('REGISTRATION_VALIDATION_REQUIRED','验证收据不可读') from exc
-    if not isinstance(value,dict) or value.get('task_id')!=task or value.get('success') is not True or value.get('status')!='completed' or value.get('contract_fingerprint')!=fingerprint:
+    from asset_info import valid_receipt as valid_asset_info_receipt
+    contract_only = valid_asset_info_receipt(value, task, fingerprint)
+    if not contract_only and (not isinstance(value,dict) or value.get('task_id')!=task or value.get('success') is not True or value.get('status')!='completed' or value.get('contract_fingerprint')!=fingerprint):
         raise CredentialError('REGISTRATION_VALIDATION_MISMATCH','验证收据不属于当前任务/已完成合同')
     if 'contract' in value:
         if EP.digest(value['contract']) != fingerprint:
@@ -149,6 +152,66 @@ def verify_binding(task,resource,identifier,fingerprint,require_active=True):
     return record
 
 
+def verify_asset_info_registration(task, identifier, signature, endpoint, key):
+    """Read original sealed lineage for page maintenance; never copy/register/query.
+
+    Keeping the original task as authority means rotation/revocation is checked on
+    every maintenance, rather than trusting a stale receipt imported into a new task.
+    Legacy signature-only files are deliberately insufficient ownership evidence.
+    """
+    validate_id('grant', identifier)
+    identity_endpoint = C.identity_endpoint(endpoint)
+    context = _context(identity_endpoint, key)
+    if task:
+        identity = _read(C.task_temp_path(task, 'receipts/registrations/identity.json'))
+        if identity and identity.get('registration_context') != context:
+            raise CredentialError('REGISTRATION_CONTEXT_CONFLICT', '当前任务登记身份或环境不一致')
+    current_path = _id_path(task, 'grant', identifier) if task else None
+    if current_path and current_path.exists():
+        candidates = [current_path]
+    else:
+        root = C.task_temp_dir(task or 'registration-discovery').parent
+        candidates = sorted(root.glob(f'qbv_*/receipts/registrations/grant/by-id/{identifier}.json'))
+    matched = []
+    for path in candidates:
+        record = _read(path)
+        if not record:
+            continue
+        if record.get('registration_context') != context:
+            if current_path == path:
+                raise CredentialError('REGISTRATION_CONTEXT_CONFLICT', '凭证登记身份或环境不一致')
+            continue
+        origin = record.get('task_id')
+        if not origin or _id_path(origin, 'grant', identifier).resolve() != path.resolve():
+            raise CredentialError('REGISTRATION_IDENTITY_CONFLICT', '原始登记任务与收据位置不一致')
+        origin_identity = _read(C.task_temp_path(origin, 'receipts/registrations/identity.json'))
+        if not origin_identity or origin_identity.get('task_id') != origin or origin_identity.get('registration_context') != context:
+            raise CredentialError('REGISTRATION_CONTEXT_CONFLICT', '原始任务身份登记不一致')
+        binding = verify_binding(origin, 'grant', identifier, record.get('contract_fingerprint'))
+        contract = binding.get('contract')
+        if (not isinstance(contract, dict) or contract.get('kind') != 'asset_info'
+                or EP.digest(contract) != binding.get('contract_fingerprint')
+                or str(binding.get('endpoint')).rstrip('/') != identity_endpoint):
+            raise CredentialError('REGISTRATION_CONTRACT_MISMATCH', '公司信息原始登记合同或环境不一致')
+        from grant_capabilities import contract_errors
+        if contract_errors(contract):
+            raise CredentialError('REGISTRATION_CONTRACT_MISMATCH', '公司信息原始登记合同无效')
+        secret = _read(_secret_path(origin, 'grant', identifier))
+        if (secret.get('disabled') or secret.get('record_hash') != binding.get('credential_record_hash')
+                or secret.get('kind') != 'asset_info' or secret.get('task_id') != origin
+                or secret.get('resource') != 'grant' or secret.get('grant_id') != identifier
+                or secret.get('expires_at') != binding.get('expires_at')
+                or not isinstance(signature, str) or not isinstance(secret.get('signature'), str)
+                or not hmac.compare_digest(secret['signature'].encode('utf-8'), signature.encode('utf-8'))):
+            raise CredentialError('REGISTRATION_CREDENTIAL_MISMATCH', '公司信息签名或凭证身份不一致')
+        matched.append(binding)
+    if not matched:
+        raise CredentialError('ASSET_INFO_REGISTRATION_REQUIRED', '公司信息授权缺少同账号同环境的原始登记证明；未发起生成')
+    if len(matched) != 1:
+        raise CredentialError('REGISTRATION_STATE_CONFLICT', '同一授权存在多份原始登记，先恢复唯一登记状态')
+    return matched[0]
+
+
 def _write_record(task,resource,record):
     sealed=_write(_index_path(task,resource,record['contract_fingerprint']),record)
     if record.get('credential_id'):_write(_id_path(task,resource,record['credential_id']),sealed)
@@ -188,7 +251,8 @@ def register(resource,params,contract,endpoint,key,send,legacy_dir):
             response['_saved_credential']=save_legacy(resource,response,legacy_dir)
         return response
     proof=_proof(task,fingerprint,params.get('validation_receipt_file'),required=bool(EP.load(task)))
-    context=_context(endpoint,key)
+    identity_endpoint=C.identity_endpoint(endpoint)
+    context=_context(identity_endpoint,key)
     with EP.locked(task):
         identity_path=C.task_temp_path(task,'receipts/registrations/identity.json')
         identity=_read(identity_path)
@@ -204,7 +268,7 @@ def register(resource,params,contract,endpoint,key,send,legacy_dir):
             secret=_read(_secret_path(task,resource,record['credential_id']))
             return _response(resource,record,secret,True)
         record={'version':'qbv_runtime_registration_v1','resource':resource,'task_id':task,'contract':copy.deepcopy(contract),
-                'contract_fingerprint':fingerprint,'registration_context':context,'endpoint':str(endpoint).rstrip('/'),
+                'contract_fingerprint':fingerprint,'registration_context':context,'endpoint':identity_endpoint,
                 'ttl_days':params.get('ttl_days'),'validation_receipt':proof,'status':'pending','started_at':datetime.now(timezone.utc).isoformat()}
         _write_record(task,resource,record)
         try:response=send()
@@ -255,7 +319,7 @@ def mutate(resource,params,endpoint,key,send,legacy_dir,operation):
         return result
     with EP.locked(task):
         record=_read(_id_path(task,resource,identifier))
-        if record.get('registration_context')!=_context(endpoint,key):raise CredentialError('REGISTRATION_CONTEXT_CONFLICT','管理凭证的身份与注册身份不一致')
+        if record.get('registration_context')!=_context(C.identity_endpoint(endpoint),key):raise CredentialError('REGISTRATION_CONTEXT_CONFLICT','管理凭证的身份与注册身份不一致')
         if record['status']!='confirmed':raise CredentialError('REGISTRATION_OUTCOME_UNKNOWN','前一次操作状态未核实')
         verify_binding(task,resource,identifier,record['contract_fingerprint'],require_active=False)
         record.update(status='pending',operation=operation);_write_record(task,resource,record)

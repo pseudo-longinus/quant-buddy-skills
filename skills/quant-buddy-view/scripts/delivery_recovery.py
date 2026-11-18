@@ -27,7 +27,7 @@ def candidate_key(params):
         evidence[key]=[(str(p), hashlib.sha256(Path(p).read_bytes()).hexdigest() if Path(p).is_file() else None) for p in paths]
     # Metadata is validated alongside HTML. Correcting it must reach validation;
     # dict key ordering alone must still count as an unchanged failed request.
-    metadata = {key: params.get(key) for key in ('page_context', 'agent_reply_template')}
+    metadata = {key: params.get(key) for key in ('page_context', 'agent_reply_template', 'change_aspect')}
     return EP.digest([hashlib.sha256(Path(params['html_file']).read_bytes()).hexdigest(), params.get('title'), params.get('description'), params.get('plan_hash'),params.get('live_data_mode'),params.get('asset'),evidence,metadata])
 
 def next_action(task, plan):

@@ -756,6 +756,8 @@ live tag 规则：未声明 `data-qb-live-mode` 的 div 默认就是未转换的
 >
 > `researched_static` 是恢复链专属的联网研究静态档：仅 `recover_delivery` 产出的 `partial_research + partial` 降级计划可发布（恢复状态登记 `researched_static_plan_hash`，否则 `RESEARCHED_RECOVERY_ORIGIN_REQUIRED`）；必须 `market_data_required:false`、不传 `asset` 与任何实时收据；必须提交 `sources_manifest_file`（`researched_sources_v1`：`sources[]` 每条 `title/url(https)/publisher/published_at(YYYY-MM-DD)/supports`，位于任务输出目录），且 HTML 含 `data-qb-sources` 来源汇总区。发布校验通过后回执 `researched_sources_file/_sha256`，回复链接标签为「可分享研究静态页（公开来源）」。
 
+提交、更新及页面详情回执增加两个字段：`llm_billing` 表示含 AI 刷新计费，`billing_notice` 是收费说明。为 true 时，在交付链接旁用独立的 **AI 刷新计费提醒** 段完整展示说明，可按句换行；CLI、发布验收及回复合同均保留这两个字段，回复校验会检查是否漏告知。为 false 时无需提醒。
+
 ## 标签（场景 / 范式 / 推荐）
 
 页面标签维度独立于旧模板/官方精选发现口径。三类标签都多选，落库存 tag_id、读时回查名字。

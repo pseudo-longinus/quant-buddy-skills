@@ -1,6 +1,12 @@
 # data_grant — 数据授权（把一次直取数请求钉死成签名凭证 → 页面免 key 取数）
 
+选股活页附公司信息使用 `kind:asset_info`：注册固定prompt/word_count/output_format，不传股票、不生成、不试跑QBS。先按 [公司信息接入](../guides/asset-info.md) 取得专属需求合同证明，再登记；页面通过官方页头桥接按当前股票加载。它属于辅助内容能力，不对应QBS原生查询工具、不作为金融出数证据。
+
 `validate_grant_set` 对日频 CSV 下载并逐资产验证后才生成收据；`status:partial/failed` 不表示全部通过。注册失败时按返回的 recover_snapshot/materialize_snapshot 继续同页研究；未知注册不重复发送。历史快照不会自动更新，不能冒充实时授权。
+
+同任务的身份校验区分真实上游与宿主临时代理：当 HTTP loopback 地址与本机配置 `endpoint` 一致且有 `_claw_upstream_endpoint` 时，按真实上游和 API Key 绑定身份，请求仍走当轮代理。代理端口/路径变化允许继续新增、复用、刷新或撤销授权；换 Key 或换真实上游仍报 `REGISTRATION_CONTEXT_CONFLICT`。旧记录只存代理地址时不自动迁移，也不得删除收据、新建任务或改 hash 绕过冲突；先核实原身份和环境，按[已验证资源恢复](../workflows/validated-resource-recovery.md)恢复可验证的已有资源，无法核实时保留未完成状态。
+
+追问要求扩大实时行情范围时，新增资产必须有对应授权和实际刷新证据。注册失败不能把目标范围缩回旧成员、仅复用旧授权，再将新增行写成快照并标记完整实时交付；保留原页，说明缺口。`query_type:"snapshot"` 表示每次查询返回最新单值，本身不等于页面静态快照。
 
 > 脚本 `scripts/data_grant.py` 已可用；`build_dashboard` 与 `assets/data-kernel.js` 已支持 grant 面板。服务端设计见 `skill_server/docs/dataGrant相关文档/数据授权-技术设计文档.md`（v0.2）。
 
@@ -67,7 +73,7 @@ python scripts/data_grant.py refresh '{"grant_id":"dg_xxx","rotate_signature":tr
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `kind` | `string` | ✅ | `query_kline` / `option_contracts` / `fast_query` / `fast_query_minute` / `fast_query_minute_range` / `fast_query_minute_range_multi` / `stock_profile` / `composition_select` |
+| `kind` | `string` | ✅ | `asset_info` / `query_kline` / `option_contracts` / `fast_query` / `fast_query_minute` / `fast_query_minute_range` / `fast_query_minute_range_multi` / `stock_profile` / `composition_select` |
 | `payload` | `object` | ✅ | 冻结的完整请求体，形状随 kind（见下） |
 | `ttl_days` | `number` | ❌ | 有效期（天），默认 365 |
 | `task_id` / `user_query` | `string` | ❌ | 随 audit 落库 |

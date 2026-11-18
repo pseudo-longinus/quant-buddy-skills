@@ -444,6 +444,12 @@ def validate_reply(contract_payload, draft):
     contract = contract_payload.get("agent_reply_contract") if isinstance(contract_payload.get("agent_reply_contract"), dict) else contract_payload
     errors = []
     presentation = contract.get('presentation') or {}
+    if contract.get("llm_billing") is True:
+        notice = str(contract.get("billing_notice") or "").strip()
+        visible = re.sub(r"<!--[\s\S]*?-->|```[\s\S]*?```|~~~[\s\S]*?~~~", "", draft)
+        disclosure = "**AI 刷新计费提醒**" + notice
+        if not notice or re.sub(r"\s+", "", disclosure) not in re.sub(r"\s+", "", visible):
+            errors.append({"code": "LLM_BILLING_NOTICE_REQUIRED", "message": "请在交付链接旁独立展示 **AI 刷新计费提醒**，完整转述 billing_notice；可换行，不可省略收费条件或费用承担方。"})
     if presentation.get('status') == 'degraded':
         titles = {p.get('title') for v in presentation.get('viewports', []) for p in v.get('panels', []) if p.get('state') == 'table_fallback'}
         if not ('表格' in draft or '数据表' in draft) or not ('降级' in draft or '替代' in draft or '代替' in draft):

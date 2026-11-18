@@ -25,6 +25,8 @@ python scripts/static_page.py execution_plan @plan-revision.json
 
 目标运行角色至少声明 `role_id + kind(package|grant)`。Compose引用已注册数据时还需相应 `package_id/grant_id`、`contract_fingerprint`、`validation_receipt_file`；收据必须属于同任务且completed/success。先完成合同验证和注册，再填写引用；不能把signature或API Key写进执行计划。
 
+实时范围从 7 个扩大到 13 个等追问中，新增合同注册失败不能通过把 `target_scope.assets` 缩回原 7 个并设置 `research_status:complete` 收尾。以本轮用户要求的完整范围核验；缺少动态授权的行须明确为未完成，不能仅靠旧角色仍可刷新就宣称全范围实时。临时代理变化不应引起身份冲突；真正的 Key/上游冲突或无法证明归属的旧代理记录，先恢复证据，保留原页。
+
 同任务已选择Compose时，`fork_prepare`（含force_rebuild）不得全量继承来源运行时。需要改变业务范围时明确修订计划；不允许把fork改判unmatched，不新建task/page绕过。
 
 ## 进度不是交付

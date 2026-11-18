@@ -74,6 +74,9 @@ Manifest 中 package 明确保留两层合同：`source_contract.formulas/nodes`
 | `fast_query` | `fast_query` |
 | `stock_profile` | `stockProfile` |
 | `composition_select` | `selectByComposition` |
+| `asset_info` | 专属需求合同验证，无QBS工具；不生成内容 |
+
+`asset_info` 可与金融Grant一起登记，专属收据单列 `asset_info_contract_receipt_files`；量化实时路由及 `grant_validation_receipt_files` 只使用真实金融出数证据。页面模块、同环境页头、收费与匿名规则见 [接入指南](../guides/asset-info.md)。
 
 ## 图片
 

@@ -1,5 +1,23 @@
 # 先交业务答案，再同轮继续活页
 
+## 选股页附公司信息
+
+仅在用户明确要求附加信息、现有路由已决定生成活页时使用。量化查询、验证、首答顺序不变；`prepare-validated-page @params.json` 增加可选字段：
+
+```json
+{"asset_info_request":{"selection_role":"selection"}}
+```
+
+`selection` 必须是 `validated_outputs` 中真实选股结果role。默认主营业务与近期重大事件、注明日期和可靠来源、word_count=300、output_format=text。自定义主题示例：
+
+```json
+{"asset_info_request":{"selection_role":"selection","prompt":"梳理有可靠来源支持的上游供应商和下游客户，注明关系、日期和来源，未披露则明确说明。","word_count":300,"output_format":"text"}}
+```
+
+需求保存在Handoff顶层，不进入 `validated_insights`；QBV adapter保留该字段，按其 `guides/asset-info.md` 验证和登记信息合同，页面打开后异步执行。QBS不等待生成、不把内容写入首答、不调用生成或计费服务。普通选股缺字段时旧行为不变；原题明确“选股＋附主营、事件、公司资料或上下游”却缺字段时返回 `ASSET_INFO_REQUEST_REQUIRED`，补齐原主题及已验证selection_role后继续，不得改写原题或用静态资料替代。同任务主题变化会改变Job幂等键。用户明确不要网页时不创建此页面任务。
+
+模块成功接入、活页通过验收后，按QBV `guides/asset-info.md` 的“聊天交付提示”补一句主题、异步加载及卡片积分入口说明；不在量化首答提前宣称已接入或已生成。最终回执 `llm_billing:true` 时，功能说明之后、交付链接紧前独立展示一次 **AI 刷新计费提醒** 及完整接口 `billing_notice`，可分句换行，不另写收费规则或预报积分。沿用QBV回复合同及校验；说明缺失不以固定话术补齐，字段未返回不推断免费，false时不加计费段。普通选股、不要网页或模块未接入时不使用模块成功提示；接入失败时如实说明缺项。
+
 **页面标签兼容交接**：查询类型 `snapshot` 只表示取数形态，不直接决定页面的 SNAPSHOT 标签；同一查询接入已验证的运行绑定后可以用于可更新模块。沿用已有来源、实际字段日期、render_mode 与 validated_roles 交接，不新增必填字段或 Handoff 版本。QBV 的 LIVE / SNAPSHOT 覆盖检查是非阻断诊断；信息不足由页面侧记录未识别，不为补标重复查询、停止首答或降低研究内容质量。
 
 ## WebAgent 宿主默认建页（优先于独立 QBS 路由）

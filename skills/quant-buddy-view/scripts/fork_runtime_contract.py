@@ -659,6 +659,9 @@ def replace_asset_tokens(value, replacements):
 
 def _grant_contract(item, replacements):
     payload = copy.deepcopy(item.get("payload") if isinstance(item.get("payload"), dict) else {})
+    if item.get('kind') == 'asset_info' and 'contract_version' in payload:
+        if payload.pop('contract_version') != 1:
+            raise ForkRuntimeError('GRANT_CONTRACT_UNSUPPORTED', '来源公司信息授权版本不受支持')
     if item.get('kind') == 'query_kline' and '_contract_version' in payload:
         if payload.pop('_contract_version') != 2:
             raise ForkRuntimeError('GRANT_CONTRACT_UNSUPPORTED', '来源K线授权版本不受支持，不能静默改写合同')
@@ -834,7 +837,7 @@ def _build_augmented_roles(augmentation_spec):
             }
         else:
             grant_kind = str(item.get("grant_kind") or "").strip()
-            if grant_kind not in GC.TOOL_BY_KIND:
+            if grant_kind not in GC.SUPPORTED_KINDS:
                 raise ForkRuntimeError(
                     "AUGMENTATION_SPEC_INVALID",
                     f"augmentation_spec[{index}] grant_kind 必须是 fast_query/stock_profile/composition_select",
@@ -1622,7 +1625,7 @@ def validate_resolved_contracts(manifest, resolved):
         contract = grant.get("contract") or {}
         kind = contract.get("kind")
         payload = contract.get("payload")
-        if kind not in GC.TOOL_BY_KIND or not isinstance(payload, dict) or (not payload and kind != 'query_kline'):
+        if kind not in GC.SUPPORTED_KINDS or not isinstance(payload, dict) or (not payload and kind != 'query_kline'):
             raise ForkRuntimeError("GRANT_CONTRACT_INVALID", f"{role_id} Grant kind/payload 无效")
         role = role_index.get(role_id) or {}
         if role.get("origin") == "augmented":
