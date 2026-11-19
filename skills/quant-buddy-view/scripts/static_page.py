@@ -1368,6 +1368,36 @@ def _has_research_warehouse_modal(html):
     return bool(re.search(r"id=[\"']researchWarehouseModal[\"']", html, flags=re.I))
 
 
+def _place_shell_before_body_init(html):
+    """Fix the compiler-appended runtime when a body script already calls init.
+
+    Move only an unambiguous, marked shell block. Defer its DOM binding, not
+    the caller's script or callbacks, until footer and modal nodes also exist.
+    """
+    begin, end = "<!-- QB_SHELL_JS_START -->", "<!-- QB_SHELL_JS_END -->"
+    head = re.search(r"</head\s*>", html, flags=re.I)
+    body = re.search(r"<body\b[^>]*>", html, flags=re.I)
+    if not head or not body or html.count(begin) != 1 or html.count(end) != 1:
+        return html, False
+    start, stop = html.index(begin), html.index(end) + len(end)
+    if not head.end() <= body.end() < start < stop:
+        return html, False
+    early_scripts = re.findall(r"<script\b[^>]*>([\s\S]*?)</script\s*>", html[body.end():start], flags=re.I)
+    if not any(re.search(r"\bQBShareShell\s*\.\s*init\s*\(", script) for script in early_scripts):
+        return html, False
+    gate = _script_inline("""(function(){
+  var shell = window.QBShareShell;
+  if (!shell || typeof shell.init !== 'function') return;
+  var init = shell.init;
+  shell.init = function(opts){
+    if (document.readyState !== 'loading') return init.call(shell, opts);
+    document.addEventListener('DOMContentLoaded', function(){ init.call(shell, opts); }, {once:true});
+  };
+})();""")
+    moved = html[start:stop] + "\n" + gate + "\n"
+    return html[:head.start()] + moved + html[head.start():start] + html[stop:], True
+
+
 def _ensure_share_shell(html, params):
     """Preflight static-page HTML so published pages always carry the public shell."""
     if str(params.get("transformation_mode") or "").strip() == _PRESERVE_HTML_QBS_LIVE_MODE:
@@ -1497,6 +1527,9 @@ def _ensure_share_shell(html, params):
             actions.append(runtime_action)
 
     html = CB._compile(html, {"inline_qr_mini": True, "inline_data_kernel": True})
+    html, moved_shell = _place_shell_before_body_init(html)
+    if moved_shell:
+        actions.append("placed_shell_js_before_body_init")
     try:
         before_kernel_refresh = html
         html, matched_by = DKR.retrofit_if_present(html)
@@ -5688,10 +5721,10 @@ def _validate_routing_decision(params):
 def _record_routing_decision(params, decision, page_id):
     task_id = _routing_task_id(params)
     if not task_id or not decision:
-        return {"mode": "legacy_untracked", "recorded": False}, None
+        return {"mode": "legacy_untracked", "recorded": False}, None, None
     cred, _, read_error = _read_routing_credential(task_id)
     if read_error or not cred:
-        return None, read_error or {
+        return None, None, read_error or {
             "code": 1,
             "error": "ROUTING_CREDENTIAL_INVALID",
             "message": "记录 routing_decision 时范式路由凭据丢失",
@@ -5703,14 +5736,18 @@ def _record_routing_decision(params, decision, page_id):
     cred["status"] = "page_created"
     binding_file, write_error = _write_routing_credential_record(cred)
     if write_error:
-        return None, write_error
+        return None, None, write_error
     try:
         from research_contract import delivery_metadata
         research=delivery_metadata(params,task_id,C.current_trace_context().get('turn_id'))
-        EP.bind(cred, require_live_data=params.get("require_live_data"),**research)
+        from delivery_requirements import live_required
+        require_live = params.get("require_live_data")
+        if decision.get("mode") == "unmatched" and live_required(params):
+            require_live = True
+        plan = EP.bind(cred, require_live_data=require_live, **research)
         DS.initialize(task_id, str(page_id))
     except EP.PlanError as exc:
-        return None, exc.as_dict()
+        return None, None, exc.as_dict()
     return {
         "mode": decision.get("mode"),
         "source_template_id": decision.get("source_template_id") or "",
@@ -5719,7 +5756,7 @@ def _record_routing_decision(params, decision, page_id):
         "recorded": True,
         "revision": cred["decision_revision"],
         "binding_file": binding_file,
-    }, None
+    }, plan, None
 
 
 def _routing_next_step(task_id, page_id, decision):
@@ -6283,14 +6320,22 @@ def cmd_new_page(params):
     out = cmd_upload(payload)
     if not (isinstance(out, dict) and out.get("code") == 0):
         return out
-    routing_binding, binding_error = _record_routing_decision(params, routing_decision, out.get("page_id"))
+    routing_binding, plan, binding_error = _record_routing_decision(params, routing_decision, out.get("page_id"))
     if binding_error:
         binding_error["created_page_id"] = out.get("page_id") or ""
         binding_error["created_url"] = _record_url(out)
         return binding_error
     if routing_decision:
         out["routing_decision"] = routing_binding
-        out["next_step"] = _routing_next_step(_routing_task_id(params), out.get("page_id"), routing_decision)
+        from delivery_requirements import manual_plan_handoff
+        handoff = manual_plan_handoff(params, plan) if plan and plan['build_mode'] == 'unmatched' else {}
+        if handoff:
+            out.update(handoff)
+            action = handoff['next_action']
+            out['next_step'] = {'action': action['command'], 'required_params': action['params'],
+                                'instruction': action['instruction']}
+        else:
+            out["next_step"] = _routing_next_step(_routing_task_id(params), out.get("page_id"), routing_decision)
     return _attach_progress_result(out, state, params)
 
 
@@ -6927,6 +6972,12 @@ def _publish_verified_once(params):
             params, source_credential_count=credential_count, enforce_live_delivery=True)
         if data_evidence_error:
             return {**data_evidence_error, "published": False, "verified": False, "stages": stages, "timing": timings}
+        import managed_publication as MP
+        try:
+            policy, proofs = MP.candidate(params, candidate_bytes.decode('utf-8'), plan=publication_plan, required=live_required(params) or params.get('live_data_mode') in ('live','mixed'))
+        except (EP.PlanError, FRC.ForkRuntimeError) as exc:
+            return {**exc.as_dict(), 'published': False, 'verified': False, 'stages': stages}
+        policy_options = {'managed_policy':policy} if policy else {}
         stages["live_data_evidence"] = {
             "code": 0,
             "live_data_mode": params.get("live_data_mode"),
@@ -6935,7 +6986,7 @@ def _publish_verified_once(params):
         card_runtime = bool(params.get("card_runtime_required") or fork_validation.get("card_runtime_required"))
         started = time.perf_counter()
         local_profile = 'self-built' if quality_required else 'fork-local'
-        stages["local_browser"] = _run_page_verifier(target, local_profile, card_runtime=card_runtime,
+        stages["local_browser"] = _run_page_verifier(target, local_profile, card_runtime=card_runtime, **policy_options,
                                                     expected_title=(stages.get('page_title') or {}).get('title'),
                                                     **({'require_live_data': True} if live_required(params) or params.get('live_data_mode') in ('live', 'mixed') else {}))
         timings["local_browser_ms"] = round((time.perf_counter() - started) * 1000)
@@ -6968,19 +7019,20 @@ def _publish_verified_once(params):
         public_url = _record_url(stages["publish_final"])
         expected_title = (stages.get('page_title') or {}).get('title')
         started = time.perf_counter()
-        stages["public_smoke"], smoke_attempts = _public_smoke_with_retry(public_url, card_runtime=card_runtime,
+        stages["public_smoke"], smoke_attempts = _public_smoke_with_retry(public_url, card_runtime=card_runtime, **policy_options,
                                                                           expected_title=expected_title,
                                                                           require_live_data=live_required(params) or params.get('live_data_mode') in ('live','mixed'))
         timings["public_smoke_ms"] = round((time.perf_counter() - started) * 1000)
         if smoke_attempts > 1:
             timings["public_smoke_attempts"] = smoke_attempts
         verified, failure_kind = _confirm_public_publication(params, stages, stages["publish_final"])
-        if not verified:
+        if not verified or policy:
+            # Preserve the proved bindings for later cross-turn checks, even after success.
             # A transient runtime fetch can be classified as a content failure.
             # Preserve the confirmed write's exact contract for read-only recheck;
             # failure classification still controls retries and repair guidance.
             try:
-                _save_pending_public_verification(params, stages, card_runtime)
+                _save_pending_public_verification(params, stages, card_runtime, **({"proofs":proofs,"required_ids":policy["required_ids"]} if policy else {}))
             except (EP.PlanError, OSError, ValueError, TypeError):
                 pass
         if not verified:
@@ -7031,13 +7083,14 @@ def _public_smoke_retry_delay_sec():
         return 15.0
 
 
-def _public_smoke_with_retry(public_url, *, card_runtime=False, expected_title=None, require_live_data=False):
+def _public_smoke_with_retry(public_url, *, card_runtime=False, expected_title=None, require_live_data=False, managed_policy=None):
     """public-smoke with one in-call retry for network_unreachable (CDN propagation).
 
     Content failures are returned at once. Total attempts are capped at two;
     the first failed report is kept as previous_attempt for diagnosis.
     """
     live_options = {'require_live_data': True} if require_live_data else {}
+    if managed_policy: live_options['managed_policy'] = managed_policy
     first = _run_page_verifier(public_url, "public-smoke", card_runtime=card_runtime, expected_title=expected_title, **live_options)
     if not (isinstance(first, dict) and first.get("code") not in (None, 0)
             and first.get("failure_kind") == _NETWORK_UNREACHABLE):
@@ -7110,7 +7163,7 @@ _PENDING_PARAM_KEYS = ("task_id", "turn_id", "page_id", "title", "plan_hash", "l
                        "maintenance_mode")
 
 
-def _save_pending_public_verification(params, stages, card_runtime):
+def _save_pending_public_verification(params, stages, card_runtime, *, proofs=None, required_ids=None):
     """Keep the confirmed write's reply contract so verify_published can finish it."""
     task_id = _fork_task_id(params)
     plan = EP.load(task_id) if task_id else None
@@ -7121,6 +7174,7 @@ def _save_pending_public_verification(params, stages, card_runtime):
         "version": "qbv_pending_public_verification_v1", "task_id": task_id, "page_id": plan["target_page_id"],
         "plan_hash": plan["plan_hash"], "publish_final": _redact_persisted_secrets(record),
         "page_title": stages.get("page_title"), "card_runtime": bool(card_runtime),
+        **({"binding_proofs":proofs,"required_ids":required_ids or []} if proofs else {}),
         "params": {key: params[key] for key in _PENDING_PARAM_KEYS if params.get(key) is not None},
     }
     EP.atomic_json(C.task_temp_path(task_id, _PENDING_PUBLIC_VERIFICATION_FILE, create_parent=True), pending)
@@ -7285,9 +7339,19 @@ def cmd_verify_published(params):
     task_id = _fork_task_id(params)
     if not task_id:
         return {"code": 1, "error": "TASK_ID_REQUIRED", "message": "verify_published 需要 task_id"}
+    # Check the caller, not the saved publication. In host mode an unbound
+    # invocation may not use an earlier receipt as its current identity.
+    try:
+        host = C.host_trace_context({**params, "task_id": task_id})
+    except C.TraceContextError as exc:
+        return {"code": 1, "error": exc.code, "message": str(exc), "verified": False}
+    if host is not None and not host.get("turn_id"):
+        return {"code": 1, "error": "QBV_TRACE_CONTEXT_REQUIRED", "verified": False,
+                "message": "公开复验需要本轮宿主轮次"}
+    turn_id = (host or {}).get("turn_id") or params.get("turn_id") or C.current_trace_context().get("turn_id")
     direct_maintenance = False
     try:
-        plan = EP.require(task_id, page_id=params.get("page_id") or None)
+        plan = EP.require(task_id, page_id=params.get("page_id") or None, plan_hash=params.get("plan_hash"))
         page_id = plan["target_page_id"]
         state = DS.load(task_id, page_id)
     except EP.PlanError as exc:
@@ -7309,87 +7373,162 @@ def cmd_verify_published(params):
         return {**base, "code": 1, "error": "PUBLISHED_PAGE_REQUIRED", "published": False, "verified": False,
                 "message": "目标页尚无已确认的正式写入；verify_published 只复验已写入页面",
                 "next_action": _planned_publish_next_action(task_id) or {"command": "delivery_status", "params": {"task_id": task_id}}}
-    if DS.flags(state)["verified"] and not params.get("force"):
-        result = {**base, "code": 0, "published": True, "verified": True, "written": True, "public_reachable": True,
-                "public_url": _delivery_public_url((write.get("remote") or {}).get("url")),
-                "message": "目标页当前版本已通过公开验收", "already_verified": True}
-        from finish_research_delivery import reply_validation_action
-        action=reply_validation_action(task_id,params.get('turn_id') or C.current_trace_context().get('turn_id'),plan,state)
-        if action: result['next_action']=action
-        return result
-    try:
-        pending = json.loads(C.task_temp_path(task_id, _PENDING_PUBLIC_VERIFICATION_FILE).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        pending = {}
     remote = write.get("remote") or {}
-    record = dict(write.get("confirmed_result") or {})
-    if pending.get("page_id") == page_id and (pending.get("publish_final") or {}).get("sha256") == remote.get("sha256"):
-        record = {**record, **pending["publish_final"]}
-    else:
+    pending_path = C.task_temp_path(task_id, _PENDING_PUBLIC_VERIFICATION_FILE)
+    try:
+        pending_bytes = pending_path.read_bytes()
+        pending = json.loads(pending_bytes)
+    except (OSError, ValueError):
+        pending_bytes, pending = None, {}
+    if not isinstance(pending, dict):
         pending = {}
-    record.setdefault("page_id", page_id)
-    public_url = _record_url(record) or remote.get("url") or ""
-    if not public_url:
-        return {**base, "code": 1, "error": "PUBLIC_URL_REQUIRED", "published": True, "verified": False,
-                "message": "已确认写入缺少公开链接；用 delivery_status refresh_remote 核对"}
-    run_params = {**(pending.get("params") or {}), "task_id": task_id, "page_id": page_id}
-    if direct_maintenance:
-        run_params["maintenance_mode"] = "direct_update"
-        run_params["_expected_publication"] = dict(remote)
+    saved_result = pending.get("publish_final")
+    if not (pending.get("task_id") == task_id and pending.get("page_id") == page_id
+            and pending.get("plan_hash") == write.get("plan_hash")
+            and isinstance(saved_result, dict)
+            and all(DS._remote(saved_result).get(k) == remote.get(k) for k in ("page_id", "version_no", "sha256"))):
+        pending, saved_result = {}, {}
+    saved_params = pending.get("params")
+    if not isinstance(saved_params, dict):
+        saved_params = {}
+    write_turn = write.get("turn_id") or saved_params.get("turn_id")
+    historical = ((not direct_maintenance and write.get("plan_hash") != plan["plan_hash"])
+                  or (host is not None and write_turn != turn_id))
+    current_params = {**params, "task_id": task_id, "page_id": page_id, "turn_id": turn_id}
+    current_requires_live = live_required(current_params) or plan.get("require_live_data") is True
+    if (not historical and DS.flags(state)["verified"] and state.get("last_good_version") == remote
+            and not params.get("force")
+            and (not current_requires_live or state.get("live_data_mode") in ("live", "mixed"))):
+        result = {**base, "code": 0, "published": True, "verified": True, "written": True, "public_reachable": True,
+                  "public_url": _delivery_public_url(remote.get("url")),
+                  "message": "目标页当前版本已通过公开验收", "already_verified": True}
+        from finish_research_delivery import reply_validation_action
+        action = reply_validation_action(task_id, turn_id, plan, state)
+        if action: result['next_action'] = action
+        return result
+
+    record = {**(write.get("confirmed_result") or {}), **saved_result,
+              "page_id": page_id, "version_no": remote.get("version_no"), "sha256": remote.get("sha256")}
+    public_url = remote.get("url") or _record_url(record) or ""
+    if not (public_url and remote.get("page_id") == page_id and remote.get("version_no") is not None
+            and re.fullmatch(r"[0-9a-f]{64}", str(remote.get("sha256") or ""))):
+        return {**base, "code": 1, "error": "PUBLISH_RECEIPT_REQUIRED", "published": True, "verified": False,
+                "message": "已确认写入缺少有效的页面版本凭据；用 delivery_status refresh_remote 核对"}
+
+    # Only verification evidence comes from the matching historical write.
+    # Never run a current-context/intent check on this evidence dictionary.
+    evidence = {"task_id": task_id, "page_id": page_id, "_expected_publication": dict(remote)}
     stages = {"publish_final": record}
     if pending.get("page_title"):
         stages["page_title"] = pending["page_title"]
-        run_params.setdefault("title", pending["page_title"].get("title"))
+        evidence["title"] = stages["page_title"].get("title")
+    historical_requires_live = (record.get("is_live") is True
+                                or (record.get("live_data_mode") or saved_params.get("live_data_mode")) in ("live", "mixed"))
     # Bounded: an unreachable public URL (proxy/DNS on this host) must not turn
     # verify_published into an open-ended loop. Each call counts; at the cap
     # the Agent stops and reports the written URL as not auto-verified.
     import delivery_recovery as DR
-    attempts = DR.verify_published_attempts(task_id, params)
+    try:
+        with EP.locked(task_id):
+            attempts = DR.verify_published_attempts(task_id, current_params)
+            if attempts < DR.VERIFY_PUBLISHED_MAX_ATTEMPTS or params.get("force"):
+                DR.record_verify_published_attempt(task_id, current_params)
+    except EP.PlanError as exc:
+        return {**base, **exc.as_dict(), "published": True, "verified": False}
     if attempts >= DR.VERIFY_PUBLISHED_MAX_ATTEMPTS and not params.get("force"):
         return {**base, "code": 1, "error": "VERIFY_PUBLISHED_LIMIT", "terminal": True, "published": True,
                 "verified": False, "written": True, "public_reachable": None, "attempts": attempts,
                 "max_attempts": DR.VERIFY_PUBLISHED_MAX_ATTEMPTS, "public_url": _delivery_public_url(public_url),
                 "message": "本轮已复验%d次仍无法确认公开可达；停止复验。向用户提供链接，说明页面已写入但未能自动验收，不要修订计划或重新发布" % attempts,
                 "next_action": {"command": "delivery_status", "params": {"task_id": task_id}}}
-    DR.record_verify_published_attempt(task_id, params)
     timings = {}
     started = time.perf_counter()
-    stages["public_smoke"] = _run_page_verifier(public_url, "public-smoke", card_runtime=bool(pending.get("card_runtime")),
+    policy_options = {}
+    if C.host_managed_lifecycle() and (historical_requires_live or (not historical and current_requires_live)):
+        import managed_publication as MP
+        proofs = pending.get('binding_proofs')
+        try:
+            if proofs:
+                policy_options['managed_policy'] = MP.resolve(current_params, proofs, page_id=page_id)
+                policy_options['managed_policy']['required_ids'] = pending.get('required_ids', [])
+            else:
+                # Old versions have no local binding receipt. Read this exact public document
+                # without executing JS, check the confirmed bytes, then ask the authenticated server.
+                parsed = urllib.parse.urlsplit(public_url)
+                if parsed.scheme!='https' or parsed.netloc!=_PAGES_PUBLIC_HOST or _public_url_page_id(public_url)!=page_id:
+                    raise EP.PlanError('LEGACY_PROOF_REQUIRED','旧版本缺少可核验的公开原件；保留原页')
+                text, read_error = _fetch_oss(public_url)
+                if read_error or hashlib.sha256(text.encode('utf-8')).hexdigest()!=remote.get('sha256'):
+                    raise EP.PlanError('LEGACY_PROOF_REQUIRED','旧版本原件与已确认写入无法核对；未重发页面')
+                policy_options['managed_policy'], _ = MP.candidate(current_params,text,required=True,plan=None if historical else plan)
+        except (EP.PlanError,FRC.ForkRuntimeError) as exc: return {**base,**exc.as_dict(),'published':True,'verified':False}
+    stages["public_smoke"] = _run_page_verifier(public_url, "public-smoke", **policy_options, card_runtime=bool(pending.get("card_runtime")),
                                                expected_title=(stages.get("page_title") or {}).get("title"),
-                                               **({'require_live_data':True} if live_required(run_params) or run_params.get('live_data_mode') in ('live','mixed') else {}))
+                                               **({'require_live_data': True} if historical_requires_live or (not historical and current_requires_live) else {}))
     timings["public_smoke_ms"] = round((time.perf_counter() - started) * 1000)
-    verified, failure_kind = _confirm_public_publication(run_params, stages, record)
+    verified, failure_kind = _confirm_public_publication(evidence, stages, record)
     if not verified and failure_kind is None:
         failure_kind = "content"
     try:
-        DS.mark_verified(plan, record, complete=verified, failure_kind=None if verified else failure_kind)
+        with EP.locked(task_id):
+            latest = DS.load(task_id, page_id)
+            latest_plan = EP.load(task_id)
+            if (latest.get("last_write") != write or latest.get("turn_id") != state.get("turn_id")
+                    or (latest_plan or {}).get("plan_hash") != (None if direct_maintenance else plan["plan_hash"])):
+                return {**base, "code": 1, "error": "PUBLIC_RECHECK_STALE", "verified": False,
+                        "message": "复验期间已出现新写入或新计划，请重新读取当前页面状态",
+                        "next_action": {"command": "delivery_status", "params": {"task_id": task_id}}}
+            if historical:
+                # This is evidence about the OLD publication, not a receipt or
+                # reply contract for the current turn/plan. Preserve all state.
+                return {**base, "code": 1, "error": "CURRENT_PUBLICATION_REQUIRED", "published": True,
+                        "verified": False, "written": True, "terminal": False,
+                        "public_url": _delivery_public_url(public_url),
+                        "historical_verification": {"verified": verified, "version_no": remote["version_no"],
+                                                    "sha256": remote["sha256"], "failure_kind": failure_kind},
+                        "message": "已核对原页面版本；历史发布不能替代本轮交付，请读取原页后按本轮需求继续。",
+                        "next_action": {"command": "interpret", "params": {"task_id": task_id, "page_id": page_id}}}
+            if not verified and latest.get("revision") != state.get("revision") and DS.flags(latest)["verified"]:
+                return {**base, "code": 1, "error": "PUBLIC_RECHECK_STALE", "verified": False,
+                        "next_action": {"command": "delivery_status", "params": {"task_id": task_id}}}
+            DS.mark_verified(plan, record, complete=verified, failure_kind=None if verified else failure_kind)
+            result = {**base, "code": 0 if verified else 1, "published": True, "verified": verified, "written": True,
+                      "public_reachable": verified or failure_kind != _NETWORK_UNREACHABLE,
+                      "public_url": _delivery_public_url(public_url), "stages": stages, "timing": timings}
+            if not verified:
+                record.pop("agent_reply_contract", None)
+                result["failure_kind"] = failure_kind
+                result["failure_summary"] = _publish_failure_summary({"code": 1, "stages": stages, "published": True})
+                if failure_kind == _NETWORK_UNREACHABLE:
+                    result.update(error="PUBLIC_URL_UNREACHABLE", next_action=_verify_published_action(current_params),
+                                  message="本机仍无法访问公开链接；页面已写入。请稍后复验，不要修订计划或重新发布")
+                else:
+                    result.update(error="PUBLIC_VERIFICATION_FAILED",
+                                  next_action={"command": "recover_delivery", "params": {"task_id": task_id, "plan_hash": plan["plan_hash"]}},
+                                  message="公开页面可访问但内容/版本校验未通过；按 failure_summary 修复后经 recover_delivery 恢复")
+                return result
+
+            # Same publication and current turn only: the stored job reference
+            # is still useful for the original publish's normal completion.
+            final_params = {k: saved_params[k] for k in (
+                "qbv_job_id", "qbv_job_file", "job_file", "qbv_job_dir", "target_skill_id", "maintenance_mode",
+            ) if k in saved_params}
+            final_params.update(task_id=task_id, page_id=page_id, turn_id=turn_id)
+            if direct_maintenance:
+                final_params["maintenance_mode"] = "direct_update"
+            result = _finalize_public_publication(final_params, stages, result, public_url, True)
+            if result.get("code") == 0:
+                from finish_research_delivery import reply_validation_action
+                action = reply_validation_action(task_id, turn_id, plan, DS.load(task_id, page_id))
+                if action: result['next_action'] = action
+                try:
+                    if pending and pending_path.read_bytes() == pending_bytes:
+                        pending_path.unlink()
+                except OSError:
+                    pass
+            return result
     except EP.PlanError as exc:
-        return {**base, **exc.as_dict(), "published": True, "verified": False, "stages": stages}
-    result = {**base, "code": 0 if verified else 1, "published": True, "verified": verified, "written": True,
-              "public_reachable": verified or failure_kind != _NETWORK_UNREACHABLE,
-              "public_url": _delivery_public_url(public_url), "stages": stages, "timing": timings}
-    if not verified:
-        record.pop("agent_reply_contract", None)
-        result["failure_kind"] = failure_kind
-        result["failure_summary"] = _publish_failure_summary({"code": 1, "stages": stages, "published": True})
-        if failure_kind == _NETWORK_UNREACHABLE:
-            result.update(error="PUBLIC_URL_UNREACHABLE", next_action=_verify_published_action(run_params),
-                          message="本机仍无法访问公开链接；页面已写入。请稍后重试 verify_published，或请用户确认链接可打开；不要修订计划或重新发布")
-        else:
-            result.update(error=result.get("error") or "PUBLIC_VERIFICATION_FAILED",
-                          next_action={"command": "recover_delivery", "params": {"task_id": task_id, "plan_hash": plan["plan_hash"]}},
-                          message="公开页面可访问但内容/版本校验未通过；按 failure_summary 修复后经 recover_delivery 恢复")
-        return result
-    result = _finalize_public_publication(run_params, stages, result, public_url, True)
-    if result.get("code") == 0:
-        from finish_research_delivery import reply_validation_action
-        action=reply_validation_action(task_id,params.get('turn_id') or C.current_trace_context().get('turn_id'),plan,DS.load(task_id,page_id))
-        if action: result['next_action']=action
-        try:
-            C.task_temp_path(task_id, _PENDING_PUBLIC_VERIFICATION_FILE).unlink()
-        except OSError:
-            pass
-    return result
+        return {**base, **exc.as_dict(), "published": True, "verified": False}
 
 
 def _atomic_write_bytes(path, data_bytes):
@@ -10550,7 +10689,7 @@ def _run_card_runtime_verify(
     return data
 
 
-def _run_page_verifier(target, profile, *, card_runtime=False, timeout_sec=180, expected_title=None, require_live_data=False):
+def _run_page_verifier(target, profile, *, card_runtime=False, timeout_sec=180, expected_title=None, require_live_data=False, managed_policy=None):
     cmd = [
         "node",
         os.path.join(C.SKILL_ROOT, "scripts", "verify_file_snapshot.mjs" if profile == "file-snapshot" else "verify_page.mjs"),
@@ -10563,6 +10702,8 @@ def _run_page_verifier(target, profile, *, card_runtime=False, timeout_sec=180, 
         cmd.append("--card-runtime")
     if require_live_data:
         cmd.append('--require-live-data')
+    if managed_policy:
+        cmd.extend(['--managed-bindings', json.dumps(managed_policy, separators=(',', ':'))])
     if expected_title is not None:
         cmd.extend(['--expected-title', expected_title])
     try:
@@ -10999,7 +11140,7 @@ def cmd_delivery_status(params):
 
 
 def cmd_execution_plan(params):
-    from delivery_requirements import live_required, restore_boundary
+    from delivery_requirements import live_build_handoff, live_required, manual_plan_handoff, restore_boundary
     if not params.get('view'):
         blocked=restore_boundary(params)
         if blocked: return blocked
@@ -11021,9 +11162,20 @@ def cmd_execution_plan(params):
                            research_status=params.get('research_status'), delivery_kind=params.get('delivery_kind'),
                            module_order=params.get('module_order'))
         handoff = {}
-        if not params.get("view") and plan.get("build_mode") == "compose_page":
-            import compose_inputs
-            handoff = compose_inputs.prepare(plan, params)
+        if not params.get("view"):
+            if plan.get("build_mode") == "compose_page":
+                import compose_inputs
+                handoff = compose_inputs.prepare(plan, params)
+            elif plan["build_mode"] == "unmatched":
+                handoff = manual_plan_handoff({**params, "task_id": task_id}, plan)
+            elif plan.get("plan_stage") == "prepared":
+                roles = plan.get("runtime_roles") or []
+                # The manual build path can start after planning without binding
+                # a route first. Leave role collection alone; do not validate
+                # receipts here or treat a complete-looking role as evidence.
+                if roles and all(role.get(f"{role['kind']}_id") and role.get("validation_receipt_file")
+                                 and role.get("contract_fingerprint") for role in roles):
+                    handoff = live_build_handoff({**params, 'task_id': task_id}, plan)
         return {"code": 0, "execution_plan": plan, **handoff}
     except EP.PlanError as exc:
         return _plan_conflict_next_action(exc.as_dict(), params)

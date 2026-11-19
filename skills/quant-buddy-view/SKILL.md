@@ -3,17 +3,17 @@ name: quant-buddy-view
 slug: quant-buddy-view
 displayName: QuantBuddy 宽宝活页
 author: guanzhao
-version: 0.8.18
+version: 0.8.19
 description: |
   将量化分析或已有 JPG/PNG、HTML、PDF 发布为 Quant Buddy 可分享活页或实时看板，并支持创建、更新、复用、验收和公开链接交付。适用于个股画像、估值财务、指数异动、多因子筛选、商品日报、模板、分享壳及卡片等页面。
-  国内期货期权槽位行情页面包含沪深300、上证50、中证1000；通过QBS验证后用公式包绑定，不能以股指合约映射接口未开放为由判定无行情，也不能把槽位页称为完整期权链。
+  国内期货期权槽位行情页面支持沪深300、上证50、中证1000股指，以及南方中证500ETF、华夏科创50ETF、易方达创业板ETF的期权；通过QBS验证后用公式包绑定。合约映射和完整期权链另行判断。
   用户提供 QuantBuddy 活页 URL 并要求解读时也使用。显式调用 /quant-buddy-view、/qbv、qbv 或 QBV，且请求并非纯咨询、代码维护或文档解释时，默认按可分享活页任务处理。
   输入可唯一识别的 A 股名称、简称或代码，或简单要求单股综合分析（如“贵州茅台”“600519”“分析一下贵州茅台”）均默认请求个股快页；宿主开启 page_first_fast 时，取得 task_id 后立即并行调用 new_asset_page 与有限公开搜索，页面 ready 后先展示页面和前五章数据，搜索完成后再补综合观察；其它模式先通过 QBS 验证并回复完整个股分析，再同轮 new_asset_page，无需用户补说“生成页面”。
   WebAgent 宿主要求金融问题统一交付问答与活页时，一次性行情、涨跌幅、估值、概念解释和口语近况问题也在 QBS 首答后交接本技能。无此宿主约定时一次性问题由 QBS 回答；复盘、监控、画图、回测、K线等操作仍默认有活页意图。明确不要网页或只回复文字时不建页。
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 0.8.18
+  version: 0.8.19
   author: guanzhao
   category: quant-finance
   tags: [quant, dashboard, formula-package, static-page, publish, visualization]
@@ -74,9 +74,11 @@ runtimeRequirements:
 
 ## 当前要求与交付状态
 
+- 宿主运行时，Grant/Formula Package 返回的 `public_skill_endpoint` 是浏览器取数地址；注册、续期和页面写入仍走本轮宿主代理。手写页面也不得硬编码正式域名、改用网页域名推断环境，或把本地代理写入 HTML。缺少地址时先核验当前宿主，不得向另一环境补发注册。发布核验对照实际 Grant/Package、任务和原页；失败时交付已有结果，不能以快照或 ready 冒充实时。
+
 - 回执 `llm_billing:true` 时，紧邻最终交付链接之前独立展示 **AI 刷新计费提醒**，完整展示接口返回的 `billing_notice`，仅展示一次，可分句换行。收费条件和费用承担方以该说明为准，不自行补写另一套规则或预报积分；说明缺失时按回复校验缺项处理。功能异步加载提示放在计费段之前，不能代替计费提醒；卡片实际积分仍以本次结算回执为准。普通页面不加此提醒，字段未返回也不据此宣称免费。
 
-- 选股用户明确要求附带公司信息时，读取 [选股公司信息](guides/asset-info.md)，消费 Handoff 的可选 `asset_info_request`。默认主营业务＋近期事件、每股约300字、纯文本，仅在活页异步加载，取数直连 skill_server，官方页头只提供身份凭证；沿用现有路由和展示数量，不参与量化筛选或首答。模块成功接入并验收后，最终回复在活页链接旁补充该指南的聊天交付提示，说明异步加载及卡片右上角积分规则入口。信息授权使用专属合同证明，不作为金融出数证据；普通选股不启用，匿名代扣默认关闭。
+- 选股用户明确要求附带公司信息时，读取 [选股公司信息](guides/asset-info.md)，消费 Handoff 的可选 `asset_info_request`。默认主营业务＋近期事件、每股约300字、纯文本，仅在活页异步加载，取数直连 skill_server，普通自动更新无需登录，页头身份仅用于强制刷新；沿用现有路由和展示数量，不参与量化筛选或首答。模块成功接入并验收后，最终回复在活页链接旁补充该指南的聊天交付提示，说明异步加载及卡片右上角积分规则入口。信息授权使用专属合同证明，不作为金融出数证据；普通选股不启用；不向skill开放强制刷新。
 
 - 单资产盘中 OHLC 可用 `收盘价/开盘价/最高价/最低价(资产,最后一日分钟刷新)`，从验证开始保留参数并用 false/缺省执行合同，随后原样登记公式包；A股及派生输出按 `cn.chart:intra` 更新。不要把它误判为原生分钟K线或自动改成 `use_minute_data:true`；已有 true 收据需重新验证，详见 [公式包](tools/formula_package.md#最后一日分钟刷新取价)。
 
@@ -86,6 +88,8 @@ runtimeRequirements:
 - 恢复 V1 按[历史版本恢复](workflows/page-version-restore.md)执行 `versions → version → rollback`，保留原链接；即使已经恢复过，也必须本轮调用 `rollback` 取得只读核验证明，再说明无需恢复，不凭历史 hash 直接收尾。恢复新增版本的编号与目标 V1 编号分开记录。不得用重新研究或方法页代替恢复，验收通过才报成功。
 - 已发布成果先只读核验，再复用 Capsule / Handoff / 验证收据；缺少草稿不能推断公开页没有数据。
 - 最终回复依据本轮核验收据说明发布和取数状态；静态快照不得称为实时页，未核验通过不得称为完成。
+- 宿主托管的 Data Grant 和 Formula Package 以服务端核验的账号与环境为准，对同一合同复用已有授权，不比对代理地址或 Key 指纹。遇到 `AUTH_CONTEXT_UNAVAILABLE`、`ACCOUNT_OR_ENV_MISMATCH` 或 `LEGACY_PROOF_REQUIRED`，保留已有结果并说明不能自动更新的部分；遇到 `REGISTRATION_OUTCOME_UNKNOWN` 先查状态，不重复注册。禁止自行更换任务 ID、删除旧记录或改用非托管连接绕过校验。
+- 同任务跨轮追问，先 `interpret` 原页面并按本轮计划续写：保留原 `page_id`、URL、有效授权和旧收据，禁止复制旧 `turn_id` 到本轮参数。`verify_published` 返回 `CURRENT_PUBLICATION_REQUIRED` 时，`historical_verification` 只说明旧版结果；按 `next_action` 继续当前计划，不把旧版当作本轮已交付，不重注册已有授权。`PUBLIC_RECHECK_STALE` 先重读状态，不能盲重发。
 - `verify_published` 通过后仍需回复校验；按返回的 `next_action` 读取封存合同、填写 `draft_file` 并运行 `scripts/validate_agent_reply.py`。缺证据则补原合同证据，不能重复恢复、重新发布或清空合同来代替收尾。
 
 ## 页面研究合同（WebAgent 正式投研）
@@ -377,7 +381,9 @@ python scripts/static_page.py new_asset_page '{"task_id":"task_xxx","asset":"贵
   （`chart_edit.py inspect` 判定，多为本次改动之前生成的老页面）或改动本质上要求整页重算/换版式，才落回
   下面的整页重建。
 - **改造已发布/已生成页面**：优先 `scripts/retrofit_share_shell.py`，再 `static_page.py update` 保持同一个 `page_id` / URL；正式 update 应传具体 `change_note`，版式变化显式传 `change_aspect:"layout"`，其它类型可让服务端推断。
+- 自定义活页按 [Share Shell](guides/share-shell.md) 初始化；应在 DOM 就绪后挂载页头与页面自己的刷新回调。发布工具会修正已标记 Share Shell 在正文同步初始化之后才加载的顺序；浏览器仍须验页头和刷新回调。
 - **Share Shell revision 5 页面问答边界**：可见页头由官网 `/embed/live-page-header` iframe 托管，活页 Parent Bridge 只执行刷新、收藏、分享、认证导航和移动 WebAgent 动作、页面问题携题自动发送并校验 `qb-live-page-header-v1` / `qb-web-agent-v1`；官网 WebAgent Preview 注入 `qb-live-page-embed-context=webagent-preview` 时不得加载页头或预加载收藏 iframe；该上下文只能由官网预览响应代理注入，QBV 源 HTML、编译产物和公开 HTML 一律禁止携带。公开页「更新活页」先沿原 onRefresh 刷新，再由官网页头检查创建者权限并调用既有 text 报告更新；未登录及非创建者只完成第一步，第一步失败允许继续并保留提示。第二步实际发布且验收通过后整页加载新版并尽量恢复阅读位置；WebAgent Preview 不启用此流程。官网只改页头视觉不要求逐页刷新；Parent Bridge、通信协议或能力契约变化才提升 revision。
+- **实时页先完成研究核验，再构建**：实时任务没匹配到模板时，`new_page` 只建占位页，按 `next_action` 先修订 `execution_plan`，不要直接写 HTML。按本轮请求声明范围，复用匹配授权的 `plan_role_reference` 并补业务 `role_id`；核验研究后，用 `bind_runtime_route` 绑定，再按返回动作构建。该提示也可在绑定与 Compose 草稿交接时返回；`code:0` 不是研究通过。若 `publication_readiness.ready=false`，先按 `next_action` 复用本轮已验证数据核对标的、字段、范围和实际观察日期；证据齐备才正常修订计划，使用新 `plan_hash` 继续原流程（如返回 `resume_action`，按它续接）。不先写 HTML、不重注册、不手改收据；证据不足则交付已验证的正文并说明缺项，不把进度页或静态结果当作实时交付。
 - **用户可见链接策略**：量化建页所有渠道均在完整首答、页面验收和适用回复校验后补链接；模板及进度页 URL 只用于内部执行。已有文件托管沿自己的首链规则；`feishu-group` 看到 `delivery_policy.emit_intermediate_url=false` 后禁止发送任何非终态 URL，只在 validator 通过后发送 terminal contract 的 playground `public_url`。进度页用 `update_progress`、正式发布用 `publish_verified`（内部调用 `publish_final`）更新同一 `page_id`；未显式传 `change_note` 时，版本修改描述按“状态 + 中文阶段标题 + 用户可见 message”自动生成，正式发布版本默认记录“完成发布：正式活页内容已发布”。
 - **Agent 回复模板**：活页 metadata 可带 `agent_reply_template` 指向本技能 `reply-templates/` 下的回复骨架。`reply-templates/` 是 Agent 最终回复格式，不是活页 HTML 页面模板；不要和在线 `templates` / `template` API 混用。
 - 本 skill 不再内置本地页面样板，不能从本地历史样板目录或低质 HTML 骨架起步。
@@ -453,9 +459,9 @@ npx skills update pseudo-longinus/quant-buddy-skills -y
 - 公式注册与读取模式见 [tools/formula_package.md](tools/formula_package.md)，数据授权见 [tools/data_grant.md](tools/data_grant.md)，静态页命令和 metadata 见 [tools/static_page.md](tools/static_page.md)。
 - 普通自有页面用 `update` 保持 URL；published template 用 `template` 判定，除非用户明确维护原模板，否则只读复用或 fork。
 
-## 国内股指期权页面
+## 国内股指及ETF期权页面
 
-国内期货期权槽位行情也包含 **沪深300（IF.CFE / IO）、上证50（IH.CFE / HO）、中证1000（IM.CFE / MO）**；斜线前为数据列ticker，后为期权品种代码。价格、IV、持仓量和成交额页面按 [股指期权页面接入](guides/cn-index-options.md) 由 QBS 验证精确 `国内期货期权-*` 字段，再用 Formula Package 绑定。`option_contracts` Grant 的股指限制只涉及具体合约映射，不能据此宣称没有股指期权行情；已有槽位行情也不代表完整期权链已接入。
+国内期货期权槽位行情也包含 **沪深300（IF.CFE / IO）、上证50（IH.CFE / HO）、中证1000（IM.CFE / MO）**；斜线前为数据列ticker，后为期权品种代码；还包含南方中证500ETF（SH510500）、华夏科创50ETF（SH588000）、易方达创业板ETF（SZ159915）的期权日频槽位行情。价格、IV、持仓量和成交额页面按 [国内股指及ETF期权页面接入](guides/cn-index-options.md) 由 QBS 验证精确 `国内期货期权-*` 字段，再用 Formula Package 绑定。`option_contracts` Grant 当前未开放上述股指和ETF的具体合约映射；已有日频槽位行情不代表期权分钟行情或完整期权链已接入。
 
 ## 取数：实时页的两条通道
 
@@ -479,7 +485,7 @@ npx skills update pseudo-longinus/quant-buddy-skills -y
 |---|---|---|
 | 日K线OHLCV及内置MA/BOLL/MACD/RSI/成交量均线 | **query_kline数据授权** | `grant_id` |
 | 自定义指标 / 回测净值 / IC / rankIC / 自定义时序与公式口径 | **公式包** | `package_id` |
-| 国内期货期权槽位行情（含沪深300/上证50/中证1000的价格、IV、持仓量、成交额） | QBS验证精确数据名与范围后登记**公式包**；不是合约映射授权 | `package_id` |
+| 国内期货期权槽位行情（含IF/IH/IM股指及SH510500/SH588000/SZ159915的期权日频数据） | QBS验证精确数据名与范围后登记**公式包**；不是合约映射授权 | `package_id` |
 | 平台白名单直取的行情 / 估值 / 财务 / 资金流（收盘价、涨跌幅、PE/PB…） | 数据授权 `fast_query` | `grant_id` |
 | 部分美股及国内商品期权槽位当前合约 / 空槽 / 滚动窗口换约表 | 数据授权 `option_contracts`（snapshot/window，动态日期，真实trade_date） | `grant_id` |
 | 个股预计算画像卡（估值/财务质量等维度画像） | 数据授权 `stock_profile` | `grant_id` |
@@ -510,7 +516,7 @@ npx skills update pseudo-longinus/quant-buddy-skills -y
 9. **`templates` 摘要必须覆盖全部候选，落盘失败不能裸奔**：`items_summary` 的条目数量必须等于 `item_count`（完整候选去重后的真实数量，不是服务端可能未重算的 `total`），不允许只看其中一部分候选就判定 `unmatched`；一旦返回 `error:"TEMPLATES_PERSIST_FAILED"` 或 `error:"TEMPLATES_RESPONSE_SHAPE_UNEXPECTED"`（落盘失败或响应结构异常），必须先向用户说明「范式候选未能完整确认，暂缓路由判断」，禁止在这种不完整信息下判定为 `unmatched` 走自建，也**不得通过重复调用 `templates` 来补救**（每个任务仍然只能调用一次这条硬规则不变）；确需重试仅限明确的瞬时网络失败，且只重试一次。
 10. **Card Runtime 先做零副作用结构预检**：含 Card Runtime artifact 的 HTML 必须由 `publish_workflow.py` 在 QBS 验证、注册、图片上传和发布前用假凭证执行 `verify_page.mjs --card-runtime-structure-only`。正文与 Card 共用凭证时用 marker 数组扇出；每个数组元素仍须全局唯一并在 HTML 中恰好出现一次。禁止空 manifest 凭证；普通 `<img>` 必须有非空 `src`，仅显式声明 `data-qb-runtime-src` 且等待运行时赋值的预览图可以暂时为空；同时禁止注册等价的重复 Card package/grant。
 11. **普通建页前必须先查范式卡并显式确认路由**：`new_page` 会校验完整候选并绑定路由。fork 必须声明借鉴度，且一经判定不得改判 unmatched；继承不成立时只能在 fork 内降为 Compose。`build_dashboard` 对 fork/inherit* 和新任务 unmatched 均禁止整页构建；fork/compose 的完整页面使用 `static_page.py compose_page`，unmatched 整页由模型手写 bespoke HTML；`emit:"panel_block"` 仍仅是局部产物。已绑定Compose不得再次全量fork_prepare。
-12. **本地验收与公网验收分责**：`fork-local` 在本地 `file://`（origin=null）下用放开同源策略的测试浏览器跑真实取数渲染（`security_mode:"disabled-web-security"`），布局/占位符/运行时错误/图片/Card Runtime 门禁照常执行；`public-smoke` 保持浏览器默认安全策略，数据接口 CORS/`Failed to fetch`/运行时失败仍严格拦截。平台注入的 `/webapi/skill/track` 分析埋点是 fire-and-forget，其 CORS/网络失败降为 `non_core_console_warnings`，不再让成功页面发布失败；数据接口（`queryDataGrant`/`queryFormulaPackage`）的失败仍是阻塞性核心错误。**`public-smoke` 通过只证明功能结构与运行态，不等价于视觉质量通过**：交付页视觉结论必须来自 `self-built`/`full`/`ui-refinement` 三视口设计检查与截图审阅；「N 因子」类页面另受 [因子观察台硬门槛](guides/factor-watch-pages.md) 约束（首屏主结论、因子分组可见、指标自带日期、图表分组、节奏分层）。
+12. **本地验收与公网验收分责**：`fork-local` 在本地 `file://`（origin=null）下用放开同源策略的测试浏览器跑真实取数渲染（`security_mode:"disabled-web-security"`），布局/占位符/运行时错误/图片/Card Runtime 门禁照常执行；`public-smoke` 保持浏览器默认安全策略，数据接口 CORS/`Failed to fetch`/运行时失败仍严格拦截。平台注入的 `/webapi/skill/track` 分析埋点是 fire-and-forget，其 CORS/网络失败降为 `non_core_console_warnings`，不再让成功页面发布失败；数据接口（`queryDataGrant`/`queryFormulaPackage`）的失败仍是阻塞性核心错误。**`public-smoke` 通过只证明功能结构与运行态，不等价于视觉质量通过**：交付页视觉结论必须来自 `self-built`/`full`/`ui-refinement`（桌面、390px/320px 手机各含常规高度与短屏，共五个视口）设计检查与截图审阅；「N 因子」类页面另受 [因子观察台硬门槛](guides/factor-watch-pages.md) 约束（首屏主结论、因子分组可见、指标自带日期、图表分组、节奏分层）。
 13. **Fork 数据通道必须继承来源合同**：fork 的目标是替换标的并保持来源范式运行合同，不是重新设计数据层。来源模板某一角色使用公式包，目标页同一角色继续使用公式包；来源使用 `fast_query` / `stock_profile` / `composition_select` 数据授权，目标页继续使用同 kind、同 query_type、同响应形状的数据授权。禁止仅因“财务数据通常可走 fast_query(report)”就在 fork 中把来源财务公式包改成 grant，也禁止反向把来源 grant 改成公式包。只有 `unmatched` / 明确从零重建时才重新做通道选择；此时平台白名单报告期财务优先 `fast_query(query_type="report")`。
 14. **已有文件先原样托管，后同页渐进增强**：所有已有文件转活页先执行 [静态优先工作流](workflows/existing-file-static-first.md)，包括“先纠错、重做后活化”的复合请求。用 file_prepare 及其持久发布参数，不先研究或改写来源。已获准的动态来源优先捕获只读响应并回放，以保留本地交互；只能视觉冻结时明确损失。第一版公网验收后立即交付静态链接，不等用户再催；已授权增强继续执行。保真增强按通道使用 Data Grant/Formula Package，成功区域才声明 `data-qb-live-mode="live"` 与 `data-qb-live-tag="qbs-formula-package|qbs-data-grant"`；未转换内容保留快照，不为静态声明强行注入属性。本地候选验证后仅更新同一 page_id，失败不覆盖最后成功版本、不创建替代链接；未知写入、恢复失败要明确记录，不能说成成功。首次静态不需要模板fork或Handoff；本流程不引入Block Runtime或全局标签改造。
 15. **CHANGELOG 仅作为版本审计**：维护、升级或排查历史行为变化时，先阅读 `CHANGELOG.md` 中最新版本及与问题相关的历史条目；执行页面任务时，当前规则仍以 `SKILL.md` + `workflows/**` + `tools/**` + `guides/**` 为准。CHANGELOG 可能包含已被后续版本反转或废弃的旧口径，禁止用历史条目覆盖当前规则。
@@ -536,7 +542,7 @@ npx skills update pseudo-longinus/quant-buddy-skills -y
 | `scripts/qbs_bridge.py` | `resolve_asset_data` / `<quant-buddy-skill tool> @params.json` / `validate_package_set` / `validate_grant_set` | 统一实时路由探测并继承 QBV→QBS task_id；按最终 package/Grant 合同生成 route/grant/formula fingerprint 绑定收据 | 本节“新会话路由” |
 | `scripts/publish_workflow.py` | `@publish-plan.json` | manifest v2驱动 review/合同预检、package+Grant验证、每role一次注册、多Marker扇出替换和单次 `publish_verified`；v1 JSON兼容 | [tools/publish_workflow.md](tools/publish_workflow.md) |
 | `scripts/validate_agent_reply.py` | （单命令） | 校验发布器 SHA256 绑定的终态 contract 与 Markdown 草稿，并检查公开 URL、章节结构和敏感信息；可在成功后清理任务临时参数文件 | — |
-| `scripts/verify_page.mjs` | （单命令） | 发布前/发布后页面验收：标准三视口、h1、占位符、横向溢出、控制台核心错误；批注迭代可用 `--profile ui-refinement`、`--extra-viewport` 与 `--min-visible-font-px`；范式卡加 `--card-runtime` 或 `--card-runtime-only` | [guides/browser-feedback-refinement.md](guides/browser-feedback-refinement.md) |
+| `scripts/verify_page.mjs` | （单命令） | 发布前/发布后页面验收：标准五视口（含两个手机短屏）、h1、占位符、横向溢出、控制台核心错误；批注迭代可用 `--profile ui-refinement`、`--extra-viewport` 与 `--min-visible-font-px`；范式卡加 `--card-runtime` 或 `--card-runtime-only` | [guides/browser-feedback-refinement.md](guides/browser-feedback-refinement.md) |
 | `assets/data-kernel.js` | （前端内核，非脚本） | 手搓 bespoke 页共用的「取数 + 清洗 + 容错」一份；内联进页面 `<script>` 用 | [guides/bespoke-page.md](guides/bespoke-page.md) |
 | `assets/share-shell/` | （公共组件） | 所有落地页共用的页头、页尾、刷新按钮、分享海报弹层、海报 canvas、复制链接与复制/下载行为 | [guides/share-shell.md](guides/share-shell.md) |
 | `assets/live-card.css` | （公共组件） | 范式卡 artifact 的浅色卡片样式源；由 `build_dashboard.py` 作为 `data-qb-card-style` 内嵌进 card runtime artifact | [guides/essence-cover-card.md](guides/essence-cover-card.md) |
@@ -547,7 +553,7 @@ npx skills update pseudo-longinus/quant-buddy-skills -y
 > **stock 原生图表 owner 门禁**：`stock_analysis_instance_v1` 的 `#priceChart` 始终由页面原生 runtime 持有；禁止用 `build_dashboard.py emit="panel_block"` 注入第二个 renderer。增加沪深300等基准线时必须使用 `scripts/stock_comparison.py` 扩展原生 load/render/table 生命周期。
 > **stock legacy 时间窗口门禁**：`stock_analysis_instance_v1` 缺少 `QBV_RENDER_JS` marker 时，改窗口必须使用 `scripts/stock_window.py apply`，不要生成或执行 `output/*.py` 临时补丁。转换后必须本地浏览器预检、`static_page.py update` 同一页并做公网验收。
 > 数据层统一调 `assets/data-kernel.js`（`QB.query` 取数、`QB.series/lastValue/topValues` 解包清洗），别再每页各抄 `fetch`/解包、各踩"假 0/缺口"的坑。见 [guides/bespoke-page.md](guides/bespoke-page.md)。
-> 发布前用 `scripts/verify_page.mjs <html_file> --require-browser` 检查桌面与 390px/320px 移动端，确保无 `QB_SHARED_` / `replace_with_signature` / `pkg_replace` 残留、存在 `<h1>`、无关键横向溢出和核心取数脚本错误。页面声明 `stock_analysis_instance_v1` 且在 `data_sources.benchmark_series` 或 `comparison.benchmark_series` 配置基准时，脚本还会在 runtime pending 归零后等待稳定窗口，并强制检查最终 canvas、个股/基准两条有效图表序列、共同交易日、基准右侧 Y 轴、双 Y 轴和数据表列；同时静态拒绝原生 runtime 与 panel_block 共同接管 `#priceChart`。不能只因 runtime ready 或首帧短暂出现就视为对比页已交付。含范式卡 artifact 的页面加 `--card-runtime`（或 `--card-runtime-only`）验收 artifact/manifest/独立 hydrate。Playwright 不在默认 Node 搜索路径时，可用 `QBV_PLAYWRIGHT_MODULE_ROOT` 指向包含 `playwright/` 的 `node_modules` 根目录；可用 `CHROME_PATH` 指定浏览器可执行文件，未指定时自动发现 Chrome/Edge。若机器没有 Playwright/Chrome/Edge，脚本会明确标记为 `static-only`，不能当完整浏览器验收。
+> 发布前用 `scripts/verify_page.mjs <html_file> --require-browser` 检查桌面与 390px/320px 移动端（各含常规高度与短屏），确保无 `QB_SHARED_` / `replace_with_signature` / `pkg_replace` 残留、存在 `<h1>`、无关键横向溢出和核心取数脚本错误。页面声明 `stock_analysis_instance_v1` 且在 `data_sources.benchmark_series` 或 `comparison.benchmark_series` 配置基准时，脚本还会在 runtime pending 归零后等待稳定窗口，并强制检查最终 canvas、个股/基准两条有效图表序列、共同交易日、基准右侧 Y 轴、双 Y 轴和数据表列；同时静态拒绝原生 runtime 与 panel_block 共同接管 `#priceChart`。不能只因 runtime ready 或首帧短暂出现就视为对比页已交付。含范式卡 artifact 的页面加 `--card-runtime`（或 `--card-runtime-only`）验收 artifact/manifest/独立 hydrate。Playwright 不在默认 Node 搜索路径时，可用 `QBV_PLAYWRIGHT_MODULE_ROOT` 指向包含 `playwright/` 的 `node_modules` 根目录；可用 `CHROME_PATH` 指定浏览器可执行文件，未指定时自动发现 Chrome/Edge。若机器没有 Playwright/Chrome/Edge，脚本会明确标记为 `static-only`，不能当完整浏览器验收。
 
 ## 历史分钟与连续期货数据源
 

@@ -40,14 +40,11 @@
       }
       const sdk = window.QBAssetInfo;
       if (sdk && (!(sdk.schedulerVersion >= 2) || typeof sdk.cancelPending !== 'function')) throw Error('公司信息暂不可用：官方桥接脚本需要更新。量化结果不受影响。');
-      // Do not enter SDK.load's unbounded identity wait before a trusted context exists.
-      const context = sdk?.getContext();
-      // An explicit unknown identity (e.g. an expired login) may still read cache.
-      // The SDK's initial unknown placeholder has no page_id and is not ready.
-      if (pageId && context && context.page_id === pageId) return sdk;
+      // Ordinary loading needs the SDK and matching page binding, not a logged-in viewer.
+      if (pageId && sdk) return sdk;
       await new Promise(resolve => setTimeout(resolve, 100));
     }
-    throw Error('公司信息暂不可用：官方页头身份未就绪。量化结果不受影响。');
+    throw Error('公司信息暂不可用：官方页头地址未就绪。量化结果不受影响。');
   }
   function localDate(value, dateOnly = false) {
     if (!value) return null;
@@ -142,7 +139,7 @@
     const rules = text('div', '', 'qb-info-cost-rules');
     rules.append(text('strong', '积分与缓存规则'),
       text('p', '缓存命中免费，每只股票独立缓存。首次生成、缓存过期后重新生成及确认后的强制更新，按实际 Token 和搜索费用扣除页面作者积分。'),
-      text('p', '缓存于北京时间每日 04:00、16:00 过期；过期后首次符合权限的访问才触发更新，到点不会自动生成或扣费。'),
+      text('p', '缓存于北京时间每日 04:00、16:00 过期；过期后首次访问才触发更新，到点不会自动生成或扣费。'),
       text('p', '本次费用以实际结算回执为准；历史生成成本不计为本次扣费。结算未完成或回执缺失时，不显示已扣费或免费。'));
     popup.append(rules); button.setAttribute('aria-controls', popup.id); button.setAttribute('aria-expanded', 'false');
     let pinned = false;

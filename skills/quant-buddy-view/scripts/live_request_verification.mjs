@@ -47,3 +47,43 @@ export function liveRequestProblems(requests, runtime) {
   if (!runtime || runtime.status!=='ready' || runtime.pending!==0) problems.push('LIVE_RENDER_NOT_READY: 实时数据未完成页面渲染');
   return problems;
 }
+// Policy is constructed by the Python publisher from signed server proofs, not page JS.
+// The loopback exception is exclusively for offline fixture endpoints (never returned by the service).
+export function bindingPolicy(value) {
+  const endpoint=new URL(value.endpoint);
+  if (!(endpoint.protocol==='https:' || endpoint.protocol==='http:' && ['127.0.0.1','localhost','[::1]'].includes(endpoint.hostname)) || endpoint.username || endpoint.password || endpoint.search || endpoint.hash || endpoint.pathname!=='/skill') throw Error('INVALID_MANAGED_ENDPOINT');
+  const ids=new Set();
+  if (!Array.isArray(value.bindings) || !value.bindings.length || value.bindings.length>100) throw Error('INVALID_MANAGED_BINDINGS');
+  for (const {resource,credential_id:id} of value.bindings) {
+    if (!(resource==='grant' && /^(?:dg|grant)_[\w.-]+$/.test(id) || resource==='package' && /^pkg_[\w.-]+$/.test(id))) throw Error('INVALID_MANAGED_BINDINGS');
+    ids.add(id);
+  }
+  const required=value.required_ids || [];
+  if (!Array.isArray(required) || required.some(id=>!ids.has(id))) throw Error('INVALID_MANAGED_BINDINGS');
+  return {base:endpoint.href,ids,required};
+}
+
+export function requestBinding(policy,url,method,postData) {
+  const action=liveAction(url);
+  if(!policy || !action) return null;
+  const dest=new URL(url), key=action==='queryDataGrant'?'grant_id':'package_id';
+  if (dest.origin+dest.pathname !== policy.base+'/'+action || dest.username || dest.password) return {action,denied:true};
+  if (method==='OPTIONS') return {action,preflight:true};
+  if (method!=='POST') return {action,denied:true};
+  let id;
+  try {
+    const data=String(postData || '');
+    if (data.trimStart().startsWith('{')) id=JSON.parse(data)[key];
+    else {const values=new URLSearchParams(data).getAll(key);if(values.length===1) id=values[0];}
+  } catch { /* fail closed; never log the body */ }
+  return typeof id==='string' && policy.ids.has(id) && (key==='package_id')===id.startsWith('pkg_') ? {action,credential_id:id} : {action,denied:true};
+}
+
+export function bindingProblems(policy,requests,requireLive) {
+  if (!policy) return [];
+  if (requests.some(x=>x.denied)) return ['LIVE_BINDING_MISMATCH: 请求地址或授权不属于当前任务'];
+  const observed=new Set(requests.filter(x=>x.business_ok===true).map(x=>x.credential_id));
+  if (requireLive && policy.required.some(id=>!observed.has(id))) return ['LIVE_BINDING_NOT_OBSERVED: 计划要求的授权未全部成功取数'];
+  if (requireLive && !requests.some(x=>x.business_ok && policy.ids.has(x.credential_id))) return ['LIVE_BINDING_NOT_OBSERVED: 未观察到已核验授权成功取数'];
+  return [];
+}

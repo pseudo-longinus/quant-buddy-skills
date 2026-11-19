@@ -293,6 +293,14 @@ def prepare(plan,params=None):
             index+=1;path=root/f'compose-r{plan["revision"]}-{digest[:16]}-{index}.json'
         if not path.exists():EP.atomic_json(path,draft)
         EP.atomic_json(C.task_temp_path(task,POINTER,create_parent=True),{'task_id':task,'page_id':plan['target_page_id'],'plan_hash':plan['plan_hash'],'params_file':str(path),'revision':plan['revision']})
+        if not issues and draft.get('live_data_mode') in ('live', 'mixed') and draft.get('route_receipt_file'):
+            # Selecting a valid route must not bypass the same live research
+            # check used by bind_runtime_route. Keep the editable work on disk.
+            from delivery_requirements import live_build_handoff
+            handoff = live_build_handoff({**incoming, 'task_id': task}, plan)
+            if handoff:
+                return {**handoff, 'draft_params_file': str(path), 'draft_diagnostics': issues,
+                        'quality_warnings': quality_warnings, 'plan_hash': plan['plan_hash']}
         instruction=('先处理draft_diagnostics，再填写标题和研究文字。自动table只是数据绑定起点，不能直接当最终版式：先写首屏结论、3-4个核心指标和主图，长表放折叠明细；数据页优先补presentation.html挂载点。排名页先做最强/最弱原始数值柱图，再保留一张明确排序、单位和日期的完整表；百分比按已验证源值声明scale。可以调整面板类型/顺序但保留runtime_role_id及必需outputs。不编辑内部收据；不要把长表搬到首屏来消除warning。')
         if draft.get('live_data_mode')=='researched_static':
             instruction=('降级为联网研究静态页（researched_static）：①先联网检索回答用户原始问题，公开来源必须带发布日期，关键数字尽量双源交叉，查无实据写证据缺口，不得臆测；'

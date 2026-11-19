@@ -28,7 +28,7 @@ import { staticImageProblems } from './image_verification.mjs';
 import { cardVisualContractProblems } from './card_visual_contract.mjs';
 import { dashboardDesignMetrics } from './dashboard_design_checks.mjs';
 import { pageTitleMetrics, pageTitleProblems } from './page_title_checks.mjs';
-import { liveAction, liveResponse, liveRequestProblems } from './live_request_verification.mjs';
+import { liveAction, liveResponse, liveRequestProblems, bindingPolicy, requestBinding, bindingProblems } from './live_request_verification.mjs';
 import { assetInfoSelectionMetrics } from './asset_info_selection_checks.mjs';
 // Optional diagnostics must not turn an old successful page into a failure.
 const labelChecks = await import('./data_label_checks.mjs').catch(() => ({
@@ -85,7 +85,13 @@ try {
   fs.writeSync(1, JSON.stringify({ code: 1, error: err.code || 'INVALID_EXTRA_VIEWPORT', message: err.message }) + '\n');
   process.exit(1);
 }
-const valueFlags = new Set(['--manifest', '--profile', '--card-screenshot', '--extra-viewport', '--min-visible-font-px', '--expected-title']);
+const policyIndex=args.indexOf('--managed-bindings');
+let managedPolicy=null;
+if (policyIndex>=0) {
+  try { managedPolicy=bindingPolicy(JSON.parse(args[policyIndex+1])); }
+  catch {fs.writeSync(1,JSON.stringify({code:1,error:'INVALID_MANAGED_BINDINGS'})+'\n');process.exit(1);}
+}
+const valueFlags = new Set(['--managed-bindings','--manifest', '--profile', '--card-screenshot', '--extra-viewport', '--min-visible-font-px', '--expected-title']);
 const positionals = [];
 for (let i = 0; i < args.length; i += 1) {
   const arg = args[i];
@@ -883,8 +889,13 @@ async function playwrightBrowserChecks(pw, url, options = {}) {
   let documentHtml = null;
   try {
     for (const viewport of viewports) {
-      const page = await browser.newPage({ viewport: { width: viewport.width, height: viewport.height } });
+      const page = await browser.newPage({ ...(managedPolicy ? {serviceWorkers:"block"} : {}), viewport: { width: viewport.width, height: viewport.height } });
       const liveRequests=[], liveReads=[];
+      if (managedPolicy) await page.context().route('**/*', async route=>{
+        const req=route.request(), check=requestBinding(managedPolicy,req.url(),req.method(),req.postData());
+        if(check?.denied){liveRequests.push(check);return route.abort('blockedbyclient');}
+        return route.continue();
+      });
       page.on('pageerror',error=>consoleErrors.push({viewport:viewport.name,type:'error',text:sanitizeBrowserText(error.message)}));
       page.on('console', msg => {
         if (!['error', 'warning'].includes(msg.type())) return;
@@ -904,8 +915,9 @@ async function playwrightBrowserChecks(pw, url, options = {}) {
           headerResponses.push(response.status());
         }
         const action=liveAction(response.url());
-        if (action) {
-          const entry={action,http:response.status(),business_ok:false,output_count:0};
+        if (action && response.request().method()!=='OPTIONS') {
+          const req=response.request(), binding=requestBinding(managedPolicy,response.url(),req.method(),req.postData());
+          const entry={...binding,action,http:response.status(),business_ok:false,output_count:0};
           liveRequests.push(entry);
           liveReads.push(response.text().then(body=>Object.assign(entry,liveResponse(action,response.status(),body))).catch(()=>{}));
         }
@@ -1664,8 +1676,16 @@ async function cdpBrowserChecks(url, options = {}) {
     const headerResponses = [];
     const documentRequests = new Map();
     const documentStatuses = new Map();
-    let liveResponses=[];
+    let liveResponses=[], deniedBindings=[];
+    const observedBindings=new Map();
     cdp.onEvent(msg => {
+      if (managedPolicy && msg.method==='Fetch.requestPaused') {
+        const {requestId,request,networkId}=msg.params;
+        const check=requestBinding(managedPolicy,request.url,request.method,request.postData);
+        if (networkId && check) observedBindings.set(networkId, check);
+        if(check?.denied) deniedBindings.push(check);
+        cdp.send(check?.denied?'Fetch.failRequest':'Fetch.continueRequest',check?.denied?{requestId,errorReason:'BlockedByClient'}:{requestId}).catch(()=>{});
+      }
       if (msg.method === 'Runtime.exceptionThrown') {
         const text = msg.params?.exceptionDetails?.text || 'Runtime exception';
         const entry = { viewport: currentViewport, type: 'error', text: sanitizeBrowserText(text) };
@@ -1693,7 +1713,7 @@ async function cdpBrowserChecks(url, options = {}) {
           headerResponses.push(Number(msg.params?.response?.status || 0));
         }
         const action=liveAction(responseUrl);
-        if (action) liveResponses.push({requestId:msg.params.requestId,action,http:Number(msg.params.response.status)});
+        if (action && msg.params.type!=='Preflight') liveResponses.push({requestId:msg.params.requestId,action,http:Number(msg.params.response.status)});
       }
       if (msg.method === 'Network.responseReceived' && msg.params?.type === 'Image' && Number(msg.params?.response?.status || 0) >= 400) {
         imageNetworkErrors.push({ viewport: currentViewport, type: `http_${msg.params.response.status}`, url: sanitizeBrowserText(msg.params.response.url || '') });
@@ -1702,6 +1722,10 @@ async function cdpBrowserChecks(url, options = {}) {
     await cdp.send('Page.enable');
     await cdp.send('Runtime.enable');
     await cdp.send('Network.enable');
+    if (managedPolicy) {
+      await cdp.send('Network.setBypassServiceWorker',{bypass:true});
+      await cdp.send('Fetch.enable',{patterns:[{urlPattern:'*queryDataGrant*'},{urlPattern:'*queryFormulaPackage*'}]});
+    }
     const viewports = VIEWPORTS;
     const settleMs = 1200;
     for (const viewport of viewports) {
@@ -1715,7 +1739,7 @@ async function cdpBrowserChecks(url, options = {}) {
       const loaded = cdp.waitForEvent('Page.loadEventFired', 30000).catch(() => null);
       documentRequests.clear();
       documentStatuses.clear();
-      liveResponses=[];
+      liveResponses=[];deniedBindings=[];observedBindings.clear();
       const navigation = await cdp.send('Page.navigate', { url });
       // Chrome reports DNS/TLS/connection failures here instead of throwing.
       if (navigation && navigation.errorText) throw new Error(`page navigation failed: ${navigation.errorText}`);
@@ -1797,14 +1821,14 @@ async function cdpBrowserChecks(url, options = {}) {
       evaluated.result.value.dashboardDesign = designMetrics.result?.value || null;
       evaluated.result.value.shareModal = shareModalMetrics?.result?.value || null;
       evaluated.result.value.shareShellHeader = shareShellHeader;
-      const liveRequests=[];
+      const liveRequests=[...deniedBindings];
       for (const response of liveResponses) {
         let entry={action:response.action,http:response.http,business_ok:false,output_count:0};
         try {
           const body=await cdp.send('Network.getResponseBody',{requestId:response.requestId});
           entry=liveResponse(response.action,response.http,body.base64Encoded?Buffer.from(body.body,'base64').toString('utf8'):body.body);
         } catch { /* Missing network body cannot prove success. */ }
-        liveRequests.push(entry);
+        liveRequests.push({...entry,...observedBindings.get(response.requestId)});
       }
       if (options.captureHtml && documentHtml === null) {
         const outer = await cdp.send('Runtime.evaluate', { expression: 'document.documentElement.outerHTML', returnByValue: true });
@@ -1863,6 +1887,7 @@ function summarize(staticResult, browserResult, options) {
   if (browserResult.checked) {
     for (const r of browserResult.viewports) {
       for (const problem of r.assetInfo?.problems || []) problems.push(`${r.viewport}: ${problem}`);
+      for (const problem of bindingProblems(managedPolicy,r.liveRequests || [],options.requireLiveData)) problems.push(`${r.viewport}: ${problem}`);
       if (options.requireLiveData) for (const problem of liveRequestProblems(r.liveRequests,r.runtime)) problems.push(`${r.viewport}: ${problem}`);
       for (const problem of chartPresentationProblems(r.presentation)) problems.push(`${r.viewport}: ${problem}`);
       if(r.presentation?.status==='degraded') warnings.push(`${r.viewport}: 图表资源不可用，已验证数据表替代`);

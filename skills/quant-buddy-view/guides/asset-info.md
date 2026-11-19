@@ -6,7 +6,7 @@
 
 仅在本次活页已成功接入公司信息模块并通过页面验收时，在最终回复中补充一句功能说明：
 
-> 活页已加入主营业务与近期重大事件模块，打开后按权限异步加载；本次积分消耗及缓存规则可点击卡片右上角查看。
+> 活页已加入主营业务与近期重大事件模块，打开后按缓存状态异步加载；本次积分消耗及缓存规则可点击卡片右上角查看。
 
 用户指定上下游等主题时，将句中的主题改为实际接入的信息需求。此提示只证明模块已接入，不代表内容已经生成、检索或结算成功；不等待公司信息生成才交付选股结果，不在聊天里预报扣费金额。普通选股未启用、明确不要网页或模块未接入时不输出该成功提示；接入失败时如实说明，信息区待生成、只读无缓存或不可用时也不得声称信息已生成。
 
@@ -26,7 +26,7 @@ python scripts/asset_info.py prepare @information.json
 
 ## 页面绑定
 
-取数路径为“活页 → skill_server `/skill/queryDataGrant` → 活页渲染”。官方页头仅提供120秒有效的页面身份凭证及同环境Skill地址；官方SDK缓存、到期续取凭证，并在直连接口时携带 `x-asset-info-context`。报价和分享确认也直连Skill，生成中轮询传 `cache_only:true`，不能触发生成。页面沿用下述SDK调用，不手签凭证、不放作者或模型API Key；官网 `/webapi/asset-info` 只用于身份获取，不中转取数、生成或计费。
+取数路径为“活页 → skill_server `/skill/queryDataGrant` → 活页渲染”。普通读取和无缓存/过期自动更新只使用已登记的grant_id、signature、当前asset及page_id，无需登录身份或页头身份凭证，也没有匿名开关。身份校验仅用于强制刷新，当前不向skill开放强刷。预估不调用LLM、不扣费；生成中轮询传 `cache_only:true`，不能触发生成。不要在页面放作者或模型API Key。扣费说明在生成、交付带此接口的页面时告知用户，沿用上方完整billing_notice合同；不增加分享确认步骤。
 
 Compose草稿、build_dashboard局部面板或compile_bespoke_page参数顶层加：
 
@@ -40,13 +40,13 @@ signature从同任务凭据补全，也可显式传同一签名；target_selecto
 
 Bespoke在选股业务脚本前放 `<!-- QB_ASSET_INFO -->`，编译时传asset_info。先画真实量化表，再调用 `QBAssetInfoPanel.setTable(columns, rows)`，传本轮当前展示集合；columns为列名数组，rows可为对应位置的数组行或按相同列名取值的对象行，如 `setTable(['代码','名称'],[{'代码':'SZ002148','名称':'北纬科技'}])`；不await信息区。每行必须有非空字符串代码，无效名单明确报错并保留上次内容，不能当作零入选。取数前pause()，失败unavailable(message)，空结果仍setTable。保留完整官方分享壳，初始化QBShareShell.init时传同环境embedOrigin：Test为 `https://test.quantbuddy.cn`、正式为 `https://www.quantbuddy.cn`。声明式整页自动传入；局部面板宿主应自己设置。带公司信息模块时，分享壳漏传embedOrigin会从同页完整官方SDK地址推导默认环境；显式环境不被覆盖，非官方地址不参与推导，环境不一致仍须拒绝。编译器插入同环境官方桥接与收费说明、强刷入口。
 
-只保留一个 `<!-- QB_ASSET_INFO -->` 占位符，不手写同名公司信息容器、配置或运行脚本；由编译器插入唯一官方模块。编译、发布及浏览器门禁检查目标与模块唯一且一致；本版介绍、常驻计费说明及强刷控件必须保持hidden。名单先于分享壳页头初始化到达时等待页头地址和对应身份就绪；地址确定后仍严格拒绝跨环境。
+只保留一个 `<!-- QB_ASSET_INFO -->` 占位符，不手写同名公司信息容器、配置或运行脚本；由编译器插入唯一官方模块。编译、发布及浏览器门禁检查目标与模块唯一且一致；本版介绍、常驻计费说明及强刷控件必须保持hidden。名单先于分享壳页头初始化到达时等待页头地址就绪，不等待登录身份；地址确定后仍严格拒绝跨环境。
 
-模块串行调用官方QBAssetInfo.load；换股替换集合、忽略旧响应，中间待加载名单只保留最新一份。保留原展示数量；超过50只在信息区分页，每页最多50只，只加载当前页。普通刷新不加force_refresh。V1保留官方“确认费用并更新全部”协议，当前版本入口隐藏，范围为当前页；没有单股强刷报价。报价null/失败显示预估不可用，不能称免费。
+模块串行调用官方QBAssetInfo.load；换股替换集合、忽略旧响应，中间待加载名单只保留最新一份。保留原展示数量；超过50只在信息区分页，每页最多50只，只加载当前页。普通刷新不加force_refresh，也不以前置费用预估阻塞取数；查看预估或确认强刷时调用previewAssetInfoRefresh，预估只读缓存状态及历史用量，不请求LLM、不扣费、不返回正文与来源。V1保留官方“确认费用并更新全部”协议，当前版本入口隐藏，范围为当前页；没有单股强刷报价。报价null/失败显示预估不可用，不能称免费。
 
 官方 SDK 必须支持 `schedulerVersion >= 2` 与 `cancelPending()`。面板接管自动加载，在新 SDK 确认前不暴露生成元素；旧脚本只显示升级提示。换股、空名单、pause/unavailable 立即取消未开始的旧请求，已发出的请求无法撤回或承诺免单；单股异常独立展示，其余股票继续。强刷仍由官方 SDK 对当前页整批报价确认。生成中轮询缓存只读取内容，不能用缓存读取的零费用回执覆盖先前生成的费用证据；结算未确认时保留待确认状态。
 
-当前版本按产品展示要求，不展示公司信息介绍、常驻计费说明与强刷按钮；保留hidden元素和官方data标记供SDK及发布合同核验，页面仍按权限自动加载公司信息。卡片右上角显示本次费用状态，鼠标悬停、键盘聚焦或点击可查看缓存与计费规则，支持Escape及点击外部关闭；手机以卡内展开方式显示规则。缓存命中显示本次0积分；本次响应billing.charged_points有效且无未结算状态时显示实际消耗，pending/blocked显示费用结算中，缺失或无效回执显示费用待确认，不能自行拆分整批费用。generation_cost仅为历史成本，不能证明本次扣分。内容快照状态及生成时间保留在卡片底部。规则明确各股票独立缓存、北京时间每日04:00/16:00过期、过期后首次符合权限访问才触发更新，到点不会自动生成或扣费。不要移除官方页头、绕过身份校验或改变匿名代扣设置。隐藏展示不关闭后端计费：由后端记录page_id、asset、trace_id、Token用量和billing_receipt.charged_points。
+当前版本按产品展示要求，不展示公司信息介绍、常驻计费说明与强刷按钮；保留hidden元素和官方data标记供SDK及发布合同核验，页面仍按缓存状态自动加载公司信息。卡片右上角显示本次费用状态，鼠标悬停、键盘聚焦或点击可查看缓存与计费规则，支持Escape及点击外部关闭；手机以卡内展开方式显示规则。缓存命中显示本次0积分；本次响应billing.charged_points有效且无未结算状态时显示实际消耗，pending/blocked显示费用结算中，缺失或无效回执显示费用待确认，不能自行拆分整批费用。generation_cost仅为历史成本，不能证明本次扣分。内容快照状态及生成时间保留在卡片底部。规则明确各股票独立缓存、北京时间每日04:00/16:00过期、过期后首次访问才触发更新，到点不会自动生成或扣费。保留官方页头及现有数据授权验签；普通更新不附加登录限制。隐藏展示不关闭后端计费：由后端记录page_id、asset、trace_id、Token用量和billing_receipt.charged_points。
 
 本地编译/浏览器预检不加载LLM内容；模块只在HTTPS的pages.quantbuddy.cn上登记展示集合。本地预览仍画量化表和信息区，提示内容将在公开活页中加载，避免预检意外消耗生成费用。
 
@@ -64,19 +64,13 @@ publish_workflow可与金融Grant一起登记，但专属收据单列为asset_in
 
 新任务维护旧页时，在同一 QBV_STATE_ROOT 中只读核验原任务的授权登记，保留原 ID、签名和登记归属；不复制凭证到新任务、不重新注册。仍须通过同账号、同 endpoint、合同指纹、签名、有效期和未撤销校验。只有旧签名文件或原始登记已清理时，不能推断归属，需先恢复原登记证据。
 
-匿名默认只读，不调用assetInfoPageShare开启代扣。生成与计费由skill_server处理，身份凭证取自真实官方页头；普通作者、已授权匿名、其他用户及管理员权限按服务端决定。禁止伪造身份或签发页头上下文。
-
-官方返回restricted或execution_allowed=false时，显示只读状态；这不代表Grant合同或量化选股失败。登录失效而返回unknown时仍可读取缓存，只有尚未收到官方身份上下文时才等待页头就绪；没有真实生成与结算回执不能标记生成验收通过。
-
-网页登录成功不代表具备生成权限。若官方页头的身份响应（`GET /webapi/asset-info`）返回 `viewer_kind=restricted`、`execution_allowed=false`，应保留只读提示；测试用户、页面管理员或运营预览不能用于生成验收。无需重新注册授权或更换选股合同，待普通作者会话可用后读取同一页面继续验收。
-
-Test环境与“测试用户”身份是两个概念：Test环境内的普通作者可以生成，具有测试用户标记的作者只读。用户授权使用测试账号后，继续验收量化取数、公司信息需求绑定、只读缓存和异常隔离；真实生成与计费保持待验收，不修改账号标记或开启匿名代扣。说明缺项时直接给出官方权限响应，避免让用户反复换账号试错。本地Agent测试器支持 `python scripts/asset_info.py prepare @output/参数.json`，仅开放prepare子命令，沿用输出目录参数限制；它与Test Agent候选部署是不同验收层次。
+普通自动更新不区分作者、匿名访客、测试用户或管理员：缓存命中免费，无缓存或过期时生成并扣页面作者积分。不得因viewer_kind或execution_allowed阻塞普通加载；这些身份结果只约束强制刷新。`cache_only:true`始终只读，缺缓存也不生成，用于生成结果轮询和本地验收。只有真实生成及结算回执才能证明扣费成功；不修改账号标记，不单独登记匿名分享权限。本地Agent测试器仍仅开放 `asset_info.py prepare`。
 
 | 验收题 | 预期 |
 |---|---|
 | 量化选股，活页附每股公司信息 | 默认主营＋近期事件300字；量化名单先呈现 |
 | 相同条件选股，附上下游公司并注明日期来源 | 只改变信息prompt，保留量化合同和排序 |
 
-本地测试为QBS的tests/test_asset_info_handoff.py及QBV的tests/test_asset_info.py；浏览器运行 `node tests/test_asset_info_browser.cjs`，支持QBV_TEST_PYTHON、CHROME_PATH、QBV_PLAYWRIGHT_MODULE_ROOT指定依赖，QBV_BROWSER_EVIDENCE_DIR保存截图。合成协议fixture与真实Test证据分开记录；真实公开URL验收桌面/390px/320px、普通作者生成、缓存复用、强刷和实际计费。缺真实身份或结算证据不能标通过。历史页面先出本地候选，按授权原链接更新；Test业务验收后再按授权正式发布。
+本地测试为QBS的tests/test_asset_info_handoff.py及QBV的tests/test_asset_info.py；浏览器运行 `node tests/test_asset_info_browser.cjs`，支持QBV_TEST_PYTHON、CHROME_PATH、QBV_PLAYWRIGHT_MODULE_ROOT指定依赖，QBV_BROWSER_EVIDENCE_DIR保存截图。合成协议fixture与真实Test证据分开记录；真实公开URL验收桌面/390px/320px、无需登录的自动生成、缓存复用和实际计费。缺真实生成或结算证据不能标通过。历史页面先出本地候选，按授权原链接更新；Test业务验收后再按授权正式发布。
 
 本次集成同时涉及 QBV 和官网 `public/asset-info-bridge.js`，须合入同一轮候选并部署同环境 SDK。浏览器测试可通过 QBV_ASSET_INFO_SDK_SOURCE 校验 fixture 与候选官方源码一致；官网独立运行 `node --test tests/assetInfoBridge.test.cjs tests/assetInfoHeader.test.cjs tests/assetInfoDirect.test.cjs`，另运行 `node tests/assetInfoDirect.browser.cjs` 验证真实跨域预检及活页直连。共同候选确定后再做 Test 真实业务验收，不能把离线协议测试算作已部署验收。

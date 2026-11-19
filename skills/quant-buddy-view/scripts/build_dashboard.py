@@ -1965,7 +1965,9 @@ def cmd_panel_block(params):
     if not pkg and not grants:
         return {"code": 1, "message": "panels 未引用任何 output（公式包）或 grant_id（数据授权），无法确定取数来源"}
 
-    endpoint = C.endpoint_of(C.load_config())
+    import managed_publication as MP
+    try: endpoint = MP.public_endpoint(params, C.endpoint_of(C.load_config()))
+    except MP.RC.CredentialError as exc: return exc.as_dict()
 
     packages = []
     if pkg:
@@ -2717,6 +2719,12 @@ def cmd_build(params):
         decision = (routing or {}).get("routing_decision") if isinstance((routing or {}).get("routing_decision"), dict) else {}
         emit = str((params or {}).get("emit") or "").strip().lower()
         if decision.get("mode") == "unmatched" and emit != "panel_block":
+            from delivery_requirements import manual_plan_handoff
+            handoff = manual_plan_handoff({**params, 'task_id': task_id}, plan) if plan else {}
+            if handoff:
+                action = handoff['next_action']
+                return {'code': 1, 'error': 'UNMATCHED_BUILD_MODE_FORBIDDEN', 'task_id': task_id,
+                        'message': action['instruction'], 'allowed_action': action['command'], **handoff}
             return {
                 "code": 1,
                 "error": "UNMATCHED_BUILD_MODE_FORBIDDEN",
@@ -2895,6 +2903,10 @@ def _build_authorized(params):
         # Do not catch or weaken any of the existing data/contract failures above.
         label_report['warnings'].append('LABEL_PREPARATION_UNAVAILABLE')
 
+    # Build-time reads use the private transport above; browser assets must never include it.
+    import managed_publication as MP
+    try: endpoint = MP.public_endpoint(params, endpoint) if pkg or grants else ('' if C.host_managed_lifecycle() else endpoint)
+    except MP.RC.CredentialError as exc: return exc.as_dict()
     generated_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     live_card_enabled = params.get("live_card") is not None and params.get("live_card") is not False
     html = _render_html(params, title=title, subtitle=params.get("subtitle"),

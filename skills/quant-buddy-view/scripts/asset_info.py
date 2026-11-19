@@ -127,7 +127,7 @@ def markup(config, endpoint):
     runtime = (Path(C.SKILL_ROOT) / 'assets' / 'asset-info.js').read_text(encoding='utf-8')
     return (f'<section id="{escape(config["target_selector"][1:], quote=True)}" data-qb-asset-info-panel>'
             '<h2>公司信息</h2><p hidden data-qb-asset-info-description>AI按本页信息需求整理，独立于量化筛选结果。</p>'
-            '<p hidden data-qb-llm-notice>缓存命中免费；首次生成、过期更新与强制更新按实际Token及搜索费用扣作者积分。匿名默认只读。</p>'
+            '<p hidden data-qb-llm-notice>缓存命中免费；首次生成、过期更新与强制更新按实际Token及搜索费用扣作者积分。自动更新无需登录，费用由页面作者承担。</p>'
             '<button type="button" data-qb-llm-force hidden disabled>确认费用并更新全部</button>'
             '<p data-qb-asset-info-status role="status">等待选股结果</p>'
             '<div data-qb-asset-info-items></div><nav data-qb-asset-info-pagination aria-label="公司信息分页"></nav></section>'

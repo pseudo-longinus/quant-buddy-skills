@@ -90,7 +90,7 @@ def live_delivery_error(params, plan=None):
         return {
             'code': 1,
             'error': 'CURRENT_LIVE_DELIVERY_INCOMPLETE',
-            'message': '本轮明确要求实时；当前计划仍是部分研究。完成当前要求的动态取数与核验后再发布，保留原页，未写入。',
+            'message': '本轮明确要求实时；当前计划未证明本轮研究完整。先核验当前结果，再构建或发布页面。保留原页，未写入。',
             'published': False,
             'verified': False,
             'written': False,
@@ -102,7 +102,9 @@ def live_delivery_error(params, plan=None):
                     'expected_revision': plan.get('revision'),
                     'revision_reason': 'current_live_research_incomplete',
                 },
-                'instruction': '补齐本轮要求的动态结果、范围和观察时点；证据仍不完整时停止，不以部分研究或静态页完成实时要求。',
+                'instruction': ('先复用当轮已验证的 QBS 数据及收据，对照用户要求核验标的、字段、行数/时间范围和实际观察日期。'
+                                '证据齐备再提交 execution_plan 的 complete/result 及适用的研究审计；授权注册和路由绑定成功不能代替核验。'
+                                '证据不齐时说明缺项并交付已验证正文，不写页面、不把部分研究或静态页当作实时结果。'),
             },
         }
     contract = plan.get('research_contract') if isinstance(plan.get('research_contract'), dict) else {}
@@ -194,6 +196,50 @@ def live_delivery_error(params, plan=None):
                 },
             }
     return None
+
+
+def live_build_handoff(params, plan):
+    """Expose the publisher's live research boundary before suggesting a build."""
+    blocked = live_delivery_error(params, plan)
+    if blocked is None:
+        return {}
+    action = blocked['next_action']
+    return {
+        'draft_ready': False,
+        'publication_readiness': {'ready': False, 'error': blocked['error'],
+                                  'message': blocked['message'],
+                                  'research_status': plan.get('research_status', 'unknown')},
+        'next_action': {**action, 'params': {**action['params'], 'require_live_data': True}},
+    }
+
+
+def manual_plan_handoff(params, plan):
+    """Choose one next action for a live manual build, never attest a registration here."""
+    if not live_required(params):
+        return {}
+    scope_ready = (plan.get('target_scope') or {}).get('kind') not in (None, 'unspecified')
+    roles = plan.get('runtime_roles') or []
+    refs_ready = bool(roles) and all(role.get(f"{role['kind']}_id") and role.get('validation_receipt_file')
+                                     and role.get('contract_fingerprint') for role in roles)
+    # While collecting roles, say what to collect instead of telling the caller
+    # to finish research it cannot yet perform. Scope/research checks are the
+    # publisher's own and a completed plan still needs a verified route.
+    if scope_ready and not refs_ready:
+        return {'draft_ready': False, 'next_action': {'command': 'execution_plan',
+                'params': {'task_id': plan['task_id'], 'expected_revision': plan['revision'],
+                           'revision_reason': 'bind_live_role_references', 'require_live_data': True},
+                'instruction': '按本轮明确范围收集运行角色。已有授权时复用对应注册结果的 plan_role_reference 并补业务 role_id；多份候选按合同匹配，不猜测、不重复登记。'}}
+    handoff = live_build_handoff(params, plan)
+    if handoff:
+        action = handoff['next_action']
+        action.setdefault('instruction', handoff['publication_readiness']['message'])
+        if not scope_ready:
+            action['instruction'] = ('按本轮已明确的标的填写 target_scope；可同时提交对应已登记授权的 '
+                                     'plan_role_reference 加业务 role_id。不要重新询问已知标的、重新注册或先写 HTML。')
+        return handoff
+    return {'next_action': {'command': 'bind_runtime_route',
+            'params': {'task_id': plan['task_id'], 'page_id': plan['target_page_id'], 'plan_hash': plan['plan_hash']},
+            'instruction': '用当前计划绑定已登记资源。若需复用旧轮原收据，先 interpret 核验原页维护权限，再显式传 reuse_verified_registrations:true；不改收据、不重登记。仅在路由核验通过后构建页面。'}}
 
 
 def restore_version_number(params):

@@ -217,7 +217,7 @@ def cmd_register(params):
             body[k] = params[k]
     try:
         reg = RC.register("package", params, contract, endpoint, api_key,
-                          lambda: C.http_json("POST", C.api_url(endpoint, _PATH["register"]), C.headers(api_key), body, timeout=_DEFAULT_TIMEOUT), _credential_dir())
+                          RC.send_runtime_request(endpoint, api_key, _PATH["register"], body, timeout=_DEFAULT_TIMEOUT), _credential_dir())
         reg["_preflight"] = preflight
         return reg
     except EP.PlanError as exc:
@@ -564,7 +564,7 @@ def _manage(params, operation):
     if operation == "refresh": body["rotate_signature"] = bool(params.get("rotate_signature", False))
     try:
         result = RC.mutate("package", params, endpoint, api_key,
-                           lambda: C.http_json("POST", C.api_url(endpoint, _PATH[operation]), C.headers(api_key), body), _credential_dir(), operation)
+                           RC.send_runtime_request(endpoint, api_key, _PATH[operation], body), _credential_dir(), operation)
         if operation == "refresh" and params.get("rotate_signature") and result.get("code") == 0:
             result["warning"] = "签名已轮换，旧签名失效；需重建并验收所有引用该包的页面，未自动修改公开页面。"
         return result

@@ -88,6 +88,8 @@ def _patch_config(html, params, package_id, signature):
     unit = str(params.get("benchmark_unit") or "点").strip()
     primary_name = str(params.get("primary_name") or "收盘价").strip()
     endpoint = str(params.get("endpoint") or C.endpoint_of(C.load_config())).strip()
+    import managed_publication as MP
+    endpoint = MP.public_endpoint(params, endpoint)
     source = {
         "endpoint": endpoint,
         "package_id": package_id,

@@ -1,6 +1,6 @@
 # data_grant — 数据授权（把一次直取数请求钉死成签名凭证 → 页面免 key 取数）
 
-选股活页附公司信息使用 `kind:asset_info`：注册固定prompt/word_count/output_format，不传股票、不生成、不试跑QBS。先按 [公司信息接入](../guides/asset-info.md) 取得专属需求合同证明，再登记；页面通过官方SDK直连 skill_server 按当前股票加载，页头只提供身份凭证。它属于辅助内容能力，不对应QBS原生查询工具、不作为金融出数证据。
+选股活页附公司信息使用 `kind:asset_info`：注册固定prompt/word_count/output_format，不传股票、不生成、不试跑QBS。先按 [公司信息接入](../guides/asset-info.md) 取得专属需求合同证明，再登记；页面通过官方SDK直连 skill_server 按当前股票加载，普通更新无需登录，页头身份只用于强制刷新。它属于辅助内容能力，不对应QBS原生查询工具、不作为金融出数证据。
 
 `validate_grant_set` 对日频 CSV 下载并逐资产验证后才生成收据；`status:partial/failed` 不表示全部通过。注册失败时按返回的 recover_snapshot/materialize_snapshot 继续同页研究；未知注册不重复发送。历史快照不会自动更新，不能冒充实时授权。
 
@@ -223,7 +223,7 @@ kind为 `fast_query_minute_range_multi`，接入现有验证→注册→query→
 
 ## 美股及国内商品期权槽位合约授权
 
-本kind支持部分美股和国内商品品种的**具体合约映射**；股指的具体合约映射暂未开放。此限制不适用于 `国内期货期权-*` 槽位行情：其中包含沪深300（IF.CFE / IO）、上证50（IH.CFE / HO）、中证1000（IM.CFE / MO），使用QBS验证后的Formula Package接入，见 [股指期权页面](../guides/cn-index-options.md)。合约身份只读assignment，不是行情检查或完整期权链；两种通道的日期和覆盖分别验证，不能相互推导。
+本kind支持部分美股和国内商品品种的**具体合约映射**；股指及ETF期权的具体合约映射暂未开放。`国内期货期权-*` 日频槽位行情另含 IF.CFE、IH.CFE、IM.CFE 三个股指及 SH510500、SH588000、SZ159915 三个ETF标的，使用QBS验证后的Formula Package接入，见 [国内股指及ETF期权页面](../guides/cn-index-options.md)。合约身份只读assignment，不是行情检查或完整期权链；两种通道的日期和覆盖分别验证，不能相互推导。
 QBS使用query_option_contracts验证，QBV通过qbs_bridge.py validate_grant_set获取收据，再原样注册；无需公式包。
 国内依赖配套skill_server及新增dataServer任务，不能仅凭Skill更新宣称接口上线。
 

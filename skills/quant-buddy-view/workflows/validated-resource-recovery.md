@@ -16,9 +16,11 @@
 
 工具检查任务/轮次、收据哈希、登记凭据有效性、完整合同及必需输出，然后返回 `route_receipt_file`。单资产、多资产、全市场均使用同一入口；市场不要求 asset。仅组合已有证据，不计算、不登记新包。
 
+当前轮明确要求实时，但执行计划仍缺研究完成证据、结果角色或覆盖证据时，绑定仍返回 `code:0` 和路由收据，同时返回 `draft_ready:false`、`publication_readiness` 和 `next_action`。不要开始写 HTML 或尝试发布。先复用本轮 QBS 已验证的数据或研究审计，对照用户要求核对标的、字段、行数/范围和实际观察日期；证据完整后用 `execution_plan` 的当前修订号提交 `complete/result` 和适用的研究合同、核验结果。按 `resume_action` 用新 `plan_hash` 重新绑定同一批已登记资源；旧收据保留，不重复登记。不能完成核验时交付可读的已验证结果和限制，不将授权成功或静态页算作实时完成。
+
 已有页追问在当前轮次 `interpret` 确认同页 owner/page_admin 原位权限后，可显式传 `reuse_verified_registrations:true`，复用同任务此前轮次的原始注册验证证据。原验证文件不改写，注册身份、有效期、合同指纹和收据哈希仍完整校验；生成的路由绑定当前轮次及目标页，发布仍执行权限、版本和浏览器门禁。
 
-Compose 草稿的 `draft_ready=false` 表示已保存但不能构建。`COMPOSE_ROUTE_REQUIRED` 保持兼容，通过结构化 reasons 区分缺路由、收据集合、合同、身份和凭据错误；执行返回的 bind 下一步，不能原样重试 Compose。唯一匹配路由复用；歧义需明确选择。
+Compose 草稿的 `draft_ready=false` 表示已保存但不能构建。已有路由但缺实时研究证据时，`draft_params_file` 仅保存草稿，按 `next_action` 核验研究，不将该文件提交构建。`COMPOSE_ROUTE_REQUIRED` 保持兼容，通过结构化 reasons 区分缺路由、收据集合、合同、身份和凭据错误；执行返回的 bind 下一步，不能原样重试 Compose。唯一匹配路由复用；歧义需明确选择。
 
 ## 快照与实时要求
 

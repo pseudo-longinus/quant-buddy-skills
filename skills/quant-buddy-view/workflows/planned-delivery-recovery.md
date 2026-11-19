@@ -19,7 +19,9 @@ python scripts/static_page.py execution_plan '{"task_id":"task_xxx","view":true}
 python scripts/static_page.py execution_plan @plan-revision.json
 ```
 
-修订输入必须包含 `expected_revision + revision_reason`，按需提供 `target_scope` 与 `runtime_roles`。task/page/source身份不能改变；初始化路由计划可在首次准备时补全，已准备的计划变化必须显式修订。旧plan_hash的候选和发布参数失效。每次成功修订返回新的next_action.params_file；旧稿保留，研究文字自动迁移，不编辑内部收据或手工修补旧hash。
+修订输入必须包含 `expected_revision + revision_reason`，按需提供 `target_scope` 与 `runtime_roles`。task/page/source身份不能改变；初始化路由计划可在首次准备时补全，已准备的计划变化必须显式修订。旧plan_hash的候选和发布参数失效。Compose 有可用草稿时返回新的 `next_action.params_file`；旧稿保留，研究文字自动迁移，不编辑内部收据或手工修补旧 hash。
+
+本轮要求实时且手写页面的运行角色已全部填写注册 ID、合同指纹和验证收据引用时，`execution_plan` 会提前提示研究证据缺项，不依赖先绑定路由。若返回 `draft_ready:false` 和 `publication_readiness`，`code:0` 只表示计划已保存，先按 `next_action` 核验并修订，不开始构建；无此提示也不等于取数或发布已验收。只读 `view` 不变。无模板实时页从 `new_page` 就返回 `execution_plan`：范围未定先填 `target_scope`，有原授权就从注册结果取 `plan_role_reference` 加 `role_id` 填入 `runtime_roles`，不要传签名或把登记回执当作取数验证收据。证据未齐仍可收集；研究核验完毕，按 `next_action` 绑定原授权后才进入手写构建。
 
 本轮明确要求实时而旧计划未记录该要求时，发布返回 `CURRENT_LIVE_PLAN_REQUIRED`，先修订计划并绑定当前研究需要的数据角色。集合范围必须是 `basket/sector/market` 等明确范围；`market/sector` 或未列成员的 `basket` 还要有当前研究合同及 `selection_output`。把 `selection_output` 写进某个 `runtime_roles[*].required_outputs`，并绑定动态 package/handoff 角色；普通行情 Grant 不能覆盖名单或派生指标重算。合同还必须带同一范围的完整覆盖、逐行数量和实际观察日期。少量观察股价格自动刷新不能代替用户要求的全市场名单或计算指标自动更新；核心角色未覆盖时保留原页和未完成状态，不把混合页说成实时任务已完成。已验收页面的宿主收尾会按封存合同校验实际最终答复，缺失必填章节或最终链接格式时仍不能标记交付成功。
 
@@ -32,6 +34,11 @@ python scripts/static_page.py execution_plan @plan-revision.json
 ## 进度不是交付
 
 金融快照使用当前任务的真实验证收据，经 `materialize_snapshot` 物化并绑定 `snapshot_roles` 后以 `verified_snapshot` 发布；纯静态内容模式不能替代金融数据证据。按本轮范围选择回复模板，不把单字段快照扩成完整个股研究。
+
+跨轮或跨计划复验旧写入时，`verify_published` 用本轮宿主身份访问，依据旧版本的内容哈希和公开证据核对；
+`CURRENT_PUBLICATION_REQUIRED` 的 `historical_verification` 只描述旧版本，不是本轮成功回执。按 `next_action` 读取原页，
+继续本轮的数据绑定与同页更新；不重复注册、不修改旧收据、不用旧版验收完成本轮请求。`PUBLIC_RECHECK_STALE`
+表示复验期间已有更新，先重新读取交付状态，不用旧响应覆盖它。
 
 `verify_published`、`delivery_status` 和恢复流程对已验收页面返回回复校验的 `next_action`：读取封存合同及模板，填写返回参数中的 `draft_file`，执行 `python scripts/validate_agent_reply.py @参数文件`。只有 `valid=true` 才按原文交付；缺数据证据时补原合同证据，不清空合同、不覆盖已发布页。重复核验或恢复不能替代回复校验。
 
@@ -149,6 +156,8 @@ materialize返回snapshot_receipt_file及snapshot_receipt_sha256。把这两项�
 1. `validate_grant_set` 的 `success/required_roles_complete` 表示全部合同是否通过；`status:partial` 保留成功项但不代表完整研究可发布。按 failed_grants 修正并只重验失败合同，零成功不注册。不用最新单值代替完整历史，不把缺失数据补零。
 2. `SOURCE_CREDENTIAL_UNPAIRED/RESEARCH_DIGEST_EMPTY`：按 next_action 对同来源仅提取 layout/style，继续 fork_compose。只借布局不继承数据凭证，保持原 page_id 和来源。
 3. `REGISTRATION_REJECTED` 保留明确拒绝码；`REGISTRATION_OUTCOME_UNKNOWN` 不重发注册。两者不意味着研究数据作废。执行返回的 recover_snapshot；单独注册工具返回 materialize_snapshot 时，物化后继续同页恢复。
+
+宿主授权身份失败时，`AUTH_CONTEXT_UNAVAILABLE` 表示当前认证连接/服务未就绪，`ACCOUNT_OR_ENV_MISMATCH` 表示账号、环境或任务校验不符，`LEGACY_PROOF_REQUIRED` 表示旧任务缺少确切归属证据。服务端能够核验的旧授权由工具按需恢复，无需模型另改参数重试。其余情况按 `preserve_verified_result` 保留已验结果、已有页面与可用授权，说明哪一项不能自动更新；不猜端点或凭证，不换 task_id，不把快照当 LIVE。
 
 明确实时要求时，不走静态降级。注册返回 `unresolved_data_names` 表示新执行环境找不到所引用的数据序列；从原 QBS 计算及验证记录取回全部上游公式，保留字面和依赖顺序，补齐同一包的完整合同后重新验证，再用新收据注册。当前会话能读到命名序列，不证明独立公式包能重算；不能只带最后几条排序公式或删除失败产出来通过。
 

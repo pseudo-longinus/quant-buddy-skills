@@ -102,8 +102,21 @@ def bind(params):
         EP.atomic_json(path, route)
     elif json.loads(path.read_text(encoding='utf-8')) != route:
         raise EP.PlanError('ROUTE_RECEIPT_CHANGED', '已保存路由发生变化')
-    return {'code': 0, 'route_receipt_file': str(path), 'turn_id': turn, 'task_id': task,
-            'live_data_mode': 'live', **({'asset': route['asset']} if route.get('asset') else {}),
-            'selected_routes': selected, 'reused_registrations': len(roles),
-            'next_action': {'command': 'compose_page' if plan['build_mode'] == 'compose_page' else 'write_bespoke_html' if plan['build_mode'] == 'unmatched' else 'fork_review_update',
-                            'instruction': '沿用草稿并传入返回的route_receipt_file、turn_id、live_data_mode及asset（如有）'}}
+    result = {'code': 0, 'route_receipt_file': str(path), 'turn_id': turn, 'task_id': task,
+              'live_data_mode': 'live', **({'asset': route['asset']} if route.get('asset') else {}),
+              'selected_routes': selected, 'reused_registrations': len(roles)}
+    # A route proves registrations and their contracts, not current research
+    # completeness. Keep the receipt reusable, but share the real publisher's
+    # readiness check before telling the caller to spend time building HTML.
+    from delivery_requirements import live_build_handoff
+    handoff = live_build_handoff(params, plan)
+    if handoff:
+        return {**result, **handoff, 'resume_action': {
+            'command': 'bind_runtime_route',
+            'params': {'task_id': task, 'turn_id': turn, 'page_id': route['page_id'],
+                       **({'reuse_verified_registrations': True} if reuse_registered else {})},
+            'instruction': '证据齐备并正常修订计划后，用新 plan_hash 重新绑定适用的已登记授权。不要重复登记、手改收据或先写 HTML。',
+        }}
+    result['next_action'] = {'command': 'compose_page' if plan['build_mode'] == 'compose_page' else 'write_bespoke_html' if plan['build_mode'] == 'unmatched' else 'fork_review_update',
+                             'instruction': '沿用草稿并传入返回的route_receipt_file、turn_id、live_data_mode及asset（如有）'}
+    return result

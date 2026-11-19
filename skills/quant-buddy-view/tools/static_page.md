@@ -909,6 +909,8 @@ python scripts/static_page.py unpublish_community '{"page_id":"page_xxx"}'
 
 `fork_compose` 和非只读 `execution_plan` 成功修订返回 `next_action.params_file`、`plan_hash`、`draft_ready`、`draft_diagnostics`。草稿在会话可写目录，旧稿不覆盖；可信收据仍在内部任务存储。`draft_ready` 只表示绑定与证据准备情况，不代表研究文字已填完或页面已发布。
 
+无模板实时 `new_page` 的 `next_step` 与 `next_action` 表达同一动作；`code:0` 代表占位页已创建，不是可以开写。`execution_plan` 按当前缺项返回修订或 `bind_runtime_route`。手写实时页面的计划写入也可能返回 `draft_ready:false`、`publication_readiness` 和指向 `execution_plan` 的 `next_action`，但不创建 Compose 文件。保留已保存的计划，先核验缺项，证据齐备后用当前 `expected_revision` 修订；不重复注册或重建目标页。
+
 执行计划角色可带 `compose_module`，面板可带 `runtime_role_id`，引用会解析到已注册ID；显式ID不一致、文本冒充数据、额外凭据或遗漏角色会返回完整问题清单及修正草稿。`route_receipt_file` 可在计划修订/构建时显式提供，缺省仅自动匹配唯一的本任务完整路由。
 
 `compose_page` 返回 `publication_ready:false` 时不得发布；根据诊断补齐既有路由/证据或迁移内容后重新构建，不重查已验证数据或重注册。只有预检通过才给出 publish_verified 下一步。
