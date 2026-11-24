@@ -5,6 +5,10 @@
 
 ---
 
+## [4.25.73] — 2026-11-24
+
+- 对齐千维计算平台新语义指标目录（同步 `presets/dimensions.yaml` 及 24 项新 `screen` 指标标识），改为本地目录优先检索、命中直调 `selectByComposition`，并同步更新工具与工作流文档及契约测试。
+
 ## [4.25.72] — 2026-11-23
 
 - 新增 `fast_query_option_minute` 工具，支持国内商品、股指及 ETF 期权槽位 1 分钟行情与自算 `self_iv`/`self_delta` 查询（含夜盘时段及可选 `include_contracts` 换约信息）。

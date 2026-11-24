@@ -3,7 +3,7 @@ name: quant-buddy-skill
 slug: quant-buddy-skill
 displayName: QuantBuddy 宽宝量化技能
 author: guanzhao
-version: 4.25.72
+version: 4.25.73
 description: |
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据；支持查询 A 股股票所属行业。
   显式日期的单值快照可同时返回按实际更新日对齐的日频行情与估值；字段日期不同时按字段自身日期展示，不将较晚刷新字段误判为无数据。
@@ -22,7 +22,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.25.72
+  version: 4.25.73
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -354,10 +354,9 @@ SKILL_ROOT/
 │   │   ├── index.yaml               指数 534 条
 │   │   └── future.yaml              期货 237 条
 │   ├── functions.yaml           常用函数（171 条）
+│   ├── dimensions.yaml          千维业务维度与指标本地目录（按需检索，命中可直接调用；未命中或异常时再调 listDimensionIndicators 在线确认）
 │   ├── data_catalog.yaml        常用精选数据集（高频 index_title）
 │   ├── index_info_catalog/      系统支持数据名全量索引（2779 条，按业务分类分 YAML，grep 检索）
-│   ├── dimensions.yaml          已物化指标候选的本地快照，用于 selectByComposition 的常见快速映射
-│   │                            ⚠️ 细分指标、快照未命中项和实时可选状态，用 `listDimensionIndicators` 在线确认；公式口径用 `getIndicatorFormulas`
 │   ├── sectors.yaml             行业板块（742 条，10 个分类）
 │   └── themes.yaml              题材板块
 │
@@ -437,7 +436,7 @@ SKILL_ROOT/
 | K线图片（明确只要PNG/图片） | 用户明确不要网页、只要图片 artifact | `global-rules.md` → `render-kline.md`；此时才允许 `renderKLine` |
 | 固定区间累计涨跌幅 | 从A到B、某年某月至某年某月、区间收益、累计涨跌幅、区间表现、多资产区间对比 | `global-rules-lite.md` → `period-return-compare.md` |
 | 数据下载 / 导出本地 CSV | 下载成CSV、导出到本地、保存到本地、下载历史数据 | `global-rules.md` → `recipes/download-data.md`；单资产单字段时序优先 `runMultiFormulaBatchStream` → `downloadData` → `write_skill_file`，禁止 Bash 兜底 |
-| 已物化指标选股 / 维度分或细分指标 TopN / 推荐股票 | 分数最高、综合分最高、维度分，或由已物化细分 score/screen 指标组成的推荐/选出/筛选 TopN | `global-rules.md` → `composition-select.md`（`newSession` → 本地快照匹配或在线目录确认 → `selectByComposition`） |
+| 已物化指标选股 / 维度分或细分指标 TopN / 推荐股票 | 分数最高、综合分最高、维度分，或由已物化细分 score/screen 指标组成的推荐/选出/筛选 TopN | `global-rules.md` → `composition-select.md`（`newSession` → 检索 `presets/dimensions.yaml` 命中直调，未命中再调 `listDimensionIndicators` → `selectByComposition`） |
 | 高频稳定因子榜单：低 PE + 高 ROE TopN | 同时出现低PE/低市盈率、高ROE/高净资产收益率、选股/筛选/排名、TopN/前N；即使没说图表或活页 | `global-rules.md` → `quant-standard.md` 的“高频默认口径”；验证 TopN 后必须实际 route，`create` 时用三个已物化 `data_id` 一次 `prepare-validated-page`，QBS 先答、QBV 同轮完成后补链接；明确不要网页则 `none`，只要表格且无其他建页意图也保持 `none` |
 | 维度指标库查询 / 指标口径与公式 | 平台有哪些维度、XX 维度下有哪些指标、XX 指标怎么算的/口径是什么/公式是什么、想按现成指标改口径 | `tools/dimension_indicators.md`（用 `scripts/call.py` 调 `listDimensionIndicators` → `getIndicatorFormulas`，非平台原生工具；要拿改过的公式跑数再转 `quant-standard.md`） |
 | 量化选股 / 回测 / 因子 / 图表 / 上传下载 | 选股、回测、均线、PE选股、因子、净值、上传CSV、下载数据、画图、多个指标放进同一张图…；或目录无匹配维度、需要临时构造指标/历史曲线/自定义公式 | `global-rules.md` → `quant-standard.md`；执行回测、监控、画线或任何图表 artifact 在首答前必须实际运行 `live_page_routing.py route`，命中 `create` 后非阻塞交接 QBV |
@@ -580,22 +579,18 @@ SKILL_ROOT/
 
 除了「数据集」（`全市场每日收盘价` 这类原始字段），平台还维护一套**已经算好的指标库**，是另一套东西，别混：
 
-```
-维度 dimension ──包含──▶ 指标 indicator ──定义于──▶ 公式组 formulas
-17 个（趋势结构、动量与反转、        163 个                每个指标一组，
-资金流向、盈利能力、异动监控…）                          依赖在前、目标在最后
-```
+维度（分组）→ 指标（细分/综合，score/screen）→ 完整公式链。数量与实际名称以目录为准。
 
 - **维度**只是分组容器，不带权重、本身不可计算。
-- **指标**分两类：`细分` = 单一口径基础指标（如「20日高点接近突破」）；`综合` = 该维度的**维度分**，由维度内细分指标聚合而成（如「A股动量与反转」）。另有正交的 `output_type`：`score` 连续分 / `screen` 0-1 布尔。
+- **指标**分两类：`细分` = 单一口径基础指标（如「A股_20日高点接近突破得分」）；`综合` = 该维度的**维度分**，由维度内细分指标聚合而成（如「A股_动量与反转维度分」）。另有正交的 `output_type`：`score` 连续分 / `screen` 0-1 布尔。
 - `selectByComposition` 不以 `细分` / `综合` 作为准入条件：两个分类均可用，但必须已物化、当前可选、支持目标市场且具有已知快照日期。不同有效快照允许组合，结果必须按 `date_alignment` 披露；请求位置由 `output_type` 决定：score 用于排名/阈值，screen 用于交集筛选。
-- 指标有两个名字：`name`（`20日高点接近突破`，目录里的短名）和 `index_title`（`通用_20日高点接近突破得分`，公式里的变量名），**两者从不相同**；再加稳定键 `indicator_id`，取公式时三种都能用。
+- 新目录的 `indicator_id` 是完整语义名称（如 `A股_20日高点接近突破得分`），与 `index_title` 一致；`name` 为上游展示别名。原样用于查公式和选股，不要自行拼接名称或传平台数字 ID。优先按需检索本地 `presets/dimensions.yaml`，命中且市场/角色明确时可直接调用；仅在本地未命中、需查最新增量/实时状态或调用报 `INDICATOR_NOT_FOUND` 时再调 `listDimensionIndicators` 在线确认。skill_server 随用随取上游信息，不读取此本地文件。
 
 走哪条路：
 
 | 用户要什么 | 走哪 |
 |---|---|
-| 已物化指标 TopN / 筛选（「A股动量与反转最高的10只」「短期高低点抬升且 RSI 强而不过热」） | `composition-select.md` → 本地快照映射常见指标；细分或未命中项在线确认 `output_type`、`selection_ready`、`as_of` 后 → `selectByComposition` |
+| 已物化指标 TopN / 筛选（「A股动量与反转最高的10只」「短期高低点抬升且 RSI 强而不过热」） | `composition-select.md` → 优先查本地 `presets/dimensions.yaml` 拿 `indicator_id`/`output_type` 直调 `selectByComposition`（未命中或报错再查 `listDimensionIndicators` 核对 `selection_ready`、`as_of`） |
 | 有哪些维度/指标、某指标口径与公式、想按现成指标改口径 | `tools/dimension_indicators.md` → 用 `scripts/call.py` 调 `listDimensionIndicators` / `getIndicatorFormulas`（在线全量，细分+综合都有；非平台原生工具） |
 | 指标的历史数值序列 | 本组工具只给**定义**不给数据；数值走 `runMultiFormulaBatchStream` |
 

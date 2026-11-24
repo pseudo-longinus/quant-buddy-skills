@@ -5,6 +5,10 @@
 
 ---
 
+## [0.8.26] — 2026-11-24
+
+- 同步 `tools/data_grant.md` 中 `composition_select` 的 `indicator_id` 说明与示例为千维计算平台新语义指标名称。
+
 ## [0.8.25] — 2026-11-23
 
 - 建立端到端统一的「授权降级交付合同」（`degraded_live_fallback`）：在合法受阻并按 `is_authorized_recovery_fallback` 降级为 `verified_snapshot` / `researched_static` 交付时，于 `delivery_state`、`publication_receipt` 与 `export_delivery` 显式持久化并透传 `degraded_live_fallback: True`，同时继续严格拦截未授权裸静态交付。

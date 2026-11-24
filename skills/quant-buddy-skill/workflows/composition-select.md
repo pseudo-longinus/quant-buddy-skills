@@ -14,7 +14,7 @@
 
 不能满足任一条件时，退回 `quant-standard.md`。
 
-> `presets/dimensions.yaml` 是本地候选快照，不是服务端可选状态的权威来源。它适合零网络开销的常见指标映射；细分指标、本地未命中的指标，或快照失效后的替代候选，必须通过 `listDimensionIndicators` 在线确认后才能调用选择器。
+> 优先按维度、市场或关键词检索本地 `presets/dimensions.yaml`：命中且市场、`output_type` 明确时，可直接拿其中的 `indicator_id`（完整语义名称，如 `A股_趋势结构维度分`；也支持上游别名）调用 `selectByComposition`，不必先多跑一次在线目录。仅在本地未命中、需查最新增量/实时状态或选择器返回可选性/未找到错误时，再通过 `listDimensionIndicators` 在线确认。skill_server 直接读取上游平台，不读取本地 `dimensions.yaml`。
 
 ## 2. 指标可选性与角色
 
@@ -32,8 +32,8 @@
 ## 3. 执行步骤
 
 1. 调 `newSession`。
-2. 先从 `presets/dimensions.yaml` 解析明确的常见候选；禁止凭名称自造 `indicator_id`。
-3. 出现以下任一情形时，使用 `listDimensionIndicators` 做窄查询：用户指定细分指标、本地快照无匹配项、或上次选择器返回可选性错误。
+2. 优先从本地 `presets/dimensions.yaml` 检索匹配的 `indicator_id`（完整语义名称，如 `A股_动量与反转维度分`，禁止凭名称自造或传平台数字 ID）；命中且市场、`output_type` 明确时可直接进入下一步。
+3. 出现以下任一情形时，使用 `listDimensionIndicators` 做窄查询：本地目录无匹配项、需查最新新增指标/实时状态、或上次选择器返回未找到/可选性错误。
    - 按实际需要组合 `asset_scope`、`keyword`、`output_type` 和 `indicator_type`；`indicator_type` 仅用于缩小检索范围。
    - 读取候选的 `output_type`、`selection_ready`、`selection_mode`、`as_of`、`asset_scope` 和异常 `status` 字段。
    - 在线目录用于预检；`selectByComposition` 才是启用、删除、物化和快照日期有效性的最终权威。
@@ -55,13 +55,14 @@
 
 | 用户说法 | indicator_id | `output_type` |
 |---|---|---|
-| A股动量与反转 / 动量反转分数 | `ind_a_share_momentum_reversal` | score |
-| A股趋势结构 | `ind_a_share_trend_structure` | score |
-| A股相对强度 | `ind_a_share_relative_strength` | score |
-| A股当日交易异动 / 异动名单 | `ind_a_share_daily_trading_abnormal` | screen |
-| A股当日异动评分 | `ind_a_share_daily_abnormal_score` | score |
+| A股动量与反转 / 动量反转分数 | `A股_动量与反转维度分` | score |
+| A股趋势结构 | `A股_趋势结构维度分` | score |
+| A股相对强度 | `A股_相对强度维度分` | score |
+| A股当日交易异动 / 异动名单 | `A股_当日交易异动` | screen |
+| A股当日异动评分 | `A股_当日异动评分` | score |
+| A股龙虎榜上榜事件 | `A股_龙虎榜上榜标识` | screen |
 
-本表仅为常见映射；以本地快照或在线目录实际返回的 `indicator_id` 与 `output_type` 为准。
+本表仅为常见映射；以本地 `presets/dimensions.yaml` 或在线目录实际返回的 `indicator_id` 与 `output_type` 为准。
 
 ## 5. 输出格式
 

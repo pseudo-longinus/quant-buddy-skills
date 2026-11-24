@@ -26,8 +26,8 @@
 ## 必要前置
 
 1. 先调用 `newSession`。
-2. 本地 `presets/dimensions.yaml` 可用于快速发现已知候选；它不是实时可选性的证明，不能据此自造 ID。
-3. 细分指标、本地未命中项或可选性错误时，使用 `listDimensionIndicators` 在线确认候选的 `indicator_id`、`output_type`、`selection_ready`、`selection_mode`、`as_of` 和 `asset_scope`。
+2. 优先检索本地 `presets/dimensions.yaml`：命中且市场、`output_type` 明确时，可直接拿其中的 `indicator_id`（完整语义名称，也支持上游明确别名；不要自造名称或传平台数字 ID）调用 `selectByComposition`。
+3. 仅在本地目录未命中、需查最新增量/实时状态或调用返回未找到/可选性错误时，使用 `listDimensionIndicators` 在线确认候选的 `indicator_id`、`output_type`、`selection_ready`、`selection_mode`、`as_of` 和 `asset_scope`。skill_server 只读取上游信息，不读取 `dimensions.yaml`。
 4. 按 `output_type` 组织请求：
    - `score`：放入 score 模式的 `composition` 或 `score_filters`；在 screen 模式中仅能作为 `sort_by`；
    - `screen`：放入 `screens`。
@@ -41,14 +41,14 @@
   "mode": "score",
   "universe": { "asset_scope": "A股" },
   "composition": [
-    { "indicator_id": "ind_a_share_momentum_reversal", "weight": 1 }
+    { "indicator_id": "A股_动量与反转维度分", "weight": 1 }
   ],
   "screens": [
     { "indicator_id": "<screen-indicator-id>" }
   ],
   "score_filters": [
     {
-      "indicator_id": "ind_a_share_relative_strength",
+      "indicator_id": "A股_相对强度维度分",
       "op": ">=",
       "value": 0.8
     }
@@ -68,10 +68,10 @@
   "mode": "screen",
   "universe": { "asset_scope": "A股" },
   "screens": [
-    { "indicator_id": "ind_a_share_daily_trading_abnormal" }
+    { "indicator_id": "A股_龙虎榜上榜标识" }
   ],
   "sort_by": {
-    "indicator_id": "ind_a_share_trend_structure",
+    "indicator_id": "A股_趋势结构维度分",
     "order": "desc"
   },
   "top_n": 10,
@@ -99,25 +99,25 @@
 ### A股动量与反转 Top10
 
 ```powershell
-$env:GZQ_PARAMS='{"mode":"score","universe":{"asset_scope":"A股"},"composition":[{"indicator_id":"ind_a_share_momentum_reversal","weight":1}],"top_n":10,"with_breakdown":true,"task_id":"<task_id>","user_query":"A股中选出动量与反转分数最高的10个股票"}'
+$env:GZQ_PARAMS='{"mode":"score","universe":{"asset_scope":"A股"},"composition":[{"indicator_id":"A股_动量与反转维度分","weight":1}],"top_n":10,"with_breakdown":true,"task_id":"<task_id>","user_query":"A股中选出动量与反转分数最高的10个股票"}'
 python scripts/call.py selectByComposition
 ```
 
-### 短期高低点抬升且 RSI 强而不过热的 A 股 Top10
+### 龙虎榜上榜且 RSI 强而不过热的 A 股 Top10
 
 ```json
 {
   "mode": "score",
   "universe": { "asset_scope": "A股" },
   "composition": [
-    { "indicator_id": "ind_a_share_rsi_strong_not_overheated", "weight": 1 }
+    { "indicator_id": "A股_RSI强而不过热得分", "weight": 1 }
   ],
   "screens": [
-    { "indicator_id": "ind_a_share_short_term_high_low_lift" }
+    { "indicator_id": "A股_龙虎榜上榜标识" }
   ],
   "score_filters": [
     {
-      "indicator_id": "ind_a_share_rsi_strong_not_overheated",
+      "indicator_id": "A股_RSI强而不过热得分",
       "op": ">",
       "value": 0
     }
@@ -126,7 +126,7 @@ python scripts/call.py selectByComposition
 }
 ```
 
-该请求使用细分 screen 指标限制“短期高低点抬升”，以细分 score 指标筛掉 RSI 非正样本并完成排序；提交前仍需用在线目录确认两项指标处于可选、具有已知快照日期的物化状态。
+该请求使用细分 screen 指标限制事件集合，以细分 score 指标筛掉 RSI 非正样本并完成排序；本地目录已命中且角色明确时可直接调用，若返回未找到或角色不匹配再用在线目录核对。
 
 ## 输出要点
 

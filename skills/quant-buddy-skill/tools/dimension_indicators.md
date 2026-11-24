@@ -33,24 +33,24 @@
 
 还有一个正交的属性 `output_type`：`score`（连续分，可加权排序）/ `screen`（0-1 布尔，可取集合）。`selectByComposition` 的请求位置由 `output_type` 决定，而不是由 `indicator_type` 决定。
 
-**指标有两个名字，都能用来查**（这是最容易卡住的地方）：
+**新目录对外使用语义名称**：
 
 | 字段 | 例子 | 谁在用 |
 |---|---|---|
-| `name` | `A股_20日高点接近突破` | 当前在线指标目录返回的完整名称；`listDimensionIndicators` 返回的就是它 |
+| `indicator_id` | `A股_20日高点接近突破得分` | 完整语义标识（与 `index_title` 一致）；`selectByComposition` 和 `getIndicatorFormulas` 直接使用 |
+| `name` | `A股_20日高点接近突破` | 上游展示别名，也可直接用于查公式和选股 |
 | `index_title` | `A股_20日高点接近突破得分` | 公式里的变量名，也是这组公式最后一行的左侧；由 `getIndicatorFormulas` 返回 |
-| `indicator_id` | `ind_a_share_20d_high_breakout_proximity` | 稳定语义键；`selectByComposition` 和 `getIndicatorFormulas` 都可使用 |
 
-三种写法 `getIndicatorFormulas` 都认，返回完全一致。**当前在线目录中的名称按市场带前缀**，不要把 `A股_` 去掉后再调用；`20日高点接近突破` 会同时命中 A 股、港股、美股、期货并返回 `INDICATOR_AMBIGUOUS`。跨市场指标优先使用 `indicator_id`。
+两种语义名称 `getIndicatorFormulas` 和 `selectByComposition` 都认，不要传平台数字 ID（如 `id_123` 或公式组数字 ID），也不要自行去掉市场前缀。
 
 ### 和 `presets/dimensions.yaml` 的关系
 
-`presets/dimensions.yaml` 是本地候选快照，适合零网络开销地映射常见指标 ID；它不是服务端当前可选状态的证明，也不是 `selectByComposition` 的唯一指标来源。
+`presets/dimensions.yaml` 保留在 Skill 中，收录了千维业务维度与指标的完整语义标识、别名、类型和说明。按需检索命中且市场、`output_type` 明确时，**可直接拿 `indicator_id` 调用 `getIndicatorFormulas` 或 `selectByComposition`**，不必先多查一次在线目录；skill_server 不读取该文件。
 
 `listDimensionIndicators` 是**在线全量目录，细分 + 综合都有**。两者分工如下：
 
-- 本地快照命中明确的常见指标 → 可直接按 `composition-select.md` 的角色规则调用选择器；
-- 用户指定细分指标、本地未命中，或需要确认物化/日期状态 → 用 `listDimensionIndicators` 窄查询，核对 `output_type`、`selection_ready`、`selection_mode`、`as_of` 与市场范围后再调用选择器；
+- 本地 `presets/dimensions.yaml` 命中明确指标 → 直接调用查公式或选股；
+- 本地未收录、需看当前平台最新增量/实时 `selection_ready`/`as_of`，或直调报 `INDICATOR_NOT_FOUND`/`INDICATOR_AMBIGUOUS` → 调 `listDimensionIndicators` 窄查询确认；
 - 想知道指标口径、需要修改公式或构造自定义指标 → 用本组工具取得公式后走公式链路。
 
 ---
@@ -119,19 +119,19 @@ python scripts/call.py listDimensionIndicators '{"keyword": "突破"}'
       "description": "价格是否已经进入可交易的强趋势结构，而不是震荡或假突破？",
       "indicator_count": 43,
       "indicators": [{
-        "indicator_id": "ind_a_share_20d_high_breakout_proximity",
+        "indicator_id": "A股_20日高点接近突破得分",
         "name": "A股_20日高点接近突破",
         "output_type": "score",
         "selection_ready": true,
         "selection_mode": "score",
-        "as_of": 20261015,
+        "as_of": 20261123,
         "description": "高分表示接近或突破短期高点",
         "asset_scope": ["A股"],
-        "last_date": 20261015
+        "last_date": 20261123
       }]
     }],
     "total_dimensions": 18,
-    "total_indicators": 323,
+    "total_indicators": 325,
     "filters_applied": {}
   }
 }
@@ -178,17 +178,14 @@ python scripts/call.py listDimensionIndicators '{"keyword": "突破"}'
 ### 调用
 
 ```bash
-# 推荐：使用 dimensions.yaml / listDimensionIndicators 返回的稳定 ID
-python scripts/call.py getIndicatorFormulas '{"indicators": ["ind_a_share_20d_high_breakout_proximity"]}'
-
-# 也可以使用当前目录返回的完整 name
-python scripts/call.py getIndicatorFormulas '{"indicators": ["A股_20日高点接近突破"]}'
-
-# 或使用 API 返回的完整 index_title
+# 推荐：使用本地 dimensions.yaml 或 listDimensionIndicators 中的完整语义名称
 python scripts/call.py getIndicatorFormulas '{"indicators": ["A股_20日高点接近突破得分"]}'
 
+# 也可以使用上游明确别名（name）
+python scripts/call.py getIndicatorFormulas '{"indicators": ["A股_20日高点接近突破"]}'
+
 # 一次取多个（≤10）
-python scripts/call.py getIndicatorFormulas '{"indicators": ["ind_a_share_20d_high_breakout_proximity", "ind_a_share_pe_valuation_attractiveness"]}'
+python scripts/call.py getIndicatorFormulas '{"indicators": ["A股_20日高点接近突破得分", "A股_PE估值吸引力得分"]}'
 ```
 
 ### 参数
@@ -207,7 +204,7 @@ python scripts/call.py getIndicatorFormulas '{"indicators": ["ind_a_share_20d_hi
     "indicators": [{
       "query": "A股_20日高点接近突破",
       "matched_by": "name",
-      "indicator_id": "ind_a_share_20d_high_breakout_proximity",
+      "indicator_id": "A股_20日高点接近突破得分",
       "name": "A股_20日高点接近突破",
       "index_title": "A股_20日高点接近突破得分",
       "dimension_name": "趋势结构",
@@ -266,15 +263,15 @@ python scripts/call.py getIndicatorFormulas '{"indicators": ["ind_a_share_20d_hi
 
 ```bash
 python scripts/call.py listDimensionIndicators '{"dimension": "趋势结构", "compact": true}'
-python scripts/call.py getIndicatorFormulas '{"indicators": ["ind_a_share_20d_high_breakout_proximity"]}'
+python scripts/call.py getIndicatorFormulas '{"indicators": ["A股_20日高点接近突破得分"]}'
 ```
 直接把 `calculation`（人话口径）+ `formulas`（公式）讲给用户。
 
 **「按 A股_20日高点接近突破的口径，但改成 30 日，选出 A 股 Top20」**
 
 ```bash
-# 1. 取现成公式作骨架（优先使用稳定 ID）
-python scripts/call.py getIndicatorFormulas '{"indicators": ["ind_a_share_20d_high_breakout_proximity"]}'
+# 1. 取现成公式作骨架（使用完整语义名称）
+python scripts/call.py getIndicatorFormulas '{"indicators": ["A股_20日高点接近突破得分"]}'
 # 2. 把 20 改成 30、变量名改掉，走 quant-standard.md 的公式路径执行
 # 3. runMultiFormulaBatchStream → readData
 ```

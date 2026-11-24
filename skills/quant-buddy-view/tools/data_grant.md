@@ -24,7 +24,7 @@
 | `fast_query_minute_range_multi` | fastQueryMinuteRangeMulti | assets/asset/market三选一；absolute/rolling/current_trade_day及每日分钟窗口；无tickers/fields/format | JSON columns/data或CSV url；内核归一为含ticker的长表，见「多资产分钟授权」 |
 | `fast_query_minute` | fastQueryMinute | `{ asset, fields }`，单资产，字段限 OHLCVA；无历史/区间参数 | 共享 `dates` + 列式 `fields` 分钟数据 |
 | `stock_profile` | stockProfile | `{ asset, dimensions }` | 个股画像卡 |
-| `composition_select` | selectByComposition | 一次按权重选股/筛选请求（mode/universe/composition/screens/top_n…），indicator_id 须为已上线维度分 | TopN 榜单表 |
+| `composition_select` | selectByComposition | 一次按权重选股/筛选请求（mode/universe/composition/screens/top_n…），indicator_id 使用指标完整语义名称或上游别名 | TopN 榜单表 |
 
 ## 分钟行情覆盖预检与提示
 
@@ -94,9 +94,9 @@ python scripts/data_grant.py refresh '{"grant_id":"dg_xxx","rotate_signature":tr
 // stock_profile
 { "asset": "600519.SH", "dimensions": ["估值","财务质量"] }
 
-// composition_select —— indicator_id 必须是已上线维度分（否则注册拒 INDICATOR_NOT_FOUND）
+// composition_select —— indicator_id 使用指标完整语义名称或上游别名（否则注册拒 INDICATOR_NOT_FOUND）
 { "mode": "score", "universe": { "asset_scope": "A股" },
-  "composition": [{ "indicator_id": "ind_a_share_momentum_reversal", "weight": 1 }],
+  "composition": [{ "indicator_id": "A股_动量与反转维度分", "weight": 1 }],
   "top_n": 10, "with_breakdown": true }
 ```
 
