@@ -227,7 +227,7 @@ python scripts/call.py getIndicatorFormulas '{"indicators": ["ind_a_share_20d_hi
 }
 ```
 
-**`formulas` 可以原样传给 `runMultiFormulaBatchStream`**：
+**`formulas` 是 `runMultiFormulaBatchStream` 的执行输入，不超过 20 条可原样整组传入，超过时遵循下面的切批规则**：
 
 - 顺序已经排好——每个中间变量都在被引用之前定义，最后一行就是最终产出（`target`）；
 - 表达式一个字符都没改，就是平台公式引擎的原始输入；
@@ -235,19 +235,13 @@ python scripts/call.py getIndicatorFormulas '{"indicators": ["ind_a_share_20d_hi
 
 ### 公式超 20 条时
 
-单批公式上限 20 条，库里有 19 个指标超过（最长 83 条）。这些指标会额外返回 `batch_hint`：
+接口只返回一份完整 `formulas`，不再返回 `batch_hint` 或分批公式副本。分批在执行时处理：
 
-```json
-"batch_hint": {
-  "exceeds_batch_limit": true,
-  "layers": [
-    { "batch_no": 1, "formulas": ["..."], "force_reusable_array": ["通用_1日涨幅"] },
-    { "batch_no": 2, "formulas": ["..."], "force_reusable_array": [] }
-  ]
-}
-```
-
-按 `batch_no` 顺序分批调 `runMultiFormulaBatchStream`，**沿用同一个 `task_id`**，每批把该批的 `force_reusable_array` 原样传进去。层内互不依赖，不要自己重排。
+1. 单次最多 **20 条公式**，限制的是条数，不是字符串长度。按返回的原顺序每 20 条切批，依次调用 `runMultiFormulaBatchStream`；无需按依赖深度分层，同批可有前后依赖。
+2. 各批沿用**同一个 `task_id`**，并保持 `begin_date`、`use_minute_data` 和任务级 `execution_profile`（如有）一致；`intents`、`actions` 如有，按公式相同位置切分。
+3. 每批的 `force_reusable_array` 填**本批全部公式的输出变量名**（等号左侧，多输出全部填写），保证后续批次能复用结果；不要填写此前批次的变量。
+4. 前一批全部成功后再执行下一批。排队态按执行工具规则等待完成，失败或部分失败时停止，修复后再继续。
+5. `merge:true` 返回有效的 `merged_formulas` 时，只对合并数组应用上述规则，不要再执行各指标的原公式组。
 
 ### 错误码
 

@@ -2846,12 +2846,14 @@ def cmd_upload(params):
     from delivery_requirements import restore_boundary
     blocked=restore_boundary(params)
     if blocked: return blocked
-    from delivery_requirements import live_required
+    from delivery_requirements import is_authorized_recovery_fallback, live_required
     if live_required(params) and params.get('_progress_write_sentinel') is not _PROGRESS_WRITE_SENTINEL:
         if params.get('live_data_mode') not in ('live','mixed'):
-            return _evidence_error('LIVE_REQUIREMENT_NOT_SATISFIED','本轮自动更新要求不能以静态上传完成')
-        live_error=_validate_publish_data_evidence(params, enforce_live_delivery=True)
-        if live_error: return live_error
+            if not is_authorized_recovery_fallback(params):
+                return _evidence_error('LIVE_REQUIREMENT_NOT_SATISFIED','本轮自动更新要求不能以静态上传完成')
+        else:
+            live_error=_validate_publish_data_evidence(params, enforce_live_delivery=True)
+            if live_error: return live_error
     try:
         if EP.load(_fork_task_id(params)):
             return _retired_path_error("PLANNED_PAGE_ALREADY_CREATED", "计划任务已有目标页；不重复upload，用原page_id经publish_verified发布", params)
@@ -2973,6 +2975,11 @@ def cmd_upload(params):
                 publish_out=out,
             )
         if out.get("code") == 0:
+            explicit_mode = str(params.get("live_data_mode") or "").strip()
+            if (not explicit_mode or explicit_mode == "unknown") and out.get("is_live") is True and (out.get("package_ids") or out.get("grant_ids")):
+                inferred_mode = "mixed" if (params.get("snapshot_roles") or out.get("snapshot_roles")) else "live"
+                if not str(out.get("live_data_mode") or "").strip() or out.get("live_data_mode") == "unknown":
+                    out["live_data_mode"] = inferred_mode
             _attach_agent_reply_contract(out, operation="upload")
             if direct_upload_task:
                 binding_error = _record_direct_upload_delivery(params, direct_upload_task, out, body, html)
@@ -2982,6 +2989,23 @@ def cmd_upload(params):
                                 "operation": "upload",
                                 "message": "页面已创建，但任务交付登记失败；不要重复创建页面，按 next_action 恢复登记"})
     return out
+
+
+def _infer_effective_live_data_mode(params, remote=None, *, state=None):
+    params = params or {}
+    remote = remote or {}
+    state = state or {}
+    for candidate in (
+        params.get("live_data_mode"),
+        remote.get("live_data_mode"),
+        state.get("live_data_mode"),
+    ):
+        mode = str(candidate or "").strip()
+        if mode and mode != "unknown":
+            return mode
+    if remote.get("is_live") is True and (remote.get("package_ids") or remote.get("grant_ids")):
+        return "mixed" if (params.get("snapshot_roles") or remote.get("snapshot_roles")) else "live"
+    return ""
 
 
 def _record_direct_upload_delivery(params, task, out, body, html):
@@ -3036,18 +3060,40 @@ def _record_direct_upload_delivery(params, task, out, body, html):
             write_error = _write_routing_credential_record(cred)[1]
             if write_error:
                 return write_error
+            from delivery_requirements import is_authorized_recovery_fallback, is_degraded_live_fallback, live_required
             plan = EP.bind(
                 cred,
                 target_scope=params.get('target_scope') if isinstance(params.get('target_scope'), dict) else {'kind': 'unspecified'},
-                require_live_data=bool(params.get('require_live_data')),
+                require_live_data=live_required(params),
                 research_status=params.get('research_status') or 'unknown',
                 delivery_kind=params.get('delivery_kind') or 'result',
             )
 
+        from delivery_requirements import is_authorized_recovery_fallback, is_degraded_live_fallback
         DS.initialize(task, page_id)
         candidate_hash = hashlib.sha256(html.encode('utf-8')).hexdigest()
         DS.prepare_write(plan, candidate_hash, remote, request_body=body)
-        DS.record_write(plan, out)
+        state = DS.record_write(plan, out)
+        inferred_mode = _infer_effective_live_data_mode(params, out, state=state)
+        if not inferred_mode and is_authorized_recovery_fallback(params, plan):
+            inferred_mode = "verified_snapshot"
+        dirty = False
+        if inferred_mode:
+            if state.get("live_data_mode") != inferred_mode:
+                state["live_data_mode"] = inferred_mode
+                dirty = True
+            if not str(out.get("live_data_mode") or "").strip() or out.get("live_data_mode") == "unknown":
+                out["live_data_mode"] = inferred_mode
+        if is_degraded_live_fallback(params, plan, live_data_mode=state.get("live_data_mode")):
+            if state.get("degraded_live_fallback") is not True:
+                state["degraded_live_fallback"] = True
+                dirty = True
+            out["degraded_live_fallback"] = True
+        elif "degraded_live_fallback" in state:
+            state.pop("degraded_live_fallback", None)
+            dirty = True
+        if dirty:
+            DS._save(state)
         return None
     except EP.PlanError as exc:
         return exc.as_dict()
@@ -3077,6 +3123,8 @@ def _record_direct_update_delivery(params, task, out, body, html):
             "version_no": remote["version_no"],
             "sha256": remote["sha256"],
         })
+        from delivery_requirements import is_authorized_recovery_fallback, is_degraded_live_fallback, live_required
+        require_live = live_required(params)
         plan = {
             "task_id": task,
             "target_page_id": page_id,
@@ -3084,13 +3132,17 @@ def _record_direct_update_delivery(params, task, out, body, html):
             "revision": 0,
             "research_status": "unknown",
             "delivery_kind": "result",
-            "require_live_data": False,
+            "require_live_data": require_live,
             "direct_maintenance": True,
         }
         DS.prepare_write(plan, remote["sha256"], remote, request_body=body)
         state = DS.record_write(plan, out)
         state["plan_hash"] = plan_hash
         state["direct_maintenance"] = True
+        if require_live:
+            state["require_live_data"] = True
+        else:
+            state.pop("require_live_data", None)
         import maintenance_reply as MR
         # The original Host/trace question is authoritative, never the Agent's
         # update parameters or a caller-supplied maintenance flag.
@@ -3099,8 +3151,18 @@ def _record_direct_update_delivery(params, task, out, body, html):
         state.pop('maintenance_reply_intent', None)
         if scope:
             state['maintenance_reply_intent'] = scope
-        if params.get("live_data_mode"):
-            state["live_data_mode"] = params["live_data_mode"]
+        inferred_mode = _infer_effective_live_data_mode(params, out, state=state)
+        if not inferred_mode and is_authorized_recovery_fallback(params, plan):
+            inferred_mode = "verified_snapshot"
+        if inferred_mode:
+            state["live_data_mode"] = inferred_mode
+            if not str(out.get("live_data_mode") or "").strip() or out.get("live_data_mode") == "unknown":
+                out["live_data_mode"] = inferred_mode
+        if is_degraded_live_fallback(params, plan, live_data_mode=state.get("live_data_mode")):
+            state["degraded_live_fallback"] = True
+            out["degraded_live_fallback"] = True
+        else:
+            state.pop("degraded_live_fallback", None)
         DS._save(state)
         return None
     except EP.PlanError as exc:
@@ -3113,12 +3175,14 @@ def cmd_update(params):
     from delivery_requirements import restore_boundary
     blocked=restore_boundary(params)
     if blocked: return blocked
-    from delivery_requirements import live_required
+    from delivery_requirements import is_authorized_recovery_fallback, live_required
     if live_required(params) and params.get('_progress_write_sentinel') is not _PROGRESS_WRITE_SENTINEL:
         if params.get('live_data_mode') not in ('live','mixed'):
-            return _evidence_error('LIVE_REQUIREMENT_NOT_SATISFIED','本轮自动更新尚未核验；保留原页')
-        live_error=_validate_publish_data_evidence(params, enforce_live_delivery=True)
-        if live_error: return live_error
+            if not is_authorized_recovery_fallback(params):
+                return _evidence_error('LIVE_REQUIREMENT_NOT_SATISFIED','本轮自动更新尚未核验；保留原页')
+        else:
+            live_error=_validate_publish_data_evidence(params, enforce_live_delivery=True)
+            if live_error: return live_error
     if not params.get("page_id"):
         return {"code": 1, "message": "update 需要 page_id（要替换哪个已发布页面）"}
     route_error = _existing_page_update_error(params)
@@ -6658,11 +6722,10 @@ def _check_publish_routing_consistency(params, fork_task_binding, routing_overri
 
 
 def cmd_publish_final(params):
-    from delivery_requirements import live_delivery_error, restore_boundary
+    from delivery_requirements import is_authorized_recovery_fallback, live_delivery_error, live_required, restore_boundary
     blocked=restore_boundary(params)
     if blocked: return blocked
-    from delivery_requirements import live_required
-    if live_required(params) and params.get('live_data_mode') not in ('live','mixed'):
+    if live_required(params) and params.get('live_data_mode') not in ('live','mixed') and not is_authorized_recovery_fallback(params):
         return _evidence_error('LIVE_REQUIREMENT_NOT_SATISFIED','本轮要求自动更新，不能以静态页完成；保留原页并修复取数链路')
     blocked=live_delivery_error(params)
     if blocked: return blocked
@@ -6798,8 +6861,13 @@ def cmd_publish_final(params):
             update_out.pop("agent_reply_contract", None)
             update_out.pop("agent_reply_template_file", None)
         else:
+            from delivery_requirements import is_degraded_live_fallback
             _attach_agent_reply_contract(update_out, operation="publish_final")
             _attach_reply_data_contract(update_out, params)
+            if params.get("live_data_mode") and (not str(update_out.get("live_data_mode") or "").strip() or update_out.get("live_data_mode") == "unknown"):
+                update_out["live_data_mode"] = params["live_data_mode"]
+            if is_degraded_live_fallback(params, plan, live_data_mode=update_out.get("live_data_mode")):
+                update_out["degraded_live_fallback"] = True
             update_out["progress_update"] = progress_update
             update_out["agent_reply_template_resolution"] = template_resolution
             if isinstance(routing_consistency, dict) and routing_consistency.get("checked"):
@@ -6903,7 +6971,7 @@ def _observe_published_template(page_id):
 
 
 def _publish_verified_once(params):
-    from delivery_requirements import live_required
+    from delivery_requirements import is_degraded_live_fallback, live_required
     params = dict(params or {})
     if not params.get("page_id"):
         return {"code": 1, "error": "PAGE_ID_REQUIRED", "message": "publish_verified 需要 page_id"}
@@ -6973,8 +7041,11 @@ def _publish_verified_once(params):
         if data_evidence_error:
             return {**data_evidence_error, "published": False, "verified": False, "stages": stages, "timing": timings}
         import managed_publication as MP
+        runtime_live_required = params.get('live_data_mode') in ('live', 'mixed') or (
+            live_required(params) and not is_degraded_live_fallback(params, publication_plan)
+        )
         try:
-            policy, proofs = MP.candidate(params, candidate_bytes.decode('utf-8'), plan=publication_plan, required=live_required(params) or params.get('live_data_mode') in ('live','mixed'))
+            policy, proofs = MP.candidate(params, candidate_bytes.decode('utf-8'), plan=publication_plan, required=runtime_live_required)
         except (EP.PlanError, FRC.ForkRuntimeError) as exc:
             return {**exc.as_dict(), 'published': False, 'verified': False, 'stages': stages}
         policy_options = {'managed_policy':policy} if policy else {}
@@ -6988,7 +7059,7 @@ def _publish_verified_once(params):
         local_profile = 'self-built' if quality_required else 'fork-local'
         stages["local_browser"] = _run_page_verifier(target, local_profile, card_runtime=card_runtime, **policy_options,
                                                     expected_title=(stages.get('page_title') or {}).get('title'),
-                                                    **({'require_live_data': True} if live_required(params) or params.get('live_data_mode') in ('live', 'mixed') else {}))
+                                                    **({'require_live_data': True} if runtime_live_required else {}))
         timings["local_browser_ms"] = round((time.perf_counter() - started) * 1000)
         if not (isinstance(stages["local_browser"], dict) and stages["local_browser"].get("code") == 0):
             return {"code": 1, "published": False, "verified": False, "stages": stages, "timing": timings}
@@ -7021,7 +7092,7 @@ def _publish_verified_once(params):
         started = time.perf_counter()
         stages["public_smoke"], smoke_attempts = _public_smoke_with_retry(public_url, card_runtime=card_runtime, **policy_options,
                                                                           expected_title=expected_title,
-                                                                          require_live_data=live_required(params) or params.get('live_data_mode') in ('live','mixed'))
+                                                                          require_live_data=runtime_live_required)
         timings["public_smoke_ms"] = round((time.perf_counter() - started) * 1000)
         if smoke_attempts > 1:
             timings["public_smoke_attempts"] = smoke_attempts
@@ -7040,7 +7111,7 @@ def _publish_verified_once(params):
         try:
             plan = EP.load(_fork_task_id(params))
             if plan:
-                DS.mark_verified(plan, stages["publish_final"], complete=verified, failure_kind=failure_kind)
+                DS.mark_verified(plan, stages["publish_final"], complete=verified, failure_kind=failure_kind, params=params)
         except EP.PlanError as exc:
             return {**exc.as_dict(), "published": True, "verified": False, "stages": stages}
         result = {
@@ -7246,7 +7317,7 @@ def _load_direct_maintenance_delivery(task_id, page_id=None):
         "revision": 0,
         "research_status": state.get("research_status", "unknown"),
         "delivery_kind": state.get("delivery_kind", "result"),
-        "require_live_data": False,
+        "require_live_data": bool(state.get("require_live_data", False)),
         "direct_maintenance": True,
     }
     return resolved_page, state, plan
@@ -7300,6 +7371,15 @@ def _finalize_public_publication(params, stages, result, public_url, verified):
                     inferred_mode = 'unknown'
             mode_params.setdefault('live_data_mode', inferred_mode)
             _attach_reply_data_contract(result,mode_params)
+            if result.get("live_data_mode") in ("verified_snapshot", "researched_static"):
+                degraded_flag = published.get("degraded_live_fallback") is True
+                if not degraded_flag and params.get("task_id") and result.get("page_id"):
+                    try:
+                        degraded_flag = DS.load(params["task_id"], result["page_id"]).get("degraded_live_fallback") is True
+                    except EP.PlanError:
+                        degraded_flag = False
+                if degraded_flag:
+                    result["degraded_live_fallback"] = True
             for key in ("reply_data_evidence_file", "reply_data_evidence_sha256", "reply_data_availability"):
                 if result_contract.get(key) not in (None, ""):
                     result[key] = result_contract[key]
@@ -7334,7 +7414,7 @@ def cmd_verify_published(params):
     Never revises the execution plan, never writes the page and never spends
     the repair budget. On success the delivery state is marked verified.
     """
-    from delivery_requirements import live_required
+    from delivery_requirements import is_degraded_live_fallback, live_required
     params = dict(params or {})
     task_id = _fork_task_id(params)
     if not task_id:
@@ -7396,12 +7476,19 @@ def cmd_verify_published(params):
                   or (host is not None and write_turn != turn_id))
     current_params = {**params, "task_id": task_id, "page_id": page_id, "turn_id": turn_id}
     current_requires_live = live_required(current_params) or plan.get("require_live_data") is True
+    already_degraded_ok = (
+        state.get("degraded_live_fallback") is True
+        and state.get("live_data_mode") in ("verified_snapshot", "researched_static")
+    )
     if (not historical and DS.flags(state)["verified"] and state.get("last_good_version") == remote
             and not params.get("force")
-            and (not current_requires_live or state.get("live_data_mode") in ("live", "mixed"))):
+            and (not current_requires_live or state.get("live_data_mode") in ("live", "mixed") or already_degraded_ok)):
         result = {**base, "code": 0, "published": True, "verified": True, "written": True, "public_reachable": True,
                   "public_url": _delivery_public_url(remote.get("url")),
                   "message": "目标页当前版本已通过公开验收", "already_verified": True}
+        if already_degraded_ok:
+            result["degraded_live_fallback"] = True
+            result["live_data_mode"] = state["live_data_mode"]
         from finish_research_delivery import reply_validation_action
         action = reply_validation_action(task_id, turn_id, plan, state)
         if action: result['next_action'] = action
@@ -7444,7 +7531,14 @@ def cmd_verify_published(params):
     timings = {}
     started = time.perf_counter()
     policy_options = {}
-    if C.host_managed_lifecycle() and (historical_requires_live or (not historical and current_requires_live)):
+    runtime_live_required = historical_requires_live or (
+        not historical and current_requires_live and not is_degraded_live_fallback(
+            current_params,
+            plan,
+            live_data_mode=record.get("live_data_mode") or saved_params.get("live_data_mode") or state.get("live_data_mode"),
+        )
+    )
+    if C.host_managed_lifecycle() and runtime_live_required:
         import managed_publication as MP
         proofs = pending.get('binding_proofs')
         try:
@@ -7464,7 +7558,7 @@ def cmd_verify_published(params):
         except (EP.PlanError,FRC.ForkRuntimeError) as exc: return {**base,**exc.as_dict(),'published':True,'verified':False}
     stages["public_smoke"] = _run_page_verifier(public_url, "public-smoke", **policy_options, card_runtime=bool(pending.get("card_runtime")),
                                                expected_title=(stages.get("page_title") or {}).get("title"),
-                                               **({'require_live_data': True} if historical_requires_live or (not historical and current_requires_live) else {}))
+                                               **({'require_live_data': True} if runtime_live_required else {}))
     timings["public_smoke_ms"] = round((time.perf_counter() - started) * 1000)
     verified, failure_kind = _confirm_public_publication(evidence, stages, record)
     if not verified and failure_kind is None:
@@ -7491,7 +7585,16 @@ def cmd_verify_published(params):
             if not verified and latest.get("revision") != state.get("revision") and DS.flags(latest)["verified"]:
                 return {**base, "code": 1, "error": "PUBLIC_RECHECK_STALE", "verified": False,
                         "next_action": {"command": "delivery_status", "params": {"task_id": task_id}}}
-            DS.mark_verified(plan, record, complete=verified, failure_kind=None if verified else failure_kind)
+            merged_params = {**saved_params, **{k: v for k, v in params.items() if v not in (None, "", "unknown")}}
+            effective_mode = _infer_effective_live_data_mode(merged_params, record, state=latest)
+            if not effective_mode:
+                smoke_mode = str((stages.get("public_smoke") or {}).get("live_data_mode") or "").strip()
+                if smoke_mode and smoke_mode != "unknown":
+                    effective_mode = smoke_mode
+            if effective_mode and (not str(record.get("live_data_mode") or "").strip() or record.get("live_data_mode") == "unknown"):
+                record = dict(record)
+                record["live_data_mode"] = effective_mode
+            DS.mark_verified(plan, record, complete=verified, failure_kind=None if verified else failure_kind, params=merged_params)
             result = {**base, "code": 0 if verified else 1, "published": True, "verified": verified, "written": True,
                       "public_reachable": verified or failure_kind != _NETWORK_UNREACHABLE,
                       "public_url": _delivery_public_url(public_url), "stages": stages, "timing": timings}
@@ -7514,12 +7617,49 @@ def cmd_verify_published(params):
                 "qbv_job_id", "qbv_job_file", "job_file", "qbv_job_dir", "target_skill_id", "maintenance_mode",
             ) if k in saved_params}
             final_params.update(task_id=task_id, page_id=page_id, turn_id=turn_id)
+            if effective_mode and not final_params.get("live_data_mode"):
+                final_params["live_data_mode"] = effective_mode
             if direct_maintenance:
                 final_params["maintenance_mode"] = "direct_update"
             result = _finalize_public_publication(final_params, stages, result, public_url, True)
             if result.get("code") == 0:
+                final_mode = str(result.get("live_data_mode") or effective_mode or "").strip()
+                latest_state = DS.load(task_id, page_id)
+                degraded_fallback = is_degraded_live_fallback(
+                    merged_params,
+                    plan,
+                    live_data_mode=final_mode or latest_state.get("live_data_mode"),
+                )
+                state_dirty = False
+                if final_mode and final_mode != "unknown" and (
+                    latest_state.get("live_data_mode") != final_mode
+                    or (isinstance(latest_state.get("publication_receipt"), dict)
+                        and latest_state["publication_receipt"].get("live_data_mode") != final_mode)
+                ):
+                    latest_state["live_data_mode"] = final_mode
+                    if isinstance(latest_state.get("publication_receipt"), dict):
+                        latest_state["publication_receipt"]["live_data_mode"] = final_mode
+                    state_dirty = True
+                if degraded_fallback:
+                    if latest_state.get("degraded_live_fallback") is not True:
+                        latest_state["degraded_live_fallback"] = True
+                        state_dirty = True
+                    if isinstance(latest_state.get("publication_receipt"), dict) and latest_state["publication_receipt"].get("degraded_live_fallback") is not True:
+                        latest_state["publication_receipt"]["degraded_live_fallback"] = True
+                        state_dirty = True
+                    result["degraded_live_fallback"] = True
+                elif latest_state.get("degraded_live_fallback") is not None or (
+                    isinstance(latest_state.get("publication_receipt"), dict)
+                    and "degraded_live_fallback" in latest_state["publication_receipt"]
+                ):
+                    latest_state.pop("degraded_live_fallback", None)
+                    if isinstance(latest_state.get("publication_receipt"), dict):
+                        latest_state["publication_receipt"].pop("degraded_live_fallback", None)
+                    state_dirty = True
+                if state_dirty:
+                    latest_state = DS._save(latest_state)
                 from finish_research_delivery import reply_validation_action
-                action = reply_validation_action(task_id, turn_id, plan, DS.load(task_id, page_id))
+                action = reply_validation_action(task_id, turn_id, plan, latest_state)
                 if action: result['next_action'] = action
                 try:
                     if pending and pending_path.read_bytes() == pending_bytes:
@@ -7717,11 +7857,10 @@ def _plan_conflict_next_action(result, params):
 
 
 def cmd_publish_verified(params):
-    from delivery_requirements import live_delivery_error, restore_boundary
+    from delivery_requirements import is_authorized_recovery_fallback, live_delivery_error, live_required, restore_boundary
     blocked=restore_boundary(params)
     if blocked: return blocked
-    from delivery_requirements import live_required
-    if live_required(params) and params.get('live_data_mode') not in ('live','mixed'):
+    if live_required(params) and params.get('live_data_mode') not in ('live','mixed') and not is_authorized_recovery_fallback(params):
         return _evidence_error('LIVE_REQUIREMENT_NOT_SATISFIED','本轮要求自动更新，不能以静态页完成；保留原页并修复取数链路')
     blocked=live_delivery_error(params)
     if blocked: return blocked
@@ -7807,7 +7946,7 @@ def _publish_verified_cli_result(result, task_id, report_name="publish-verified-
             "reply_validation_env", "reply_validation_env_keys",
             "compose_quality", "reply_data_evidence_file", "reply_data_evidence_sha256", "reply_data_availability",
             "agent_reply_template_file", "contract_artifact_error", "qbv_job_lifecycle",
-            "presentation", "presentation_notice", "llm_billing", "billing_notice", "repair_attempts_remaining", "recovery_phase", "research_status", "delivery_kind", "live_data_mode", "artifact_file", "artifact_sha256", "artifact_verified", "recovery_result",
+            "presentation", "presentation_notice", "llm_billing", "billing_notice", "repair_attempts_remaining", "recovery_phase", "research_status", "delivery_kind", "live_data_mode", "degraded_live_fallback", "artifact_file", "artifact_sha256", "artifact_verified", "recovery_result",
             "failure_summary", "failure_kind", "written", "public_reachable", "operation", "already_verified",
             "current_revision", "current_plan_hash", "stale_plan_hash", "terminal", "conflicting_fields",
         )

@@ -48,12 +48,12 @@
 
 ## 外盘期货主力连续
 
-2026-10-27按新版单日、跨日、多资产分钟接口文档及用户补充清单对齐。后缀支持`.CME/.CBT/.CMX/.NYM`，多资产市场标识为`os_future`；当前为主力连续`rank=1`，不承诺次主力、任意具体月份合约或其他外盘交易所均有分钟数据。
+2026-11-20 按最新 14 个自聚合外盘品种对齐。后缀支持 `.CME/.CBT/.CMX/.NYM`，多资产市场标识为 `os_future`；当前为主力连续 `rank=1`，不承诺次主力、任意具体月份合约或其他外盘交易所均有分钟数据。下表是分钟数据的历史起点，也是这 14 个品种日频自聚合换月合约信息的起点——**注意：下文越界拒绝（`MINUTE_HISTORY_OUT_OF_RANGE`）仅适用于分钟接口；日频 `fast_query` 在早于下表起点的历史段仍正常返回日频行情数据（来自外部源拼接历史），只是不提供对应的换月/合约信息**：
 
-| ticker | 最早分钟交易日（含当日） |
+| ticker | 最早分钟 / 自聚合换月交易日（含当日） |
 |---|---|
 | ES.CME | 2016-10-18 |
-| TU.CBT | 2021-12-01 |
+| TU.CBT | 2016-01-04 |
 | NQ.CME | 2016-10-18 |
 | NG.NYM | 2016-10-18 |
 | RTY.CME | 2017-07-10 |
@@ -63,22 +63,23 @@
 | MGC.CMX | 2021-12-01 |
 | FV.CBT | 2016-10-18 |
 | GC.CMX | 2016-10-18 |
+| HG.CMX | 2016-10-19 |
 | CL.NYM | 2016-10-18 |
 | SI.CMX | 2016-10-18 |
 
-这是逐ticker已知数据起点，不是上市日，也不保证期间每分钟完整或最新端已更新到今天。新版上游文档提及部分品种只到2024年10月，未给出逐品种截止日；不得据此给所有品种设统一终点，也不得把上述起点清单当作最新端保证。实际可用区间及空结果以接口为准；其他同后缀品种可能已路由但未入库，不能仅凭后缀保证有数据。
+这是逐 ticker 已知数据起点，不是上市日，也不保证期间每分钟完整或各环境历史已全部同步（例如 `TU.CBT` 已由 2021-12-01 重建扩展至 2016-01-04，实际可用区间及空结果以接口返回为准）。其他同后缀品种（如部分纯日频外盘）可能已路由但无分钟数据，不能仅凭后缀保证有分钟数据。
 
-交易日按`America/Chicago`会话归属，本地17:00起进入下一会话日，周末顺延；上游默认日期规则不跳过节假日，不等同于精确节假日/提前收盘日历。使用IANA时区处理夏冬令时，不写固定北京时间偏移。分钟过滤的`timezone`仅控制日内时钟，不改变`trade_date`归属；没有分钟过滤时不必额外添加timezone参数。
+交易日按 `America/Chicago` 会话归属，本地 17:00 起进入下一会话日，周末顺延；上游默认日期规则不跳过节假日，不等同于精确节假日/提前收盘日历。使用 IANA 时区处理夏冬令时，不写固定北京时间偏移。分钟过滤的 `timezone` 仅控制日内时钟，不改变 `trade_date` 归属；没有分钟过滤时不必额外添加 `timezone` 参数。
 
 三个已有请求合同不变：
 
-- 当前/最近完整日：`fast_query_minute({"asset":"ES.CME","fields":["close","volume"]})`，不添加trade_date/timezone等未开放参数。
-- 单资产历史：`fast_query_minute_range({"asset":"TU.CBT","start_date":"2021-12-01","end_date":"2021-12-10"})`，全列CSV，不传fields/format；日期上限和自然日offset逻辑不变。
-- 多资产历史/时段：`fast_query_minute_range_multi({"assets":["ES.CME","TU.CBT"],"start_date":"2021-11-01","end_date":"2021-12-10","start_minute":"08:30","end_minute":"15:00","timezone":"America/Chicago"})`。仍用assets/asset/market三选一，不传内部tickers或format/fields；查询全市场可换成`market:"os_future"`。
-- 外盘跨零点窗口支持`17:00`至`02:30`并显式`timezone:"America/Chicago"`；跨市场资产共用一个过滤时钟，自动日期跨日历域仍按原规则拆分。
+- 当前/最近完整日：`fast_query_minute({"asset":"ES.CME","fields":["close","volume"]})`，不添加 `trade_date`/`timezone` 等未开放参数。
+- 单资产历史：`fast_query_minute_range({"asset":"MGC.CMX","start_date":"2021-12-01","end_date":"2021-12-10"})`，全列 CSV，不传 `fields`/`format`；日期上限和自然日 offset 逻辑不变。
+- 多资产历史/时段：`fast_query_minute_range_multi({"assets":["ES.CME","MGC.CMX"],"start_date":"2021-11-01","end_date":"2021-12-10","start_minute":"08:30","end_minute":"15:00","timezone":"America/Chicago"})`。仍用 `assets`/`asset`/`market` 三选一，不传内部 `tickers` 或 `format`/`fields`；查询全市场可换成 `market:"os_future"`。
+- 外盘跨零点窗口支持 `17:00` 至 `02:30` 并显式 `timezone:"America/Chicago"`；跨市场资产共用一个过滤时钟，自动日期跨日历域仍按原规则拆分。
 
-单资产全部早于自身起点：解释MINUTE_HISTORY_OUT_OF_RANGE，不调用或注册明知越界的授权；部分重叠：保留原窗口、原始缺口及MINUTE_HISTORY_PARTIAL_COVERAGE警告，不补0、不改查别的日期。多资产按各自起点提示并保留可用资产数据，不把全体起点取最大值后静默裁剪。例如ES+TU查2021年11月至12月，ES保留11月数据，TU提示2021-12-01之前不覆盖；全部所选资产已知越界才整体拒绝。接口返回coverage/coverage_by_ticker时保留其语义，不把起点字段当作实际首条记录或完整性保证。market模式以窗口内实际有数据的资产为准，不硬编码成上述13个ticker请求。
+单资产全部早于自身起点：解释 `MINUTE_HISTORY_OUT_OF_RANGE`，不调用或注册明知越界的授权；部分重叠：保留原窗口、原始缺口及 `MINUTE_HISTORY_PARTIAL_COVERAGE` 警告，不补 0、不改查别的日期。多资产按各自起点提示并保留可用资产数据，不把全体起点取最大值后静默裁剪。例如 `ES.CME` + `MGC.CMX` 查 2021 年 11 月至 12 月，ES 保留 11 月数据，MGC 提示 `2021-12-01` 之前不覆盖；全部所选资产已知越界才整体拒绝。接口返回 `coverage`/`coverage_by_ticker` 时保留其语义，不把起点字段当作实际首条记录或完整性保证。`market` 模式以窗口内实际有数据的资产为准，不硬编码成上述 14 个 ticker 请求。
 
-外盘换月事件仅适用于分钟频：fast_query_minute_range返回roll_events，fast_query_minute_range_multi仅解析去重后单资产时返回同结构roll_events，多资产和market请求不返回，事件标注data_frequency=minute。fast_query_minute不返回事件表，contract_info仅可解释分钟来源合约；fast_query日频不使用这套事件，当前外盘日频换月信息缺失，不用于日频复权或合约推导。旧上游不支持时提示UPSTREAM_ROLL_EVENTS_UNSUPPORTED，成功行情保留，原始价格不复权；不能把缺字段当作无换月。详见[连续期货换月](continuous-futures.md)。
+外盘换月事件与合约信息：分钟接口中 `fast_query_minute_range` 返回 `roll_events`，`fast_query_minute_range_multi` 仅解析去重后单资产时返回同结构 `roll_events`（均标 `data_frequency=minute`），多资产和 `market` 请求不返回；`fast_query_minute` 仅返回所选会话的 `contract_info`。日频 `fast_query` 对上述 14 个自聚合品种已与国内期货一样自动附 `future_context`，早于各自自聚合起点的历史段无换月记录时不提供（跨起点窗口自动截齐并标注 `partial_coverage`/`unavailable_before`）；其余 39 个纯日频及未迁移外盘在日频不附 `future_context`。旧上游不支持时提示 `UPSTREAM_ROLL_EVENTS_UNSUPPORTED`，成功行情保留，不能把缺字段当作无换月。详见 [连续期货换月](continuous-futures.md)。
 
-QBV沿用三个同名Grant及既有验证、注册、刷新、计费流程；payload只含请求字段，不放coverage/warnings。绝对窗口固定，rolling/offset按原规则滚动。页面按ticker分组，展示实际数据日期、请求窗口和覆盖限制；空数据不冒充0价格，历史数据不标成当前盘中。此更新依赖配套skill_server及上游任务部署，不代表当前运行服务已自动更新。
+QBV 沿用三个同名 Grant 及既有验证、注册、刷新、计费流程；payload 只含请求字段，不放 `coverage`/`warnings`。绝对窗口固定，`rolling`/offset 按原规则滚动。页面按 ticker 分组，展示实际数据日期、请求窗口和覆盖限制；空数据不冒充 0 价格，历史数据不标成当前盘中。此更新依赖配套 `skill_server` 及上游任务部署，不代表当前运行服务已自动更新。

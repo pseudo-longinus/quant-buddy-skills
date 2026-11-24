@@ -73,7 +73,7 @@ python scripts/data_grant.py refresh '{"grant_id":"dg_xxx","rotate_signature":tr
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `kind` | `string` | ✅ | `asset_info` / `query_kline` / `option_contracts` / `fast_query` / `fast_query_minute` / `fast_query_minute_range` / `fast_query_minute_range_multi` / `stock_profile` / `composition_select` |
+| `kind` | `string` | ✅ | `asset_info` / `query_kline` / `option_contracts` / `fast_query` / `fast_query_minute` / `fast_query_minute_range` / `fast_query_minute_range_multi` / `fast_query_option_minute` / `stock_profile` / `composition_select` |
 | `payload` | `object` | ✅ | 冻结的完整请求体，形状随 kind（见下） |
 | `ttl_days` | `number` | ❌ | 有效期（天），默认 365 |
 | `task_id` / `user_query` | `string` | ❌ | 随 audit 落库 |
@@ -111,6 +111,7 @@ python scripts/data_grant.py refresh '{"grant_id":"dg_xxx","rotate_signature":tr
 
 - `fast_query`：与在线 fastQuery 同构的值/序列结构。固定日期的 `value` 查询中，日频行情和估值刷新时点不同是正常情况：服务端先选请求区间，若 PE/PB 等字段尚未更新才回看 10 个自然日并返回 `{v, d, fallback:true}` + `DATE_RANGE_FALLBACK`。页面必须使用字段自己的 `d` 显示日期，不能把该字段显示为空、也不能用公共 `dates.trade_date` 覆盖；`series` / `window` 仍严格只含请求区间内的数据。
 - `option_contracts`：`data={ticker,records,notes?}`，美股records为11项扁平合约字段，国内另有product_id及decision_date/underlying_contract/status，empty行附empty_reason；build_dashboard归一为行数组。按每行真实trade_date展示，不改成刷新时间；changes可带is_baseline。
+- `fast_query_option_minute`：国内期权槽位 1 分钟原始长表（统一 13 列：`trade_date,ticker,slots,timestamp,open,high,low,close,volume,amount,open_interest,self_iv,self_delta`），小结果 JSON 内联、大结果自动返回 `mode:"csv"` + `url`/`url_expires_at`（data-kernel 自动 hydrate）；传 `include_contracts:true` 时附 `option_contracts`。
 - `fast_query_minute`：`data.dates` 为共享分钟时间轴，`data.fields.<field>` 为同索引值数组；自定义活页直接按该列式结构渲染。
 - `stock_profile`：与在线 stockProfile 同构的画像卡结构。
 - `composition_select`：TopN 表（排名/名称/代码/score）+ `composition_used` + `as_of` / `last_date` + `date_alignment_status` + `date_alignment`。`date_alignment_status:"mixed"` 表示组合指标来自不同有效快照，此时全局 `as_of` / `last_date` 为 `null`，页面须逐项展示 `date_alignment`，不能渲染为单一数据日期。
@@ -176,7 +177,7 @@ register携带本地`validation_receipt_file`；返回`registration_receipt_file
 - 固定绝对窗口不会因刷新变化；offset授权按当天市场日期滚动，仍不含今天。历史数据的实时刷新不等于当日实时分钟。
 - `QB.queryGrant` 和 Python CSV校验器会识别 query_type=minute_range，下载 `csv_url` 长表并保留全部 `columns/rows`。这不是日频 csv_fields 宽表；columns缺省就读实际表头。
 - 原始第一列 trade_date、第二列 timestamp（UTC秒），后续列按上游配置，不限六列。零/空/null不混淆，不过滤全空行情行；事件/拆股/警告保留在原始 data 中。
-- 图表X轴用 timestamp，显示时转 timezone；行情trade_date用于交易日归属，按事件effective_trade_date匹配换月，不能按自然日验证期货夜盘。原始报价保持不变；需要连续参考图时按 [连续期货口径](../references/continuous-futures.md) 的加法价差规则另建派生数据，标明尺度、锚点和事件范围。
+- 图表X轴用 timestamp，显示时转 timezone；行情trade_date用于交易日归属，按事件effective_trade_date匹配换月，不能按自然日验证期货夜盘。原始报价保持不变；需要连续参考图时按 [连续期货口径](../references/continuous-futures.md) 的比例复权规则另建派生数据，标明算法、锚点和事件范围。
 - Grant 原样提供1分钟数据；若页面需要30分钟K线，先将物化的分钟artifact交给 `scripts/resample_minute_bars.py` 生成 `interval=30min`、`source_interval=1min`、`derived=true` 的派生数据，再交给页面图表。不要修改Grant响应的 `interval` 字段，也不要把派生artifact注册成新的分钟Grant。
 - 页端保存Grant配置，不把临时CSV URL硬编码成长效数据源。每次刷新先queryDataGrant；CSV下载401/403/404最多重新取manifest一次，不循环刷新、不修改签名到期字符串。
 - 行情缓存12小时，事件60秒短缓存。专属每用户12小时10次仅直接调用 fast_query_minute_range 计数，Grant注册试跑/刷新/页面取数不计该专属次数；一般鉴权/计费规则不变。
@@ -221,6 +222,21 @@ kind为 `fast_query_minute_range_multi`，接入现有验证→注册→query→
 
 后端须部署fastQueryMinuteRangeMulti及同名授权kind；工具/本地回归通过不代表生产端到端已验收。
 
+## 国内期权分钟授权
+
+kind 为 `fast_query_option_minute`，支持国内商品期货期权（80 品种）、3 个国内股指期权（`IF.CFE`/`IH.CFE`/`IM.CFE`）及 3 个国内 ETF 期权（`SH510500`/`SH588000`/`SZ159915`）的槽位 1 分钟原始行情与自算 `self_iv`/`self_delta`，可按需附带换约与合约映射。QBS 使用 `fast_query_option_minute` 验证，QBV 通过 `qbs_bridge.py validate_grant_set` 获取收据后原样注册。
+
+```json
+{"kind":"fast_query_option_minute","payload":{"assets":["RB.SHF","AU.SHF"],"slots":["E1-ATM-CALL","E1-25C"],"date_mode":"rolling","lookback_trade_days":5,"start_minute":"21:00","end_minute":"02:30","include_contracts":true,"contracts_mode":"changes"}}
+```
+
+- `asset` / `assets`（1～500 项）/ `market`（`cn_commodity_option`/`cn_index_option`/`cn_etf_option`/`cn_option_all`）三选一；不传 `tickers`/`fields`/`format`。
+- `slots` 可选，1～8 个不重复合法槽位（省略查全部 8 槽）。
+- `date_mode` 支持 `current_trade_day`（无 `start_date` 时默认）、`rolling`（`lookback_trade_days` 1～373、`end_trade_offset` -372～0）、`absolute`（最多 373 自然日）。历史窗口与盘中/收盘缓冲期必须拆为两份授权。
+- `include_contracts` 默认 `false`；为 `true` 时支持 `contracts_mode: "changes" | "daily"`，最多 10 个标的且禁止与 `market` 同传。附加选约失败或上游未开放仅降级写入 `option_contracts.errors` 和 `warnings`，不影响主行情。
+- 注册强制真实试跑，禁止 `validate_data=false`；冻结标准 `tickers`/`slots`/日期规则/`include_contracts` 与服务端 `_contract_version: "fqom-v1"`，`rolling`/`current_trade_day` 每次 `queryDataGrant` 动态重算，禁止浏览器覆写参数。
+- 返回结构统一为 13 列 JSON 或自动 CSV（`url`/`url_expires_at`），`data-kernel` 自动 hydrate CSV 并保留 `slots` 字符串与 `self_iv`/`self_delta` 数值/null。多槽共用同一合约时 `slots` 逗号合并为一行，图表按 `ticker` + 拆分后的单槽分组，统计总量时不重复累加合并行。
+
 ## 美股及国内商品期权槽位合约授权
 
 本kind支持部分美股和国内商品品种的**具体合约映射**；股指及ETF期权的具体合约映射暂未开放。`国内期货期权-*` 日频槽位行情另含 IF.CFE、IH.CFE、IM.CFE 三个股指及 SH510500、SH588000、SZ159915 三个ETF标的，使用QBS验证后的Formula Package接入，见 [国内股指及ETF期权页面](../guides/cn-index-options.md)。合约身份只读assignment，不是行情检查或完整期权链；两种通道的日期和覆盖分别验证，不能相互推导。
@@ -249,17 +265,17 @@ QBS使用query_option_contracts验证，QBV通过qbs_bridge.py validate_grant_se
 - 400按error.parameter/error.usage改正；502批次/数据异常、503配置/日历/服务问题、504超时按既有失败流程处理，不立即重复提交。
 - 过期、撤销和签名轮换沿用既有规则。刷新失败保留上次有效内容并明确失败，不更改业务日期。
 
-## 外盘期货分钟授权
+## 外盘期货分钟与日频换月授权
 
-资产与起点按[外盘覆盖表](../references/minute-data-coverage.md#外盘期货主力连续)逐ticker检查；三个既有kind沿用原验证和刷新流程。单日仍传asset+fields，历史Range不传fields/format；多资产示例：
+资产与起点按 [外盘覆盖表](../references/minute-data-coverage.md#外盘期货主力连续) 逐 ticker 检查；三个既有分钟 kind 沿用原验证和刷新流程。单日仍传 `asset` + `fields`，历史 Range 不传 `fields`/`format`；多资产示例：
 
 ```json
-{"kind":"fast_query_minute_range_multi","payload":{"assets":["ES.CME","TU.CBT"],"start_date":"2021-11-01","end_date":"2021-12-10","start_minute":"08:30","end_minute":"15:00","timezone":"America/Chicago"}}
+{"kind":"fast_query_minute_range_multi","payload":{"assets":["ES.CME","MGC.CMX"],"start_date":"2021-11-01","end_date":"2021-12-10","start_minute":"08:30","end_minute":"15:00","timezone":"America/Chicago"}}
 ```
 
-全市场用market=os_future替换assets。TU在2021-12-01前的缺口须在页面说明，不能截掉ES可用的更早记录；所有资产都越界时不注册。页面保留coverage_by_ticker/warnings，标明实际数据日期，不把起点或可刷新授权当作最新端已更新保证。
+全市场用 `market=os_future` 替换 `assets`。`MGC.CMX` 在 `2021-12-01` 前的缺口须在页面说明，不能截掉 `ES.CME` 可用的更早记录；所有资产都越界时不注册。页面保留 `coverage_by_ticker`/`warnings`，标明实际数据日期，不把起点或可刷新授权当作最新端已更新保证。
 
-外盘分钟Range授权附roll_events，RangeMulti授权仅解析去重后单资产时附同结构roll_events，多资产和market请求不附带；单日分钟授权的contract_info仅解释所选分钟会话来源合约。外盘fast_query日频授权不使用这些事件，日频换月信息当前缺失。kind/payload与计费不变。事件缺失/旧上游不支持时保留可用行情、披露警告，不把缺失当无换月；详见[外盘换月入口](../references/continuous-futures.md#外盘换月返回入口2026-10-28)。
+外盘分钟 Range 授权附 `roll_events`，RangeMulti 授权仅解析去重后单资产时附同结构 `roll_events`（标 `data_frequency=minute`），多资产和 `market` 请求不附带；单日分钟授权的 `contract_info` 为所选分钟会话来源合约。外盘 `fast_query` 日频授权对 14 个自聚合品种已与国内期货一样自动附 `future_context`——早于各自自聚合起点的历史段以及其余 39 个纯日频/未迁移外盘**日频行情数据照常完整返回，只是不提供对应区段的换月/合约信息**（跨起点窗口仅换月事件截齐并标注 `partial_coverage`/`unavailable_before`）。kind/payload 与计费不变。事件缺失/旧上游不支持时保留可用行情、披露警告，不把缺失当无换月；详见 [外盘换月入口](../references/continuous-futures.md#外盘换月返回入口2026-11-20-更新)。
 
 ## 日K线授权
 

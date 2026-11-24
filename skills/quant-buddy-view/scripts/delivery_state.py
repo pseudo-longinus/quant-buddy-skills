@@ -236,7 +236,7 @@ def reconcile_write(plan, trace_id, outcome):
 NETWORK_UNREACHABLE = 'network_unreachable'
 
 
-def mark_verified(plan, result, *, complete, failure_kind=None):
+def mark_verified(plan, result, *, complete, failure_kind=None, params=None):
     with EP.locked(plan['task_id']):
         state = load(plan['task_id'], plan['target_page_id'])
         write = state.get('last_write') or {}
@@ -258,10 +258,24 @@ def mark_verified(plan, result, *, complete, failure_kind=None):
                      written=True, public_reachable=True, verified=True)
         state.update({key: plan.get(key, default) for key, default in
                       [('research_status', 'unknown'), ('delivery_kind', 'result')]})
-        state['live_data_mode'] = result.get('live_data_mode') or state.get('live_data_mode') or 'unknown'
-        if state['live_data_mode'] == 'unknown' and result.get('is_live') is False:
-            state['live_data_mode'] = 'static_content_only'
-        state['publication_receipt'] = {
+        mode = result.get('live_data_mode')
+        if not mode or mode == 'unknown':
+            mode = (params or {}).get('live_data_mode') or state.get('live_data_mode') or 'unknown'
+        if mode == 'unknown' and result.get('is_live') is False:
+            mode = 'static_content_only'
+        state['live_data_mode'] = mode
+        from delivery_requirements import is_degraded_live_fallback
+        check_params = dict(params or {})
+        check_params.setdefault('task_id', plan.get('task_id'))
+        check_params.setdefault('page_id', plan.get('target_page_id'))
+        if plan.get('require_live_data') is True and check_params.get('require_live_data') is not True:
+            check_params['require_live_data'] = True
+        degraded_fallback = is_degraded_live_fallback(check_params, plan, live_data_mode=mode)
+        if degraded_fallback:
+            state['degraded_live_fallback'] = True
+        else:
+            state.pop('degraded_live_fallback', None)
+        receipt = {
             'task_id':plan['task_id'],'turn_id':C.current_trace_context().get('turn_id') or state.get('turn_id'),
             'page_id':plan['target_page_id'],'version_no':write['remote'].get('version_no'),
             'sha256':write['remote'].get('sha256'),'plan_hash':plan['plan_hash'],
@@ -269,6 +283,9 @@ def mark_verified(plan, result, *, complete, failure_kind=None):
             'delivery_kind':state['delivery_kind'],
             'covered_roles':[r['role_id'] for r in plan.get('runtime_roles',[])+plan.get('snapshot_roles',[])],
         }
+        if degraded_fallback:
+            receipt['degraded_live_fallback'] = True
+        state['publication_receipt'] = receipt
         return _save(state)
 
 

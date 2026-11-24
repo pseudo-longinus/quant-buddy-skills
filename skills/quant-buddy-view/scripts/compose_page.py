@@ -19,7 +19,10 @@ RECEIPT_FILE = 'receipts/compose-build.json'
 SUPPORTED = {'layout', 'layout+style', 'original'}
 
 COMPOSE_LAYOUT_CSS = (
-    '.qb-compose-module,.qb-compose-presentation{grid-column:1/-1;min-width:0}'
+    '.qb-compose-module,.qb-compose-presentation{grid-column:1/-1;min-width:0;max-width:100%}'
+    '.qb-compose-presentation>*{min-width:0;max-width:100%}'
+    '.qb-table-scroll{width:100%;max-width:100%;overflow-x:auto;overscroll-behavior-inline:contain;-webkit-overflow-scrolling:touch}'
+    '.qb-table-scroll>table{width:100%}'
     '.qb-compose-module>h2{margin:12px 0 20px;font-size:24px;line-height:1.4}'
     '.qb-compose-panels{display:grid;gap:20px;grid-template-columns:repeat(12,minmax(0,1fr));align-items:start}'
     '@media(max-width:680px) and (max-height:650px){'
@@ -31,6 +34,47 @@ COMPOSE_LAYOUT_CSS = (
     '.qb-compose-module>h2{margin:2px 0 6px;font-size:20px;line-height:1.25}'
     '}'
 )
+
+_TABLE_SCROLL_WRAPPERS = {'qb-table-scroll', 'prose-table'}
+
+
+def _wrap_bare_tables(fragment):
+    """Wrap bare <table> elements in a horizontal-scroll container to prevent 320px/390px overflow."""
+    source = str(fragment or '')
+    if '<table' not in source.lower():
+        return source
+    out = []
+    pos = 0
+    wrapper_stack = []
+    table_depth = 0
+    for match in re.finditer(r'<(/?)(table|div)\b([^>]*)>', source, re.I):
+        tag = match.group(2).lower()
+        is_close = bool(match.group(1))
+        attrs = match.group(3) or ''
+        if tag == 'div':
+            if not is_close:
+                cls_match = re.search(r'\bclass\s*=\s*["\']([^"\']*)["\']', attrs, re.I)
+                classes = set((cls_match.group(1) if cls_match else '').split())
+                wrapper_stack.append(bool(classes & _TABLE_SCROLL_WRAPPERS))
+            elif wrapper_stack:
+                wrapper_stack.pop()
+            continue
+        # tag == 'table'
+        if not is_close:
+            if table_depth == 0 and not any(wrapper_stack):
+                out.append(source[pos:match.start()])
+                out.append('<div class="qb-table-scroll">')
+                pos = match.start()
+            table_depth += 1
+        else:
+            if table_depth > 0:
+                table_depth -= 1
+                if table_depth == 0 and not any(wrapper_stack):
+                    out.append(source[pos:match.end()])
+                    out.append('</div>')
+                    pos = match.end()
+    out.append(source[pos:])
+    return ''.join(out)
 
 
 def _panel_shell(index, panel, *, show_title=True):
@@ -263,7 +307,8 @@ def build(params):
         else:
             # Standard panels own their mounted bodies; the authored file owns only
             # inert narrative/layout around those pre-validated containers.
-            document = document.replace('<div id="grid"></div>', '<div id="grid">' + presentation_info['body_html'] + '</div>', 1)
+            safe_body = _wrap_bare_tables(presentation_info['body_html'])
+            document = document.replace('<div id="grid"></div>', '<div id="grid">' + safe_body + '</div>', 1)
             document = document.replace('data-qb-page-design="research-v1"', 'data-qb-page-design="compose-bespoke-v1"', 1)
             if compose_quality.get('interactivityRequired'):
                 document = document.replace('<main class="qb-dashboard"', '<main class="qb-dashboard" data-qb-interactivity-required="true"', 1)

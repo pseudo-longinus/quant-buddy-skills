@@ -827,12 +827,16 @@ def http_json(method, url, hdrs, body=None, timeout=600):
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         try:
-            return json.loads(e.read().decode("utf-8"))
+            parsed = json.loads(e.read().decode("utf-8"))
+            if isinstance(parsed, dict):
+                parsed.setdefault("_http_status", e.code)
+            return parsed
         except Exception:
-            return {"code": e.code, "success": False,
+            return {"code": e.code, "_http_status": e.code, "success": False,
                     "error": {"message": getattr(e, "reason", str(e))}}
     except Exception as e:
-        return {"code": 1, "success": False, "error": {"message": str(e)}}
+        return {"code": 1, "_transport_error": True, "success": False,
+                "error": {"message": str(e)}}
 
 
 # ────────────────────────────────────────────────
@@ -1133,8 +1137,115 @@ def read_params(argv, env_var="VIEW_PARAMS"):
         sys.exit(1)
 
 
+_TELEMETRY_SECRET_RE = re.compile(
+    r"(?i)(api[_-]?key|authorization|access[_-]?token|bearer|signature)\s*[:=]\s*[^\s,\"'}{]+"
+)
+
+
+_LIVE_REG_BLOCK_ERRORS = {
+    "AUTH_CONTEXT_UNAVAILABLE",
+    "ACCOUNT_OR_ENV_MISMATCH",
+    "REGISTRATION_REJECTED",
+    "REGISTRATION_OUTCOME_UNKNOWN",
+    "LEGACY_PROOF_REQUIRED",
+    "RESEARCH_CALCULATION_LIMIT",
+    "REGISTRATION_VALIDATION_MISMATCH",
+    "MINUTE_PACKAGE_UNSUPPORTED",
+    "PACKAGE_REGISTRATION_FAILED",
+}
+
+
+def record_live_registration_blocked(task_id, error_code, *, script="qbs_bridge.py", turn_id=None, ts=None):
+    """Persist task-scoped evidence when live credential validation/registration
+    hits a platform/quota/auth block, allowing recovery or verified_snapshot/mixed
+    delivery without deadlocking on LIVE_REQUIREMENT_NOT_SATISFIED."""
+    try:
+        err_code = str(error_code or "").strip()
+        script_name = str(script or "").strip()
+        tid = str(task_id or "").strip()
+        if not tid or err_code not in _LIVE_REG_BLOCK_ERRORS:
+            return False
+        if script_name not in ("formula_package.py", "data_grant.py", "static_page.py", "qbs_bridge.py"):
+            return False
+        receipt = task_temp_path(tid, "receipts/live-registration-blocked.json", create_parent=True)
+        receipt.write_text(json.dumps({
+            "version": "qbv_live_reg_blocked_v1",
+            "task_id": tid,
+            "turn_id": turn_id,
+            "script": script_name,
+            "error_code": err_code,
+            "ts": ts or time.strftime("%Y-%m-%dT%H:%M:%S+0000", time.gmtime()),
+        }, ensure_ascii=False, indent=2), encoding="utf-8")
+        return True
+    except Exception:
+        return False
+
+
+def _record_live_reg_blocked(event):
+    """Persist task-scoped evidence when live credential registration fails,
+    allowing bespoke upload/update to degrade honestly to verified_snapshot."""
+    record_live_registration_blocked(
+        event.get("task_id"),
+        event.get("error_code"),
+        script=event.get("script"),
+        turn_id=event.get("turn_id"),
+        ts=event.get("ts"),
+    )
+
+
+def _record_error_telemetry(obj, out_name="view_out.txt"):
+    """Best-effort silent JSONL telemetry for non-zero tool outcomes; never blocks business flow."""
+    if not isinstance(obj, dict):
+        return
+    is_err = (
+        (obj.get("code") not in (None, 0))
+        or (obj.get("success") is False)
+        or (obj.get("valid") is False)
+        or bool(obj.get("error"))
+    )
+    if not is_err:
+        return
+    try:
+        target = os.environ.get("QB_ERROR_TELEMETRY_FILE") or os.path.join(
+            tempfile.gettempdir(), "qb-skill-error-telemetry.jsonl"
+        )
+        ctx = {}
+        try:
+            ctx = current_trace_context() or {}
+        except Exception:
+            ctx = {}
+        raw_msg = str(obj.get("message") or "")[:300]
+        raw_msg = _TELEMETRY_SECRET_RE.sub(r"\1=[REDACTED]", raw_msg)
+        event = {
+            "ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "skill": SKILL_NAME,
+            "script": os.path.basename(sys.argv[0]) if sys.argv else out_name,
+            "command": sys.argv[1] if len(sys.argv) > 1 and not str(sys.argv[1]).startswith(("{", "@")) else None,
+            "task_id": obj.get("task_id") or ctx.get("task_id"),
+            "turn_id": obj.get("turn_id") or ctx.get("turn_id"),
+            "page_id": obj.get("page_id") or obj.get("original_page_id"),
+            "code": obj.get("code"),
+            "error_code": obj.get("error") or (
+                obj["errors"][0].get("code")
+                if isinstance(obj.get("errors"), list) and obj["errors"] and isinstance(obj["errors"][0], dict)
+                else None
+            ),
+            "recovery_phase": obj.get("recovery_phase"),
+            "message": raw_msg,
+        }
+        parent = os.path.dirname(os.path.abspath(target))
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        with open(target, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(event, ensure_ascii=False) + "\n")
+        _record_live_reg_blocked(event)
+    except Exception:
+        pass
+
+
 def emit(obj, out_name="view_out.txt", *, compact=False):
     """打印结果（dict→JSON，或原样字符串），并写一份到临时文件防终端缓冲吞输出。"""
+    _record_error_telemetry(obj, out_name=out_name)
     text = obj if isinstance(obj, str) else json.dumps(
         obj, ensure_ascii=False, **({} if compact else {"indent": 2})
     )

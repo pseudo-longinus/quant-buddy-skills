@@ -434,7 +434,7 @@ function normalizeGrantData(kind, data) {
     if (!Array.isArray(data.records)) throw new Error('合约授权records格式错误');
     return data.records;
   }
-  if (k === 'fast_query_minute_range' || k === 'fast_query_minute_range_multi') {
+  if (k === 'fast_query_minute_range' || k === 'fast_query_minute_range_multi' || k === 'fast_query_option_minute') {
     return (data.rows || data.data || []).map(row => Object.fromEntries((data.columns || []).map((key, i) => [key, row[i]])));
   }
   if (k === 'fast_query_minute') {
@@ -1154,9 +1154,13 @@ function renderPanelBody(body, panel, span, merged) {
   body.__qbChartToken = null;
   const out = merged.out;
   if (out && out.error && typeof window !== 'undefined' && window.QBAssetInfoPanel && panelOutputNames(panel).includes(window.QBAssetInfoPanel.selectionOutput)) window.QBAssetInfoPanel.unavailable('本轮选股结果暂不可用，保留上次公司信息');
-  if (out && out.error) { body.innerHTML = '<p class="empty err">取数失败：' + esc(out.error) + '</p>'; if(body.dataset){body.dataset.qbRenderError=String(out.error);body.dataset.qbPresentation='failed';} return; }
-  if (!merged.tab) { if(CHART_TYPES.has(type)){setChartError(body,'图表无有效产出');return;} body.innerHTML = '<p class="empty">无产出：' + (panel.output || (panel.outputs || []).join('、') || '') + '</p>'; return; }
-  if (out && out.error) { body.innerHTML = '<p class="empty err">取数失败：' + out.error + '</p>'; return; }
+  if (out && out.error) {
+    if (typeof console !== 'undefined' && console.warn) console.warn('[QB:panel_error]', panel.title || panel.id || '', out.error);
+    body.innerHTML = '<p class="empty err">当前模块数据暂未加载完成，请稍后刷新重试。</p>';
+    if(body.dataset){body.dataset.qbRenderError=String(out.error);body.dataset.qbPresentation='failed';}
+    return;
+  }
+  if (!merged.tab) { if(CHART_TYPES.has(type)){setChartError(body,'图表暂无可展示数据');return;} body.innerHTML = '<p class="empty">当前模块暂无可展示数据。</p>'; return; }
   try {
     if(body.dataset)delete body.dataset.qbRenderError;
     const transformed = transformPanelTable(merged.tab, panel);
@@ -1171,8 +1175,9 @@ function renderPanelBody(body, panel, span, merged) {
     else { body.style.height = (panel.height || (span === 'full' ? 360 : 300)) + 'px'; renderChart(body, tab, panel); }
   } catch (e) {
     const chart=chartLibrary()?.getInstanceByDom?.(body); if(chart)chart.dispose();
+    if (typeof console !== 'undefined' && console.warn) console.warn('[QB:render_error]', panel.title || panel.id || '', e);
     if(body.dataset){body.dataset.qbRenderError=String(e);body.dataset.qbPresentation='failed';delete body.dataset.qbKlineEvidence;}
-    body.innerHTML = '<p class="empty err">渲染失败: ' + esc(e) + '</p>';
+    body.innerHTML = '<p class="empty err">当前模块展示暂未就绪，请稍后刷新重试。</p>';
   }
 }
 
@@ -2068,7 +2073,7 @@ def _normalize_grant_data(kind, data):
         if not isinstance(data.get("records"), list):
             raise ValueError("合约授权records格式错误")
         return data["records"]
-    if k in ("fast_query_minute_range", "fast_query_minute_range_multi"):
+    if k in ("fast_query_minute_range", "fast_query_minute_range_multi", "fast_query_option_minute"):
         return [dict(zip(data.get("columns") or [], row)) for row in (data.get("rows") if isinstance(data.get("rows"), list) else data.get("data")) or []]
     if k == "fast_query_minute":
         return [{"日期": date, **{key: values[i] if i < len(values) else None

@@ -36,7 +36,72 @@ def next_action(task, plan):
 REPAIR_BUDGET = 2
 # Real compose_page builds per task/turn: the initial build plus REPAIR_BUDGET repairs.
 BUILD_BUDGET = 1 + REPAIR_BUDGET
+# Extra layout-only repair builds when live/data bindings are intact and only
+# responsive/viewport layout checks (e.g. 320px/390px horizontal overflow) failed.
+LAYOUT_REPAIR_BUDGET = 2
 NETWORK_UNREACHABLE = 'network_unreachable'
+
+_DATA_OR_LIVE_ERROR_RE = re.compile(
+    r'LIVE_|GRANT_|PACKAGE_|REGISTRATION_|DATA_UNAVAILABLE|NETWORK_|'
+    r'PUBLISH_OUTCOME_UNKNOWN|PUBLISH_VERSION_CONFLICT|UNRESOLVED_DATA|'
+    r'取数失败|请求失败|未发起真实请求|数据合同|公式包|授权失败',
+    re.I,
+)
+_LAYOUT_ONLY_ERROR_RE = re.compile(
+    r'横向溢出|溢出|horizontal|overflow|firstScreen|first_screen|首屏|'
+    r'viewport|320|390|排版|布局|scrollWidth|表格容器|LAYOUT',
+    re.I,
+)
+_INTERNAL_ID_RE = re.compile(r'^[A-Za-z0-9_.:-]+$')
+
+
+def is_layout_only_failure(state):
+    """True when the last recorded failure is purely responsive/layout, not data/live failure."""
+    if not isinstance(state, dict) or not state.get('last_failed'):
+        return False
+    report = state.get('report') or {}
+    stages = report.get('stages') or {}
+    chunks = [str(state.get('error_code') or ''), str(report.get('error') or '')]
+    for stage in stages.values():
+        if not isinstance(stage, dict):
+            continue
+        if stage.get('error'):
+            chunks.append(str(stage.get('error')))
+        if stage.get('message'):
+            chunks.append(str(stage.get('message')))
+        for item in stage.get('problems') or []:
+            chunks.append(str(item))
+        if stage.get('firstScreenDiagnostics'):
+            chunks.append('firstScreen')
+    blob = ' '.join(chunks)
+    if not blob.strip():
+        return False
+    if _DATA_OR_LIVE_ERROR_RE.search(blob):
+        return False
+    return bool(_LAYOUT_ONLY_ERROR_RE.search(blob))
+
+
+def _friendly_role_title(role_id, fallback='已核验数据'):
+    text = str(role_id or '').strip()
+    if not text or _INTERNAL_ID_RE.fullmatch(text):
+        return fallback
+    return text
+
+
+def _friendly_gap_text(item):
+    if not isinstance(item, dict):
+        text = str(item or '').strip()
+        if not text or _INTERNAL_ID_RE.fullmatch(text):
+            return '部分补充维度暂未纳入当前快照'
+        return text
+    code = str(item.get('error') or '').strip()
+    if code == 'LIVE_REQUIREMENT_NOT_SATISFIED':
+        return '自动实时刷新暂未启用，当前展示已核验的数据快照'
+    for key in ('description', 'label', 'title'):
+        val = str(item.get(key) or '').strip()
+        if val and not _INTERNAL_ID_RE.fullmatch(val):
+            return val
+    return '部分补充维度暂未纳入当前快照'
 
 CALLER_INPUT_ERRORS = {
     'RESEARCH_PLAN_CONFLICT', 'SNAPSHOT_PLAN_REQUIRED',
@@ -115,6 +180,8 @@ def compose_build_gate(params, plan):
     state = _turn_state(task, params)
     builds = int(state.get('compose_builds', 0) or 0)
     if builds < BUILD_BUDGET:
+        return None
+    if is_layout_only_failure(state) and builds < BUILD_BUDGET + LAYOUT_REPAIR_BUDGET:
         return None
     if state.get('degraded_plan_hash') == plan['plan_hash'] and not state.get('degraded_built'):
         return None
@@ -271,9 +338,12 @@ def record(params, result):
                 result.update({k:v for k,v in backup.items() if k.startswith('artifact_')})
         if not state['last_failed']:
             public = DS.load(task, plan['target_page_id'])
-            public.update(live_data_mode=params.get('live_data_mode','unknown'), research_status=plan.get('research_status','unknown'), delivery_kind=plan.get('delivery_kind','result'))
+            effective_mode = params.get('live_data_mode') or public.get('live_data_mode') or 'unknown'
+            public.update(live_data_mode=effective_mode, research_status=plan.get('research_status','unknown'), delivery_kind=plan.get('delivery_kind','result'))
             DS._save(public)
             result.update(live_data_mode=public['live_data_mode'], research_status=public['research_status'], delivery_kind=public['delivery_kind'])
+            if public.get('degraded_live_fallback') is True and effective_mode in ('verified_snapshot', 'researched_static'):
+                result['degraded_live_fallback'] = True
         EP.atomic_json(C.task_temp_path(task, FILE, create_parent=True), state)
     return result
 
@@ -399,7 +469,7 @@ def _handoff_snapshot_recovery(params,plan,changes,modules,panels):
     text_panels=[copy.deepcopy(p) for p in panels if p.get('type') in ('text','image')]
     default_module=modules[0] if modules else '已验证研究结果'
     for role in snapshot_roles:
-        title=str(role.get('role_id') or '已验证数据')
+        title=_friendly_role_title(role.get('role_id'),'已核验数据')
         panel_id=_handoff_panel_id(role.get('role_id') or title)
         if prior_authored:
             changes['presentation']=CP.ensure_mount(plan['task_id'],changes['presentation'],panel_id,title)
@@ -411,11 +481,15 @@ def _handoff_snapshot_recovery(params,plan,changes,modules,panels):
         })
     missing=bundle.get('missing_roles') or []
     if missing:
+        missing_notes = []
+        for role in missing:
+            label = str(role or '').strip()
+            missing_notes.append(f'待补充维度：{label}' if (label and not _INTERNAL_ID_RE.fullmatch(label)) else '部分补充维度数据暂未纳入当前快照')
         text_panels.append({
-            'type':'text','title':'研究覆盖与缺口','compose_module':default_module,
-            'text':'本页为已验证快照的部分研究成果，不会自动更新。\n'+
-                   '\n'.join('缺失角色：'+str(role) for role in missing)+
-                   '\n缺失角色未被当作零命中或已核验条件。'
+            'type':'text','title':'数据范围说明','compose_module':default_module,
+            'text':'本页展示本轮已核验的数据快照，不会自动更新。\n'+
+                   '\n'.join(dict.fromkeys(missing_notes))+
+                   '\n未纳入维度不代表筛选结果为零。'
         })
     # Presentation Mode requires every panel to own a mount, text panels included.
     _ensure_panel_ids(text_panels,'handoff')
@@ -427,8 +501,8 @@ def _handoff_snapshot_recovery(params,plan,changes,modules,panels):
         changes['presentation_origin']='authored'
     else:
         changes['presentation']=_machine_presentation_for_panels(plan['task_id'],text_panels,changes['title'],
-            '本页展示本轮已通过QBS handoff校验的数据快照；结论只覆盖已验证角色，缺失角色不视为零命中。',
-            ['已验证数据组 '+str(sum(1 for p in text_panels if p.get('type') not in ('text','image'))),'数据模式 verified snapshot'],
+            '本页展示本轮已核验的数据快照；已覆盖维度可正常查阅，未覆盖维度不视为零命中。',
+            ['已核验数据组 '+str(sum(1 for p in text_panels if p.get('type') not in ('text','image'))),'数据状态 已核验快照'],
             'handoff-presentation.html')
         changes['presentation_origin']='machine'
     changes.update(
@@ -660,6 +734,29 @@ def _recover(params):
         changes.update(module_order=data+[m for m in modules if m not in data], panels=panels)
         out = SP.cmd_execution_plan(changes)
         return {**out, 'recovery_phase':'targeted_repair', 'repair_attempts_remaining':repair_attempts_remaining(state)}
+    # When live runtime bindings are intact and the only failure was responsive/layout
+    # verification of a custom presentation (e.g. 320px/390px table overflow), keep
+    # live bindings intact and fall back to the guaranteed-responsive standard layout
+    # instead of downgrading a healthy live page into a static snapshot.
+    if plan.get('runtime_roles') and is_layout_only_failure(state) and isinstance(prior.get('presentation'), dict):
+        changes.pop('presentation', None)
+        changes.pop('presentation_origin', None)
+        data = [m for m in modules if any(p.get('compose_module') == m and p.get('type') not in ('text', 'image') for p in panels)]
+        changes.update(
+            runtime_roles=plan['runtime_roles'],
+            panels=panels,
+            module_order=data + [m for m in modules if m not in data],
+            live_data_mode=prior.get('live_data_mode') or 'live',
+            revision_reason='layout_fallback_preserve_live',
+        )
+        out = SP.cmd_execution_plan(changes)
+        out.update(
+            recovery_phase='layout_fallback_live',
+            original_page_id=plan['target_page_id'],
+            preserved_candidate_file=preserved_candidate_file,
+            message='实时数据绑定完好，已自动切换至移动端防溢出标准响应式布局；请直接重新构建并发布实时活页。',
+        )
+        return out
     frozen, missing = [], []
     for role in plan['runtime_roles']:
         result = VS.materialize_registered({'task_id':task,'validation_receipt_file':role.get('validation_receipt_file')})
@@ -712,7 +809,7 @@ def _recover(params):
         for role in frozen:
             receipt = str(Path(role['snapshot_receipt_file']).resolve())
             if receipt in consumed_files: continue
-            panels.append(_evidence_panel(task, role, str(role.get('role_id') or '已验证数据'), default_module))
+            panels.append(_evidence_panel(task, role, _friendly_role_title(role.get('role_id'), '已核验数据'), default_module))
             consumed_files.add(receipt)
         changes.update(runtime_roles=[],snapshot_roles=frozen,panels=panels, live_data_mode='verified_snapshot')
         if evidence_roles or missing or plan.get('require_live_data') or plan.get('research_status') == 'partial':
@@ -723,11 +820,11 @@ def _recover(params):
                                             'research_status':'partial','issues':gaps})
         changes['description'] = '已验证数据的静态研究页，展示实际观察日和研究口径，不会自动更新。'+('部分数据待补。' if changes.get('delivery_kind') == 'partial_research' else '')
         if changes.get('delivery_kind') == 'partial_research':
-            gap_lines = ['核验缺口：'+str(item.get('condition_id') or item.get('role_id') or item.get('error')) for item in gaps]
+            gap_lines = list(dict.fromkeys('数据说明：' + _friendly_gap_text(item) for item in gaps))
             panels.append({'type':'text','title':'研究覆盖与缺口','compose_module':str((panels[0] if panels else {}).get('compose_module') or (modules[0] if modules else '已验证研究结果')),
-                           'text':'本页展示已验证数据快照，快照不会自动更新。\n'+
-                                  ('\n'.join(gap_lines) if gap_lines else '其余维度数据待补。')+
-                                  '\n已确认的策略条件保持不变，缺失条件未被视为通过。'})
+                           'text':'本页展示已核验的数据快照，不会自动更新。\n'+
+                                  ('\n'.join(gap_lines) if gap_lines else '其余补充维度暂未纳入当前快照。')+
+                                  '\n已确认的研究条件保持不变，未纳入条件未被视为通过或零命中。'})
         # Degraded snapshot deliveries never ship as bare auto tables: give every
         # panel a mountable id and default a machine presentation; authored
         # presentations keep their file and only get recovery mounts appended.
@@ -740,8 +837,8 @@ def _recover(params):
             data_count=sum(1 for p in panels if p.get('type') not in ('text','image'))
             fallback_title=changes.get('title') or '已验证数据研究页'
             changes['presentation']=_machine_presentation_for_panels(task,panels,fallback_title,
-                '本页为本轮可恢复的已验证数据快照；当前为机器保底版式，交付前应替换为手写presentation并保留数据缺口说明。',
-                ['已验证数据组 '+str(data_count),'数据模式 verified snapshot'],
+                '本页展示本轮已核验的数据快照，供静态查阅；自动实时刷新暂未开启。',
+                ['已核验数据组 '+str(data_count),'数据状态 已核验快照'],
                 'recovery-presentation.html')
             changes['presentation_origin']='machine'
     else:
@@ -798,10 +895,10 @@ def _recover(params):
                 changes['presentation_origin']='authored'
             else:
                 changes['presentation']=_machine_presentation_for_panels(task,panels,changes['title'],
-                    '本页为公开来源研究静态页的机器保底骨架；联网检索后用手写presentation替换：首屏=结论+关键数字+来源日期，保留 data-qb-sources 来源汇总区。',
-                    ['数据模式 公开来源','QBS验证 未执行'],
+                    '本页基于公开来源整理相关研究信息与关键观察，供静态参考查阅。',
+                    ['数据来源 公开资料','更新方式 静态快照'],
                     'researched-presentation.html',
-                    sources_note='待联网检索后逐条列出来源、发布方与发布日期；替换骨架时保留本区块。')
+                    sources_note='页面数据整理自公开资料，具体发布方与发布日期见下方来源列表。')
                 changes['presentation_origin']='machine'
             changes.update(research_contract=contract, research_status='partial',delivery_kind='partial_research',
                            runtime_roles=[],snapshot_roles=[],panels=panels,live_data_mode='researched_static',

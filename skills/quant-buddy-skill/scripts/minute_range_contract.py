@@ -66,6 +66,78 @@ def validate_multi_request(payload):
     if 'with_adjustment' in payload and type(payload['with_adjustment']) is not bool: add('INVALID_PARAMETER', 'with_adjustment须为布尔值')
     return errors
 
+
+OPTION_MINUTE_PARAMS = {
+    'assets', 'asset', 'market', 'slots', 'date_mode', 'start_date', 'end_date',
+    'lookback_trade_days', 'end_trade_offset', 'start_minute', 'end_minute',
+    'timezone', 'include_contracts', 'contracts_mode',
+}
+OPTION_SLOTS = {f'{t}-{n}' for t in ('E1', 'E2') for n in ('ATM-CALL', 'ATM-PUT', '25C', '25P')}
+OPTION_MARKETS = ('cn_commodity_option', 'cn_index_option', 'cn_etf_option', 'cn_option_all')
+
+
+def validate_option_minute_request(payload):
+    """Public domestic option-minute contract validation; no network I/O."""
+    if not isinstance(payload, dict):
+        return [('INVALID_PAYLOAD', '参数必须为对象')]
+    errors = []
+    def add(code, message): errors.append((code, message))
+    extra = sorted(set(payload) - OPTION_MINUTE_PARAMS)
+    if extra: add('UNKNOWN_PARAMETER', '不支持字段：' + ', '.join(extra) + '；不传tickers/format/fields')
+    if sum(k in payload for k in ('asset', 'assets', 'market')) != 1:
+        add('PARAMETER_CONFLICT', 'assets、asset、market必须且只能提供一个')
+    def asset_ok(value): return isinstance(value, str) and 1 <= len(value.strip()) <= 100
+    if 'asset' in payload and not asset_ok(payload['asset']): add('INVALID_ASSET', 'asset须为非空名称或代码')
+    if 'assets' in payload:
+        assets = payload['assets']
+        if not isinstance(assets, list) or not 1 <= len(assets) <= 500 or not all(asset_ok(a) for a in assets):
+            add('INVALID_ASSETS', 'assets须为1～500个名称或代码')
+    if 'market' in payload and payload['market'] not in OPTION_MARKETS:
+        add('INVALID_MARKET', 'market不在支持的国内期权市场范围')
+    if 'slots' in payload:
+        slots = payload['slots']
+        if (not isinstance(slots, list) or not 1 <= len(slots) <= 8 or
+            any(not isinstance(s, str) or s not in OPTION_SLOTS for s in slots) or len(set(slots)) != len(slots)):
+            add('INVALID_SLOTS', 'slots须为1～8个不重复合法槽位')
+    has_abs = 'start_date' in payload or 'end_date' in payload
+    mode = payload.get('date_mode', 'absolute' if has_abs else 'current_trade_day')
+    if mode not in ('absolute', 'rolling', 'current_trade_day'): add('INVALID_DATE_MODE', 'date_mode不支持')
+    if mode == 'absolute':
+        if any(k in payload for k in ('lookback_trade_days', 'end_trade_offset')): add('PARAMETER_CONFLICT', 'absolute禁止rolling参数')
+        try:
+            start = multi_date(payload.get('start_date'))
+            end = multi_date(payload.get('end_date', payload.get('start_date')))
+            if not 0 <= (end - start).days <= 372: add('INVALID_DATE_RANGE', '区间需正序且最多373自然日')
+        except (ValueError, TypeError): add('INVALID_DATE', 'absolute需要start_date真实日期，end_date默认同日')
+    elif mode in ('rolling', 'current_trade_day'):
+        forbidden = ('start_date', 'end_date') + (('lookback_trade_days', 'end_trade_offset') if mode == 'current_trade_day' else ())
+        if any(k in payload for k in forbidden): add('PARAMETER_CONFLICT', mode + '日期参数冲突')
+    if mode == 'rolling':
+        for key, lo, hi, default in (('lookback_trade_days', 1, 373, 1), ('end_trade_offset', -372, 0, 0)):
+            value = payload.get(key, default)
+            if type(value) is not int or not lo <= value <= hi: add('INVALID_PARAMETER', key + '超出整数范围')
+    for key in ('start_minute', 'end_minute'):
+        value = payload.get(key)
+        if value is None: continue
+        raw = str(value) if type(value) is int else value
+        if isinstance(raw, str) and re.fullmatch(r'(?:[0-9]{1,4}|[0-9]{1,2}:[0-9]{2})', raw):
+            digits = raw.replace(':', '').zfill(4)
+            if int(digits[:2]) < 24 and int(digits[2:]) < 60: continue
+        add('INVALID_MINUTE', key + '须为HH:MM/HHMM或null')
+    if 'timezone' in payload and (not isinstance(payload['timezone'], str) or not payload['timezone'].strip()):
+        add('INVALID_TIMEZONE', 'timezone须为IANA时区')
+    inc = payload.get('include_contracts', False)
+    if 'include_contracts' in payload and type(inc) is not bool:
+        add('INVALID_INCLUDE_CONTRACTS', 'include_contracts须为布尔值')
+    if 'contracts_mode' in payload:
+        if inc is not True: add('PARAMETER_CONFLICT', 'contracts_mode仅在include_contracts=true时允许')
+        elif payload['contracts_mode'] not in ('changes', 'daily'): add('INVALID_CONTRACTS_MODE', 'contracts_mode只能为changes或daily')
+    if inc is True:
+        if 'market' in payload: add('CONTRACTS_ASSET_LIMIT_EXCEEDED', 'market全市场查询不支持include_contracts=true')
+        elif isinstance(payload.get('assets'), list) and len(set(a.strip() for a in payload['assets'] if isinstance(a, str))) > 10:
+            add('CONTRACTS_ASSET_LIMIT_EXCEEDED', 'include_contracts=true单次最多支持10个标的')
+    return errors
+
 def validate_request(payload):
     if not isinstance(payload, dict):
         return [('INVALID_PAYLOAD', '参数必须为对象')]

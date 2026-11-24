@@ -38,7 +38,7 @@ signature从同任务凭据补全，也可显式传同一签名；target_selecto
 
 公式选股使用实际公式输出名；指标选股Grant使用解析后的table.output（普通授权即grant_id），不另起selected等别名。asset_field/name_field也按归一后的真实列名传入，composition_select通常为“代码”/“名称”。
 
-Bespoke在选股业务脚本前放 `<!-- QB_ASSET_INFO -->`，编译时传asset_info。先画真实量化表，再调用 `QBAssetInfoPanel.setTable(columns, rows)`，传本轮当前展示集合；columns为列名数组，rows可为对应位置的数组行或按相同列名取值的对象行，如 `setTable(['代码','名称'],[{'代码':'SZ002148','名称':'北纬科技'}])`；不await信息区。每行必须有非空字符串代码，无效名单明确报错并保留上次内容，不能当作零入选。取数前pause()，失败unavailable(message)，空结果仍setTable。保留完整官方分享壳，初始化QBShareShell.init时传同环境embedOrigin：Test为 `https://test.quantbuddy.cn`、正式为 `https://www.quantbuddy.cn`。声明式整页自动传入；局部面板宿主应自己设置。带公司信息模块时，分享壳漏传embedOrigin会从同页完整官方SDK地址推导默认环境；显式环境不被覆盖，非官方地址不参与推导，环境不一致仍须拒绝。编译器插入同环境官方桥接与收费说明、强刷入口。
+Bespoke在选股业务脚本前放 `<!-- QB_ASSET_INFO -->`，编译时传asset_info。榜单与公司信息使用同一份本轮展示集合。先画量化表，再将榜单使用的键控行原样传给 `QBAssetInfoPanel.setSelection(rows)`；模块直接复用编译配置里的 `asset_field` / `name_field`。例如行是 `{asset:'SZ002148',name:'北纬科技'}`，则配置 `asset_field:"asset", name_field:"name"`，不要再把表头文案 `代码` / `名称` 当作数据键。数组行或已有调用可继续 `setTable(columns, rows)`，其中 `columns` 是实际数据键（不是显示标题）。编译和上传会拒绝缺少配置代码键的显式字面量列；动态列仍须通过浏览器名单验收。不 await 信息区。每行必须有非空字符串代码，无效名单明确报错并保留上次内容，不能当作零入选。取数前pause()，失败unavailable(message)，空结果调用 `setSelection([])`（数组行路径调用 `setTable(columns, [])`）。保留完整官方分享壳，初始化QBShareShell.init时传同环境embedOrigin：Test为 `https://test.quantbuddy.cn`、正式为 `https://www.quantbuddy.cn`。声明式整页自动传入；局部面板宿主应自己设置。带公司信息模块时，分享壳漏传embedOrigin会从同页完整官方SDK地址推导默认环境；显式环境不被覆盖，非官方地址不参与推导，环境不一致仍须拒绝。编译器插入同环境官方桥接与收费说明、强刷入口。
 
 只保留一个 `<!-- QB_ASSET_INFO -->` 占位符，不手写同名公司信息容器、配置或运行脚本；由编译器插入唯一官方模块。编译、发布及浏览器门禁检查目标与模块唯一且一致；本版介绍、常驻计费说明及强刷控件必须保持hidden。名单先于分享壳页头初始化到达时等待页头地址就绪，不等待登录身份；地址确定后仍严格拒绝跨环境。
 
@@ -48,7 +48,7 @@ Bespoke在选股业务脚本前放 `<!-- QB_ASSET_INFO -->`，编译时传asset_
 
 当前版本按产品展示要求，不展示公司信息介绍、常驻计费说明与强刷按钮；保留hidden元素和官方data标记供SDK及发布合同核验，页面仍按缓存状态自动加载公司信息。卡片右上角显示本次费用状态，鼠标悬停、键盘聚焦或点击可查看缓存与计费规则，支持Escape及点击外部关闭；手机以卡内展开方式显示规则。缓存命中显示本次0积分；本次响应billing.charged_points有效且无未结算状态时显示实际消耗，pending/blocked显示费用结算中，缺失或无效回执显示费用待确认，不能自行拆分整批费用。generation_cost仅为历史成本，不能证明本次扣分。内容快照状态及生成时间保留在卡片底部。规则明确各股票独立缓存、北京时间每日04:00/16:00过期、过期后首次访问才触发更新，到点不会自动生成或扣费。保留官方页头及现有数据授权验签；普通更新不附加登录限制。隐藏展示不关闭后端计费：由后端记录page_id、asset、trace_id、Token用量和billing_receipt.charged_points。
 
-本地编译/浏览器预检不加载LLM内容；模块只在HTTPS的pages.quantbuddy.cn上登记展示集合。本地预览仍画量化表和信息区，提示内容将在公开活页中加载，避免预检意外消耗生成费用。
+普通加载支持 HTTPS 公开活页和官网注入页 ID、加载模式的站内沙箱预览。工作台当前版和策略详情按普通授权加载；历史版本与演化对比仅通过 `cache_only:true` 读当前缓存，并非历史时点的公司信息。站内预览不传登录凭证、不创建内层页头、不支持强刷。本地编译、顶层截图与离线预检不触发加载或计费。
 
 浏览器验收读取 `getSelectionState()` 检查名单绑定及当前页卡片是否一致；尚未绑定、名单无效或卡片缺失不能通过。合法空名单可通过；不等待内容生成，不把只读、无缓存或费用待结算判为名单失败。
 

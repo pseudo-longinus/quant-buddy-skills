@@ -166,6 +166,74 @@ def required_module_error(source, params=None):
     return None
 
 
+# This is deliberately a literal-only check, not a JavaScript interpreter.
+# Dynamic columns must still pass the browser selection check on real rows.
+_JS_COMMENT = r'//[^\r\n]*|/\*[\s\S]*?\*/'
+_JS_TRIVIA = rf'(?:\s|{_JS_COMMENT})*'
+_JS_PLAIN_STRING = r'''(?:"[^"\\\r\n]*"|'[^'\\\r\n]*')'''
+_JS_COLUMN_LIST = re.compile(
+    rf'{_JS_TRIVIA}\[(?P<columns>{_JS_TRIVIA}'
+    rf'(?:{_JS_PLAIN_STRING}{_JS_TRIVIA}(?:,{_JS_TRIVIA}{_JS_PLAIN_STRING}{_JS_TRIVIA})*'
+    rf'(?:,{_JS_TRIVIA})?)?)\]{_JS_TRIVIA},'
+)
+_JS_COLUMN_TOKEN = re.compile(rf'{_JS_COMMENT}|(?P<column>{_JS_PLAIN_STRING})')
+_JS_CALL_OR_IGNORED = re.compile(
+    rf'''{_JS_COMMENT}|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|`(?:\\[\s\S]|[^`\\])*`'''
+    r'|(?P<call>\bQBAssetInfoPanel\s*\??\.\s*setTable\s*\()'
+)
+
+
+def validate_literal_selection_columns(source, config):
+    """Refuse a provably wrong explicit column list before writing the page."""
+    asset_field = config.get('asset_field')
+    if not isinstance(asset_field, str) or not asset_field:
+        return
+
+    class Scripts(HTMLParser):
+        def __init__(self):
+            super().__init__(convert_charrefs=False)
+            self.scripts = []
+            self.current = None
+            self.template_depth = 0
+
+        def handle_starttag(self, tag, attributes):
+            if tag == 'template':
+                self.template_depth += 1
+            if tag == 'script' and not self.template_depth:
+                attrs = dict(attributes)
+                kind = (attrs.get('type') or '').partition(';')[0].strip().lower()
+                if 'src' not in attrs and kind in ('', 'module', 'text/javascript', 'application/javascript'):
+                    self.current = []
+                    self.scripts.append(self.current)
+
+        def handle_endtag(self, tag):
+            if tag == 'script':
+                self.current = None
+            if tag == 'template' and self.template_depth:
+                self.template_depth -= 1
+
+        def handle_data(self, data):
+            if self.current is not None:
+                self.current.append(data)
+
+    parsed = Scripts()
+    parsed.feed(source)
+    parsed.close()
+    for chunks in parsed.scripts:
+        script = ''.join(chunks)
+        for token in _JS_CALL_OR_IGNORED.finditer(script):
+            if token.group('call') is None:
+                continue
+            literal = _JS_COLUMN_LIST.match(script, token.end())
+            if literal:
+                columns = [t['column'][1:-1] for t in _JS_COLUMN_TOKEN.finditer(literal['columns']) if t['column']]
+                if asset_field not in columns:
+                    raise ValueError(
+                        f'ASSET_INFO_SELECTION_SCHEMA_MISMATCH: setTable 的列名不包含配置的股票代码字段 {asset_field!r}；'
+                        '请使用同一份选股结果字段，或传入按配置字段键控的行给 QBAssetInfoPanel.setSelection(rows)。'
+                    )
+
+
 def validate_panel_structure(source, config):
     """Require one bound official module and hidden controls in this release."""
     class Elements(HTMLParser):
@@ -206,6 +274,7 @@ def validate_html(source, endpoint):
                 raise ValueError('asset_info页头与桥接脚本环境不一致')
         if not all(isinstance(config.get(f), str) and config[f].strip() for f in ('grant_id', 'signature', 'selection_output', 'asset_field')):
             raise ValueError('asset_info页面缺少授权或选股结果绑定')
+        validate_literal_selection_columns(source, config)
     except (ValueError, TypeError, KeyError) as exc:
         return {'code': 1, 'error': 'ASSET_INFO_PAGE_INVALID', 'message': str(exc)}
     return None

@@ -37,6 +37,97 @@ def live_required(params):
     return params.get('require_live_data') is True or live_requested(query)
 
 
+def _has_live_registration_block(task):
+    if not task:
+        return False
+    try:
+        import json as _json
+        blocked_path = C.task_temp_path(task, 'receipts/live-registration-blocked.json')
+        if blocked_path.is_file():
+            rec = _json.loads(blocked_path.read_text(encoding='utf-8'))
+            if isinstance(rec, dict) and rec.get('task_id') == task and rec.get('error_code'):
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def _has_task_registered_grants(task):
+    if not task:
+        return False
+    try:
+        cred_dir = C.task_temp_path(task, 'credentials/grant')
+        if cred_dir.is_dir() and any(cred_dir.glob('*.json')):
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _has_verified_snapshot_evidence(params, plan=None, task=None):
+    p = params if isinstance(params, dict) else {}
+    if p.get('validation_receipt_files') or p.get('validation_receipt_file') or p.get('snapshot_roles'):
+        return True
+    if p.get('grant_ids') or p.get('data_grants') or p.get('registered_grants'):
+        return True
+    if isinstance(plan, dict) and (plan.get('snapshot_roles') or plan.get('runtime_roles')):
+        return True
+    if task and _has_task_registered_grants(task):
+        return True
+    return False
+
+
+def is_authorized_recovery_fallback(params, plan=None):
+    """True when the target plan/upload is an authorized degraded fallback for
+    this turn: either (a) a bounded recover_delivery plan bound via
+    degraded_plan_hash, or (b) a verified_snapshot upload/update after live
+    formula/grant validation or registration failed with a real platform/quota/auth
+    error in this task.
+    """
+    task = (plan or {}).get('task_id') or (params or {}).get('task_id') or C.current_trace_context().get('task_id')
+    if not task:
+        return False
+    mode = str((params or {}).get('live_data_mode') or (plan or {}).get('live_data_mode') or '').strip()
+    inferred_snapshot = (not mode) and _has_verified_snapshot_evidence(params, plan, task=task)
+    if mode not in ('verified_snapshot', 'researched_static') and not inferred_snapshot:
+        return False
+    # Case (b): Bespoke verified_snapshot / partial-live fallback after real registration/quota block.
+    if (mode == 'verified_snapshot' or inferred_snapshot) and _has_live_registration_block(task):
+        return True
+    if inferred_snapshot:
+        return False
+    if plan is None:
+        import execution_plan as EP
+        plan = EP.load(task)
+    if not isinstance(plan, dict) or not plan.get('plan_hash'):
+        return False
+    import delivery_recovery as DR
+    rstate = DR.load(task)
+    if not isinstance(rstate, dict) or rstate.get('degraded_plan_hash') != plan['plan_hash']:
+        return False
+    if mode == 'verified_snapshot':
+        return bool(plan.get('snapshot_roles'))
+    if mode == 'researched_static':
+        return rstate.get('researched_static_plan_hash') == plan['plan_hash']
+    return False
+
+
+DEGRADED_LIVE_FALLBACK_MODES = ('verified_snapshot', 'researched_static')
+
+
+def is_degraded_live_fallback(params, plan=None, *, live_data_mode=None):
+    """True when a live-required task legitimately fell back to an authorized snapshot/researched static mode."""
+    p = dict(params or {})
+    if isinstance(plan, dict) and plan.get('require_live_data') is True and p.get('require_live_data') is not True:
+        p['require_live_data'] = True
+    if not live_required(p):
+        return False
+    mode = str(live_data_mode or p.get('live_data_mode') or (plan or {}).get('live_data_mode') or '').strip()
+    if mode not in DEGRADED_LIVE_FALLBACK_MODES:
+        return False
+    return is_authorized_recovery_fallback({**p, 'live_data_mode': mode}, plan)
+
+
 def live_delivery_error(params, plan=None):
     """Reject an explicit live delivery before it can infer a stale data scope."""
     if not live_required(params):
@@ -45,6 +136,8 @@ def live_delivery_error(params, plan=None):
         import execution_plan as EP
         plan = EP.load(params.get('task_id') or C.current_trace_context().get('task_id'))
     if not isinstance(plan, dict):
+        return None
+    if is_authorized_recovery_fallback(params, plan):
         return None
     scope = plan.get('target_scope') if isinstance(plan.get('target_scope'), dict) else {}
     task = plan.get('task_id') or params.get('task_id')
@@ -275,6 +368,17 @@ def recovery_boundary(params, plan=None, state=None):
     if blocked: return blocked
     if live_required(params) and not ((state or {}).get('turn_id')==C.current_trace_context().get('turn_id')
                                    and (state or {}).get('verified') and (state or {}).get('live_data_mode') in ('live','mixed')):
+        # Allow recovery when the current plan already honors require_live_data=True
+        # and has either hit a layout-only failure (where recover preserves live
+        # bindings) or exhausted/failed candidate builds in this turn.
+        if isinstance(plan, dict) and plan.get('require_live_data') is True and task:
+            import delivery_recovery as DR
+            rstate = DR._turn_state(task, params)
+            if ((plan.get('runtime_roles') and DR.is_layout_only_failure(rstate))
+                    or int(rstate.get('failures', 0) or 0) >= 1
+                    or int(rstate.get('compose_builds', 0) or 0) >= DR.BUILD_BUDGET
+                    or _has_live_registration_block(task)):
+                return None
         return {'code':1,'error':'LIVE_REQUIREMENT_NOT_SATISFIED','terminal':False,
                 'preserved_existing_page':bool(page),'page_id':page,
                 'message':'本轮自动更新尚未核验；保留原页，按当前要求完成数据绑定与真实取数验收',

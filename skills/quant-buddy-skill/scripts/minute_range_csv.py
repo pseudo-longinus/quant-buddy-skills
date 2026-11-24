@@ -49,7 +49,7 @@ def parse_multi_result(manifest, text=None):
                 day = multi_date(value)
                 if not start <= day <= end: raise ValueError('多资产分钟交易日越界')
                 row.append(int(day.strftime('%Y%m%d')))
-            elif name == 'timestamp' or name in _OHLCVA or name == 'open_interest':
+            elif name == 'timestamp' or name in _OHLCVA or name in ('open_interest', 'self_iv', 'self_delta'):
                 if value is None or (isinstance(value, str) and value.strip().lower() in _NULLS):
                     if name == 'timestamp': raise ValueError('多资产分钟时间戳缺失')
                     row.append(None)

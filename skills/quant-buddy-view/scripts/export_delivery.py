@@ -119,6 +119,10 @@ def export(task, turn, reply_text='', *, finalize_reply=False, plan_only=False):
                         projected = {'schema_version': 1, 'task_id': task, 'turn_id': turn, 'status': 'succeeded',
                                 'page_delivery_required': True, 'page_id': page,
                                 'result_url': _url(good['url']), 'version_no': good['version_no']}
+                        if state.get('live_data_mode'):
+                            projected['live_data_mode'] = state['live_data_mode']
+                        if state.get('degraded_live_fallback') is True and state.get('live_data_mode') in ('verified_snapshot', 'researched_static'):
+                            projected['degraded_live_fallback'] = True
                         return _verify_final_reply(projected, task, turn, direct_plan, state, reply_text, finalize_reply)
                     error = state.get('last_error') or {}
                     if error.get('error_code'):
@@ -189,8 +193,28 @@ def export(task, turn, reply_text='', *, finalize_reply=False, plan_only=False):
                     result.pop('result_url',None)
                 else:
                     result.update({k:receipt[k] for k in ('research_status','delivery_kind','live_data_mode')})
-                    result['publication_receipt']=receipt
-            if result.get('require_live_data') and result.get('live_data_mode') not in ('live','mixed'):
+                    receipt_out = dict(receipt)
+                    degraded_mode = result.get('live_data_mode') in ('verified_snapshot', 'researched_static')
+                    degraded_ok = (
+                        degraded_mode
+                        and (receipt.get('degraded_live_fallback') is True or state.get('degraded_live_fallback') is True)
+                        and receipt.get('degraded_live_fallback') is not False
+                        and state.get('degraded_live_fallback') is not False
+                    )
+                    if degraded_ok:
+                        receipt_out['degraded_live_fallback'] = True
+                        result['degraded_live_fallback'] = True
+                    else:
+                        receipt_out.pop('degraded_live_fallback', None)
+                        result.pop('degraded_live_fallback', None)
+                    result['publication_receipt'] = receipt_out
+            elif state.get('degraded_live_fallback') is True and result.get('live_data_mode') in ('verified_snapshot', 'researched_static'):
+                result['degraded_live_fallback'] = True
+            degraded_allowed = (
+                result.get('degraded_live_fallback') is True
+                and result.get('live_data_mode') in ('verified_snapshot', 'researched_static')
+            )
+            if result.get('require_live_data') and result.get('live_data_mode') not in ('live','mixed') and not degraded_allowed:
                 result.update(status='failed',error_code='LIVE_REQUIREMENT_NOT_SATISFIED',failure_stage='live_verification')
                 result.pop('result_url',None)
         error = state.get('last_error') or {}

@@ -1553,6 +1553,8 @@ def _validate_grant_set(call_script, params, env):
             evaluation = GC.evaluate_minute_range(payload, result)
         elif kind == "fast_query_minute_range_multi":
             evaluation = GC.evaluate_minute_range_multi(payload, result)
+        elif kind == "fast_query_option_minute":
+            evaluation = GC.evaluate_option_minute(payload, result)
         elif kind == "fast_query":
             assets = payload.get("assets") if isinstance(payload.get("assets"), list) else []
             required_fields = payload.get("required_fields") if isinstance(payload.get("required_fields"), list) else payload.get("fields") or []
@@ -1779,10 +1781,34 @@ def main():
     params.pop("agent_intent", None)
     if tool_name == "validate_package_set":
         payload = _validate_package_set(call_script, params, env)
+        if isinstance(payload, dict) and payload.get("code") != 0:
+            try:
+                import common as _C
+                _C._record_error_telemetry({**payload, "task_id": payload.get("task_id") or task_id})
+                _C.record_live_registration_blocked(
+                    payload.get("task_id") or task_id,
+                    payload.get("error"),
+                    script="qbs_bridge.py",
+                    turn_id=params.get("turn_id"),
+                )
+            except Exception:
+                pass
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 0 if payload.get("code") == 0 else 1
     if tool_name == "validate_grant_set":
         payload = _validate_grant_set(call_script, params, env)
+        if isinstance(payload, dict) and payload.get("code") != 0:
+            try:
+                import common as _C
+                _C._record_error_telemetry({**payload, "task_id": payload.get("task_id") or task_id})
+                _C.record_live_registration_blocked(
+                    payload.get("task_id") or task_id,
+                    payload.get("error"),
+                    script="qbs_bridge.py",
+                    turn_id=params.get("turn_id"),
+                )
+            except Exception:
+                pass
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 0 if payload.get("code") == 0 else 1
     if tool_name == "resolve_asset_data":

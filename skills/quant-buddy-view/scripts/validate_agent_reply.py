@@ -14,6 +14,87 @@ import reply_template_registry as RTR
 from reply_host_metadata import split_host_metadata
 
 
+_URL_RE = re.compile(r"https?://[^\s<>`\"'()\[\]]+", re.IGNORECASE)
+_ALLOWED_UPPER_CODES = frozenset({
+    "PE_TTM", "PB_MRQ", "PS_TTM", "PCF_TTM", "EV_EBITDA", "A_SHARE", "HK_STOCK", "US_STOCK",
+    "WS_TEST_OK", "ISO_8601", "UTC_PLUS_8", "CSI_300", "CSI_500", "CSI_1000", "SSE_50",
+})
+_ALLOWED_SNAKE_IDENTIFIERS = frozenset({
+    "self_iv", "self_delta", "self_gamma", "self_theta", "self_vega", "self_rho",
+    "pe_ttm", "pe_lyr", "pb_mrq", "ps_ttm", "pcf_ttm", "ev_ebitda",
+    "roe_ttm", "roa_ttm", "eps_ttm", "bps_mrq", "dps_ttm",
+    "pct_chg", "turnover_rate", "market_cap", "float_market_cap", "total_mv", "circ_mv",
+    "dividend_yield", "net_profit", "net_profit_yoy", "revenue_yoy", "gross_margin", "net_margin",
+    "free_cash_flow", "operating_cash_flow", "total_revenue",
+    "close", "open", "high", "low", "volume", "amount", "trade_date", "pre_close", "adj_close",
+    "vol_ratio", "net_inflow", "main_inflow", "north_inflow", "limit_up", "limit_down",
+    "max_drawdown", "sharpe_ratio", "annual_return", "win_rate",
+    "impl_vol", "hist_vol", "hv_20", "hv_60", "iv_rank", "iv_percentile",
+    "put_call_ratio", "strike_price", "expiry_date", "days_to_expiry",
+    "ma_5", "ma_10", "ma_20", "ma_60", "ma_120", "ma_250", "ema_12", "ema_26",
+    "macd_dif", "macd_dea", "rsi_6", "rsi_12", "rsi_14", "kdj_k", "kdj_d", "kdj_j",
+    "boll_upper", "boll_mid", "boll_lower",
+    "a_share", "hk_stock", "us_stock", "csi_300", "csi_500", "csi_1000", "sse_50",
+})
+_INTERNAL_ERROR_CODE_RE = re.compile(
+    r"\b[A-Z]{2,}(?:_[A-Z0-9]+)*_(?:REQUIRED|MISSING|INVALID|MISMATCH|FAILED|"
+    r"ERROR|FORBIDDEN|BLOCKED|CONFLICT|UNKNOWN|STALE|UNAVAILABLE|DENIED|"
+    r"REJECTED|INCOMPLETE|EXPIRED|EXHAUSTED|NOT_SATISFIED|NOT_FOUND|INTERRUPTED|OVERFLOW)\b"
+)
+_INTERNAL_TOKEN_RE = re.compile(
+    r"\b(?:rank_order|rank_limit|route_binding|plan_hash|expected_revision|QBV_STATE_ROOT|"
+    r"require_live_data|live_data_mode|validation_receipt_file|validation_receipts|"
+    r"snapshot_roles|runtime_roles|role_id|params_file|next_action|presentation_origin|"
+    r"recover_delivery|compose_page|publish_verified|publish_final|validate_agent_reply|"
+    r"runMultiFormulaBatchStream|qbs_bridge|static_page\.py|degraded_plan_hash|"
+    r"contract_sha256|draft_file|research_status|delivery_kind|partial_research|"
+    r"verified_snapshot|researched_static|degraded_live_fallback|write_outcome|failure_stage)\b"
+)
+_INTERNAL_PHRASE_RE = re.compile(
+    r"机器保底版式|手写\s*presentation|data-qb-sources|"
+    r"/work/[0-9a-f]{16,}/[^\s`\"'<>）)]+|"
+    r"(?:^|[\s`\"'（(])output/pages/[^\s`\"'<>）)]+\.html",
+    re.IGNORECASE,
+)
+_INTERNAL_ASSIGNMENT_RE = re.compile(
+    r"(?<![A-Za-z0-9_])([a-z][a-z0-9]*(?:_[a-z0-9]+)+)\s*=\s*([A-Za-z0-9_.-]+)\b"
+)
+_BACKTICK_SNAKE_RE = re.compile(
+    r"(?<!`)`([a-zA-Z][a-zA-Z0-9]*(?:_[a-zA-Z0-9]+)+)`(?!`)"
+)
+
+
+def _internal_implementation_leakage(draft, contract=None):
+    masked = _URL_RE.sub(" ", str(draft or ""))
+    if not masked.strip():
+        return []
+    allowed_ident = set(_ALLOWED_SNAKE_IDENTIFIERS)
+    if isinstance(contract, dict) and contract.get("require_page_id_in_reply") is True:
+        allowed_ident.add("page_id")
+        page_id = str(contract.get("page_id") or "").strip().lower()
+        if page_id:
+            allowed_ident.add(page_id)
+    findings = []
+    for m in _INTERNAL_ERROR_CODE_RE.finditer(masked):
+        if m.group(0) not in _ALLOWED_UPPER_CODES:
+            findings.append(m.group(0))
+    for m in _INTERNAL_TOKEN_RE.finditer(masked):
+        findings.append(m.group(0))
+    for m in _INTERNAL_PHRASE_RE.finditer(masked):
+        findings.append(m.group(0))
+    for m in _INTERNAL_ASSIGNMENT_RE.finditer(masked):
+        key = m.group(1)
+        if len(key) >= 4 and key.lower() not in allowed_ident:
+            findings.append(m.group(0))
+    for m in _BACKTICK_SNAKE_RE.finditer(masked):
+        ident = m.group(1)
+        if len(ident) >= 4 and ident.lower() not in allowed_ident:
+            findings.append(ident)
+    if "`page_id`" in masked and "page_id" not in allowed_ident:
+        findings.append("`page_id`")
+    return findings
+
+
 _HEADING_RE = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
 _FENCED_MARKDOWN_RE = re.compile(r"```markdown\s*(.*?)```", re.IGNORECASE | re.DOTALL)
 _UNRESOLVED_FIELD_RE = re.compile(r"\{[^{}\r\n]+\}")
@@ -544,9 +625,11 @@ def validate_reply(contract_payload, draft):
     for name, pattern in _SENSITIVE_PATTERNS:
         if pattern.search(submitted_draft):
             errors.append({"code": "SENSITIVE_CONTENT", "message": f"最终回复包含禁止内容：{name}"})
-    if re.search(r'\b(?:rank_order|rank_limit|route_binding|plan_hash|QBV_STATE_ROOT)\b', draft):
-        errors.append({'code':'INTERNAL_IMPLEMENTATION_DETAIL',
-            'message':'活页交付回复不要暴露配置键或内部流程；请用从高到低、从低到高等业务语言说明排名。'})
+    leakage = _internal_implementation_leakage(draft, contract)
+    if leakage:
+        errors.append({'code': 'INTERNAL_IMPLEMENTATION_DETAIL',
+            'message': '活页交付回复不要暴露内部错误码、配置键或工程流程；请改用自然的业务语言说明结果与边界。',
+            'details': leakage[:12]})
 
     result = {
         "code": 0 if not errors else 1,

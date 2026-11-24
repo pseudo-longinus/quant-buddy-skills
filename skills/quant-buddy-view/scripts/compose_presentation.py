@@ -33,17 +33,18 @@ ALLOWED_DATA_ATTRS = {
     "data-qb-page-title", "data-qb-sources",
 }
 ALLOWED_CSS_PROPERTIES = {
-    "align-items", "background", "background-color", "border", "border-color",
-    "border-radius", "border-width", "border-style", "bottom", "box-shadow", "color",
-    "display", "flex", "flex-direction", "flex-wrap", "font-family", "font-size",
-    "font-weight", "gap", "grid", "grid-area", "grid-auto-flow", "grid-column",
-    "grid-row", "grid-template", "grid-template-areas", "grid-template-columns",
-    "grid-template-rows", "height", "justify-content", "left", "letter-spacing",
-    "line-height", "margin", "margin-bottom", "margin-left", "margin-right", "margin-top",
-    "max-height", "max-width", "min-height", "min-width", "opacity", "overflow",
-    "overflow-x", "overflow-y", "padding", "padding-bottom", "padding-left",
-    "padding-right", "padding-top", "position", "right", "text-align", "top",
-    "vertical-align", "white-space", "width", "z-index",
+    "align-items", "background", "background-color", "border", "border-collapse",
+    "border-color", "border-radius", "border-spacing", "border-width", "border-style",
+    "bottom", "box-shadow", "box-sizing", "color", "display", "flex", "flex-direction",
+    "flex-wrap", "font-family", "font-size", "font-weight", "gap", "grid", "grid-area",
+    "grid-auto-flow", "grid-column", "grid-row", "grid-template", "grid-template-areas",
+    "grid-template-columns", "grid-template-rows", "height", "justify-content", "left",
+    "letter-spacing", "line-height", "margin", "margin-bottom", "margin-left",
+    "margin-right", "margin-top", "max-height", "max-inline-size", "max-width",
+    "min-height", "min-width", "opacity", "overflow", "overflow-wrap", "overflow-x",
+    "overflow-y", "padding", "padding-bottom", "padding-left", "padding-right",
+    "padding-top", "position", "right", "table-layout", "text-align", "top",
+    "vertical-align", "white-space", "width", "word-break", "word-wrap", "z-index",
 }
 FORBIDDEN_HTML_PATTERN = re.compile(
     r"(?i)(api[_-]?key|authorization|access[_-]?token|secret|signature|grant_id|package_id|\bdg_[a-z0-9_-]+\b|\bpkg_[a-z0-9_-]+\b)"

@@ -116,6 +116,62 @@ def _known_tools():
     return names
 
 
+_TELEMETRY_SECRET_RE = re.compile(
+    r"(?i)(api[_-]?key|authorization|access[_-]?token|bearer|signature)\s*[:=]\s*[^\s,\"'}{]+"
+)
+
+
+def _record_qbs_error_telemetry(tool_name, payload, rc=0):
+    """Best-effort silent JSONL telemetry for QBS tool errors; never blocks or leaks credentials."""
+    try:
+        obj = payload if isinstance(payload, dict) else None
+        if obj is None and isinstance(payload, str) and payload.strip().startswith("{"):
+            try:
+                parsed = json.loads(payload)
+                if isinstance(parsed, dict):
+                    obj = parsed
+            except Exception:
+                obj = None
+        is_err = (rc != 0) or (
+            isinstance(obj, dict)
+            and (
+                (obj.get("code") not in (None, 0))
+                or (obj.get("success") is False)
+                or bool(obj.get("error"))
+            )
+        )
+        if not is_err:
+            return
+        target = os.environ.get("QB_ERROR_TELEMETRY_FILE") or os.path.join(
+            tempfile.gettempdir(), "qb-skill-error-telemetry.jsonl"
+        )
+        err_val = obj.get("error") if isinstance(obj, dict) else None
+        if isinstance(err_val, dict):
+            err_code = err_val.get("code")
+        else:
+            err_code = err_val
+        raw_msg = str((obj or {}).get("message") or "")[:300]
+        raw_msg = _TELEMETRY_SECRET_RE.sub(r"\1=[REDACTED]", raw_msg)
+        import time as _time
+        event = {
+            "ts": _time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "skill": "quant-buddy-skill",
+            "script": "call.py",
+            "command": tool_name,
+            "task_id": (obj or {}).get("task_id"),
+            "code": (obj or {}).get("code", rc),
+            "error_code": err_code,
+            "message": raw_msg,
+        }
+        parent = os.path.dirname(os.path.abspath(target))
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        with open(target, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(event, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
 def _reject_bad_tool_name(tool_name):
     """工具名前置校验：@ 开头或未知工具立即报错退出，
     把“静默挂死读 stdin”变成“瞬时明确报错”。
@@ -140,6 +196,7 @@ def _reject_bad_tool_name(tool_name):
         "message": bad_reason,
         "known_tools": sorted(known),
     }
+    _record_qbs_error_telemetry(tool_name, err, rc=1)
     out = json.dumps(err, ensure_ascii=False, indent=2)
     try:
         out_file = os.path.join(tempfile.gettempdir(), "gzq_out.txt")
@@ -2219,6 +2276,7 @@ def main():
 
         # ── 始终写输出到固定文件，解决 VS Code 终端缓冲吞 stdout 的问题 ──
         # 必须在 print 之前写入，因为 print 可能因 GBK 编码崩溃（如 ✅ emoji）
+        _record_qbs_error_telemetry(tool_name, stdout, rc=rc)
         out_file = os.path.join(tempfile.gettempdir(), "gzq_out.txt")
         with open(out_file, "w", encoding="utf-8") as f:
             if stdout:

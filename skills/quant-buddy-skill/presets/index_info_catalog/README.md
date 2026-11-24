@@ -18,7 +18,7 @@
 - `a_share_option_iv.yaml`：A 股期权隐含波动率。
 - `global_classification.yaml`：GICS 行业、板块所属指数。
 - `us_option_market_data.yaml`：美股期权 E1/E2、ATM/25 Delta 的价格、成交量、持仓量、隐含波动率、所选合约到期日及行权价（共 48 项）。
-- `cn_future_option_market_data.yaml`：国内期货期权 E1/E2 × ATM-CALL/ATM-PUT/25C/25P × 收盘价/隐含波动率/持仓量/成交额（32 项）。除商品外，也包含沪深300主连（IF.CFE / IO）、上证50主连（IH.CFE / HO）、中证1000主连（IM.CFE / MO）三个股指维度；前者为数据列代码，后者为期权品种代码，不能互换。实际有效字段与日期须查询验证，不代表完整期权链或合约映射接口已开放。隐含波动率为 self-IV，小数 0.25 表示 25%；空值保留。目录 ID 为正式环境快照，跨环境使用精确标题重新解析，不复用 index_id。查询见 [股指期权槽位行情](../../workflows/cn-index-options.md)。
+- `cn_future_option_market_data.yaml`：国内期货期权 E1/E2 × ATM-CALL/ATM-PUT/25C/25P × 收盘价/隐含波动率/持仓量/成交额（32 项）。除商品外，也包含沪深300主连（IF.CFE / IO）、上证50主连（IH.CFE / HO）、中证1000主连（IM.CFE / MO）三个股指维度；斜线前为数据列代码，斜线后为期权品种代码。也包含南方中证500ETF（SH510500）、华夏科创50ETF（SH588000）、易方达创业板ETF（SZ159915）三个ETF期权维度，沿用相同32个字段。实际有效字段与日期须查询验证，不代表完整期权链或合约映射接口已开放。隐含波动率为 self-IV，小数 0.25 表示 25%；空值保留。目录 ID 为正式环境快照，跨环境使用精确标题重新解析，不复用 index_id。查询见 [国内股指及ETF期权槽位行情](../../workflows/cn-index-options.md)。
 - `macro_indicators.yaml`：宏观指标目录；数据来源为 `indexInfoCore` 表，使用 `index_short_title` 与 `indexinfo_id`。
 - `manifest.yaml`：业务分类文件清单和记录数。
 

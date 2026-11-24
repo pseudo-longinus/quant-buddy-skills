@@ -148,6 +148,7 @@ def _compile(html, params):
     info_config = AI.config_from_html(html)
     if info_config is not None:
         AI.validate_panel_structure(html, info_config)
+        AI.validate_literal_selection_columns(html, info_config)
     return html
 
 

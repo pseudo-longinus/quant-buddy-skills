@@ -333,7 +333,7 @@ const QB = (function () {
           if (i === 0) return Number(day.replace(/-/g, ''));
           if (i === 1) return ticker;
           if (i === ti) return stamp;
-          if (['open','high','low','close','volume','amount','open_interest'].includes(columns[i])) return number(value, 0, day);
+          if (['open','high','low','close','volume','amount','open_interest','self_iv','self_delta'].includes(columns[i])) return number(value, 0, day);
           return /^(?:|null|none|nan|[+-]?(?:infinity|inf))$/i.test(value.trim()) ? null : value;
         });
       });
@@ -590,7 +590,7 @@ const QB = (function () {
         if (body && body.data && String(body.data.mode || '').toLowerCase() === 'csv') {
           _runtimeTransport('csv');
           try {
-            body = Object.assign({}, body, { data: body.kind === 'fast_query_minute_range_multi' ? await _hydrateMinuteRangeMultiCsv(body.data) : body.data.query_type === 'minute_range' ? await _hydrateMinuteRangeCsv(body.data) : await _hydrateFastQueryCsv(body.data) });
+            body = Object.assign({}, body, { data: (body.kind === 'fast_query_minute_range_multi' || body.kind === 'fast_query_option_minute') ? await _hydrateMinuteRangeMultiCsv(body.data) : body.data.query_type === 'minute_range' ? await _hydrateMinuteRangeCsv(body.data) : await _hydrateFastQueryCsv(body.data) });
           } catch (error) {
             if (attempt === 0 && error && error.retryable) {
               body = await _requestGrantBody({ endpoint, grant_id, signature, asset });

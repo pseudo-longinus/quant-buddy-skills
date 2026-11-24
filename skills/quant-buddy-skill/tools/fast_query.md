@@ -181,13 +181,13 @@ asset_errors / field_errors / warnings
 - **result_mode**：默认 `value`；需要固定区间完整序列时才传 `result_mode="series"`
 - **window series**：已按日期升序；`window` 可传 `window_days`，也可传 `start_date/end_date` 固定日期范围（二选一）。`window` 固定返回序列，不需要传 `result_mode`。
 
-## 连续期货附加返回（4.25.38）
+## 连续期货附加返回（4.25.38 / 2026-11-20 对齐外盘日频）
 
-不增加请求字段，原 fields 保留。服务结果可能增加 `future_context`，按连续ticker分组；verbose、compact和CSV均须保留该元信息。
+不增加请求字段，原 fields 保留。服务结果对国内期货主连/次主连及 **14 个自有分钟聚合外盘主力连续**（`ES/NQ/MES/MNQ/RTY.CME`、`GC/HG/SI/MGC.CMX`、`CL/NG.NYM`、`TY/FV/TU.CBT`）自动增加 `future_context`，按连续 ticker 分组；verbose、compact 和 CSV 均须保留该元信息。
 
-- window/series：`future_context[ticker].roll_events` 是实际返回窗口内事件；JSON按最终序列日期，CSV按导出日期轴（scope=csv_date_axis），不是为了取数扩大的begin_date。
-- snapshot/value：`future_context[ticker].contract_info.contracts[]` 按各字段**实际有效值日期**分别匹配具体合约，含历史fallback日期。不要把某个字段较新的合约套给较旧值。status=inferred 是事件推导，unavailable/null是不确定，不是无合约。
-- 新版事件列为 `decision_trade_date,effective_trade_date,old_contract,new_contract,old_close,new_close`，按 `columns` 解析并保留双日期。决策日盘后确定换月，下一交易日生效；`old_close/new_close` 是**决策日**新旧具体合约各自未复权日频收盘价，不是生效日收盘或分钟成交价。窗口按生效日过滤，首条决策日可能在窗口之前。旧版事件 `trade_date` 仅兼容为生效日，不覆盖新版字段。
-- 连续日频价格字段已复权，显式 `收盘价（不复权）` 为原始价；不能把事件未复权close直接与复权日价判等。跨频、复权派生和局部对账处理见 [连续期货口径](../references/continuous-futures.md)，分钟参考序列使用加法价差，原行情保持不变。
-- `future_context[ticker].error` / warnings 仅表示附加信息缺失；即使 partial_ok=false 也不应丢掉已成功行情。主行情错误仍按原规则处理。
-- 内部合约检索按需回看6/12/24个月，不从1900年全量查、不暴露 lookup_start_date；Agent无需额外请求。日内当前分钟用 fast_query_minute，历史跨日分钟用 fast_query_minute_range，不把日频窗口误当分钟数据。
+- window/series：`future_context[ticker].roll_events` 是实际返回窗口内事件；JSON 按最终序列日期，CSV 按导出日期轴（`scope=csv_date_axis`），不是为了取数扩大的 `begin_date`。对 14 个自聚合外盘品种：早于各自自聚合起点（外部源拼接段）无换月记录，**日频行情数据仍按请求区间正常完整返回，只是不提供该时间段的换月信息**（整段早于起点时不返回 `future_context`；跨起点窗口仍返回全段行情，仅 `roll_events.start_date` 截齐至起点并标注 `partial_coverage: true`、`unavailable_before`）。其余 39 个纯日频及未迁移外盘同样正常返回行情，仅不附 `future_context`。
+- snapshot/value：`future_context[ticker].contract_info.contracts[]` 按各字段**实际有效值日期**分别匹配具体合约，含历史 fallback 日期。外盘早于自聚合起点的日期**行情值照常返回**，仅省略合约信息（全部早于起点时不返回 `future_context`，部分省略时附 `unavailable_before`）。不要把某个字段较新的合约套给较旧值。`status=inferred` 是事件推导，`unavailable`/null 是不确定，不是无合约。
+- 新版事件列为 `decision_trade_date,effective_trade_date,old_contract,new_contract,old_close,new_close`，按 `columns` 解析并保留双日期。决策日盘后确定换月，生效日切换；`old_close/new_close` 是**决策日**新旧具体合约各自未复权参考收盘价，不是生效日收盘或分钟成交价。外盘同一 `effective_trade_date` 可能返回多条不同换月事件，须保留顺序。窗口按生效日过滤，首条决策日可能在窗口之前。旧版事件 `trade_date` 仅兼容为生效日，不覆盖新版字段。
+- 国内及已迁移的 53 个海外主力连续日频价格字段均为**比例前复权**，显式 `收盘价（不复权）` 为原始价；不能把事件未复权 close 直接与复权日价判等。跨频、复权派生和局部对账处理见 [连续期货口径](../references/continuous-futures.md)，原行情保持不变。
+- `future_context[ticker].error` / warnings 仅表示附加信息缺失；即使 `partial_ok=false` 也不应丢掉已成功行情。主行情错误仍按原规则处理。
+- 内部合约检索按需回看 6/12/24 个月（外盘不回看早于自聚合起点），不从 1900 年全量查、不暴露 `lookup_start_date`；Agent 无需额外请求。日内当前分钟用 `fast_query_minute`，历史跨日分钟用 `fast_query_minute_range`，不把日频窗口误当分钟数据。

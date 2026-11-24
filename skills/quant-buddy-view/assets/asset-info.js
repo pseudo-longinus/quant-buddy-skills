@@ -11,7 +11,9 @@
   const list = root.querySelector('[data-qb-asset-info-items]');
   const navigation = root.querySelector('[data-qb-asset-info-pagination]');
   const forceButton = root.querySelector('[data-qb-llm-force]');
-  const publicPage = location.protocol === 'https:' && location.hostname === 'pages.quantbuddy.cn';
+  const websitePreview = document.querySelector('meta[name="qb-live-page-embed-context"]')?.content === 'webagent-preview';
+  const embeddedPage = websitePreview && window.parent !== window && Boolean(document.querySelector('meta[name="qb-asset-info-preview"]'));
+  const publicPage = !websitePreview && location.protocol === 'https:' && location.hostname === 'pages.quantbuddy.cn';
   const cache = new Map();
   let members = [], page = 0, revision = 0, pending = null, running = null, waiting = true, fingerprint = '', disclosureId = 0;
   let selectionStatus = 'unbound';
@@ -24,10 +26,16 @@
     forceButton.disabled = disabled || !publicPage || waiting || !members.length || !window.QBAssetInfo?.getContext().execution_allowed;
   }
   async function sdkReady() {
-    if (!publicPage) throw Error('公司信息将在公开活页中加载；本地预览不发起生成。');
+    if (!publicPage && !embeddedPage) throw Error('公司信息将在公开活页中加载；本地预览不发起生成。');
     const officialScript = document.querySelector('script[src$="/asset-info-bridge.js"]');
     const start = Date.now();
     while (Date.now() - start < 15000) {
+      const sdk = window.QBAssetInfo;
+      if (sdk && (!(sdk.schedulerVersion >= 2) || typeof sdk.cancelPending !== 'function')) throw Error('公司信息暂不可用：官方桥接脚本需要更新。量化结果不受影响。');
+      if (embeddedPage && sdk) {
+        if (sdk.getEmbeddedPreview?.()) return sdk;
+        throw Error('公司信息暂不可用：站内预览未绑定公司信息。量化结果不受影响。');
+      }
       // The real shell assigns src after selection may already have arrived.
       // An empty iframe is not an environment; wait, then validate before load.
       const frame = document.getElementById('qbLivePageHeaderFrame');
@@ -38,13 +46,11 @@
         if (new URL(officialScript.src).origin !== header.origin || header.pathname !== '/embed/live-page-header') throw Error('公司信息桥接脚本与官方页头环境不一致');
         pageId = header.searchParams.get('page_id');
       }
-      const sdk = window.QBAssetInfo;
-      if (sdk && (!(sdk.schedulerVersion >= 2) || typeof sdk.cancelPending !== 'function')) throw Error('公司信息暂不可用：官方桥接脚本需要更新。量化结果不受影响。');
       // Ordinary loading needs the SDK and matching page binding, not a logged-in viewer.
       if (pageId && sdk) return sdk;
       await new Promise(resolve => setTimeout(resolve, 100));
     }
-    throw Error('公司信息暂不可用：官方页头地址未就绪。量化结果不受影响。');
+    throw Error(embeddedPage ? '公司信息暂不可用：官方桥接脚本未就绪。量化结果不受影响。' : '公司信息暂不可用：官方页头地址未就绪。量化结果不受影响。');
   }
   function localDate(value, dateOnly = false) {
     if (!value) return null;
@@ -127,6 +133,7 @@
     }
     if (billing) return '费用待确认';
     if (data.content && data.cache_status === 'hit') return '缓存命中 · 本次 0 积分';
+    if (data.content && data.cache_status === 'stale' && window.QBAssetInfo?.getEmbeddedPreview?.()?.cacheOnly) return '只读缓存 · 本次 0 积分';
     return !data.content && data.cache_status === 'missing' ? '暂无缓存 · 未生成' : '费用待确认';
   }
   function createCostDisclosure() {
@@ -209,7 +216,7 @@
     identity.append(text('h3', stock.name || stock.asset), text('span', stock.asset, 'qb-info-code'));
     header.append(text('span', String(ordinal).padStart(2, '0'), 'qb-info-ordinal'), identity, createCostDisclosure()); card.append(header);
     const content = text('section', cache.get(stock.asset)?.data?.content || '等待加载公司信息…');
-    if (publicPage) {
+    if (publicPage || embeddedPage) {
       // Expose SDK discovery only after its managed scheduler has been verified.
       content.dataset.qbAssetInfoAsset = stock.asset; content.dataset.qbLlmGrant = config.grant_id;
       content.dataset.qbLlmSignature = config.signature; content.dataset.qbLlmAsset = stock.asset;
@@ -298,6 +305,8 @@
     selectionOutput: config.selection_output,
     getSelectionState: () => ({status: selectionStatus, total: members.length,
       visible_assets: members.slice(page * 50, (page + 1) * 50).map(stock => stock.asset)}),
+    // Reuse the compiled field contract for keyed rows instead of copying column labels.
+    setSelection(rows) { this.setTable([config.asset_field, config.name_field], rows); },
     setTable(columns, rows) {
       const invalid = message => {
         this.unavailable(message); selectionStatus = 'invalid';
