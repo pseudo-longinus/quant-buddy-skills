@@ -80,6 +80,15 @@ def freeze(value):
     rank = out.get('ranking')
     if rank is not None and (not isinstance(rank, dict) or not rank.get('rank_by') or rank.get('rank_order') not in ('asc', 'desc') or type(rank.get('rank_limit')) is not int or rank['rank_limit'] < 1):
         raise ValueError('RESEARCH_RANKING_INVALID')
+    source = out.get('selection_source')
+    if source is not None and source not in ('formula', 'composition_select'):
+        raise ValueError('RESEARCH_SELECTION_SOURCE_INVALID')
+    if source == 'composition_select':
+        if not str(out.get('selection_output') or '').strip():
+            raise ValueError('RESEARCH_SELECTION_OUTPUT_REQUIRED')
+        route_err = selection_route_error(evidence_text, {'mode': 'score'})
+        if route_err:
+            raise ValueError(route_err['error'])
     out['contract_hash'] = digest(out)
     return out
 
@@ -162,6 +171,7 @@ def audit(value, *, formulas=None, applied_conditions=None, observation_date=Non
             elif name not in reachable:
                 issues.append({'condition_id': key, 'error': 'CONDITION_NOT_APPLIED'})
     requested = contract.get('requested_date')
+    materialized_topn = contract.get('selection_source') == 'composition_select'
     if require_result_evidence:
         if contract.get('selection_output'):
             if not isinstance(coverage,dict) or type(coverage.get('universe_count')) is not int or type(coverage.get('rows_evaluated')) is not int:
@@ -171,14 +181,20 @@ def audit(value, *, formulas=None, applied_conditions=None, observation_date=Non
                 issues.append({'error':'RESEARCH_COVERAGE_INVALID'})
             elif coverage.get('data_complete') is not True or coverage['rows_evaluated'] != coverage['universe_count']:
                 issues.append({'error':'DATA_COVERAGE_PARTIAL','coverage':coverage})
-            if coverage_rows is None:
+            evidence_rows = None
+            if materialized_topn and coverage_rows is None:
+                if isinstance(asset_rows, list) and all(isinstance(row, dict) for row in asset_rows):
+                    evidence_rows = asset_rows
+            elif coverage_rows is None:
                 issues.append({'error':'RESEARCH_COVERAGE_ROWS_REQUIRED'})
             elif not isinstance(coverage_rows,list) or not all(isinstance(row,dict) for row in coverage_rows):
                 raise ValueError('RESEARCH_COVERAGE_ROWS_INVALID')
             elif not isinstance(coverage,dict) or len(coverage_rows) != coverage.get('rows_evaluated'):
                 issues.append({'error':'RESEARCH_COVERAGE_COUNT_MISMATCH'})
             else:
-                assets=[row.get('asset') or row.get('code') for row in coverage_rows]
+                evidence_rows = coverage_rows
+            if evidence_rows is not None:
+                assets=[row.get('asset') or row.get('code') for row in evidence_rows]
                 if any(not isinstance(asset,str) or not asset.strip() for asset in assets) or len(set(str(asset) for asset in assets)) != len(assets):
                     issues.append({'error':'RESEARCH_COVERAGE_MEMBERS_INVALID'})
                 for condition in required.values():
@@ -188,7 +204,7 @@ def audit(value, *, formulas=None, applied_conditions=None, observation_date=Non
                     if not fields:
                         issues.append({'condition_id':condition['id'],'error':'CONDITION_INPUT_FIELDS_REQUIRED'})
                     for field in set(fields):
-                        missing=sum(row.get(field) is None or (type(row.get(field)) in (int,float) and not __import__('math').isfinite(row[field])) for row in coverage_rows)
+                        missing=sum(row.get(field) is None or (type(row.get(field)) in (int,float) and not __import__('math').isfinite(row[field])) for row in evidence_rows)
                         if missing: issues.append({'condition_id':condition['id'],'error':'CONDITION_COVERAGE_INCOMPLETE','field':field,'missing_count':missing})
                         if field in ('asset','code','name'): continue
                         # A formula's requested end date is not evidence of a
@@ -257,6 +273,8 @@ def audit(value, *, formulas=None, applied_conditions=None, observation_date=Non
     if formulas is None and applied_conditions is None and asset_rows is None:
         issues.append({'error':'RESEARCH_CONDITIONS_UNVERIFIED'})
     return {'contract_hash': contract['contract_hash'], 'research_status': 'partial' if issues else 'complete', 'issues': issues,
+            **({'selection_source': 'composition_select'} if materialized_topn else {}),
+            **({'asset_rows_count': len(asset_rows), 'asset_rows_evidence_hash': digest(asset_rows)} if materialized_topn and isinstance(asset_rows, list) else {}),
             **({'field_dates':copy.deepcopy(field_dates),'field_date_evidence_hash':digest(field_dates)} if isinstance(field_dates,dict) else {}),
             **({'coverage_rows_count':len(coverage_rows),'coverage_evidence_hash':digest(coverage_rows)} if isinstance(coverage_rows,list) else {}),
             **({'coverage':copy.deepcopy(coverage)} if coverage is not None else {})}
@@ -433,7 +451,15 @@ def metadata(params, task_id=None):
                     or type(coverage.get('rows_evaluated')) is not int or coverage['universe_count'] <= 0
                     or coverage['rows_evaluated'] != coverage['universe_count']):
                 raise ValueError('RESEARCH_COVERAGE_EVIDENCE_REQUIRED')
-            if checks.get('coverage_rows_count') != coverage['universe_count'] or not re.fullmatch(r'[a-f0-9]{64}',str(checks.get('coverage_evidence_hash') or '')):
+            if contract.get('selection_source') == 'composition_select':
+                rank_limit = (contract.get('ranking') or {}).get('rank_limit')
+                rows_count = checks.get('asset_rows_count')
+                if (checks.get('selection_source') != 'composition_select'
+                        or type(rows_count) is not int or rows_count < 0
+                        or (type(rank_limit) is int and rows_count > rank_limit)
+                        or not re.fullmatch(r'[a-f0-9]{64}', str(checks.get('asset_rows_evidence_hash') or ''))):
+                    raise ValueError('RESEARCH_ASSET_ROWS_EVIDENCE_REQUIRED')
+            elif checks.get('coverage_rows_count') != coverage['universe_count'] or not re.fullmatch(r'[a-f0-9]{64}',str(checks.get('coverage_evidence_hash') or '')):
                 raise ValueError('RESEARCH_COVERAGE_ROWS_REQUIRED')
             if not isinstance(checks.get('field_dates'),dict) or checks.get('field_date_evidence_hash') != digest(checks['field_dates']):
                 raise ValueError('RESEARCH_FIELD_DATE_EVIDENCE_REQUIRED')

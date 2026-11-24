@@ -5,6 +5,10 @@
 
 ---
 
+## [0.8.27] — 2026-11-24
+
+- 打通千维维度分选股（`composition_select`）实时看板发布链路：同步 `research_contract.py` 平台已物化 TopN 审计分支，并在 `delivery_requirements.py` 放行同任务 `composition_select` Data Grant 覆盖集合 `selection_output`（普通行情 Grant 仍严格拦截）。
+
 ## [0.8.26] — 2026-11-24
 
 - 同步 `tools/data_grant.md` 中 `composition_select` 的 `indicator_id` 说明与示例为千维计算平台新语义指标名称。

@@ -1,6 +1,6 @@
 # 有界恢复与研究状态
 
-从 QBS Handoff 或执行计划继承 research_contract、research_checks、research_status 与 delivery_kind。缺字段按 unknown；完整名单必须有同合同的计算、日期和成员验证证据。完整筛选还须有全股票池 coverage_rows 的字段可用性、field_dates 实际日期证据和审计哈希，只有数量声明或 Top10 成员不能标为 complete。保留 require_live_data=true，部分成果交付不能被记作实时研究完成。
+从 QBS Handoff 或执行计划继承 research_contract、research_checks、research_status 与 delivery_kind。缺字段按 unknown；完整名单必须有同合同的计算、日期和成员验证证据。完整筛选还须有全股票池 coverage_rows 的字段可用性、field_dates 实际日期证据和审计哈希，只有数量声明或 Top10 成员不能标为 complete（唯一例外：当冻结合同显式声明 `selection_source: "composition_select"` 且使用平台已物化 `selectByComposition` 接口时，凭服务端有效样本总数 `coverage` + TopN 逐行 `asset_rows` 哈希 + 各指标 `field_dates` 通过审计，且 `runtime_roles` 中绑定同任务 `composition_select` Data Grant 覆盖 `selection_output`）。保留 require_live_data=true，部分成果交付不能被记作实时研究完成。
 
 合同冻结仍是草稿、数据无法计算时，交接 methodology/unavailable；原始问题和已确认策略照常展示，草稿继续阻止名单计算，不将未冻结合同冒充已确认计算证明。
 

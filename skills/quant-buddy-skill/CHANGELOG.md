@@ -5,6 +5,10 @@
 
 ---
 
+## [4.25.74] — 2026-11-24
+
+- 在 `research_contract.py` 新增面向 `selectByComposition`（`selection_source: "composition_select"`）的平台已物化 TopN 审计分支：保留样本总数、快照日期一致与排序/字段校验，不再强求全市场逐行 `coverage_rows`，同时继续拦截原始自定义条件滥用分数代理。
+
 ## [4.25.73] — 2026-11-24
 
 - 对齐千维计算平台新语义指标目录（同步 `presets/dimensions.yaml` 及 24 项新 `screen` 指标标识），改为本地目录优先检索、命中直调 `selectByComposition`，并同步更新工具与工作流文档及契约测试。

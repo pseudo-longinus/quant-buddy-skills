@@ -187,4 +187,57 @@ class ResearchContractTest(unittest.TestCase):
             self.assertEqual(rc.delivery_metadata({},c['task_id'],'another')['research_status'],'unknown')
             with self.assertRaisesRegex(ValueError,'AUDIT_CONFLICT'):rc.delivery_metadata({'research_status':'complete'},c['task_id'],'turn')
 
+    def test_composition_select_materialized_topn_audit_and_guards(self):
+        c=freeze({
+            'task_id':'comp-top10',
+            'user_messages':['按A股动量与反转维度分和趋势结构维度分等权选出前10只股票，并做一个实时看板'],
+            'selection_source':'composition_select',
+            'selection_output':'top10_selection',
+            'conditions':[
+                {'id':'momentum','description':'A股动量与反转维度分','spec':{'input_fields':['momentum_score']}},
+                {'id':'trend','description':'A股趋势结构维度分','spec':{'input_fields':['trend_score']}},
+            ],
+            'ranking':{'rank_by':'composite_score','rank_order':'desc','rank_limit':10},
+        })
+        rows=[
+            {'asset':'688169.SH','momentum_score':0.8895,'trend_score':0.8887,'composite_score':0.8891},
+            {'asset':'301606.SZ','momentum_score':0.8926,'trend_score':0.7275,'composite_score':0.8101},
+        ]
+        cov={'data_complete':True,'universe_count':1983,'rows_evaluated':1983}
+        fdates={'momentum_score':'2026-11-23','trend_score':'2026-11-23'}
+        # Passes without 1,983-row coverage_rows when TopN asset_rows + coverage + field_dates are complete.
+        checks=audit(c,applied_conditions=c['conditions'],observation_date='2026-11-23',asset_rows=rows,coverage=cov,field_dates=fdates)
+        self.assertEqual(checks['issues'],[])
+        self.assertEqual(checks['research_status'],'complete')
+        self.assertEqual(checks['selection_source'],'composition_select')
+        self.assertEqual(checks['asset_rows_count'],2)
+        self.assertEqual(metadata({'research_contract':c,'research_status':'complete','research_checks':checks})['research_status'],'complete')
+
+        # Missing field_dates or lagged date still fails audit.
+        bad_date=audit(c,applied_conditions=c['conditions'],observation_date='2026-11-23',asset_rows=rows,coverage=cov,field_dates={'momentum_score':'2026-11-23','trend_score':'2026-11-20'})
+        self.assertIn('FIELD_DATE_NOT_COVERED',{e['error'] for e in bad_date['issues']})
+
+        # Violated ranking order still fails audit.
+        bad_rank=audit(c,applied_conditions=c['conditions'],observation_date='2026-11-23',asset_rows=list(reversed(rows)),coverage=cov,field_dates=fdates)
+        self.assertIn('RANKING_ORDER_VIOLATED',{e['error'] for e in bad_rank['issues']})
+
+        # Missing condition field on asset_rows fails audit.
+        missing_field=audit(c,applied_conditions=c['conditions'],observation_date='2026-11-23',asset_rows=[{'asset':'688169.SH','momentum_score':0.8895,'composite_score':0.8891}],coverage=cov,field_dates=fdates)
+        self.assertIn('CONDITION_COVERAGE_INCOMPLETE',{e['error'] for e in missing_field['issues']})
+
+        # Tampering asset_rows_evidence_hash in metadata fails closed.
+        bad_checks={**checks,'asset_rows_evidence_hash':'not-a-hash'}
+        with self.assertRaisesRegex(ValueError,'RESEARCH_ASSET_ROWS_EVIDENCE_REQUIRED'):
+            metadata({'research_contract':c,'research_status':'complete','research_checks':bad_checks})
+
+        # Raw custom conditions CANNOT abuse selection_source='composition_select'.
+        with self.assertRaisesRegex(ValueError,'RAW_CONDITION_SCORE_PROXY_FORBIDDEN'):
+            freeze({
+                'task_id':'raw-abuse',
+                'user_messages':['放量突破+主力资金净流入，主板前10'],
+                'selection_source':'composition_select',
+                'selection_output':'pool',
+                'conditions':[{'id':'raw','description':'放量突破','spec':{'input_fields':['close']}}],
+            })
+
 if __name__=='__main__':unittest.main()

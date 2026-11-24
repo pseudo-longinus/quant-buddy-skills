@@ -23,7 +23,7 @@ python scripts/static_page.py execution_plan @plan-revision.json
 
 本轮要求实时且手写页面的运行角色已全部填写注册 ID、合同指纹和验证收据引用时，`execution_plan` 会提前提示研究证据缺项，不依赖先绑定路由。若返回 `draft_ready:false` 和 `publication_readiness`，`code:0` 只表示计划已保存，先按 `next_action` 核验并修订，不开始构建；无此提示也不等于取数或发布已验收。只读 `view` 不变。无模板实时页从 `new_page` 就返回 `execution_plan`：范围未定先填 `target_scope`，有原授权就从注册结果取 `plan_role_reference` 加 `role_id` 填入 `runtime_roles`，不要传签名或把登记回执当作取数验证收据。证据未齐仍可收集；研究核验完毕，按 `next_action` 绑定原授权后才进入手写构建。
 
-本轮明确要求实时而旧计划未记录该要求时，发布返回 `CURRENT_LIVE_PLAN_REQUIRED`，先修订计划并绑定当前研究需要的数据角色。集合范围必须是 `basket/sector/market` 等明确范围；`market/sector` 或未列成员的 `basket` 还要有当前研究合同及 `selection_output`。把 `selection_output` 写进某个 `runtime_roles[*].required_outputs`，并绑定动态 package/handoff 角色；普通行情 Grant 不能覆盖名单或派生指标重算。合同还必须带同一范围的完整覆盖、逐行数量和实际观察日期。少量观察股价格自动刷新不能代替用户要求的全市场名单或计算指标自动更新；核心角色未覆盖时保留原页和未完成状态，不把混合页说成实时任务已完成。已验收页面的宿主收尾会按封存合同校验实际最终答复，缺失必填章节或最终链接格式时仍不能标记交付成功。
+本轮明确要求实时而旧计划未记录该要求时，发布返回 `CURRENT_LIVE_PLAN_REQUIRED`，先修订计划并绑定当前研究需要的数据角色。集合范围必须是 `basket/sector/market` 等明确范围；`market/sector` 或未列成员的 `basket` 还要有当前研究合同及 `selection_output`。把 `selection_output` 写进某个 `runtime_roles[*].required_outputs`，并绑定动态 package/handoff 角色（若冻结合同显式声明 `selection_source: "composition_select"`，亦可绑定同任务的 `composition_select` Data Grant，声明 `grant_kind: "composition_select"` 或附带对应验证收据）；普通行情 Grant 不能覆盖名单或派生指标重算。合同还必须带同一范围的完整覆盖、逐行数量和实际观察日期。少量观察股价格自动刷新不能代替用户要求的全市场名单或计算指标自动更新；核心角色未覆盖时保留原页和未完成状态，不把混合页说成实时任务已完成。已验收页面的宿主收尾会按封存合同校验实际最终答复，缺失必填章节或最终链接格式时仍不能标记交付成功。
 
 目标运行角色至少声明 `role_id + kind(package|grant)`。Compose引用已注册数据时还需相应 `package_id/grant_id`、`contract_fingerprint`、`validation_receipt_file`；收据必须属于同任务且completed/success。先完成合同验证和注册，再填写引用；不能把signature或API Key写进执行计划。
 

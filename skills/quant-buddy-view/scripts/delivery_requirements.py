@@ -37,6 +37,42 @@ def live_required(params):
     return params.get('require_live_data') is True or live_requested(query)
 
 
+def _is_composition_select_grant_role(role, task_id):
+    if not isinstance(role, dict) or role.get('kind') != 'grant':
+        return False
+    if role.get('grant_kind') == 'composition_select':
+        return True
+    contract = role.get('contract')
+    if isinstance(contract, dict) and contract.get('kind') == 'composition_select':
+        return True
+    receipt_file = role.get('validation_receipt_file')
+    if not receipt_file or not isinstance(receipt_file, str):
+        return False
+    try:
+        import json as _json
+        from pathlib import Path as _Path
+        p = _Path(receipt_file)
+        if not p.is_file() or p.stat().st_size > 256 * 1024:
+            return False
+        rec = _json.loads(p.read_text(encoding='utf-8'))
+        if (
+            not isinstance(rec, dict)
+            or rec.get('version') != 'grant_validation_receipt_v1'
+            or rec.get('kind') != 'composition_select'
+            or rec.get('status') != 'completed'
+            or rec.get('success') is not True
+        ):
+            return False
+        if task_id and str(rec.get('task_id') or '') != str(task_id):
+            return False
+        expected_fp = role.get('contract_fingerprint')
+        if expected_fp and str(rec.get('contract_fingerprint') or '') != str(expected_fp):
+            return False
+        return True
+    except (OSError, ValueError, TypeError):
+        return False
+
+
 def _has_live_registration_block(task):
     if not task:
         return False
@@ -230,11 +266,16 @@ def live_delivery_error(params, plan=None):
         }
     if result_role:
         covered = False
+        is_composition_contract = contract.get('selection_source') == 'composition_select'
         for role in plan.get('runtime_roles') or []:
             if not isinstance(role, dict):
                 continue
             outputs = role.get('required_outputs') or role.get('outputs')
-            if role.get('kind') == 'package' and (
+            role_kind_ok = (
+                role.get('kind') == 'package'
+                or (is_composition_contract and _is_composition_select_grant_role(role, task))
+            )
+            if role_kind_ok and (
                 role.get('role_id') == result_role
                 or (isinstance(outputs, list) and result_role in outputs)
             ):
