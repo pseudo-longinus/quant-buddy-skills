@@ -37,7 +37,7 @@
 - 仅指定标的、未指定期权 IV 口径时，可按实际需求对照多个可用槽位；需要一个确定值且无法从上下文判断时，再确认期限和槽位。不能把单槽 IV 当作整个标的的唯一 IV。
 - 要期权槽位 1 分钟行情与分钟 `self_iv`/`self_delta`：直接走 [tools/fast_query_option_minute.md](../tools/fast_query_option_minute.md)（`fast_query_option_minute`），传标的连续代码（如 `RB.SHF`、`IF.CFE`）或 ETF 代码（如 `SH510500`），禁止用现货 `fast_query_minute*` 代替期权分钟。若上游尚未开放股指/ETF 分钟会返回 `UPSTREAM_UNDERLYING_NOT_YET_SUPPORTED`，如实报告即可。
 - 要所选槽位的具体合约、到期日、行权价或换约：按 [合约映射工具](../tools/query_option_contracts.md) 判断（或在 `fast_query_option_minute` 中传 `include_contracts: true`）。当前 Skill 公共合约映射未开放股指和 ETF 时仅报告该接口边界，不能撤销已存在的行情数据。
-- 要“完整期权链”：按全部请求到期月和行权价理解；当前槽位数据和合约映射均不能证明完整链可用，不能用八个槽位替代全链。
+- 要“完整期权链”（T 型报价、某到期月/行权价清单、具体期权合约分钟或日内波动率微笑）：走 [tools/query_option_chain.md](../tools/query_option_chain.md)（`query_option_chain`，返回合约列表与最新/指定时刻截面，并叠加同日 `slots` 槽位标识，ETF 自动带名称/除权系列/乘数）和 [tools/fast_query_option_chain_minute.md](../tools/fast_query_option_chain_minute.md)（`fast_query_option_chain_minute`，16 列自带 `expiration/strike/option_type`，支持精准合约和动态链裁剪）；仍不能用 8 个日频槽位替代全链，实际日期覆盖以实查为准。
 
 ## 结果与页面
 

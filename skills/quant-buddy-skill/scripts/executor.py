@@ -164,6 +164,8 @@ TOOL_ROUTES = {
     "fast_query_minute_range": ("POST", "/fastQueryMinuteRange"),
     "fast_query_minute_range_multi": ("POST", "/fastQueryMinuteRangeMulti"),
     "fast_query_option_minute": ("POST", "/fastQueryOptionMinute"),
+    "query_option_chain":    ("POST", "/queryOptionChain"),
+    "fast_query_option_chain_minute": ("POST", "/fastQueryOptionChainMinute"),
     "searchFunctions":       ("POST", "/searchFunctions"),
     "searchSimilarCases":    ("POST", "/searchSimilarCases"),
     "getCardFormulas":       ("POST", "/getCardFormulas"),
@@ -203,6 +205,8 @@ TOOL_TIMEOUTS = {
     "fast_query_minute_range": 120, # 历史分钟CSV元信息，客户端网络余量
     "fast_query_minute_range_multi": 120, # 多资产分钟JSON/CSV，客户端网络余量
     "fast_query_option_minute": 120, # 国内期权分钟JSON/CSV与可选换约信息，客户端网络余量
+    "query_option_chain": 120,       # 国内期权链合约列表与截面，客户端网络余量
+    "fast_query_option_chain_minute": 120, # 国内期权链分钟JSON/CSV，客户端网络余量
     "fast_query_minute":    120,   # 单资产分钟行情，服务端总取数 deadline 30s
     "selectByComposition":  120,   # 物化指标查询，避免按公式任务长时间等待
     "listDimensionIndicators": 120,  # 同上，服务端目录查询

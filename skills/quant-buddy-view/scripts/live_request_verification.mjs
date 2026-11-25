@@ -10,6 +10,18 @@ function rejected(value) {
   return value.data && !Array.isArray(value.data) && typeof value.data === 'object' ? rejected(value.data) : false;
 }
 
+export function truncatedFullColumn(outputEntry) {
+  if (!outputEntry || typeof outputEntry !== 'object') return false;
+  const mode = String(outputEntry.read_mode || '').trim();
+  const raw = outputEntry.data;
+  const section = raw && typeof raw === 'object'
+    ? (raw.last_column_full && typeof raw.last_column_full === 'object'
+        ? raw.last_column_full
+        : (mode === 'last_column_full' ? raw : null))
+    : null;
+  return !!(section && section.is_truncated === true);
+}
+
 export function liveResponse(action, http, body) {
   const result={action,http,business_ok:false,output_count:0};
   if (!(http >= 200 && http < 300)) return result;
@@ -34,8 +46,10 @@ export function liveResponse(action, http, body) {
         if (event==='result') outputs.push(value);
       }
     }
+    const truncatedCount=outputs.filter(truncatedFullColumn).length;
+    if (truncatedCount > 0) result.truncated_count=truncatedCount;
     result.output_count=outputs.filter(o=>typeof o?.output==='string' && o.data && !rejected(o)).length;
-    result.business_ok=!failure && result.output_count>0 && result.output_count===outputs.length;
+    result.business_ok=!failure && truncatedCount===0 && result.output_count>0 && result.output_count===outputs.length;
   } catch { /* Malformed or unreadable evidence stays unsuccessful. */ }
   return result;
 }
@@ -43,7 +57,12 @@ export function liveResponse(action, http, body) {
 export function liveRequestProblems(requests, runtime) {
   if (!requests?.length) return ['LIVE_DATA_REQUEST_MISSING: 页面未实际请求实时数据'];
   const problems=[];
-  if (requests.some(r=>r.business_ok!==true)) problems.push('LIVE_DATA_REQUEST_FAILED: 实时请求未完成业务成功核验');
+  if (requests.some(r=>Number(r.truncated_count)>0)) {
+    problems.push('LIVE_DATA_TRUNCATED: 公式包 last_column_full 返回被后端截断（is_truncated=true），请省略或调大 max_rows 并核查 allow_zero_values');
+  }
+  if (requests.some(r=>r.business_ok!==true && !(Number(r.truncated_count)>0))) {
+    problems.push('LIVE_DATA_REQUEST_FAILED: 实时请求未完成业务成功核验');
+  }
   if (!runtime || runtime.status!=='ready' || runtime.pending!==0) problems.push('LIVE_RENDER_NOT_READY: 实时数据未完成页面渲染');
   return problems;
 }

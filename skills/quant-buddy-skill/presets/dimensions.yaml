@@ -1,8 +1,8 @@
 # 千维计划：维度与指标认知参考
 # 参考日期：2026-11-24；来源：新计算平台 owner_key=qw 的公式组及成员 extras。
-# 用途：帮助 Agent 理解业务维度、指标含义并直接检索候选；命中后可直接用 indicator_id 调用查公式/选股。
+# 用途：帮助 Agent 理解业务维度、指标含义并直接检索候选；命中后可直接用 indicator_id（或 name）调用 fast_query（历史快照/历史序列）、查公式或选股。
 # 仅在本地未命中、需查最新新增指标/实时状态，或调用报 INDICATOR_NOT_FOUND 时，再调 listDimensionIndicators 在线确认。
-# 完整 indicator_id 或上游明确别名用于查公式/选股；direction 由服务端使用默认值。
+# 完整 indicator_id 或上游明确别名用于 fast_query / 查公式 / 选股；direction 由服务端使用默认值。
 # 新增或变更以在线目录为准；本文件未收录的指标也可在线发现和调用。
 # skill_server 随用随取上游信息，不读取本文件；本参考不保存数值、日期状态或旧 ID 映射。
 # 本次参考包含 18 个业务维度、50 个市场分组、325 项指标。

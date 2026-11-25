@@ -80,6 +80,6 @@
 
 单资产全部早于自身起点：解释 `MINUTE_HISTORY_OUT_OF_RANGE`，不调用或注册明知越界的授权；部分重叠：保留原窗口、原始缺口及 `MINUTE_HISTORY_PARTIAL_COVERAGE` 警告，不补 0、不改查别的日期。多资产按各自起点提示并保留可用资产数据，不把全体起点取最大值后静默裁剪。例如 `ES.CME` + `MGC.CMX` 查 2021 年 11 月至 12 月，ES 保留 11 月数据，MGC 提示 `2021-12-01` 之前不覆盖；全部所选资产已知越界才整体拒绝。接口返回 `coverage`/`coverage_by_ticker` 时保留其语义，不把起点字段当作实际首条记录或完整性保证。`market` 模式以窗口内实际有数据的资产为准，不硬编码成上述 14 个 ticker 请求。
 
-外盘换月事件与合约信息：分钟接口中 `fast_query_minute_range` 返回 `roll_events`，`fast_query_minute_range_multi` 仅解析去重后单资产时返回同结构 `roll_events`（均标 `data_frequency=minute`），多资产和 `market` 请求不返回；`fast_query_minute` 仅返回所选会话的 `contract_info`。日频 `fast_query` 对上述 14 个自聚合品种已与国内期货一样自动附 `future_context`，早于各自自聚合起点的历史段无换月记录时不提供（跨起点窗口自动截齐并标注 `partial_coverage`/`unavailable_before`）；其余 39 个纯日频及未迁移外盘在日频不附 `future_context`。旧上游不支持时提示 `UPSTREAM_ROLL_EVENTS_UNSUPPORTED`，成功行情保留，不能把缺字段当作无换月。详见 [连续期货换月](continuous-futures.md)。
+外盘换月事件与合约信息：分钟接口中 `fast_query_minute_range` 返回 `roll_events`，`fast_query_minute_range_multi` 仅解析去重后单资产时返回同结构 `roll_events`（均标 `data_frequency=minute`），多资产和 `market` 请求不返回；`fast_query_minute` 仅返回所选会话的 `contract_info`。日频 `fast_query` 对上述 14 个自聚合品种已与国内期货一样自动附 `future_context`，早于各自自聚合起点的历史段无换月记录时不提供（跨起点窗口自动截齐并标注 `partial_coverage`/`unavailable_before`）；其余 40 个纯日频及未迁移外盘在日频不附 `future_context`。旧上游不支持时提示 `UPSTREAM_ROLL_EVENTS_UNSUPPORTED`，成功行情保留，不能把缺字段当作无换月。详见 [连续期货换月](continuous-futures.md)。
 
 QBV 沿用三个同名 Grant 及既有验证、注册、刷新、计费流程；payload 只含请求字段，不放 `coverage`/`warnings`。绝对窗口固定，`rolling`/offset 按原规则滚动。页面按 ticker 分组，展示实际数据日期、请求窗口和覆盖限制；空数据不冒充 0 价格，历史数据不标成当前盘中。此更新依赖配套 `skill_server` 及上游任务部署，不代表当前运行服务已自动更新。

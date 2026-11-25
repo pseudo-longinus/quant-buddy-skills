@@ -1,7 +1,7 @@
 ﻿# fast_query — 快速查询（单次合并接口）
 
 一次调用完成资产解析 + 字段解析 + 公式执行 + 取值。  
-适用：≤1000 资产，标准字段，行情/估值/财务标量、A 股所属行业基础信息、固定区间序列或窗口序列；期货仅尝试行情字段，是否可得以工具返回为准。
+适用：≤1000 资产，标准字段及**千维全历史物化指标**，行情/估值/财务标量、A 股所属行业基础信息、千维指标历史快照/历史走势/多资产对比（可与行情估值混查）、固定区间序列或窗口序列；期货仅尝试行情字段及期货千维指标，是否可得以工具返回为准。
 **不适用**：选股、回测、行业聚合、事件研究、K线、开放式个股指标画像或全维度指标概览（此类走 `stockProfile`）；用户要求画像指标的“上一值 / 前值 / 前后两期对比”时也走 `stockProfile`，由其返回 `previous_value` / `previous_date`，不要用 `fast_query` 临时拼接；期货估值/财务/K线不在本接口承诺范围内。
 
 ## 参数
@@ -72,9 +72,16 @@
 - `商品库存`（`库存`）/ `库存按发布日`：单位**按品种推测**（万吨/吨/千克/克/万重量箱/万立方米/头），带 `STOCK_UNIT_INFERRED` 警告
 - 直接用期货 ticker（如 `RB.SHF`、`AG.SHF`）查询即可；查港美股返回 `FIELD_MARKET_MISMATCH`
 
+**千维全历史物化指标**（`snapshot`/`window`，服务端动态匹配千维在线目录，不维护静态表）：
+- `fields` 直接传 `presets/dimensions.yaml` 或 `listDimensionIndicators` 返回的完整语义名 `indicator_id`（如 `A股_趋势结构维度分`、`A股_短期高低点抬升得分`、`港股_趋势结构维度分`、`美股_价格反馈`、`期货_低库存得分`）或上游明确别名 `name`；禁止传平台数字 ID 或自造名称。
+- 支持最新/指定历史日期快照（`snapshot`）、近 N 日或指定 `start_date`/`end_date` 历史序列（`window` / `result_mode="series"`），支持与收盘价/估值等标准字段同次混查，也支持 `fast_query` 数据授权（`registerDataGrant`）。
+- 按在线目录 `asset_scope` 校验市场归属（跨市场返回 `FIELD_MARKET_MISMATCH`）；`A股_市场情绪维度` 下指标针对宽基/申万指数（如 `SH000300`/`801010.SI`）；少数指标历史物化起点晚于 2005 年，早于起点返回明确起点提示。
+- 盘后日频物化更新（与盘中行情混查时日期可能差 1~2 天，按字段自身日期展示）；`fields_meta[字段].output_type` 区分 `score`（连续分）与 `screen`（`0`/`1` 布尔命中）。
+- 超过 500 数据点同样自动切 CSV 模式（`mode: "csv"`，含 `csv_fields[].csv_url` 与 `output_type`），与标准字段保持一致。
+
 > **单位按品种下沉**：同一字段多品种单位不一致时，`fields_meta[字段].unit_per_asset=true`，单位下沉到每个资产值：value 模式 `{v, unit}`，series 模式 `{unit, values}`（主轴）。单位一致时仍在 `fields_meta`、值为标量/数组。读值时优先看资产内联 `unit`，没有再读 `fields_meta.unit`。
 
-除 `所属行业` 这一专用 A 股资产元数据字段外，不在白名单 → 服务端自动调 confirmDataMulti 解析（+2s）；无法解析则 FIELD_UNRESOLVABLE。
+除 `所属行业` 与千维在线目录已物化指标外，不在白名单 → 报 `FIELD_NOT_WHITELISTED`（如需探索或自算自定义公式，走 `confirmDataMulti` / `listDimensionIndicators` + 公式链路）。
 
 ## 限流
 
@@ -185,9 +192,9 @@ asset_errors / field_errors / warnings
 
 不增加请求字段，原 fields 保留。服务结果对国内期货主连/次主连及 **14 个自有分钟聚合外盘主力连续**（`ES/NQ/MES/MNQ/RTY.CME`、`GC/HG/SI/MGC.CMX`、`CL/NG.NYM`、`TY/FV/TU.CBT`）自动增加 `future_context`，按连续 ticker 分组；verbose、compact 和 CSV 均须保留该元信息。
 
-- window/series：`future_context[ticker].roll_events` 是实际返回窗口内事件；JSON 按最终序列日期，CSV 按导出日期轴（`scope=csv_date_axis`），不是为了取数扩大的 `begin_date`。对 14 个自聚合外盘品种：早于各自自聚合起点（外部源拼接段）无换月记录，**日频行情数据仍按请求区间正常完整返回，只是不提供该时间段的换月信息**（整段早于起点时不返回 `future_context`；跨起点窗口仍返回全段行情，仅 `roll_events.start_date` 截齐至起点并标注 `partial_coverage: true`、`unavailable_before`）。其余 39 个纯日频及未迁移外盘同样正常返回行情，仅不附 `future_context`。
+- window/series：`future_context[ticker].roll_events` 是实际返回窗口内事件；JSON 按最终序列日期，CSV 按导出日期轴（`scope=csv_date_axis`），不是为了取数扩大的 `begin_date`。对 14 个自聚合外盘品种：早于各自自聚合起点（外部源拼接段）无换月记录，**日频行情数据仍按请求区间正常完整返回，只是不提供该时间段的换月信息**（整段早于起点时不返回 `future_context`；跨起点窗口仍返回全段行情，仅 `roll_events.start_date` 截齐至起点并标注 `partial_coverage: true`、`unavailable_before`）。其余 40 个纯日频及未迁移外盘同样正常返回行情，仅不附 `future_context`。
 - snapshot/value：`future_context[ticker].contract_info.contracts[]` 按各字段**实际有效值日期**分别匹配具体合约，含历史 fallback 日期。外盘早于自聚合起点的日期**行情值照常返回**，仅省略合约信息（全部早于起点时不返回 `future_context`，部分省略时附 `unavailable_before`）。不要把某个字段较新的合约套给较旧值。`status=inferred` 是事件推导，`unavailable`/null 是不确定，不是无合约。
 - 新版事件列为 `decision_trade_date,effective_trade_date,old_contract,new_contract,old_close,new_close`，按 `columns` 解析并保留双日期。决策日盘后确定换月，生效日切换；`old_close/new_close` 是**决策日**新旧具体合约各自未复权参考收盘价，不是生效日收盘或分钟成交价。外盘同一 `effective_trade_date` 可能返回多条不同换月事件，须保留顺序。窗口按生效日过滤，首条决策日可能在窗口之前。旧版事件 `trade_date` 仅兼容为生效日，不覆盖新版字段。
-- 国内及已迁移的 53 个海外主力连续日频价格字段均为**比例前复权**，显式 `收盘价（不复权）` 为原始价；不能把事件未复权 close 直接与复权日价判等。跨频、复权派生和局部对账处理见 [连续期货口径](../references/continuous-futures.md)，原行情保持不变。
+- 国内及已迁移的 54 个海外主力连续日频价格字段均为**比例前复权**，显式 `收盘价（不复权）` 为原始价；不能把事件未复权 close 直接与复权日价判等。跨频、复权派生和局部对账处理见 [连续期货口径](../references/continuous-futures.md)，原行情保持不变。
 - `future_context[ticker].error` / warnings 仅表示附加信息缺失；即使 `partial_ok=false` 也不应丢掉已成功行情。主行情错误仍按原规则处理。
 - 内部合约检索按需回看 6/12/24 个月（外盘不回看早于自聚合起点），不从 1900 年全量查、不暴露 `lookup_start_date`；Agent 无需额外请求。日内当前分钟用 `fast_query_minute`，历史跨日分钟用 `fast_query_minute_range`，不把日频窗口误当分钟数据。

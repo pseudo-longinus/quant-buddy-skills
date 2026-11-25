@@ -9,6 +9,7 @@
 3. 使用QBS已验证的完整公式合同登记Formula Package，再按原有收据、资源归属、首次取数及发布验收合同绑定页面；不能将这些目录字段当作 `fast_query` 白名单，也不能用 `kind:option_contracts` 取得行情。
 4. `option_contracts`只读取具体合约映射，当前未开放上述股指和ETF的具体合约映射。若用户还要合约代码、行权价、到期日或换约，保留可交付的行情模块，单独说明映射缺口，不能编造合约或因为该限制删除行情。
 5. 期权槽位 1 分钟行情及分钟 `self_iv`/`self_delta` 使用 `fast_query_option_minute` Data Grant（`kind: "fast_query_option_minute"`，详见 `tools/data_grant.md`），先通过 QBS `fast_query_option_minute` 实测出数再注册；若后台尚未开放股指/ETF 分钟会返回 `UPSTREAM_UNDERLYING_NOT_YET_SUPPORTED`，如实披露缺口，不用现货分钟代替。
+6. 完整期权链合约列表/T 型报价截面使用 `option_chain` Data Grant（底层 `query_option_chain`，行内自带同日 `slots` 槽位标识，ETF 自动带名称/除权系列/乘数）；具体期权合约或局部期权链分钟走势/日内波动率微笑使用 `option_chain_minute` Data Grant（底层 `fast_query_option_chain_minute`，16 列自带 `expiration`/`strike`/`option_type`，超阈值自动 CSV）。长期活页优先冻结 `date_mode: "current_trade_day"` + `expiry_ranks` + `atm_strike_steps`，避免合约到期或标的大幅波动后数据失效。
 
 ## 页面口径
 

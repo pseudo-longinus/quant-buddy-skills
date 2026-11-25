@@ -5,6 +5,12 @@
 
 ---
 
+## [0.8.28] — 2026-11-24
+
+- 对 `last_column_full` 截断返回（`is_truncated=true`）实施协议级直接阻断，覆盖查询透出、看板构建、浏览器/卡片验收与发布/Fork 核验，并纠偏文档默认省略 `max_rows` 与 `allow_zero_values`。
+- 修复 `fork_runtime_contract` 识别 HTML 标签属性凭证（同标签内 `data-grant-id`/`data-package-id` 与对应签名属性），解决历史/手写实时页在托管预检中误报 `REGISTRATION_REMOTE_PROOF_REQUIRED` 的问题。
+- 同步海外期货日频比例前复权覆盖至 54 个主力连续（纯日频 40 个，含 `BP.CME`）口径说明。
+
 ## [0.8.27] — 2026-11-24
 
 - 打通千维维度分选股（`composition_select`）实时看板发布链路：同步 `research_contract.py` 平台已物化 TopN 审计分支，并在 `delivery_requirements.py` 放行同任务 `composition_select` Data Grant 覆盖集合 `selection_output`（普通行情 Grant 仍严格拦截）。

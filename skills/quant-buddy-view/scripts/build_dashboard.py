@@ -434,7 +434,7 @@ function normalizeGrantData(kind, data) {
     if (!Array.isArray(data.records)) throw new Error('合约授权records格式错误');
     return data.records;
   }
-  if (k === 'fast_query_minute_range' || k === 'fast_query_minute_range_multi' || k === 'fast_query_option_minute') {
+  if (k === 'fast_query_minute_range' || k === 'fast_query_minute_range_multi' || k === 'fast_query_option_minute' || k === 'option_chain' || k === 'option_chain_minute') {
     return (data.rows || data.data || []).map(row => Object.fromEntries((data.columns || []).map((key, i) => [key, row[i]])));
   }
   if (k === 'fast_query_minute') {
@@ -2073,7 +2073,7 @@ def _normalize_grant_data(kind, data):
         if not isinstance(data.get("records"), list):
             raise ValueError("合约授权records格式错误")
         return data["records"]
-    if k in ("fast_query_minute_range", "fast_query_minute_range_multi", "fast_query_option_minute"):
+    if k in ("fast_query_minute_range", "fast_query_minute_range_multi", "fast_query_option_minute", "option_chain", "option_chain_minute"):
         return [dict(zip(data.get("columns") or [], row)) for row in (data.get("rows") if isinstance(data.get("rows"), list) else data.get("data")) or []]
     if k == "fast_query_minute":
         return [{"日期": date, **{key: values[i] if i < len(values) else None
@@ -2200,6 +2200,14 @@ def _inspect_output_data(data):
         for wk in ("range_data", "last_value", "last_day_stats", "last_column_full", "last_valid_per_asset"):
             inner = data.get(wk)
             if isinstance(inner, (dict, list)):
+                if wk == "last_column_full" and isinstance(inner, dict) and inner.get("is_truncated") is True:
+                    ret_rows = inner.get("returned_rows")
+                    val_rows = inner.get("valid_rows")
+                    ratio = f"（返回 {ret_rows} / 有效 {val_rows} 行）" if ret_rows is not None and val_rows is not None else ""
+                    return (
+                        f"last_column_full 返回被后端截断{ratio}（is_truncated=true），"
+                        "请省略或调大 max_rows，并核查是否误设 allow_zero_values=true"
+                    )
                 return _inspect_output_data(inner)
         values = data.get("values")
         if isinstance(values, list) and (not values or all(isinstance(v, dict) for v in values)):
@@ -2289,7 +2297,20 @@ def _inspect_outputs(panels, outputs):
             if out.get("error"):
                 problems.append({"output": name, "reason": str(out.get("error"))})
                 continue
-            why = _inspect_output_data(out.get("data"))
+            out_data = out.get("data")
+            if str(out.get("read_mode") or "").strip() == "last_column_full" and isinstance(out_data, dict) and out_data.get("is_truncated") is True:
+                ret_rows = out_data.get("returned_rows")
+                val_rows = out_data.get("valid_rows")
+                ratio = f"（返回 {ret_rows} / 有效 {val_rows} 行）" if ret_rows is not None and val_rows is not None else ""
+                problems.append({
+                    "output": name,
+                    "reason": (
+                        f"last_column_full 返回被后端截断{ratio}（is_truncated=true），"
+                        "请省略或调大 max_rows，并核查是否误设 allow_zero_values=true"
+                    ),
+                })
+                continue
+            why = _inspect_output_data(out_data)
             if why:
                 problems.append({"output": name, "reason": why})
     return problems

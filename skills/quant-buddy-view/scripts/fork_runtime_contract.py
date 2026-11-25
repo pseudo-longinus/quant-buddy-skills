@@ -399,6 +399,67 @@ def _constant_credential_pair_occurrences(html):
     return pairs
 
 
+_HTML_COMMENT_RE = re.compile(r"<!--[\s\S]*?-->")
+_HTML_TAG_RE = re.compile(
+    r"<[A-Za-z][A-Za-z0-9:_-]*(?:\s+(?:[^\"'>]|\"[^\"]*\"|'[^']*')*)?>",
+    re.S,
+)
+_HTML_DATA_ATTR_RE = re.compile(
+    r"(?<![A-Za-z0-9_-])(?P<name>data-(?:grant-id|grant-signature|package-id|package-signature|signature))\s*=\s*"
+    r"(?P<quote>[\"'])(?P<value>[^\"']+)(?P=quote)",
+    re.I,
+)
+
+
+def _html_attr_credential_pair_occurrences(html, agent_readable_ranges=()):
+    """Pair HTML data-grant-id/data-grant-signature and data-package-id/data-package-signature attributes within the same element tag."""
+    text = str(html or "")
+    excluded_ranges = list(agent_readable_ranges) + [m.span() for m in _HTML_COMMENT_RE.finditer(text)]
+    pairs = []
+    for tag_match in _HTML_TAG_RE.finditer(text):
+        if _span_is_within(tag_match.span(), excluded_ranges):
+            continue
+        tag_text = tag_match.group(0)
+        if "data-" not in tag_text.lower():
+            continue
+        tag_start = tag_match.start()
+        attrs = {}
+        for attr_match in _HTML_DATA_ATTR_RE.finditer(tag_text):
+            name = attr_match.group("name").lower()
+            value = str(attr_match.group("value") or "").strip()
+            if not value:
+                continue
+            span = (tag_start + attr_match.start("value"), tag_start + attr_match.end("value"))
+            attrs.setdefault(name, []).append((value, span))
+        has_grant = "data-grant-id" in attrs
+        has_package = "data-package-id" in attrs
+        for kind, id_attr, sig_attr in (
+            ("grant", "data-grant-id", "data-grant-signature"),
+            ("package", "data-package-id", "data-package-signature"),
+        ):
+            id_entries = attrs.get(id_attr) or []
+            if not id_entries:
+                continue
+            sig_entries = list(attrs.get(sig_attr) or [])
+            if not sig_entries and not (has_grant and has_package):
+                sig_entries = list(attrs.get("data-signature") or [])
+            for credential_id, id_span in id_entries:
+                if _span_is_within(id_span, excluded_ranges):
+                    continue
+                resolved_kind = _credential_kind(credential_id, id_attr.replace("data-", ""))
+                if resolved_kind != kind:
+                    continue
+                for signature, signature_span in sig_entries:
+                    pairs.append({
+                        "kind": kind,
+                        "credential_id": credential_id,
+                        "signature": signature,
+                        "id_span": id_span,
+                        "signature_span": signature_span,
+                    })
+    return pairs
+
+
 def _credential_pair_occurrences(html):
     text = str(html or "")
     agent_readable_ranges = _agent_readable_json_ranges(text)
@@ -421,6 +482,7 @@ def _credential_pair_occurrences(html):
                 "signature_span": signature_span,
             })
     candidates.extend(_constant_credential_pair_occurrences(text))
+    candidates.extend(_html_attr_credential_pair_occurrences(text, agent_readable_ranges))
     unique = []
     seen = set()
     for candidate in candidates:

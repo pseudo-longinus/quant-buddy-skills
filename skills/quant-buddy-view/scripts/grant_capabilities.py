@@ -8,6 +8,8 @@ from datetime import datetime
 TOOL_BY_KIND = {
     'query_kline': 'query_kline',
     'option_contracts': 'query_option_contracts',
+    'option_chain': 'query_option_chain',
+    'option_chain_minute': 'fast_query_option_chain_minute',
     'fast_query': 'fast_query',
     'fast_query_minute': 'fast_query_minute',
     'fast_query_minute_range': 'fast_query_minute_range',
@@ -84,6 +86,34 @@ def contract_errors(contract, role_id=''):
     if kind == 'fast_query_option_minute':
         from minute_range_contract import validate_option_minute_request
         for code, message in validate_option_minute_request(payload): add(code, message)
+    if kind == 'option_chain':
+        allowed = {'asset', 'date_mode', 'trade_date', 'end_trade_offset', 'as_of_minute', 'timezone',
+                   'expirations', 'expiry_ranks', 'call_put', 'strike_min', 'strike_max',
+                   'atm_strike_steps', 'active_only', 'include_snapshot'}
+        extra = sorted(set(payload) - allowed)
+        if extra: add('OPTION_CHAIN_PARAM_UNSUPPORTED', '期权链授权不支持参数：' + ', '.join(extra))
+        if not isinstance(payload.get('asset'), str) or not payload['asset'].strip():
+            add('OPTION_CHAIN_ASSET_REQUIRED', 'asset必须为单个期权标的名称或代码')
+        if 'expirations' in payload and 'expiry_ranks' in payload:
+            add('OPTION_CHAIN_CONFLICT', 'expirations与expiry_ranks不能同时传入')
+        if 'atm_strike_steps' in payload and ('strike_min' in payload or 'strike_max' in payload):
+            add('OPTION_CHAIN_CONFLICT', 'atm_strike_steps与strike_min/strike_max不能同时传入')
+    if kind == 'option_chain_minute':
+        allowed = {'asset', 'contracts', 'expirations', 'expiry_ranks', 'call_put',
+                   'strike_min', 'strike_max', 'atm_strike_steps', 'active_only',
+                   'date_mode', 'start_date', 'end_date', 'lookback_trade_days',
+                   'end_trade_offset', 'start_minute', 'end_minute', 'timezone'}
+        extra = sorted(set(payload) - allowed)
+        if extra: add('OPTION_CHAIN_MINUTE_PARAM_UNSUPPORTED', '期权链分钟授权不支持参数：' + ', '.join(extra))
+        if not isinstance(payload.get('asset'), str) or not payload['asset'].strip():
+            add('OPTION_CHAIN_ASSET_REQUIRED', 'asset必须为单个期权标的名称或代码')
+        chain_filters = ('expirations', 'expiry_ranks', 'call_put', 'strike_min', 'strike_max', 'atm_strike_steps', 'active_only')
+        if 'contracts' in payload and any(k in payload for k in chain_filters):
+            add('OPTION_CHAIN_MINUTE_CONFLICT', 'contracts与链筛选参数互斥')
+        if 'expirations' in payload and 'expiry_ranks' in payload:
+            add('OPTION_CHAIN_MINUTE_CONFLICT', 'expirations与expiry_ranks不能同时传入')
+        if 'atm_strike_steps' in payload and ('strike_min' in payload or 'strike_max' in payload):
+            add('OPTION_CHAIN_MINUTE_CONFLICT', 'atm_strike_steps与strike_min/strike_max不能同时传入')
     return errors
 
 
@@ -338,3 +368,39 @@ def evaluate_option_contracts(payload, result):
         if len({row['trade_date'] for row in rows}) != 1 or snapshot_slots != set(slots):
             return _failure('OPTION_SNAPSHOT_INCOMPLETE')
     return {'success': True}
+
+
+def evaluate_option_chain(payload, result):
+    """验证精简扁平的期权链列表/截面响应（ticker/trade_date/timestamp/expirations/columns/data）。"""
+    if not isinstance(result, dict) or result.get('code') not in (0, None) or result.get('success') is False:
+        return _failure('OPTION_CHAIN_QUERY_FAILED')
+    data = result.get('data')
+    if not isinstance(data, dict) or not isinstance(data.get('ticker'), str) or not data['ticker']:
+        return _failure('OPTION_CHAIN_RESPONSE_INVALID')
+    cols, rows = data.get('columns'), data.get('data')
+    if not isinstance(cols, list) or not isinstance(rows, list) or 'contract_id' not in cols or 'slots' not in cols:
+        return _failure('OPTION_CHAIN_RESPONSE_INVALID')
+    if not rows:
+        return _failure('OPTION_CHAIN_DATA_EMPTY', 'data')
+    return {'success': True, 'row_count': len(rows), 'columns': cols, 'trade_date': data.get('trade_date')}
+
+
+def evaluate_option_chain_minute(payload, result):
+    """验证 16 列精简期权链分钟响应（JSON 内联或 CSV 下载校验）。"""
+    if not isinstance(result, dict) or result.get('code') not in (0, None) or result.get('success') is False:
+        return _failure('OPTION_CHAIN_MINUTE_QUERY_FAILED')
+    data = result.get('data')
+    if not isinstance(data, dict) or not isinstance(data.get('ticker'), str) or not data['ticker']:
+        return _failure('OPTION_CHAIN_MINUTE_RESPONSE_INVALID')
+    try:
+        from fast_query_csv import download_and_hydrate
+        from minute_range_csv import parse_option_chain_minute_result
+        hydrated = download_and_hydrate(data, timeout=20) if data.get('mode') == 'csv' and not isinstance(data.get('rows'), list) else parse_option_chain_minute_result(data)
+        result['data'] = hydrated
+    except (ValueError, OSError, TypeError, KeyError):
+        return _failure('OPTION_CHAIN_MINUTE_RESPONSE_INVALID')
+    cols, rows = hydrated.get('columns') or [], hydrated.get('rows') or []
+    if not rows:
+        return _failure('OPTION_CHAIN_MINUTE_DATA_EMPTY', 'data')
+    return {'success': True, 'row_count': len(rows), 'columns': cols,
+            'mode': data.get('mode'), 'start_date': hydrated.get('start_date'), 'end_date': hydrated.get('end_date')}

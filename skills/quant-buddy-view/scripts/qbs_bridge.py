@@ -1555,6 +1555,10 @@ def _validate_grant_set(call_script, params, env):
             evaluation = GC.evaluate_minute_range_multi(payload, result)
         elif kind == "fast_query_option_minute":
             evaluation = GC.evaluate_option_minute(payload, result)
+        elif kind == "option_chain":
+            evaluation = GC.evaluate_option_chain(payload, result)
+        elif kind == "option_chain_minute":
+            evaluation = GC.evaluate_option_chain_minute(payload, result)
         elif kind == "fast_query":
             assets = payload.get("assets") if isinstance(payload.get("assets"), list) else []
             required_fields = payload.get("required_fields") if isinstance(payload.get("required_fields"), list) else payload.get("fields") or []

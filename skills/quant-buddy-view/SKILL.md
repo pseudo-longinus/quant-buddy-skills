@@ -3,17 +3,17 @@ name: quant-buddy-view
 slug: quant-buddy-view
 displayName: QuantBuddy 宽宝活页
 author: guanzhao
-version: 0.8.27
+version: 0.8.28
 description: |
   将量化分析或已有 JPG/PNG、HTML、PDF 发布为 Quant Buddy 可分享活页或实时看板，并支持创建、更新、复用、验收和公开链接交付。适用于个股画像、估值财务、指数异动、多因子筛选、商品日报、模板、分享壳及卡片等页面。
-  国内期货期权槽位行情页面支持部分商品、国内股指及部分 ETF 期权（明细见 guides/cn-index-options.md）；通过 QBS 验证后用公式包绑定，合约映射和完整期权链另行判断。
+  国内期货期权页面支持部分商品、国内股指及部分 ETF 期权（明细见 guides/cn-index-options.md）；日频槽位行情经 QBS 验证后用公式包绑定，完整期权链 T 型报价/分钟与槽位分钟使用对应 Data Grant。
   用户提供 QuantBuddy 活页 URL 并要求解读时也使用。显式调用 /quant-buddy-view、/qbv、qbv 或 QBV，且请求并非纯咨询、代码维护或文档解释时，默认按可分享活页任务处理。
   输入可唯一识别的 A 股名称、简称或代码，或简单要求单股综合分析（如“贵州茅台”“600519”“分析一下贵州茅台”）均默认请求个股快页；宿主开启 page_first_fast 时，取得 task_id 后立即并行调用 new_asset_page 与有限公开搜索，页面 ready 后先展示页面和前五章数据，搜索完成后再补综合观察；其它模式先通过 QBS 验证并回复完整个股分析，再同轮 new_asset_page，无需用户补说“生成页面”。
   WebAgent 宿主要求金融问题统一交付问答与活页时，一次性行情、涨跌幅、估值、概念解释和口语近况问题也在 QBS 首答后交接本技能。无此宿主约定时一次性问题由 QBS 回答；复盘、监控、画图、回测、K线等操作仍默认有活页意图。明确不要网页或只回复文字时不建页。
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 0.8.27
+  version: 0.8.28
   author: guanzhao
   category: quant-finance
   tags: [quant, dashboard, formula-package, static-page, publish, visualization]
@@ -491,6 +491,8 @@ npx skills update pseudo-longinus/quant-buddy-skills -y
 | 国内期货期权槽位行情（含商品、国内股指及部分ETF期权日频数据，见 guides/cn-index-options.md） | QBS验证精确数据名与范围后登记**公式包**；不是合约映射授权 | `package_id` |
 | 平台白名单直取的行情 / 估值 / 财务 / 资金流（收盘价、涨跌幅、PE/PB…） | 数据授权 `fast_query` | `grant_id` |
 | 国内期货/股指/ETF期权槽位 1 分钟行情、分钟 IV/Delta 及可选换约 | 数据授权 `fast_query_option_minute`（自动 JSON/CSV，支持 `rolling`/`current_trade_day`） | `grant_id` |
+| 国内期货/股指/ETF完整期权链合约列表、T 型报价截面（含同日 `slots` 槽位标识） | 数据授权 `option_chain`（支持 `expiry_ranks` + `atm_strike_steps` 活页滚动） | `grant_id` |
+| 国内期货/股指/ETF期权链指定合约或动态局部链 1 分钟行情 / 日内微笑 | 数据授权 `option_chain_minute`（16 列自带到期日/行权价/C-P，自动 JSON/CSV） | `grant_id` |
 | 部分美股及国内商品期权槽位当前合约 / 空槽 / 滚动窗口换约表 | 数据授权 `option_contracts`（snapshot/window，动态日期，真实trade_date） | `grant_id` |
 | 个股预计算画像卡（估值/财务质量等维度画像） | 数据授权 `stock_profile` | `grant_id` |
 | 已上线维度分的 TopN / 榜单 / 异动名单（动量反转、趋势结构…） | 数据授权 `composition_select` | `grant_id` |
@@ -561,7 +563,7 @@ npx skills update pseudo-longinus/quant-buddy-skills -y
 
 ## 历史分钟与连续期货数据源
 
-海外期货日频已对 53 个主力连续（14 个自有分钟聚合 + 39 个纯日频）实施比例前复权；其中 14 个自聚合外盘主力在日频 `fast_query` 已与国内期货一样自动附 `future_context`。早于各自自聚合起点的外部源拼接历史段以及其余 39 个纯日频/未迁移外盘，**日频行情数据仍照常完整返回，只是不提供对应时间段的换月/合约信息**（整段早于起点时不附 `future_context`，跨起点窗口仍返回全段行情、仅换月事件截齐并标注 `partial_coverage`/`unavailable_before`）。分钟接口 Range 及单资产 RangeMulti 返回 `roll_events`（`data_frequency=minute`），多资产与 `market` 请求不附事件；详见 [外盘换月返回入口](references/continuous-futures.md#外盘换月返回入口2026-11-20-更新)。
+海外期货日频已对 54 个主力连续（14 个自有分钟聚合 + 40 个纯日频）实施比例前复权；其中 14 个自聚合外盘主力在日频 `fast_query` 已与国内期货一样自动附 `future_context`。早于各自自聚合起点的外部源拼接历史段以及其余 40 个纯日频/未迁移外盘，**日频行情数据仍照常完整返回，只是不提供对应时间段的换月/合约信息**（整段早于起点时不附 `future_context`，跨起点窗口仍返回全段行情、仅换月事件截齐并标注 `partial_coverage`/`unavailable_before`）。分钟接口 Range 及单资产 RangeMulti 返回 `roll_events`（`data_frequency=minute`），多资产与 `market` 请求不附事件；详见 [外盘换月返回入口](references/continuous-futures.md#外盘换月返回入口2026-11-20-更新)。
 
 - 注册、Fork改资产/窗口前必读 [分钟行情支持范围与越界提示](references/minute-data-coverage.md)：A股/美股股票起于2026-05-13，国内期货起于2005-01-04，港股股票2026-05-20，国内指数2026-08-13；境外期货主力连续已支持，分钟起点按ticker区分（见分钟覆盖参考）；美国/香港指数及香港期货暂不支持。全窗口早于起点不注册授权；部分覆盖先提示并在页面标注，不静默裁剪原始payload，不宣称完整覆盖。页面若展示30分钟K线，必须标注其由1分钟Grant派生，不能把页面聚合结果写成上游原始30分钟数据。
 

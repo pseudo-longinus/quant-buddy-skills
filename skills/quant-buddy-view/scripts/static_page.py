@@ -2226,6 +2226,21 @@ def _validate_fork_manifest(params, template_resolution, final_html):
         endpoint = C.endpoint_of(C.load_config())
         package_output_check = _required_package_outputs_check(endpoint, final_html, required_outputs)
         if package_output_check.get("status") != "required_outputs_ok":
+            if package_output_check.get("status") == "required_outputs_truncated":
+                truncated_names = [
+                    str(item.get("output")) for item in (package_output_check.get("truncated_outputs") or [])
+                    if isinstance(item, dict) and item.get("output")
+                ]
+                return None, {
+                    "code": 1,
+                    "error": "FORK_REQUIRED_OUTPUTS_TRUNCATED",
+                    "message": (
+                        "fork 最终公式包存在被后端截断的 last_column_full 输出: "
+                        + ", ".join(truncated_names or required_outputs)
+                        + "（请省略或调大 max_rows 并核查 allow_zero_values）"
+                    ),
+                    "package_runtime_check": package_output_check,
+                }
             missing_outputs = package_output_check.get("missing_outputs") or required_outputs
             return None, {
                 "code": 1,
@@ -2300,21 +2315,43 @@ def _package_runtime_check(endpoint, html, *, force=False, publish_out=None):
     import formula_package as FP
     packages = []
     all_ok = True
+    all_query_ok = True
+    all_truncated = []
     for cred in creds:
         pkg = cred["package_id"]
         res = FP.query_package(endpoint, pkg, cred["signature"])
-        ok = isinstance(res, dict) and res.get("code") == 0
+        query_ok = isinstance(res, dict) and res.get("code") == 0
+        truncated = FP.extract_truncated_outputs(res, read_modes={"last_column_full"}) if query_ok else []
+        ok = query_ok and not truncated
         all_ok = all_ok and ok
-        packages.append({
+        all_query_ok = all_query_ok and query_ok
+        if truncated:
+            all_truncated.extend({"package_id": pkg, **item} for item in truncated)
+        err = (res.get("error") or res.get("message")) if isinstance(res, dict) else str(res)
+        if not err and truncated:
+            names = ", ".join(str(item.get("output") or "") for item in truncated if item.get("output"))
+            err = f"last_column_full 输出被后端截断（{names}），请省略或调大 max_rows 并核查 allow_zero_values"
+        item_record = {
             "package_id": pkg,
             "ok": ok,
-            "error": (res.get("error") or res.get("message")) if isinstance(res, dict) else str(res),
+            "error": err,
             "failures": res.get("failures") if isinstance(res, dict) else None,
-        })
-    return {
-        "status": "query_with_signature_ok" if all_ok else "query_with_signature_failed",
+        }
+        if truncated:
+            item_record["truncated_outputs"] = truncated
+        packages.append(item_record)
+    status = (
+        "query_with_signature_ok" if all_ok else (
+            "query_with_signature_truncated" if all_query_ok and all_truncated else "query_with_signature_failed"
+        )
+    )
+    out = {
+        "status": status,
         "packages": packages,
     }
+    if all_truncated:
+        out["truncated_outputs"] = all_truncated
+    return out
 
 
 def _required_package_outputs_check(endpoint, html, required_outputs):
@@ -2349,28 +2386,50 @@ def _required_package_outputs_check(endpoint, html, required_outputs):
     available = set()
     packages = []
     all_ok = True
+    all_query_ok = True
+    all_truncated = []
     for cred in creds:
         response = FP.query_package(endpoint, cred["package_id"], cred["signature"])
-        ok = isinstance(response, dict) and response.get("code") == 0
+        query_ok = isinstance(response, dict) and response.get("code") == 0
+        truncated = FP.extract_truncated_outputs(response, read_modes={"last_column_full"}) if query_ok else []
+        ok = query_ok and not truncated
         output_keys = sorted((response.get("outputs") or {}).keys()) if isinstance(response, dict) else []
-        if ok:
+        if query_ok:
             available.update(output_keys)
         all_ok = all_ok and ok
-        packages.append({
+        all_query_ok = all_query_ok and query_ok
+        if truncated:
+            all_truncated.extend({"package_id": cred["package_id"], **item} for item in truncated)
+        err = (response.get("error") or response.get("message")) if isinstance(response, dict) else str(response)
+        if not err and truncated:
+            names = ", ".join(str(item.get("output") or "") for item in truncated if item.get("output"))
+            err = f"last_column_full 输出被后端截断（{names}），请省略或调大 max_rows 并核查 allow_zero_values"
+        item_record = {
             "package_id": cred["package_id"],
             "ok": ok,
             "output_count": len(output_keys),
-            "error": (response.get("error") or response.get("message")) if isinstance(response, dict) else str(response),
-        })
+            "error": err,
+        }
+        if truncated:
+            item_record["truncated_outputs"] = truncated
+        packages.append(item_record)
     missing = [output for output in required if output not in available]
-    return {
-        "status": "required_outputs_ok" if all_ok and not missing else (
-            "required_outputs_missing" if all_ok else "query_with_signature_failed"
-        ),
+    status = (
+        "required_outputs_ok" if all_ok and not missing else (
+            "required_outputs_truncated" if all_query_ok and all_truncated else (
+                "required_outputs_missing" if all_ok else "query_with_signature_failed"
+            )
+        )
+    )
+    out = {
+        "status": status,
         "available_outputs": sorted(available),
         "missing_outputs": missing,
         "packages": packages,
     }
+    if all_truncated:
+        out["truncated_outputs"] = all_truncated
+    return out
 
 
 
@@ -4437,15 +4496,29 @@ def _validate_registered_qbs_credentials(endpoint, packages, grants):
                 response = FP.query_package(endpoint, item["package_id"], item["signature"])
             except Exception as exc:
                 response = {"code": 1, "error": "QUERY_EXCEPTION", "message": str(exc)}
-            ok = isinstance(response, dict) and response.get("code") == 0
-            checks.append({"kind": "package", "credential_id": item["package_id"], "ok": ok})
-            if not ok:
+            query_ok = isinstance(response, dict) and response.get("code") == 0
+            truncated = FP.extract_truncated_outputs(response, read_modes={"last_column_full"}) if query_ok else []
+            ok = query_ok and not truncated
+            check_entry = {"kind": "package", "credential_id": item["package_id"], "ok": ok}
+            if truncated:
+                check_entry["truncated_outputs"] = truncated
+            checks.append(check_entry)
+            if not query_ok:
                 return checks, _evidence_error(
                     "PRESERVE_HTML_QBS_CREDENTIAL_QUERY_FAILED",
                     f"公式包 {item['package_id']} 无法用页面 signature 查询，拒绝把页面标记为 QBS 活页",
                     credential_kind="package",
                     credential_id=item["package_id"],
                     details=response,
+                )
+            if truncated:
+                names = ", ".join(str(entry.get("output") or "") for entry in truncated if entry.get("output"))
+                return checks, _evidence_error(
+                    "PRESERVE_HTML_QBS_PACKAGE_TRUNCATED",
+                    f"公式包 {item['package_id']} 存在被后端截断的 last_column_full 输出（{names}），请省略或调大 max_rows 并核查 allow_zero_values",
+                    credential_kind="package",
+                    credential_id=item["package_id"],
+                    truncated_outputs=truncated,
                 )
     if grants:
         import data_grant as DG

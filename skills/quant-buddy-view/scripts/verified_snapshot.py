@@ -29,11 +29,11 @@ def capture(task_id,contract,result,resource='grant',hydrate_csv=False,query_ass
     if resource not in ('grant','package'):raise EP.PlanError('SNAPSHOT_RESOURCE_INVALID','未知数据源类型')
     result=project_result(result, resource)
     materialized=True
-    if resource=='grant' and contract.get('kind') in ('fast_query', 'fast_query_minute_range', 'fast_query_minute_range_multi', 'fast_query_option_minute'):
+    if resource=='grant' and contract.get('kind') in ('fast_query', 'fast_query_minute_range', 'fast_query_minute_range_multi', 'fast_query_option_minute', 'option_chain_minute'):
         import fast_query_csv as FQCSV
         data=result.get('data')
         already_hydrated = isinstance(data, dict) and data.get('source_mode') == 'csv' and isinstance(data.get('results'), list)
-        if isinstance(data,dict) and (bool(data.get("csv_fields")) or ((data.get("query_type") == "minute_range" or contract.get('kind') in ('fast_query_minute_range_multi', 'fast_query_option_minute')) and data.get("mode") == "csv")) and not isinstance(data.get("rows"), list) and not already_hydrated:
+        if isinstance(data,dict) and (bool(data.get("csv_fields")) or ((data.get("query_type") == "minute_range" or contract.get('kind') in ('fast_query_minute_range_multi', 'fast_query_option_minute', 'option_chain_minute')) and data.get("mode") == "csv")) and not isinstance(data.get("rows"), list) and not already_hydrated:
             if hydrate_csv:result['data']=FQCSV.download_and_hydrate(data,timeout=20)
             else:materialized=False
     body={'version':VERSION,'task_id':task_id,'resource':resource,'contract':contract,
@@ -155,6 +155,14 @@ def materialize_registered(params):
             elif kind=='fast_query_option_minute':
                 import grant_capabilities as GC
                 evaluated=GC.evaluate_option_minute(contract['payload'],result)
+                if not evaluated.get('success'):return {'code':1,'error':evaluated.get('error_code')}
+            elif kind=='option_chain':
+                import grant_capabilities as GC
+                evaluated=GC.evaluate_option_chain(contract['payload'],result)
+                if not evaluated.get('success'):return {'code':1,'error':evaluated.get('error_code')}
+            elif kind=='option_chain_minute':
+                import grant_capabilities as GC
+                evaluated=GC.evaluate_option_chain_minute(contract['payload'],result)
                 if not evaluated.get('success'):return {'code':1,'error':evaluated.get('error_code')}
             data=BD._normalize_grant_data(kind,(result or {}).get('data'))
             if BD._inspect_output_data(data) is not None:raise EP.PlanError('SNAPSHOT_DATA_EMPTY','数据为空，不能冻结为成品')

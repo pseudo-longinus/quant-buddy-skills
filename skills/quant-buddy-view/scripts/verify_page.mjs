@@ -28,7 +28,7 @@ import { staticImageProblems } from './image_verification.mjs';
 import { cardVisualContractProblems } from './card_visual_contract.mjs';
 import { dashboardDesignMetrics } from './dashboard_design_checks.mjs';
 import { pageTitleMetrics, pageTitleProblems } from './page_title_checks.mjs';
-import { liveAction, liveResponse, liveRequestProblems, bindingPolicy, requestBinding, bindingProblems } from './live_request_verification.mjs';
+import { liveAction, liveResponse, liveRequestProblems, bindingPolicy, requestBinding, bindingProblems, truncatedFullColumn } from './live_request_verification.mjs';
 import { assetInfoSelectionMetrics } from './asset_info_selection_checks.mjs';
 // Optional diagnostics must not turn an old successful page into a failure.
 const labelChecks = await import('./data_label_checks.mjs').catch(() => ({
@@ -596,6 +596,10 @@ async function cardRuntimeChecks(html, options = {}) {
       const missing = manifest.required_outputs.filter(key => sampledOutputs[key] == null);
       if (missing.length) {
         problems.push(`card manifest required_outputs 不存在或未返回: ${missing.slice(0, 12).join(', ')}`);
+      }
+      const truncated = manifest.required_outputs.filter(key => truncatedFullColumn(sampledOutputs[key]));
+      if (truncated.length) {
+        problems.push(`card manifest required_outputs 存在被后端截断的 last_column_full 输出: ${truncated.slice(0, 12).join(', ')}（请省略或调大 max_rows 并核查 allow_zero_values）`);
       }
     }
     problems.push(...cardVisualContractProblems(template, manifest, { strict: options.requireVisualContract }));

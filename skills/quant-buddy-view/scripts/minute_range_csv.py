@@ -7,6 +7,100 @@ import math
 
 _NULLS = {'', 'null', 'none', 'nan', 'inf', 'infinity', '-inf', '-infinity', '+inf', '+infinity'}
 _OHLCVA = {'open', 'high', 'low', 'close', 'volume', 'amount'}
+_OPTION_CHAIN_NUMS = _OHLCVA | {'strike', 'timestamp', 'open_interest', 'forward', 'self_iv', 'self_delta'}
+_OPTION_CHAIN_PREFIX = ['trade_date', 'contract_id', 'expiration', 'strike', 'option_type', 'timestamp']
+
+
+def _parse_ymd_int(value):
+    raw = str(value or '').strip().replace('-', '')
+    if len(raw) != 8 or not raw.isdigit():
+        raise ValueError(f'非法日期: {value}')
+    dt.datetime.strptime(raw, '%Y%m%d')
+    return int(raw)
+
+
+def is_option_chain_minute_result(data):
+    if not isinstance(data, dict) or data.get('mode') not in ('json', 'csv'):
+        return False
+    if is_multi_result(data) or data.get('query_type') == 'minute_range' or data.get('csv_fields'):
+        return False
+    if not isinstance(data.get('ticker'), str) or not data['ticker'].strip():
+        return False
+    if data.get('start_date') is None or data.get('end_date') is None:
+        return False
+    if data['mode'] == 'json':
+        cols = data.get('columns')
+        return isinstance(cols, list) and cols[:5] == _OPTION_CHAIN_PREFIX[:5]
+    shape = data.get('shape')
+    return isinstance(data.get('url'), str) and bool(data['url'].strip()) and isinstance(shape, list) and len(shape) == 2
+
+
+def parse_option_chain_minute_result(manifest, text=None):
+    """Validate JSON/CSV 16-column option_chain_minute long tables."""
+    if not is_option_chain_minute_result(manifest):
+        raise ValueError('期权链分钟结果类型非法')
+    result = copy.deepcopy(manifest)
+    if manifest['mode'] == 'csv' and text is not None:
+        reader = csv.reader(io.StringIO(text.lstrip('\ufeff'), newline=''))
+        columns = [c.strip() for c in next(reader, [])]
+        rows = list(reader)
+        result['source_mode'] = 'csv'
+    elif isinstance(manifest.get('rows'), list):
+        columns, rows = manifest.get('columns') or [], manifest['rows']
+    elif manifest['mode'] == 'json':
+        columns, rows = manifest.get('columns') or [], manifest.get('data')
+    else:
+        raise ValueError('期权链分钟CSV尚未下载')
+    if not isinstance(columns, list) or not isinstance(rows, list):
+        raise ValueError('期权链分钟表格非法')
+    if columns and (columns[:6] != _OPTION_CHAIN_PREFIX or len(set(columns)) != len(columns) or any(not c for c in columns)):
+        raise ValueError('期权链分钟表头非法')
+    if rows and not columns:
+        raise ValueError('期权链分钟缺少列名')
+    start_ymd = _parse_ymd_int(manifest.get('start_date'))
+    end_ymd = _parse_ymd_int(manifest.get('end_date'))
+    if start_ymd > end_ymd:
+        raise ValueError('期权链分钟日期区间非法')
+    parsed = []
+    for raw in rows:
+        if not isinstance(raw, list) or len(raw) != len(columns):
+            raise ValueError('期权链分钟行宽不一致')
+        row = []
+        for name, value in zip(columns, raw):
+            if name in ('trade_date', 'expiration'):
+                ymd = _parse_ymd_int(value)
+                if name == 'trade_date' and not (start_ymd <= ymd <= end_ymd):
+                    raise ValueError('期权链分钟交易日越界')
+                row.append(ymd)
+            elif name in ('contract_id', 'option_type'):
+                text_val = '' if value is None else str(value).strip()
+                if not text_val:
+                    raise ValueError(f'期权链分钟{name}缺失')
+                row.append(text_val)
+            elif name in _OPTION_CHAIN_NUMS:
+                if value is None or (isinstance(value, str) and value.strip().lower() in _NULLS):
+                    if name in ('strike', 'timestamp'):
+                        raise ValueError(f'期权链分钟{name}缺失')
+                    row.append(None)
+                else:
+                    if isinstance(value, bool):
+                        raise ValueError('期权链分钟数值非法')
+                    number = float(value)
+                    if not math.isfinite(number):
+                        raise ValueError('期权链分钟数值非法')
+                    row.append(int(number) if name == 'timestamp' and number.is_integer() else number)
+            else:
+                row.append(None if isinstance(value, str) and value.strip().lower() in _NULLS else value)
+        parsed.append(row)
+    shape = manifest.get('shape')
+    if shape is not None and (
+        not isinstance(shape, list) or len(shape) != 2
+        or any(type(n) is not int or n < 0 for n in shape)
+        or shape != [len(parsed), len(columns)]
+    ):
+        raise ValueError('期权链分钟shape与内容不一致')
+    result.update(columns=columns, rows=parsed)
+    return result
 
 
 def is_multi_result(data):

@@ -544,6 +544,36 @@ const QB = (function () {
     return Object.assign({}, data, parsed, { source_mode: 'csv' });
   }
 
+  async function _hydrateOptionChainMinuteCsv(data) {
+    if (!data || typeof data.url !== 'string' || !data.url) throw new Error('期权链分钟CSV缺少url');
+    const text = await _downloadCsvField({ intent: '期权链分钟全列', csv_url: data.url }, new Set());
+    const lines = String(text || '').replace(/^\uFEFF/, '').split(/\r?\n/).filter(Boolean);
+    const columns = lines.length ? lines[0].split(',').map(s => s.trim()) : [];
+    const expectedPrefix = ['trade_date', 'contract_id', 'expiration', 'strike', 'option_type', 'timestamp'];
+    if (columns.length < 6 || expectedPrefix.some((name, i) => columns[i] !== name)) {
+      throw new Error('期权链分钟CSV表头非法');
+    }
+    const numCols = new Set(['trade_date', 'expiration', 'strike', 'timestamp', 'open', 'high', 'low', 'close', 'volume', 'amount', 'open_interest', 'forward', 'self_iv', 'self_delta']);
+    const rows = [];
+    for (let i = 1; i < lines.length; i++) {
+      const cells = lines[i].split(',');
+      if (cells.length !== columns.length) throw new Error('期权链分钟CSV行宽不一致');
+      rows.push(columns.map((c, idx) => {
+        const raw = (cells[idx] ?? '').trim();
+        if (!raw || /^(?:null|none|nan|[+-]?(?:infinity|inf))$/i.test(raw)) return null;
+        if (numCols.has(c)) {
+          const n = Number(raw);
+          return Number.isFinite(n) ? n : null;
+        }
+        return raw;
+      }));
+    }
+    if (Array.isArray(data.shape) && (data.shape[0] !== rows.length || data.shape[1] !== columns.length)) {
+      throw new Error('期权链分钟CSV shape不一致');
+    }
+    return Object.assign({}, data, { columns, rows, source_mode: 'csv' });
+  }
+
   async function _requestGrantBody(cfg) {
     const { endpoint, grant_id, signature, asset } = cfg;
     // 跨域取数改用表单 POST（CORS 安全列表内的 Content-Type）且不带自定义头，
@@ -590,7 +620,7 @@ const QB = (function () {
         if (body && body.data && String(body.data.mode || '').toLowerCase() === 'csv') {
           _runtimeTransport('csv');
           try {
-            body = Object.assign({}, body, { data: (body.kind === 'fast_query_minute_range_multi' || body.kind === 'fast_query_option_minute') ? await _hydrateMinuteRangeMultiCsv(body.data) : body.data.query_type === 'minute_range' ? await _hydrateMinuteRangeCsv(body.data) : await _hydrateFastQueryCsv(body.data) });
+            body = Object.assign({}, body, { data: body.kind === 'option_chain_minute' ? await _hydrateOptionChainMinuteCsv(body.data) : (body.kind === 'fast_query_minute_range_multi' || body.kind === 'fast_query_option_minute') ? await _hydrateMinuteRangeMultiCsv(body.data) : body.data.query_type === 'minute_range' ? await _hydrateMinuteRangeCsv(body.data) : await _hydrateFastQueryCsv(body.data) });
           } catch (error) {
             if (attempt === 0 && error && error.retryable) {
               body = await _requestGrantBody({ endpoint, grant_id, signature, asset });

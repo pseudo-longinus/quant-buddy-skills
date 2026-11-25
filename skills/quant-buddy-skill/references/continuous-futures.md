@@ -3,10 +3,10 @@
 使用国内主连/次主连或海外期货主力连续做跨日、跨频、指标、回测或活页时读取。国内主力如 `A.DCE`，次主力如 `A_S.DCE`；外盘主力如 `ES.CME`、`HG.CMX`、`TU.CBT`，仅 `rank=1`，不将外盘 `_S` 或具体月份合约当作主连。先确认字段口径，再完成用户任务；局部缺失与跨频差异按下述影响范围处理。
 
 **海外期货日频拼接与换月覆盖边界（2026-11-20 对齐）**：
-- 平台已对 **53 个**海外期货主力连续（ClickHouse `os_future_daily_bar`，`rank=1`）的日频价格（`全市场每日收盘价`等）实施**比例前复权**，分为两类（其余未迁移外盘仍走旧源且不复权）：
+- 平台已对 **54 个**海外期货主力连续（ClickHouse `os_future_daily_bar`，`rank=1`）的日频价格（`全市场每日收盘价`等）实施**比例前复权**，分为两类（其余未迁移外盘仍走旧源且不复权）：
   1. **14 个自有分钟聚合品种**（`ES.CME`、`NQ.CME`、`MES.CME`、`MNQ.CME`、`RTY.CME`、`GC.CMX`、`HG.CMX`、`SI.CMX`、`MGC.CMX`、`CL.NYM`、`NG.NYM`、`TY.CBT`、`FV.CBT`、`TU.CBT`）：日频由两段拼接而成——**自聚合起点起**（见 [分钟覆盖表](minute-data-coverage.md#外盘期货主力连续)，大多在 2016-10，其中 `TU.CBT` 2016-01-04、`HG.CMX` 2016-10-19、`RTY.CME` 2017-07-10、`MES/MNQ` 2019-05-06、`MGC.CMX` 2021-12-01）由自有分钟聚合生成，**具备对应换月事件与来源合约**；**早于自聚合起点的历史段**来自外部数据源，**没有对应的换月合约信息**。
-  2. **39 个纯日频海外品种**（含 LME/IPE/NYB/EUX 及部分 CME/CBT/NYM）：早期为外部日线历史（无换月合约明细），2026-11 起接新日 K 后仅新段有来源合约；日频 `fast_query` 暂不提供 `future_context`。
-- **无换月历史段只省略换月信息，日频行情数据照常返回**：上述 14 品种在日频 `fast_query` 中已与国内期货一样自动提供 `future_context`；早于自聚合起点的历史区间**日频行情数据仍按原请求正常完整返回，绝不因缺少换月信息而拒绝查询、裁剪窗口或丢弃行情**，只是不提供对应的换月/合约信息——整段早于起点时不返回 `future_context`，跨起点窗口仍返回全段日频行情、仅将 `roll_events.start_date` 截齐至起点并标注 `partial_coverage: true` / `unavailable_before`，跨起点多日期 `snapshot` 仅对起点及之后日期返回合约并标注 `unavailable_before`。其余 39 个纯日频及未迁移外盘品种同样正常返回日频行情，仅不附带 `future_context`。
+  2. **40 个纯日频海外品种**（含 LME/IPE/NYB/EUX 及部分 CME/CBT/NYM，含 `BP.CME`）：早期为外部日线历史（无换月合约明细），2026-11 起接新日 K 后仅新段有来源合约；日频 `fast_query` 暂不提供 `future_context`。
+- **无换月历史段只省略换月信息，日频行情数据照常返回**：上述 14 品种在日频 `fast_query` 中已与国内期货一样自动提供 `future_context`；早于自聚合起点的历史区间**日频行情数据仍按原请求正常完整返回，绝不因缺少换月信息而拒绝查询、裁剪窗口或丢弃行情**，只是不提供对应的换月/合约信息——整段早于起点时不返回 `future_context`，跨起点窗口仍返回全段日频行情、仅将 `roll_events.start_date` 截齐至起点并标注 `partial_coverage: true` / `unavailable_before`，跨起点多日期 `snapshot` 仅对起点及之后日期返回合约并标注 `unavailable_before`。其余 40 个纯日频及未迁移外盘品种同样正常返回日频行情，仅不附带 `future_context`。
 
 ## 新版换月事件
 
@@ -31,7 +31,7 @@
 
 ## 价格尺度和复权算法
 
-国内期货与已迁移的 53 个海外主力连续在日频 `results` 中的连续价格字段（`收盘价/开盘价/最高价/最低价`）均为**比例前复权**价格（锚定最新有效发布日）；显式 `收盘价（不复权）` 为原始价格（其余未迁移海外品种仍为不复权）。分钟 OHLC 保留原始未复权报价，事件中的两个 `close` 也未复权。比较前必须统一尺度，不能仅因复权日价与原始分钟/参考价不相等就判定数据错误。
+国内期货与已迁移的 54 个海外主力连续在日频 `results` 中的连续价格字段（`收盘价/开盘价/最高价/最低价`）均为**比例前复权**价格（锚定最新有效发布日）；显式 `收盘价（不复权）` 为原始价格（其余未迁移海外品种仍为不复权）。分钟 OHLC 保留原始未复权报价，事件中的两个 `close` 也未复权。比较前必须统一尺度，不能仅因复权日价与原始分钟/参考价不相等就判定数据错误。
 
 例如生效日 2025-11-13、决策日 2025-11-12，`old_close=945.76`、`new_close=948.74`：这两个数均为 11 月 12 日各自合约的原始收盘；它们不要求等于 11 月 13 日的日频收盘。不能仅凭数值相等或不同推断另一个字段是否复权，应以实际请求字段为准。
 
@@ -75,7 +75,7 @@
 
 | 已有工具 | 外盘换月 / 合约字段 |
 |---|---|
-| `fast_query`（日频 window/series） | **14 个自聚合主力连续**在自聚合起点及之后返回 `future_context[ticker].roll_events`（结构与国内一致，不标 `data_frequency=minute`）。早于自聚合起点的历史段**日频行情照常返回，仅不提供换月信息**：整段早于起点时不返回 `future_context`；跨起点窗口仍返回全段行情，仅将 `roll_events.start_date` 截齐至起点并附 `partial_coverage: true`、`unavailable_before`。其余 39 个纯日频及未迁移外盘照常返回行情，仅不附 `future_context` |
+| `fast_query`（日频 window/series） | **14 个自聚合主力连续**在自聚合起点及之后返回 `future_context[ticker].roll_events`（结构与国内一致，不标 `data_frequency=minute`）。早于自聚合起点的历史段**日频行情照常返回，仅不提供换月信息**：整段早于起点时不返回 `future_context`；跨起点窗口仍返回全段行情，仅将 `roll_events.start_date` 截齐至起点并附 `partial_coverage: true`、`unavailable_before`。其余 40 个纯日频及未迁移外盘照常返回行情，仅不附 `future_context` |
 | `fast_query`（日频 snapshot/value） | **14 个自聚合主力连续**按实际取值日期返回 `future_context[ticker].contract_info`；早于自聚合起点的日期**行情值照常返回**，仅省略对应合约信息（全部早于起点时不返回 `future_context`，部分省略时附 `unavailable_before`） |
 | `fast_query_minute_range` | `data.roll_events`：原请求会话日区间内的分钟换月事件表，标注 `data_frequency=minute` |
 | `fast_query_minute_range_multi`，解析去重后单资产 | `data.roll_events`，与单资产 Range 同结构，标注 `data_frequency=minute`；不使用按 ticker 分组的新字段 |

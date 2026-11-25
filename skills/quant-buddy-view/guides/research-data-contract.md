@@ -35,7 +35,7 @@
 
 动态卡片、表格、正文使用同一产出；文字随数据更新或标为某日历史分析。两份TopN的并集不等于选定资产的完整多字段矩阵，未进榜不等于字段为零。
 
-继承页新增输出时必须按新的 `read_mode` 验证实际返回形状，不能照抄原模板解析器。`last_column_full.values` 是资产明细，`total_assets/valid_assets/returned_assets/is_truncated/warning` 是统计元数据，不是股票或行业。浏览器验收必须抽查真实名称/代码、行数和至少一个数值与验证结果一致；不能以“表格存在、接口200”替代。标准 `build_dashboard` 已支持该明细结构，优先复用。
+继承页新增输出时必须按新的 `read_mode` 验证实际返回形状，不能照抄原模板解析器。`last_column_full.values` 是资产明细，`total_rows/valid_rows/returned_rows/total_assets/valid_assets/returned_assets/is_truncated/warning` 是统计元数据，不是股票或行业；`last_column_full` 默认省略 `max_rows` 与 `allow_zero_values`，若返回 `is_truncated: true` 说明有效行被后端截断，将在构建与验收阶段直接阻断。浏览器验收必须抽查真实名称/代码、行数和至少一个数值与验证结果一致；不能以“表格存在、接口200”替代。标准 `build_dashboard` 已支持该明细结构，优先复用。
 
 填写正式description及具体primary_outputs：资产/资产池、窗口、统计口径、单位、日期与解释边界。禁止将“页面核心结论/关键指标解释/公开链接”等通用占位当成研究输出。
 

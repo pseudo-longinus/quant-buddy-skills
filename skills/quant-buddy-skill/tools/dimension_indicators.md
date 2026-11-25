@@ -67,7 +67,7 @@
 ❌ 不适用：
 
 - 直接要 TopN 选股结果 → `composition-select.md` + `selectByComposition`
-- 要指标的历史序列 / 数值 → 本工具只给**定义**不给数据；要数值走 `runMultiFormulaBatchStream`
+- 要已物化指标的历史快照 / 历史序列 / 多资产对比 → 本工具只给**定义**不给数据；已落库全历史千维指标直接走 `fast_query`（传 `indicator_id` 或 `name`，支持 `snapshot`/`window` 及 CSV）；仅改参数或自算公式变体才走 `runMultiFormulaBatchStream`
 - 要查平台有哪些**数据集**（`全市场每日收盘价` 之类）→ 那是 `presets/data_catalog.yaml` 和 `index_info_catalog/`，不是这里
 
 ---

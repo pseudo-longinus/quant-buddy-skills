@@ -114,6 +114,21 @@ def validate(value, task_id=None):
         raise ValueError('RESEARCH_TASK_MISMATCH')
     return frozen
 
+def _is_pure_scope_condition(condition):
+    spec = condition.get('spec') or {}
+    scope = spec.get('scope')
+    if not isinstance(scope, str) or not scope.strip():
+        return False
+    if any(spec.get(k) is not None for k in ('field', 'benchmark_field', 'input_fields', 'operator', 'value', 'min', 'max', 'threshold', 'window')):
+        return False
+    predicate = re.sub(r'\s+', '', str(condition.get('predicate') or ''))
+    if '板块(' not in predicate:
+        return False
+    stripped = re.sub(r'板块\([^()]+\)', '', predicate)
+    stripped = re.sub(r'[或且非()+\-*,|]', '', stripped)
+    return not stripped
+
+
 def audit(value, *, formulas=None, applied_conditions=None, observation_date=None, asset_rows=None, coverage=None, coverage_rows=None, field_dates=None, require_result_evidence=True):
     contract = validate(value)
     issues = []
@@ -201,7 +216,7 @@ def audit(value, *, formulas=None, applied_conditions=None, observation_date=Non
                     spec=condition['spec']
                     fields=list(spec.get('input_fields') or [])
                     fields += [spec[k] for k in ('field','benchmark_field') if spec.get(k)]
-                    if not fields:
+                    if not fields and not _is_pure_scope_condition(condition):
                         issues.append({'condition_id':condition['id'],'error':'CONDITION_INPUT_FIELDS_REQUIRED'})
                     for field in set(fields):
                         missing=sum(row.get(field) is None or (type(row.get(field)) in (int,float) and not __import__('math').isfinite(row[field])) for row in evidence_rows)

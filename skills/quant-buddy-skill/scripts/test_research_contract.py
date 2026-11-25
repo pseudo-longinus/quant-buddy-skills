@@ -240,4 +240,56 @@ class ResearchContractTest(unittest.TestCase):
                 'conditions':[{'id':'raw','description':'放量突破','spec':{'input_fields':['close']}}],
             })
 
+    def test_pure_scope_universe_condition_does_not_require_input_fields_while_metric_conditions_still_do(self):
+        c=freeze({
+            'task_id':'t1-scope',
+            'user_messages':['整理近3个交易日有涨停的股票，展示最新营业收入Top10'],
+            'requested_date':'2026-11-25',
+            'selection_output':'近3日涨停A股池',
+            'selection_predicate':'"近3日涨停掩码"*"A股范围闸"',
+            'conditions':[
+                {'id':'universe','description':'A股股票','spec':{'scope':'A股股票'},'formula_name':'A股范围闸','predicate':'板块(万得全A)'},
+                {'id':'limit_up_3d','description':'近3个交易日有涨停',
+                 'spec':{'field':'A股收盘涨停（分钟刷新）','window':3,'operator':'any','value':1},
+                 'formula_name':'近3日涨停掩码','predicate':'最大(缺失填零("A股收盘涨停（分钟刷新）"),3)'},
+            ],
+            'ranking':{'rank_by':'营收发布日','rank_order':'desc','rank_limit':10},
+        })
+        formulas=[
+            'A股范围闸=板块(万得全A)',
+            '近3日涨停掩码=最大(缺失填零("A股收盘涨停（分钟刷新）"),3)',
+            '近3日涨停A股池="近3日涨停掩码"*"A股范围闸"',
+        ]
+        cov_rows=[
+            {'asset':'603236.SH','A股收盘涨停（分钟刷新）':1},
+            {'asset':'601689.SH','A股收盘涨停（分钟刷新）':1},
+            {'asset':'600519.SH','A股收盘涨停（分钟刷新）':0},
+        ]
+        asset_rows=[
+            {'asset':'603236.SH','A股收盘涨停（分钟刷新）':1,'营收发布日':237.99},
+            {'asset':'601689.SH','A股收盘涨停（分钟刷新）':1,'营收发布日':226.15},
+        ]
+        cov={'data_complete':True,'universe_count':3,'rows_evaluated':3}
+        fdates={'A股收盘涨停（分钟刷新）':'2026-11-25'}
+        checks=audit(c,formulas=formulas,applied_conditions=c['conditions'],observation_date='2026-11-25',
+                     asset_rows=asset_rows,coverage=cov,coverage_rows=cov_rows,field_dates=fdates)
+        self.assertEqual(checks['issues'],[])
+        self.assertEqual(checks['research_status'],'complete')
+
+        # Disguising a metric filter as a scope condition must still fail with CONDITION_INPUT_FIELDS_REQUIRED.
+        disguised=freeze({
+            'task_id':'t1-scope-disguised',
+            'user_messages':['收盘价大于10的A股'],
+            'requested_date':'2026-11-25',
+            'selection_output':'pool',
+            'conditions':[
+                {'id':'bad_scope','description':'收盘价大于10','spec':{'scope':'A股股票'},'formula_name':'价闸','predicate':'"收盘价">10'},
+            ],
+        })
+        bad_checks=audit(disguised,formulas=['价闸="收盘价">10','pool="价闸"'],applied_conditions=disguised['conditions'],
+                         observation_date='2026-11-25',asset_rows=[{'asset':'603236.SH'}],
+                         coverage={'data_complete':True,'universe_count':1,'rows_evaluated':1},
+                         coverage_rows=[{'asset':'603236.SH'}],field_dates={})
+        self.assertIn('CONDITION_INPUT_FIELDS_REQUIRED',{e['error'] for e in bad_checks['issues']})
+
 if __name__=='__main__':unittest.main()

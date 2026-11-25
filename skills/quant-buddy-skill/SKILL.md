@@ -3,7 +3,7 @@ name: quant-buddy-skill
 slug: quant-buddy-skill
 displayName: QuantBuddy 宽宝量化技能
 author: guanzhao
-version: 4.25.74
+version: 4.25.75
 description: |
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据；支持查询 A 股股票所属行业。
   显式日期的单值快照可同时返回按实际更新日对齐的日频行情与估值；字段日期不同时按字段自身日期展示，不将较晚刷新字段误判为无数据。
@@ -22,7 +22,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.25.74
+  version: 4.25.75
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -125,7 +125,7 @@ runtimeRequirements:
 
 ## 国内期货期权行情与合约映射
 
-**国内期货期权数据不只包含商品**：`国内期货期权-*` 日频槽位行情同时覆盖部分商品、国内股指期权（`IF.CFE`/`IH.CFE`/`IM.CFE`）和部分 ETF 期权（`SH510500`/`SH588000`/`SZ159915`），详见 [国内股指及ETF期权槽位行情](workflows/cn-index-options.md)；查询**国内期权槽位 1 分钟行情与自算 `self_iv`/`self_delta`** 使用 [tools/fast_query_option_minute.md](tools/fast_query_option_minute.md)（`fast_query_option_minute`，支持单/多标的、夜盘时段、`current_trade_day`/`rolling`/`absolute` 与可选 `include_contracts` 换约附带，默认放行商品、上述 3 个股指及 3 个 ETF）。32 个日频目录字段不保证每个标的、每槽、每日都有有效值；完整期权链仍须分别核验。
+**国内期货期权数据不只包含商品**：`国内期货期权-*` 日频槽位行情同时覆盖部分商品、国内股指期权（`IF.CFE`/`IH.CFE`/`IM.CFE`）和部分 ETF 期权（`SH510500`/`SH588000`/`SZ159915`），详见 [国内股指及ETF期权槽位行情](workflows/cn-index-options.md)；查询**国内期权槽位 1 分钟行情与自算 `self_iv`/`self_delta`** 使用 [tools/fast_query_option_minute.md](tools/fast_query_option_minute.md)（`fast_query_option_minute`，8 槽位连续视角）；查询**国内完整期权链（合约列表/T型报价截面，含同日槽位标识）**使用 [tools/query_option_chain.md](tools/query_option_chain.md)（`query_option_chain`），查询**期权链指定合约或动态局部链分钟行情**使用 [tools/fast_query_option_chain_minute.md](tools/fast_query_option_chain_minute.md)（`fast_query_option_chain_minute`，16 列自带到期日/行权价/C-P）。32 个日频目录字段不保证每个标的、每槽、每日都有有效值。
 
 ### 美股及国内商品期权对应合约查询
 
@@ -133,7 +133,7 @@ runtimeRequirements:
 
 ## 连续期货研究与局部数据差异
 
-海外期货日频已对 53 个主力连续（14 个自有分钟聚合 + 39 个纯日频）实施比例前复权；其中 14 个自聚合外盘主力在日频 `fast_query` 已与国内期货一样自动附 `future_context`。早于各自自聚合起点的外部源拼接历史段以及其余 39 个纯日频/未迁移外盘，**日频行情数据仍照常完整返回，只是不提供对应时间段的换月/合约信息**（整段早于起点时不附 `future_context`，跨起点窗口仍返回全段行情、仅换月事件截齐并标注 `partial_coverage`/`unavailable_before`）。分钟接口 Range 及单资产 RangeMulti 返回 `roll_events`（`data_frequency=minute`），多资产与 `market` 请求不附事件；详见 [外盘换月返回入口](references/continuous-futures.md#外盘换月返回入口2026-11-20-更新)。
+海外期货日频已对 54 个主力连续（14 个自有分钟聚合 + 40 个纯日频）实施比例前复权；其中 14 个自聚合外盘主力在日频 `fast_query` 已与国内期货一样自动附 `future_context`。早于各自自聚合起点的外部源拼接历史段以及其余 40 个纯日频/未迁移外盘，**日频行情数据仍照常完整返回，只是不提供对应时间段的换月/合约信息**（整段早于起点时不附 `future_context`，跨起点窗口仍返回全段行情、仅换月事件截齐并标注 `partial_coverage`/`unavailable_before`）。分钟接口 Range 及单资产 RangeMulti 返回 `roll_events`（`data_frequency=minute`），多资产与 `market` 请求不附事件；详见 [外盘换月返回入口](references/continuous-futures.md#外盘换月返回入口2026-11-20-更新)。
 
 主连/次主连的跨日、跨频、指标或回测任务，先读 [连续期货换月与数据口径](references/continuous-futures.md)。新版事件保留 `decision_trade_date`（决策日/原始参考价取价日）和 `effective_trade_date`（生效日），按返回 `columns` 解析；日频复权价格（比例前复权）、原始分钟和未复权换月参考价须统一尺度，从原始分钟构造连续参考序列默认使用文档的比例复权算法。
 
@@ -162,7 +162,7 @@ runtimeRequirements:
    - 同一对话追问可复用当前 session；新问题必须新建 session。
    - 所有业务 HTTP/SSE 请求统一携带 `x-skill-name: quant-buddy-skill` 与当前 `x-task-id`，用于跨 Skill Trace 聚合；quant-buddy-view 上游任务不得切换 task_id。
 2. **原生工具优先，禁止脚本包装**：
-   - 平台已有原生工具时，必须直接调用原生工具：`fast_query`、`query_kline`、`fast_query_minute`、`fast_query_minute_range`、`fast_query_minute_range_multi`、`fast_query_option_minute`、`query_option_contracts`、`confirmDataMulti`、`selectByComposition`、`runMultiFormulaBatchStream`、`resumeJob`、`readData`、`renderKLine`、`renderChart` 等；但普通K线活页必须先走 `kline-page-fast-path.md`，不可调用 `renderKLine`。
+   - 平台已有原生工具时，必须直接调用原生工具：`fast_query`、`query_kline`、`fast_query_minute`、`fast_query_minute_range`、`fast_query_minute_range_multi`、`fast_query_option_minute`、`query_option_chain`、`fast_query_option_chain_minute`、`query_option_contracts`、`confirmDataMulti`、`selectByComposition`、`runMultiFormulaBatchStream`、`resumeJob`、`readData`、`renderKLine`、`renderChart` 等；但普通K线活页必须先走 `kline-page-fast-path.md`，不可调用 `renderKLine`。
    - 禁止用 Bash / shell / Python / `scripts/call.py` / `run_skill_script` 包装已有原生平台工具。唯一编排例外是 quant-buddy-view 的 `qbs_bridge.py`，它只负责继承 task_id 和隔离 session，不改写业务参数或结果。
    - 只有平台明确不存在等价原生工具，且 workflow 明确允许脚本兜底时，才可使用本地脚本。
    - **许可例外（csv 解析）**：当 `fast_query` 返回 `mode:"csv"` + `csv_url`（数据点 > 500 的正常交付）时，调用 `python scripts/fetch_fastquery_csv.py "<csv_url>"` 下载并解析该 csv 属于**许可路径**——这是消费工具返回的 OSS 产物（平台无等价原生解析工具），不算"包装原生工具"。历史分钟长表使用 `scripts/fetch_minute_range_csv.py @output/minute-manifest.json --output output/minute-data.json`，不能套用日频宽表解析器。但仍禁止用裸 `curl` / 自写临时脚本替代该脚本。
@@ -354,7 +354,7 @@ SKILL_ROOT/
 │   │   ├── index.yaml               指数 534 条
 │   │   └── future.yaml              期货 237 条
 │   ├── functions.yaml           常用函数（171 条）
-│   ├── dimensions.yaml          千维业务维度与指标本地目录（按需检索，命中可直接调用；未命中或异常时再调 listDimensionIndicators 在线确认）
+│   ├── dimensions.yaml          千维业务维度与指标本地目录（325 项；按需检索，命中可直接用于 fast_query 历史快照/序列、查公式与选股；未命中或异常时再调 listDimensionIndicators 在线确认）
 │   ├── data_catalog.yaml        常用精选数据集（高频 index_title）
 │   ├── index_info_catalog/      系统支持数据名全量索引（2779 条，按业务分类分 YAML，grep 检索）
 │   ├── sectors.yaml             行业板块（742 条，10 个分类）
@@ -419,13 +419,14 @@ SKILL_ROOT/
 
 | 场景 | 触发词 | 目标 leaf workflow |
 |------|--------|----------|
-| 国内期货/股指/ETF期权槽位分钟行情 | 国内期权分钟、分时、1分钟、期权夜盘分钟、分钟IV/Delta（支持商品、IF/IH/IM股指及SH510500/SH588000/SZ159915） | `tools/fast_query_option_minute.md` → `fast_query_option_minute`；传品种/连续代码或ETF代码，不传具体期权合约或format，可配 `include_contracts:true` 附带换约 |
-| 国内股指及ETF期权槽位行情 / 数据覆盖 | 国内股指或ETF期权的数据覆盖、完整链、日频IV或ATM/25C/25P/E1/E2槽位（如中证1000、SH510500） | `global-rules.md` → `cn-index-options.md`；日频槽位行情走数据目录与公式/读取，分钟行情走 `fast_query_option_minute`，完整链另行核验 |
+| 国内期货/股指/ETF完整期权链（合约列表/T型报价/具体合约分钟） | 期权链、T型报价、期权合约列表、某到期月/行权价期权、日内波动率微笑、具体期权合约分钟（支持商品、IF/IH/IM股指及SH510500/SH588000/SZ159915） | 查合约列表与截面用 `tools/query_option_chain.md` → `query_option_chain`（行内含同日 `slots` 标识）；拉具体合约或局部链分钟用 `tools/fast_query_option_chain_minute.md` → `fast_query_option_chain_minute`（16列自带到期日/行权价/C-P） |
+| 国内期货/股指/ETF期权槽位分钟行情 | 国内期权槽位分钟、8槽位1分钟、期权夜盘槽位分钟、槽位分钟IV/Delta（支持商品、IF/IH/IM股指及SH510500/SH588000/SZ159915） | `tools/fast_query_option_minute.md` → `fast_query_option_minute`；传品种/连续代码或ETF代码，不传具体期权合约或format，可配 `include_contracts:true` 附带换约 |
+| 国内股指及ETF期权槽位行情 / 数据覆盖 | 国内股指或ETF期权的数据覆盖、日频IV或ATM/25C/25P/E1/E2槽位（如中证1000、SH510500） | `global-rules.md` → `cn-index-options.md`；日频槽位行情走数据目录与公式/读取，槽位分钟走 `fast_query_option_minute`，完整期权链走 `query_option_chain` / `fast_query_option_chain_minute` |
 | 单资产历史/跨日分钟 | 用户明确历史交易日或跨日区间的原始1分钟/分时CSV | 确认唯一资产 → `tools/fast_query_minute_range.md` → `fast_query_minute_range`；不传fields/format/remove_nan |
 | 多资产/全市场分钟、每日时段或交易日滚动 | 多个资产、market、分钟范围、最近N个交易日或current_trade_day规则 | `tools/fast_query_minute_range_multi.md` → `fast_query_minute_range_multi`；用assets/asset/market三选一，不传tickers/fields/format |
 | 单资产日内分钟 / 分时序列 | 明确要求分钟、分时、1分钟、每分钟、日内 OHLCV、逐分钟开高低收/成交量；不含历史日期、区间或多资产 | 先按资产库规则确认唯一资产 → 直接调用 `fast_query_minute` → 成功即停 |
-| 最新时点行情 / 估值 / 基础信息（快照） | 最新价、今日收盘、最新涨跌幅、当前换手率、最新PE/PB/市值、所属行业… | Fast Path 条件满足 → 只读 `fast-snapshot.md`；不满足/无法查询 → `global-rules.md` → `quick-snapshot.md` |
-| 最近N日序列 / 窗口统计 | 最近5日、最近20日、近N个交易日、窗口最高/最低/振幅…（仅单资产、最近N日） | Fast Path 条件满足 → 只读 `fast-window.md`；不满足/无法查询 → `global-rules-lite.md` → `quick-window.md` |
+| 最新/历史时点行情 / 估值 / 千维指标 / 基础信息（快照） | 最新价、今日收盘、最新涨跌幅、当前换手率、最新PE/PB/市值、所属行业、某日千维维度分/细分指标快照… | Fast Path 条件满足 → 只读 `fast-snapshot.md`（千维指标检索 `presets/dimensions.yaml`）；不满足/无法查询 → `global-rules.md` → `quick-snapshot.md` |
+| 最近N日序列 / 历史区间走势 / 窗口统计 | 最近5日、最近20日、近N个交易日、指定起止日期的行情/估值/千维物化指标走势、窗口最高/最低/振幅… | Fast Path 条件满足 → 只读 `fast-window.md`（千维指标检索 `presets/dimensions.yaml`）；不满足/无法查询 → `global-rules-lite.md` → `quick-window.md` |
 | 最近报告期财务 | 营收、净利润、归母净利润、ROE、总资产、总负债、资产负债率… | Fast Path 条件满足 → 只读 `fast-report-period.md`；不满足/无法查询 → `global-rules.md` → `quick-report-period.md` |
 | 单只 A 股快速画像 | 贵州茅台、茅台、600519、SH600519；或“分析一下贵州茅台”“分析下深圳新星(SH:603978)”等简单综合分析，资产唯一且名称代码一致 | `live-page-routing.md` → `single_a_stock_fast` → QBV `guides/answer-first.md`，先答再 `new_asset_page` |
 | 单股指标画像 / 个股综合分析 | 分析一下XX个股、看一下XX这只股票、个股画像、指标概览、估值财务资金走势综合看一下、基本面和估值怎么样… | `global-rules.md` → `stock-profile.md` |
@@ -573,6 +574,7 @@ SKILL_ROOT/
 >   - 期货行情 `收盘价`/`开盘价`/`最高价`/`最低价`：单位按品种（白银元/千克、螺纹元/吨、黄金元/克…）
 >   - `现货价格`（基差，多为元/吨）、`商品库存`/`库存按发布日`（单位按品种**推测**，带 `STOCK_UNIT_INFERRED` 警告）
 >   - 用期货 ticker（如 `RB.SHF`）查询；**单位按品种发散时** `fields_meta[字段].unit_per_asset=true`，单位下沉到每资产值（`{v, unit}`），读值优先看资产内联 `unit`
+> - **千维全历史物化指标**（`fast_query` `snapshot`/`window`，服务端动态匹配在线目录）：直接传 `presets/dimensions.yaml` 或 `listDimensionIndicators` 中的完整语义名 `indicator_id`/`name`（如 `A股_趋势结构维度分`、`港股_趋势结构维度分`、`美股_价格反馈`、`期货_低库存得分`），支持历史快照、历史序列、与行情/估值混查、超 500 点 CSV 及 `fast_query` 数据授权；盘后日频更新，`fields_meta[字段].output_type="screen"` 取值 `0`/`1` 表示命中。
 > - 查询港股/美股时若字段不在上述支持范围内，应主动告知用户，而不是静默跳过。
 
 ### 维度指标库（维度 / 指标 / 公式，三层）
@@ -591,8 +593,9 @@ SKILL_ROOT/
 | 用户要什么 | 走哪 |
 |---|---|
 | 已物化指标 TopN / 筛选（「A股动量与反转最高的10只」「短期高低点抬升且 RSI 强而不过热」） | `composition-select.md` → 优先查本地 `presets/dimensions.yaml` 拿 `indicator_id`/`output_type` 直调 `selectByComposition`（未命中或报错再查 `listDimensionIndicators` 核对 `selection_ready`、`as_of`） |
+| 已物化千维指标的历史快照 / 历史走势序列 / 多资产对比 | 直接走 `fast_query`（`snapshot`/`window`，传 `indicator_id` 或 `name`，支持与行情估值混查、超 500 点 CSV 及 `fast_query` 数据授权；无需走公式链重算） |
 | 有哪些维度/指标、某指标口径与公式、想按现成指标改口径 | `tools/dimension_indicators.md` → 用 `scripts/call.py` 调 `listDimensionIndicators` / `getIndicatorFormulas`（在线全量，细分+综合都有；非平台原生工具） |
-| 指标的历史数值序列 | 本组工具只给**定义**不给数据；数值走 `runMultiFormulaBatchStream` |
+| 改参数后的自定义指标 / 未物化变体数值序列 | `getIndicatorFormulas` 取公式修改后走 `runMultiFormulaBatchStream` |
 
 ### 股票代码格式速查
 

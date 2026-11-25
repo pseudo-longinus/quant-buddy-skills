@@ -238,6 +238,7 @@ def query_package(endpoint, package_id, signature, outputs=None, api_key=""):
                                  method="POST")
     outputs = {}
     progress = []
+    truncated = []
     done = None
     err = None
     try:
@@ -269,8 +270,18 @@ def query_package(endpoint, package_id, signature, outputs=None, api_key=""):
                             "error": payload.get("error"),   # 失败产出带 error 而非 data，透出别丢
                         }
                         _e = payload.get("error")
-                        sys.stderr.write(f"  {'✗' if _e else '✓'} {payload.get('output')} "
-                                         f"({payload.get('read_mode')})" + (f" — {_e}" if _e else "") + "\n")
+                        _trunc = None if _e else _extract_output_truncation(payload.get("read_mode"), payload.get("data"))
+                        if _trunc:
+                            truncated.append({"output": payload.get("output"), **_trunc})
+                            _ret_rows = _trunc.get("returned_rows")
+                            _val_rows = _trunc.get("valid_rows")
+                            _ratio = f" ({_ret_rows}/{_val_rows})" if _ret_rows is not None and _val_rows is not None else ""
+                            sys.stderr.write(
+                                f"  ⚠ {payload.get('output')} ({payload.get('read_mode')}) — TRUNCATED{_ratio}\n"
+                            )
+                        else:
+                            sys.stderr.write(f"  {'✗' if _e else '✓'} {payload.get('output')} "
+                                             f"({payload.get('read_mode')})" + (f" — {_e}" if _e else "") + "\n")
                         sys.stderr.flush()
                     elif event_type == "progress":
                         progress.append(payload)
@@ -304,6 +315,8 @@ def query_package(endpoint, package_id, signature, outputs=None, api_key=""):
            "outputs": outputs, "progress": progress, "done": done}
     if failures:
         ret["failures"] = failures
+    if truncated:
+        ret["truncated_outputs"] = truncated
     return ret
 
 
@@ -323,6 +336,64 @@ def _unwrap_read_data(data):
             break
         current = nested
     return current
+
+
+def _extract_output_truncation(read_mode, data):
+    """通用提取协议级 is_truncated=True 元信息，不做公式名或业务特判。"""
+    resolved_mode = str(read_mode or "").strip()
+    target = None
+    if isinstance(data, dict):
+        if isinstance(data.get("last_column_full"), dict):
+            if not resolved_mode:
+                resolved_mode = "last_column_full"
+            target = data["last_column_full"]
+        else:
+            unwrapped = _unwrap_read_data(data)
+            if isinstance(unwrapped, dict):
+                target = unwrapped
+    if not isinstance(target, dict) or target.get("is_truncated") is not True:
+        return None
+    info = {
+        "read_mode": resolved_mode or None,
+        "is_truncated": True,
+    }
+    for key in ("returned_rows", "valid_rows", "total_rows", "warning"):
+        if target.get(key) is not None:
+            info[key] = target.get(key)
+    return info
+
+
+def extract_truncated_outputs(result_or_outputs, *, read_modes=None):
+    """从 query_package 返回体或 outputs 映射中提取被后端截断的产出清单。"""
+    allowed = {str(m).strip() for m in read_modes} if read_modes else None
+    found = []
+    seen = set()
+    if isinstance(result_or_outputs, dict) and isinstance(result_or_outputs.get("truncated_outputs"), list):
+        for item in result_or_outputs["truncated_outputs"]:
+            if not isinstance(item, dict) or item.get("is_truncated") is not True:
+                continue
+            mode = str(item.get("read_mode") or "").strip()
+            if allowed is not None and mode not in allowed:
+                continue
+            name = item.get("output")
+            if name not in seen:
+                seen.add(name)
+                found.append(dict(item))
+    outputs = result_or_outputs.get("outputs") if isinstance(result_or_outputs, dict) and isinstance(result_or_outputs.get("outputs"), dict) else (
+        result_or_outputs if isinstance(result_or_outputs, dict) else {}
+    )
+    for name, entry in outputs.items():
+        if name in seen or not isinstance(entry, dict) or entry.get("error"):
+            continue
+        trunc = _extract_output_truncation(entry.get("read_mode"), entry.get("data"))
+        if not trunc:
+            continue
+        mode = str(trunc.get("read_mode") or "").strip()
+        if allowed is not None and mode not in allowed:
+            continue
+        seen.add(name)
+        found.append({"output": name, **trunc})
+    return found
 
 
 def _series_summary(values, dates=None, name=None):
@@ -363,11 +434,17 @@ def summarize_output_data(data):
                     ]
                 }
             if values and all(isinstance(item, dict) for item in values):
-                return {
+                summary = {
                     "latest_date": data.get("date") or data.get("trade_date") or data.get("computed_at"),
                     "top_values": values[:20],
                     "valid_sample_count": len(values),
                 }
+                if data.get("is_truncated") is True:
+                    summary["is_truncated"] = True
+                    for key in ("returned_rows", "valid_rows", "total_rows", "warning"):
+                        if data.get(key) is not None:
+                            summary[key] = data.get(key)
+                return summary
         if _is_number(data.get("value")):
             value = float(data["value"])
             date = data.get("date") or data.get("trade_date") or data.get("computed_at")

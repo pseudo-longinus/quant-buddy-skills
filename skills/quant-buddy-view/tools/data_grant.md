@@ -23,6 +23,8 @@
 | `fast_query_minute_range` | fastQueryMinuteRange | `{asset,start_date,end_date}` 或 `{asset,start_offset,end_offset}`；历史全列，无fields/format/remove_nan | CSV分钟长表manifest，内核物化为columns/rows；见下方新增规则 |
 | `fast_query_minute_range_multi` | fastQueryMinuteRangeMulti | assets/asset/market三选一；absolute/rolling/current_trade_day及每日分钟窗口；无tickers/fields/format | JSON columns/data或CSV url；内核归一为含ticker的长表，见「多资产分钟授权」 |
 | `fast_query_minute` | fastQueryMinute | `{ asset, fields }`，单资产，字段限 OHLCVA；无历史/区间参数 | 共享 `dates` + 列式 `fields` 分钟数据 |
+| `option_chain` | queryOptionChain | 单标的 `asset` + 日期规则 + 可选 `expiry_ranks`/`atm_strike_steps`/`active_only`/`include_snapshot` | 精简扁平合约列表与截面表（行内含同日 `slots`；ETF 自动多 3 列） |
+| `option_chain_minute` | fastQueryOptionChainMinute | 单标的 `asset` + `contracts` 或动态链筛选 + 日期/分钟窗口 | 16 列分钟长表（自带到期日/行权价/C-P），大结果自动 CSV |
 | `stock_profile` | stockProfile | `{ asset, dimensions }` | 个股画像卡 |
 | `composition_select` | selectByComposition | 一次按权重选股/筛选请求（mode/universe/composition/screens/top_n…），indicator_id 使用指标完整语义名称或上游别名 | TopN 榜单表 |
 
@@ -73,7 +75,7 @@ python scripts/data_grant.py refresh '{"grant_id":"dg_xxx","rotate_signature":tr
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `kind` | `string` | ✅ | `asset_info` / `query_kline` / `option_contracts` / `fast_query` / `fast_query_minute` / `fast_query_minute_range` / `fast_query_minute_range_multi` / `fast_query_option_minute` / `stock_profile` / `composition_select` |
+| `kind` | `string` | ✅ | `asset_info` / `query_kline` / `option_contracts` / `option_chain` / `option_chain_minute` / `fast_query` / `fast_query_minute` / `fast_query_minute_range` / `fast_query_minute_range_multi` / `fast_query_option_minute` / `stock_profile` / `composition_select` |
 | `payload` | `object` | ✅ | 冻结的完整请求体，形状随 kind（见下） |
 | `ttl_days` | `number` | ❌ | 有效期（天），默认 365 |
 | `task_id` / `user_query` | `string` | ❌ | 随 audit 落库 |
@@ -112,6 +114,8 @@ python scripts/data_grant.py refresh '{"grant_id":"dg_xxx","rotate_signature":tr
 - `fast_query`：与在线 fastQuery 同构的值/序列结构。固定日期的 `value` 查询中，日频行情和估值刷新时点不同是正常情况：服务端先选请求区间，若 PE/PB 等字段尚未更新才回看 10 个自然日并返回 `{v, d, fallback:true}` + `DATE_RANGE_FALLBACK`。页面必须使用字段自己的 `d` 显示日期，不能把该字段显示为空、也不能用公共 `dates.trade_date` 覆盖；`series` / `window` 仍严格只含请求区间内的数据。
 - `option_contracts`：`data={ticker,records,notes?}`，美股records为11项扁平合约字段，国内另有product_id及decision_date/underlying_contract/status，empty行附empty_reason；build_dashboard归一为行数组。按每行真实trade_date展示，不改成刷新时间；changes可带is_baseline。
 - `fast_query_option_minute`：国内期权槽位 1 分钟原始长表（统一 13 列：`trade_date,ticker,slots,timestamp,open,high,low,close,volume,amount,open_interest,self_iv,self_delta`），小结果 JSON 内联、大结果自动返回 `mode:"csv"` + `url`/`url_expires_at`（data-kernel 自动 hydrate）；传 `include_contracts:true` 时附 `option_contracts`。
+- `option_chain`：精简扁平 JSON（`ticker,trade_date,timestamp,expirations,columns,data`）；商品/股指 13 列（静态 6 列），ETF 自动在 `option_type` 后附 `product_name,adjustment_series,contract_multiplier`（共 16 列；静态 9 列）；行内 `slots` 标注同日槽位（未命中为 `null`）。
+- `option_chain_minute`：统一 16 列扁平长表（`trade_date,contract_id,expiration,strike,option_type,timestamp,open,high,low,close,volume,amount,open_interest,forward,self_iv,self_delta`），小结果 JSON 内联、大结果自动返回 `mode:"csv"` + `url`/`url_expires_at`（`data-kernel` 自动 hydrate）。
 - `fast_query_minute`：`data.dates` 为共享分钟时间轴，`data.fields.<field>` 为同索引值数组；自定义活页直接按该列式结构渲染。
 - `stock_profile`：与在线 stockProfile 同构的画像卡结构。
 - `composition_select`：TopN 表（排名/名称/代码/score）+ `composition_used` + `as_of` / `last_date` + `date_alignment_status` + `date_alignment`。`date_alignment_status:"mixed"` 表示组合指标来自不同有效快照，此时全局 `as_of` / `last_date` 为 `null`，页面须逐项展示 `date_alignment`，不能渲染为单一数据日期。
@@ -222,6 +226,22 @@ kind为 `fast_query_minute_range_multi`，接入现有验证→注册→query→
 
 后端须部署fastQueryMinuteRangeMulti及同名授权kind；工具/本地回归通过不代表生产端到端已验收。
 
+## 国内期权链授权（option_chain / option_chain_minute）
+
+面向国内商品期货期权（67 品种）、3 个股指期权（`IF.CFE`/`IH.CFE`/`IM.CFE`）与 3 个 ETF 期权（`SH510500`/`SH588000`/`SZ159915`）的完整期权链。QBS 分别使用 `query_option_chain` / `fast_query_option_chain_minute` 实测出数，QBV 通过 `qbs_bridge.py validate_grant_set` 获取收据后原样注册。
+
+```json
+{"kind":"option_chain","payload":{"asset":"沪深300","date_mode":"current_trade_day","expiry_ranks":[1,2],"atm_strike_steps":5}}
+```
+
+```json
+{"kind":"option_chain_minute","payload":{"asset":"SH510500","date_mode":"current_trade_day","expiry_ranks":[1],"atm_strike_steps":2}}
+```
+
+- **两个 kind 均强制真实试跑**（禁止 `validate_data=false`），注册冻结标准 `asset` 与服务端 `_contract_version`（`qoc-v1` / `fqocm-v1`）；`queryDataGrant` 仅接受 `grant_id` + `signature`，禁止网页覆写参数。
+- **`option_chain`**：单标的、单交易日期权链列表与截面；支持 `date_mode`（`current_trade_day`/`rolling`/`absolute`）、`as_of_minute`、`expirations` 与 `expiry_ranks` 互斥、`strike_min..max` 与 `atm_strike_steps`（1～30）互斥、`call_put`、`active_only`、`include_snapshot`；行内 `slots` 严格按同日 `cn_future_option_slot_assignment` 标注（未命中或无当日选约输出 `null`，不跨日回退）；ETF 期权务必结合 `adjustment_series` 区分标准合约（`M`）与除权调整合约（`A/B`）。
+- **`option_chain_minute`**：精准合约 `contracts`（1～50 个，最多 60 天，与所有链筛选参数互斥）或动态链筛选（局部链最多 10 天，无过滤整链限 1 天）；16 列自带 `expiration`/`strike`/`option_type`，单个授权即可独立渲染日内波动率微笑或 ETF 多腿走势；超阈值自动切换 CSV 并由 `data-kernel` 自动 hydrate。长期滚动活页优先使用 `expiry_ranks` + `atm_strike_steps`，避免写死 `contracts` 到期后无数据。
+
 ## 国内期权分钟授权
 
 kind 为 `fast_query_option_minute`，支持国内商品期货期权（80 品种）、3 个国内股指期权（`IF.CFE`/`IH.CFE`/`IM.CFE`）及 3 个国内 ETF 期权（`SH510500`/`SH588000`/`SZ159915`）的槽位 1 分钟原始行情与自算 `self_iv`/`self_delta`，可按需附带换约与合约映射。QBS 使用 `fast_query_option_minute` 验证，QBV 通过 `qbs_bridge.py validate_grant_set` 获取收据后原样注册。
@@ -275,7 +295,7 @@ QBS使用query_option_contracts验证，QBV通过qbs_bridge.py validate_grant_se
 
 全市场用 `market=os_future` 替换 `assets`。`MGC.CMX` 在 `2021-12-01` 前的缺口须在页面说明，不能截掉 `ES.CME` 可用的更早记录；所有资产都越界时不注册。页面保留 `coverage_by_ticker`/`warnings`，标明实际数据日期，不把起点或可刷新授权当作最新端已更新保证。
 
-外盘分钟 Range 授权附 `roll_events`，RangeMulti 授权仅解析去重后单资产时附同结构 `roll_events`（标 `data_frequency=minute`），多资产和 `market` 请求不附带；单日分钟授权的 `contract_info` 为所选分钟会话来源合约。外盘 `fast_query` 日频授权对 14 个自聚合品种已与国内期货一样自动附 `future_context`——早于各自自聚合起点的历史段以及其余 39 个纯日频/未迁移外盘**日频行情数据照常完整返回，只是不提供对应区段的换月/合约信息**（跨起点窗口仅换月事件截齐并标注 `partial_coverage`/`unavailable_before`）。kind/payload 与计费不变。事件缺失/旧上游不支持时保留可用行情、披露警告，不把缺失当无换月；详见 [外盘换月入口](../references/continuous-futures.md#外盘换月返回入口2026-11-20-更新)。
+外盘分钟 Range 授权附 `roll_events`，RangeMulti 授权仅解析去重后单资产时附同结构 `roll_events`（标 `data_frequency=minute`），多资产和 `market` 请求不附带；单日分钟授权的 `contract_info` 为所选分钟会话来源合约。外盘 `fast_query` 日频授权对 14 个自聚合品种已与国内期货一样自动附 `future_context`——早于各自自聚合起点的历史段以及其余 40 个纯日频/未迁移外盘**日频行情数据照常完整返回，只是不提供对应区段的换月/合约信息**（跨起点窗口仅换月事件截齐并标注 `partial_coverage`/`unavailable_before`）。kind/payload 与计费不变。事件缺失/旧上游不支持时保留可用行情、披露警告，不把缺失当无换月；详见 [外盘换月入口](../references/continuous-futures.md#外盘换月返回入口2026-11-20-更新)。
 
 ## 日K线授权
 
