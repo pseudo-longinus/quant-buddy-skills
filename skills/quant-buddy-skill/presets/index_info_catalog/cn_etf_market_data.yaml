@@ -1,0 +1,9 @@
+# Auto-generated business catalog; do not edit records by hand.
+schema_version: 2
+category: cn_etf_market_data
+record_count: 4
+records:
+  - {id: "6b07d672392abb10d8d2d6df", index_title: "ETF净申购"}
+  - {id: "6b07d66e392abb10d8d2d647", index_title: "ETF参考净值(IOPV)"}
+  - {id: "6b07d66b392abb10d8d2d5cb", index_title: "ETF基金份额"}
+  - {id: "6b07d679392abb10d8d2d859", index_title: "ETF折溢价率"}

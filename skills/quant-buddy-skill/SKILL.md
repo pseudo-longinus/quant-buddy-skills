@@ -4,9 +4,9 @@ slug: quant-buddy-skill
 displayName: QuantBuddy 宽宝量化技能
 summary: 提供 A 股、港美股实时行情与估值数据、财务指标、K线与分钟序列、多维股票画像、期权行情、选股筛选与策略回测量化工具箱。
 author: guanzhao
-version: 4.25.76
+version: 4.25.77
 description: |
-  查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据；支持查询 A 股股票所属行业。
+  查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据；支持查询 A 股股票所属行业，以及 A 股沪深场内 ETF 的基金份额、净申购、参考净值（IOPV）与折溢价率。
   显式日期的单值快照可同时返回按实际更新日对齐的日频行情与估值；字段日期不同时按字段自身日期展示，不将较晚刷新字段误判为无数据。
   查询最近N个交易日的价格序列、日涨跌幅序列、窗口最高价、最低价、振幅等短期统计。
   查询单资产日K线及MA/BOLL/MACD/RSI等指标用query_kline，asset支持名称、简称及多种代码格式，支持query_kline数据授权供活页持续刷新。
@@ -23,7 +23,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.25.76
+  version: 4.25.77
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -349,15 +349,15 @@ SKILL_ROOT/
 │   ├── cases_index.yaml         106 张案例卡片目录（量化标准场景必读，快速查数无需）
 │   ├── assets.yaml              常用资产（99 行精选，可一次读完）
 │   ├── assets_db/               全量资产字典（按类型分文件，⚠️ 仅 grep 检索，禁止 read_file 整文件；不含指数成分股映射）
-│   │   ├── stock_a.yaml             A 股 5326 条（SH/SZ，含场内 ETF）
+│   │   ├── stock_a.yaml             A 股 5334 条（SH/SZ，含场内 ETF 91 只）
 │   │   ├── stock_hk.yaml            港股 2854 条（HK 前缀；行情优先，财务以 fast_query 返回为准）
-│   │   ├── stock_us.yaml            美股及境外ETF 1070 条（.N/.O/.A/.BAT；行情优先，财务以 fast_query 返回为准）
+│   │   ├── stock_us.yaml            美股及境外ETF 1074 条（.N/.O/.A/.BAT；行情优先，财务以 fast_query 返回为准）
 │   │   ├── index.yaml               指数 534 条
 │   │   └── future.yaml              期货 237 条
 │   ├── functions.yaml           常用函数（171 条）
 │   ├── dimensions.yaml          千维业务维度与指标本地目录（325 项；按需检索，命中可直接用于 fast_query 历史快照/序列、查公式与选股；未命中或异常时再调 listDimensionIndicators 在线确认）
 │   ├── data_catalog.yaml        常用精选数据集（高频 index_title）
-│   ├── index_info_catalog/      系统支持数据名全量索引（2779 条，按业务分类分 YAML，grep 检索）
+│   ├── index_info_catalog/      系统支持数据名全量索引（2783 条，按业务分类分 YAML，grep 检索）
 │   ├── sectors.yaml             行业板块（742 条，10 个分类）
 │   └── themes.yaml              题材板块
 │
@@ -475,7 +475,7 @@ SKILL_ROOT/
 
 **Fast Path 条件（同时满足以下 2 点才可走 Fast Path；否则走完整链路）：**
 
-- 所有目标字段属于 fast_query whitelist（价格/估值/财务/衍生/资金流向·南北向持股/商品现货·库存，以及 A 股所属行业基础信息字段，详见 `tools/fast_query.md`），不涉及自定义公式/选股/排名
+- 所有目标字段属于 fast_query whitelist（价格/估值/财务/衍生/资金流向·南北向持股/商品现货·库存/A股场内 ETF 份额·净申购·IOPV·折溢价率，以及 A 股所属行业基础信息字段，详见 `tools/fast_query.md`），不涉及自定义公式/选股/排名
 - 非全市场横截面查询（不是"全市场排名/前N只/行业筛选"等场景）
 
 > 资产数量不再限制 Fast Path 路由（服务端支持 ≤1000 个资产）。超过 500 数据点时服务端自动返回 CSV 格式（OSS 下载链接），详见 `tools/fast_query.md` 限流与 CSV 模式段落。
@@ -575,6 +575,9 @@ SKILL_ROOT/
 >   - 期货行情 `收盘价`/`开盘价`/`最高价`/`最低价`：单位按品种（白银元/千克、螺纹元/吨、黄金元/克…）
 >   - `现货价格`（基差，多为元/吨）、`商品库存`/`库存按发布日`（单位按品种**推测**，带 `STOCK_UNIT_INFERRED` 警告）
 >   - 用期货 ticker（如 `RB.SHF`）查询；**单位按品种发散时** `fields_meta[字段].unit_per_asset=true`，单位下沉到每资产值（`{v, unit}`），读值优先看资产内联 `unit`
+> - **A 股场内 ETF 份额与折溢价类**（`fast_query` `snapshot`/`window`，仅沪深场内主流 ETF，当前覆盖 91 只）：
+>   - 支持 `ETF基金份额`（份）、`ETF净申购`（份，精确差分且折算已还原，正=净申购、负=净赎回）、`ETF参考净值(IOPV)`（元，部分 QDII/货币类 ETF 可能缺失）、`ETF折溢价率`（%，已是百分比数值不乘 100）
+>   - 份额与净申购为 **T+1 更新**（T 日数据建议 T+1 开盘后使用），与当日行情混查时按字段自身 `d` 展示；不支持港美股 ETF 份额/折溢价及场外基金持仓/分红等数据
 > - **千维全历史物化指标**（`fast_query` `snapshot`/`window`，服务端动态匹配在线目录）：直接传 `presets/dimensions.yaml` 或 `listDimensionIndicators` 中的完整语义名 `indicator_id`/`name`（如 `A股_趋势结构维度分`、`港股_趋势结构维度分`、`美股_价格反馈`、`期货_低库存得分`），支持历史快照、历史序列、与行情/估值混查、超 500 点 CSV 及 `fast_query` 数据授权；盘后日频更新，`fields_meta[字段].output_type="screen"` 取值 `0`/`1` 表示命中。
 > - 查询港股/美股时若字段不在上述支持范围内，应主动告知用户，而不是静默跳过。
 

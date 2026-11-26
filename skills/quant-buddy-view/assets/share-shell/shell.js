@@ -29,6 +29,7 @@
   let pendingWebAgentTrigger=null;
   let pendingWebAgentAsk=null;
   let webAgentAskSequence=0;
+  let webAgentSheetDrag=null;
   let headerReady=false;
   let headerReadyTimer=0;
   let favoriteState=false;
@@ -618,6 +619,37 @@
       return typeof window.innerWidth==="number" && window.innerWidth<=680;
     }catch(e){ return false; }
   }
+  function bindWebAgentSheetGrip(modal){
+    const grip=$("webAgentSheetGrip");
+    if(!grip || grip.dataset.qbBound) return;
+    const sheet=grip.parentElement;
+    const resize=percent=>{
+      const height=Math.max(50,Math.min(95,percent));
+      sheet.style.setProperty("--qb-web-agent-sheet-height",height+"%");
+      grip.setAttribute("aria-valuenow",String(Math.round(height)));
+    };
+    grip.addEventListener("pointerdown",event=>{
+      if(!isMobileAsk() || !event.isPrimary || event.button!==0 || webAgentSheetDrag || !modal.clientHeight) return;
+      grip.setPointerCapture(event.pointerId);
+      webAgentSheetDrag={id:event.pointerId,startY:event.clientY,height:sheet.offsetHeight,viewportHeight:modal.clientHeight};
+    });
+    grip.addEventListener("pointermove",event=>{
+      const drag=webAgentSheetDrag;
+      if(!drag || drag.id!==event.pointerId) return;
+      resize((drag.height+drag.startY-event.clientY)*100/drag.viewportHeight);
+    });
+    for(const type of ["pointerup","pointercancel","lostpointercapture"]){
+      grip.addEventListener(type,event=>{ if(webAgentSheetDrag && webAgentSheetDrag.id===event.pointerId) webAgentSheetDrag=null; });
+    }
+    grip.addEventListener("keydown",event=>{
+      const height=Number(grip.getAttribute("aria-valuenow"));
+      const next={ArrowUp:height+5,ArrowDown:height-5,Home:50,End:95}[event.key];
+      if(typeof next!=="number") return;
+      event.preventDefault();
+      resize(next);
+    });
+    grip.dataset.qbBound="1";
+  }
   function openWebAgent(event){
     if(event && typeof event.preventDefault==="function") event.preventDefault();
     const modal=$("webAgentModal");
@@ -641,6 +673,12 @@
   }
   function closeWebAgent(restoreFocus){
     stopWebAgentHelloRetries();
+    webAgentSheetDrag=null;
+    const grip=$("webAgentSheetGrip");
+    if(grip){
+      grip.parentElement.style.removeProperty("--qb-web-agent-sheet-height");
+      grip.setAttribute("aria-valuenow","75");
+    }
     const modal=$("webAgentModal");
     if(modal){
       modal.classList.remove("open");
@@ -771,7 +809,11 @@
     if(modal && !modal.dataset.qbBound){ modal.addEventListener("click",e=>{ if(e.target===modal) closeSharePoster(); }); modal.dataset.qbBound="1"; }
     if(warehouseModal && !warehouseModal.dataset.qbBound){ warehouseModal.addEventListener("click",e=>{ if(e.target===warehouseModal) closeWarehouse(); }); warehouseModal.dataset.qbBound="1"; }
     if(authModal && !authModal.dataset.qbBound){ authModal.addEventListener("click",e=>{ if(e.target===authModal) closeAuthContinue(true); }); authModal.dataset.qbBound="1"; }
-    if(webAgentModal && !webAgentModal.dataset.qbBound){ webAgentModal.addEventListener("click",e=>{ if(e.target===webAgentModal) closeWebAgent(true); }); webAgentModal.dataset.qbBound="1"; }
+    if(webAgentModal && !webAgentModal.dataset.qbBound){
+      webAgentModal.addEventListener("click",e=>{ if(e.target===webAgentModal) closeWebAgent(true); });
+      bindWebAgentSheetGrip(webAgentModal);
+      webAgentModal.dataset.qbBound="1";
+    }
     if(!document.documentElement.dataset.qbShareEsc){
       document.addEventListener("keydown",e=>{ if(e.key==="Escape"){ closeSharePoster(); closeWarehouse(); closeAuthContinue(true); closeWebAgent(true); } });
       window.addEventListener("message",e=>{ onHeaderMessage(e); onWarehouseMessage(e); onAuthMessage(e); onWebAgentMessage(e); });

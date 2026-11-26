@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "generated_at": "2026-10-29T06:42:46+00:00",
-  "total_records": 2779,
+  "total_records": 2783,
   "categories": {
     "a_share_financials": {
       "file": "a_share_financials.yaml",
@@ -14,6 +14,10 @@
     "a_share_trading_labels": {
       "file": "a_share_trading_labels.yaml",
       "record_count": 65
+    },
+    "cn_etf_market_data": {
+      "file": "cn_etf_market_data.yaml",
+      "record_count": 4
     },
     "cn_future_option_market_data": {
       "file": "cn_future_option_market_data.yaml",

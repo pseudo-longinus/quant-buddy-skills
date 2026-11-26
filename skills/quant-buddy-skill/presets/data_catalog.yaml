@@ -341,6 +341,41 @@ industry:
     is_bool: false
     description: "GICS 板块所属指数，来自系统数据名全量索引"
 
+# ── A股场内 ETF 份额与折溢价类（数值，二维，日频）──────────────
+# ⚠️ 仅覆盖沪深两市场内主流 ETF（不含港美股 ETF 及场外基金）；不可乘以 板块(万得全A)
+etf:
+  - index_title: ETF基金份额
+    dimension: two
+    is_bool: false
+    unit: 份
+    intention_alias: ETF份额,基金份额
+    description: "A股沪深场内 ETF 每日总份额（份），日频，T+1 更新（T 日数据建议 T+1 开盘后使用）。全市场 ETF 排名/筛选可直接对该矩阵计算，切勿乘以 板块(万得全A)"
+    usage: >
+      沪深300ETF份额 = "ETF基金份额" * 取出(沪深300ETF华泰柏瑞)
+
+  - index_title: ETF净申购
+    dimension: two
+    is_bool: false
+    unit: 份
+    intention_alias: ETF净申赎,基金净申购,净申购
+    description: "A股沪深场内 ETF 日净申购份额（份），日频，T+1 更新；由相邻交易日官方份额精确差分（折算日已按折算比例还原，上市首日为空，正值=净申购，负值=净赎回）。全市场 ETF 净申购排名可直接对该矩阵计算，切勿乘以 板块(万得全A)"
+    usage: >
+      ETF净申购前10 = 排名取前("ETF净申购", 10)
+
+  - index_title: ETF参考净值(IOPV)
+    dimension: two
+    is_bool: false
+    unit: 元
+    intention_alias: ETF参考净值,参考净值,IOPV
+    description: "A股沪深场内 ETF 交易所披露的参考净值（元），日频取收盘值；部分跨市场（QDII）及货币类 ETF 可能缺失"
+
+  - index_title: ETF折溢价率
+    dimension: two
+    is_bool: false
+    unit: "%"
+    intention_alias: 折溢价率,ETF溢价率,溢价率
+    description: "A股沪深场内 ETF 折溢价率（%），公式 (不复权收盘价 / IOPV - 1) * 100；已是百分比数值（如 1.23 表示 1.23%，不得再乘 100），正值=溢价，负值=折价；IOPV 缺失或为 0 时为空"
+
 # ── 常见派生指标（需用公式自行计算，非平台内置）─────
 # 以下指标不是平台数据集，而是由上述基础数据用公式组合得到。
 # 直接用 confirmDataMulti 搜索这些名词会失败。

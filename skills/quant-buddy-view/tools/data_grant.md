@@ -86,6 +86,9 @@ python scripts/data_grant.py refresh '{"grant_id":"dg_xxx","rotate_signature":tr
 // fast_query —— 字段必须命中平台白名单（否则注册拒 FIELD_NOT_WHITELISTED）
 { "assets": ["600519.SH"], "query_type": "snapshot", "fields": ["收盘价","涨跌幅"] }
 
+// fast_query —— A股沪深场内 ETF 份额与折溢价（支持直接注册，份额/净申购 T+1 更新）
+{ "assets": ["SH510300"], "query_type": "window", "fields": ["收盘价","ETF基金份额","ETF净申购","ETF折溢价率"], "window_days": 30 }
+
 // fast_query —— 固定日期的日频行情/估值快照；单值时可按字段实际更新时间对齐
 { "assets": ["600519.SH"], "query_type": "snapshot", "fields": ["收盘价","PE_TTM","PB"],
   "start_date": 20260917, "end_date": 20260917 }
@@ -111,7 +114,7 @@ python scripts/data_grant.py refresh '{"grant_id":"dg_xxx","rotate_signature":tr
 
 ## 取数返回（与在线接口同构，build_dashboard/data-kernel 据此渲染）
 
-- `fast_query`：与在线 fastQuery 同构的值/序列结构。固定日期的 `value` 查询中，日频行情和估值刷新时点不同是正常情况：服务端先选请求区间，若 PE/PB 等字段尚未更新才回看 10 个自然日并返回 `{v, d, fallback:true}` + `DATE_RANGE_FALLBACK`。页面必须使用字段自己的 `d` 显示日期，不能把该字段显示为空、也不能用公共 `dates.trade_date` 覆盖；`series` / `window` 仍严格只含请求区间内的数据。
+- `fast_query`：与在线 fastQuery 同构的值/序列结构。固定日期的 `value` 查询中，日频行情和估值刷新时点不同是正常情况：服务端先选请求区间，若 PE/PB 等字段尚未更新才回看 10 个自然日并返回 `{v, d, fallback:true}` + `DATE_RANGE_FALLBACK`。页面必须使用字段自己的 `d` 显示日期，不能把该字段显示为空、也不能用公共 `dates.trade_date` 覆盖；`series` / `window` 仍严格只含请求区间内的数据。A 股场内 ETF 份额/净申购（T+1 更新）与当日行情混查时同样按字段自身 `d` 展示日期，`ETF折溢价率` 已是百分比数值。
 - `option_contracts`：`data={ticker,records,notes?}`，美股records为11项扁平合约字段，国内另有product_id及decision_date/underlying_contract/status，empty行附empty_reason；build_dashboard归一为行数组。按每行真实trade_date展示，不改成刷新时间；changes可带is_baseline。
 - `fast_query_option_minute`：国内期权槽位 1 分钟原始长表（统一 13 列：`trade_date,ticker,slots,timestamp,open,high,low,close,volume,amount,open_interest,self_iv,self_delta`），小结果 JSON 内联、大结果自动返回 `mode:"csv"` + `url`/`url_expires_at`（data-kernel 自动 hydrate）；传 `include_contracts:true` 时附 `option_contracts`。
 - `option_chain`：精简扁平 JSON（`ticker,trade_date,timestamp,expirations,columns,data`）；商品/股指 13 列（静态 6 列），ETF 自动在 `option_type` 后附 `product_name,adjustment_series,contract_multiplier`（共 16 列；静态 9 列）；行内 `slots` 标注同日槽位（未命中为 `null`）。

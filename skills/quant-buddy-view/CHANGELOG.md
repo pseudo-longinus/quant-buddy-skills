@@ -5,6 +5,11 @@
 
 ---
 
+## [0.8.30] — 2026-11-26
+
+- 修复移动端独立活页“问一问”弹层无法拖动问题（`assets/share-shell/*`），补充 `tests/test_share_shell_runtime.cjs` 单元测试。
+- 同步 `tools/data_grant.md` A 股场内 ETF 字段说明，并补充 `SKILL.md` `summary` frontmatter 字段以适配 SkillHub 展示。
+
 ## [0.8.29] — 2026-11-26
 
 - 适配分钟公式包交接与验证（`qbs_bridge.py` 与 `qbs_handoff_adapter.py` 支持 `use_minute_data` 透传）。

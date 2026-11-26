@@ -7,14 +7,18 @@
 
 stock | 180治理ETF交银 | SH510010 |  |
 stock | 上证50ETF华夏 | SH510050 |  |
+stock | 上证180ETF华安 | SH510180 |  |
 stock | 上证指数ETF富国 | SH510210 |  |
 stock | 沪深300ETF华泰柏瑞 | SH510300 |  |
+stock | 沪深300ETF易方达 | SH510310 |  |
+stock | 沪深300ETF华夏 | SH510330 |  |
 stock | 中证500ETF南方 | SH510500 |  |
 stock | 红利ETF华泰柏瑞 | SH510880 |  |
 stock | 五年国债ETF国泰 | SH511010 |  |
 stock | 城投债ETF海富通 | SH511220 |  |
 stock | 十年国债ETF国泰 | SH511260 |  |
 stock | 券商ETF华宝 | SH512000 |  |
+stock | 中证A500ETF华夏 | SH512050 |  |
 stock | 证券保险ETF易方达 | SH512070 |  |
 stock | 中证1000ETF南方 | SH512100 |  |
 stock | 创新药ETF | SH512170 |  |
@@ -47,11 +51,13 @@ stock | 黄金股ETF国泰 | SH517400 |  |
 stock | 黄金ETF华安 | SH518880 |  |
 stock | 恒生创新药ETF华泰柏瑞 | SH520500 |  |
 stock | 港股红利低波ETF招商 | SH520550 |  |
+stock | 中证1000ETF广发 | SH560010 |  |
 stock | 光伏龙头ETF广发 | SH560980 |  |
 stock | 交运ETF国泰 | SH561320 |  |
 stock | 石油ETF国泰 | SH561360 |  |
 stock | 绿电ETF华夏 | SH562550 |  |
 stock | 绿色电力ETF易方达 | SH562960 |  |
+stock | 中证2000ETF华泰柏瑞 | SH563300 |  |
 stock | A500ETF华泰柏瑞 | SH563360 |  |
 stock | 科创50ETF华夏 | SH588000 |  |
 stock | 科创100ETF国泰 | SH588120 |  |
@@ -784,7 +790,7 @@ stock | 东方证券 | SH600958 | 非银金融 |
 stock | 江苏有线 | SH600959 | 传媒 |
 stock | 渤海汽车 | SH600960 | 汽车 |
 stock | 株冶集团 | SH600961 | 有色金属 | 株冶
-stock | 国投中鲁 | SH600962 | 农林牧渔 |
+stock | 国投电子 | SH600962 | 农林牧渔 | 国投中鲁
 stock | 岳阳林纸 | SH600963 | 轻工制造 |
 stock | *ST福成 | SH600965 | 农林牧渔 |
 stock | 博汇纸业 | SH600966 | 轻工制造 |
@@ -1433,7 +1439,7 @@ stock | 地素时尚 | SH603587 | 纺织服饰 | 地素
 stock | 高能时代 | SH603588 | 环保 | 高能环境
 stock | 口子窖 | SH603589 | 食品饮料 |
 stock | 康辰药业 | SH603590 | 医药生物 |
-stock | ST东尼 | SH603595 | 电子 | 东尼电子
+stock | 东尼电子 | SH603595 | 电子 | ST东尼
 stock | 伯特利 | SH603596 | 汽车 |
 stock | 引力传媒 | SH603598 | 传媒 |
 stock | 广信股份 | SH603599 | 基础化工 |
@@ -1629,7 +1635,7 @@ stock | 益丰药房 | SH603939 | 医药生物 |
 stock | 建业股份 | SH603948 | 基础化工 |
 stock | 雪龙集团 | SH603949 | 汽车 | 雪龙
 stock | 长源东谷 | SH603950 | 汽车 |
-stock | 大千生态 | SH603955 | 建筑装饰 |
+stock | 灵动股份 | SH603955 | 建筑装饰 | 大千生态
 stock | 威派格 | SH603956 | 机械设备 |
 stock | 哈森股份 | SH603958 | 纺织服饰 |
 stock | ST百利 | SH603959 | 建筑装饰 |
@@ -2392,12 +2398,7 @@ stock | 宇树科技 | SH688836 |  |
 stock | 信诺维 | SH688837 |  |
 stock | 中芯国际 | SH688981 | 电子 |
 stock | 九号公司 | SH689009 | 汽车 | 九号公司-WD
-stock | Sotera_Health_Company | SHC.O |  |
-stock | 壳牌 | SHEL.N |  |
-stock | Shopify_Inc | SHOP.O |  |
 stock | SHT00018 | SHT00018 |  |
-stock | 宣伟 | SHW.N |  |
-stock | 美国国债1-3年ETF-iShares | SHY.O |  |
 stock | 平安银行 | SZ000001 | 银行 |
 stock | 万科A | SZ000002 | 房地产 | 万科
 stock | 国华退 | SZ000004 | 计算机 |
@@ -2698,7 +2699,7 @@ stock | 美利云 | SZ000815 | 计算机 |
 stock | 智慧农业 | SZ000816 | 汽车 |
 stock | 航锦科技 | SZ000818 | 基础化工 |
 stock | 岳阳兴长 | SZ000819 | 石油石化 |
-stock | 神雾节能 | SZ000820 | 环保 |
+stock | ST节能 | SZ000820 | 环保 | 神雾节能
 stock | ST京机 | SZ000821 | 电力设备 |
 stock | 山东海化 | SZ000822 | 基础化工 |
 stock | 超声电子 | SZ000823 | 电子 |
@@ -2737,7 +2738,7 @@ stock | 中鼎股份 | SZ000887 | 汽车 |
 stock | 峨眉山A | SZ000888 | 社会服务 | 峨眉山
 stock | 中嘉博创 | SZ000889 | 通信 |
 stock | 法尔胜 | SZ000890 | 环保 |
-stock | 欢瑞世纪 | SZ000892 | 传媒 |
+stock | ST欢瑞 | SZ000892 | 传媒 | 欢瑞世纪
 stock | 亚钾国际 | SZ000893 | 基础化工 |
 stock | 双汇发展 | SZ000895 | 食品饮料 |
 stock | 津滨发展 | SZ000897 | 房地产 |
@@ -3047,7 +3048,7 @@ stock | 东港股份 | SZ002117 | 轻工制造 |
 stock | 康强电子 | SZ002119 | 电子 |
 stock | 韵达股份 | SZ002120 | 交通运输 |
 stock | 科陆电子 | SZ002121 | 电力设备 |
-stock | ST汇洲 | SZ002122 | 机械设备 |
+stock | 汇洲智能 | SZ002122 | 机械设备 | ST汇洲
 stock | 梦网科技 | SZ002123 | 通信 |
 stock | 天邦食品 | SZ002124 | 农林牧渔 |
 stock | 湘潭电化 | SZ002125 | 电力设备 |
@@ -3739,7 +3740,7 @@ stock | 绿康生化 | SZ002868 | 农林牧渔 |
 stock | 金溢科技 | SZ002869 | 计算机 |
 stock | 香山股份 | SZ002870 | 汽车 |
 stock | 伟隆股份 | SZ002871 | 机械设备 |
-stock | ST天圣 | SZ002872 | 医药生物 |
+stock | 天圣制药 | SZ002872 | 医药生物 | ST天圣
 stock | 新天药业 | SZ002873 | 医药生物 |
 stock | 安奈儿 | SZ002875 | 纺织服饰 |
 stock | 三利谱 | SZ002876 | 电子 |
@@ -3899,6 +3900,7 @@ stock | 中农联合 | SZ003042 | 基础化工 |
 stock | 华亚智能 | SZ003043 | 电子 |
 stock | 中国广核 | SZ003816 | 公用事业 | 广核
 stock | 电网设备ETF华夏 | SZ159326 |  |
+stock | 中证A500ETF国泰 | SZ159338 |  |
 stock | 中证A500ETF摩根 | SZ159361 |  |
 stock | 创业板人工智能ETF华宝 | SZ159363 |  |
 stock | 标普500ETF博时 | SZ159501 |  |
@@ -3908,15 +3910,21 @@ stock | 工程机械ETF大成 | SZ159542 |  |
 stock | 半导体设备ETF易方达 | SZ159558 |  |
 stock | AI算力ETF国泰 | SZ159613 |  |
 stock | 绿色电力ETF嘉实 | SZ159625 |  |
+stock | 中证1000ETF富国 | SZ159629 |  |
 stock | 通信ETF嘉实 | SZ159695 |  |
 stock | 建材ETF国泰 | SZ159745 |  |
 stock | 港股通互联网ETF富国 | SZ159792 |  |
 stock | 5GETF博时 | SZ159811 |  |
 stock | 人工智能ETF易方达 | SZ159819 |  |
+stock | 中证1000ETF华夏 | SZ159845 |  |
 stock | 金融科技ETF华宝 | SZ159851 |  |
 stock | 养殖ETF国泰 | SZ159865 |  |
+stock | 深证100ETF易方达 | SZ159901 |  |
 stock | 创业板ETF易方达 | SZ159915 |  |
+stock | 沪深300ETF嘉实 | SZ159919 |  |
+stock | 中证500ETF嘉实 | SZ159922 |  |
 stock | 消费ETF汇添富 | SZ159928 |  |
+stock | 创业板50ETF华安 | SZ159949 |  |
 stock | 创新药ETF银华 | SZ159992 |  |
 stock | 特锐德 | SZ300001 | 电力设备 |
 stock | 神州泰岳 | SZ300002 | 传媒 |
@@ -4239,7 +4247,7 @@ stock | 泰格医药 | SZ300347 | 医药生物 |
 stock | 长亮科技 | SZ300348 | 计算机 |
 stock | 金卡智能 | SZ300349 | 机械设备 |
 stock | 华鹏飞 | SZ300350 | 交通运输 |
-stock | 永贵电器 | SZ300351 | 机械设备 |
+stock | 永贵智能 | SZ300351 | 机械设备 | 永贵电器
 stock | ST信源 | SZ300352 | 计算机 |
 stock | 东土科技 | SZ300353 | 通信 |
 stock | 东华测试 | SZ300354 | 机械设备 |
@@ -4371,14 +4379,14 @@ stock | 恒锋工具 | SZ300488 | 机械设备 |
 stock | 光智科技 | SZ300489 | 电子 |
 stock | 华自科技 | SZ300490 | 电力设备 |
 stock | 通合科技 | SZ300491 | 电力设备 |
-stock | 华图山鼎 | SZ300492 | 社会服务 |
+stock | 华图科技 | SZ300492 | 社会服务 | 华图山鼎
 stock | 润欣科技 | SZ300493 | 电子 |
 stock | 盛天网络 | SZ300494 | 传媒 |
 stock | 中科创达 | SZ300496 | 计算机 |
 stock | 富祥股份 | SZ300497 | 医药生物 |
 stock | 温氏股份 | SZ300498 | 农林牧渔 |
 stock | 高澜股份 | SZ300499 | 机械设备 |
-stock | 启迪设计 | SZ300500 | 建筑装饰 |
+stock | ST启设 | SZ300500 | 建筑装饰 | 启迪设计
 stock | 海顺新材 | SZ300501 | 轻工制造 |
 stock | 新易盛 | SZ300502 | 通信 |
 stock | 昊志机电 | SZ300503 | 机械设备 |
@@ -4542,7 +4550,7 @@ stock | 江丰电子 | SZ300666 | 电子 |
 stock | 必创科技 | SZ300667 | 机械设备 |
 stock | 杰恩股份 | SZ300668 | 建筑装饰 |
 stock | 沪宁股份 | SZ300669 | 机械设备 |
-stock | 大烨智能 | SZ300670 | 电力设备 |
+stock | ST大烨 | SZ300670 | 电力设备 | 大烨智能
 stock | 富满微 | SZ300671 | 电子 |
 stock | 国科微 | SZ300672 | 电子 |
 stock | 佩蒂股份 | SZ300673 | 农林牧渔 |

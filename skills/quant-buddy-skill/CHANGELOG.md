@@ -5,6 +5,12 @@
 
 ---
 
+## [4.25.77] — 2026-11-26
+
+- `fast_query` 新增 A 股沪深场内 ETF 基金份额、净申购、参考净值（IOPV）与折溢价率查询支持，同步更新指标目录、工具文档及 `test_fast_query_etf_contract.py` 契约单测。
+- 更新 A 股与美股资产库并修复部分资产名称，补充 `tests/test_update_assets_db.py`。
+- 补充 `SKILL.md` `summary` frontmatter 字段以适配 SkillHub 展示。
+
 ## [4.25.76] — 2026-11-26
 
 - `formula_package` 放开并适配分钟公式包（`use_minute_data: true`）：在登记入参中支持布尔值 `use_minute_data` 并原样透传落库。

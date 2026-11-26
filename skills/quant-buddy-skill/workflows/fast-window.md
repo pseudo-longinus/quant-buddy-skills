@@ -38,7 +38,7 @@
 | 参数 | 提取方式 |
 |---|---|
 | `assets` | 用户提到的资产（≤1000） |
-| `fields` | 参照 fast-snapshot.md 字段映射表（行情字段；估值字段 `PE_TTM`/`PB`/`PS_TTM`/`股息率`/`PCF`/`总市值` 及历史兼容名 `PE_单季`/`PB_单季`/`PS_单季`/`股息率_单季`（港美股实际为日频，不是单季估值） 在 window 模式同样支持 A/US/HK；`流通市值`/`换手率` 仅 A 股；期货支持行情字段及期货千维指标；**千维全历史物化指标**先检索 `presets/dimensions.yaml` 拿完整 `indicator_id`/`name` 直接传入，未命中再查 `listDimensionIndicators`，可与行情估值混查） |
+| `fields` | 参照 fast-snapshot.md 字段映射表（行情字段；估值字段 `PE_TTM`/`PB`/`PS_TTM`/`股息率`/`PCF`/`总市值` 及历史兼容名 `PE_单季`/`PB_单季`/`PS_单季`/`股息率_单季`（港美股实际为日频，不是单季估值） 在 window 模式同样支持 A/US/HK；`流通市值`/`换手率` 仅 A 股；A 股沪深场内 ETF 支持 `ETF基金份额`/`ETF净申购`/`ETF参考净值(IOPV)`/`ETF折溢价率`；期货支持行情字段及期货千维指标；**千维全历史物化指标**先检索 `presets/dimensions.yaml` 拿完整 `indicator_id`/`name` 直接传入，未命中再查 `listDimensionIndicators`，可与行情估值混查） |
 | `window_days` | 用户说”最近 N 日”时使用（整数，1~2500）；与 `start_date`/`end_date` 二选一 |
 | `start_date`/`end_date` | 用户给出明确起止日期时使用，格式 YYYYMMDD |
 
