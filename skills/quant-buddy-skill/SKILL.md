@@ -2,6 +2,7 @@
 name: quant-buddy-skill
 slug: quant-buddy-skill
 displayName: QuantBuddy 宽宝量化技能
+summary: 提供 A 股、港美股实时行情与估值数据、财务指标、K线与分钟序列、多维股票画像、期权行情、选股筛选与策略回测量化工具箱。
 author: guanzhao
 version: 4.25.76
 description: |

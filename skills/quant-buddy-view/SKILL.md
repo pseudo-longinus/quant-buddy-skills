@@ -2,6 +2,7 @@
 name: quant-buddy-view
 slug: quant-buddy-view
 displayName: QuantBuddy 宽宝活页
+summary: 将量化分析与多媒体成果一键生成可分享的 QuantBuddy 活页与实时看板，支持实时数据绑定、自适应多端展示与持续原位更新。
 author: guanzhao
 version: 0.8.29
 description: |
