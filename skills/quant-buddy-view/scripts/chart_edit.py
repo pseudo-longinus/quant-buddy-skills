@@ -318,6 +318,8 @@ def cmd_add_series(params):
     }
     if params.get("begin_date") is not None:
         new_pkg_entry["begin_date"] = params["begin_date"]
+    if params.get("use_minute_data") is True:
+        new_pkg_entry["use_minute_data"] = True
 
     def mutate(boot):
         packages = _normalize_boot_packages(boot)

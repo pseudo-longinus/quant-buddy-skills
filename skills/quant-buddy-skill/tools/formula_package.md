@@ -3,7 +3,7 @@
 **入口边界**：本手册面向明确的接口开发或公式包管理请求。用户要每天看行情、可刷新看板或研究活页时，先走 `workflows/quant-standard.md` 查询并给出已验证的业务答案，再走 `workflows/answer-first.md` 交接 QBV；不能用注册包代替 QBS 查询，也不能把看板设计当作首答。包注册和页面运行时选择由首答后的 QBV 流程处理。
 
 > 把一组公式注册成一个「任务包」，得到 `package_id` + `signature`；之后**无需 API Key**，
-> 凭这两个凭证就能反复取数。实际日期以返回数据为准；公式包不保证所有字段同时更新，当前注册服务尚不支持 `use_minute_data:true` 执行合同，不能删除模式字段绕过。
+> 凭这两个凭证就能反复取数。实际日期以返回数据为准；公式包不保证所有字段同时更新，支持通过 `use_minute_data:true` 注册盘中分钟刷新合同，但必须与验证收据保持同一模式，不能删除或改写模式字段绕过。
 > 适合给**前端页面 / 第三方**做只读数据接入（如本地 HTML 直接渲染）。
 >
 > ⚠️ 本工具**不是**平台原生 MCP 工具，通过本地脚本 `scripts/formula_package.py` 调用，
@@ -12,7 +12,7 @@
 
 ## 页面归属与提交拒绝恢复
 
-单资产盘中 OHLC 使用 `收盘价(贵州茅台,最后一日分钟刷新)`（开盘价、最高价、最低价同理），从首次验证起保留显式参数并用 false/缺省合同，登记时原样保留公式和完整上游依赖。它仍是日频序列，A股取价及派生结果按 `cn.chart:intra` 刷新；已有 true 收据须重新验证显式参数公式，不能直接删除开关复用。详见 [盘中刷新模式](run_multi_formula.md#盘中刷新模式)。
+单资产盘中 OHLC 可使用 `收盘价(贵州茅台,最后一日分钟刷新)`（开盘价、最高价、最低价同理）配合 false/缺省合同，或在涉及全市场盘中刷新映射时从首次验证起统一使用 `use_minute_data:true`（服务端自动转换为分钟刷新公式并持久化）。登记时原样保留公式、完整上游依赖与 `use_minute_data` 模式；A股取价、全市场映射及派生结果按 `cn.chart:intra` 刷新，禁止修改已有收据的 `use_minute_data` 字段后复用。详见 [盘中刷新模式](run_multi_formula.md#盘中刷新模式)。
 
 - 注册资源的 owner 由当次 API Key 决定。用于活页的公式包、数据授权必须与页面所有者一致；管理员替他人维护时也以页面原 owner 为准，不以管理员为准。
 - 上传、更新或恢复返回 `PAGE_RESOURCE_OWNER_MISMATCH` 时，继续读取现有 `message`；不需要额外解析一组新字段。用页面所有者的 Key 按原 formulas、reads、begin_date 或授权查询参数重新注册，取得真实的新 ID 和 signature，交接 QBV 同时替换正文、股票实例块、卡片清单顶层及嵌套引用后重提。不能复用源凭证、仅改 ID 或删掉数据展示。
@@ -55,6 +55,7 @@ python scripts/formula_package.py refresh '{"package_id":"pkg_xxx","rotate_signa
 | `formulas` | `string[]` | ✅ | 1~100 条公式（可含中间变量），每条形如 `变量名 = 表达式`。语法同 `runMultiFormulaBatchStream`（引用数据/变量用双引号，资产名不加引号）|
 | `reads` | `object[]` | ✅ | 1~20 个**对外产出**及其读取模式，见下 |
 | `begin_date` | `number` | ❌ | 公式计算起始日（裸整数 `YYYYMMDD`） |
+| `use_minute_data` | `boolean` | ❌ | 默认 `false`（省略）；仅盘中/当前分钟/当日未收盘场景设为 `true`，服务端自动映射全市场分钟刷新数据源与单资产末日分钟刷新并按盘中策略重算；历史/回测/财务保持 `false` 或省略 |
 | `ttl_days` | `number` | ❌ | 有效期（天），默认 365 |
 | `intents` | `string[]` | ❌ | 可选意图描述，透传给执行引擎 |
 

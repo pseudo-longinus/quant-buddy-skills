@@ -319,16 +319,10 @@ def evaluate_handoff(handoff: Any, required_roles: Any = None) -> Dict[str, Any]
     if handoff.get('research_checks') is not None:
         result['research_checks'] = handoff['research_checks']
     if formula_runtime_contract is not None:
-        result["formula_runtime_action"] = ('unsupported_minute_package'
-            if formula_runtime_contract.get('use_minute_data') else 'register_exact')
+        result["formula_runtime_action"] = "register_exact"
         result["formula_runtime_contract"] = formula_runtime_contract
-        if formula_runtime_contract.get('use_minute_data'):
-            result['runtime_warning'] = 'MINUTE_PACKAGE_UNSUPPORTED'
     if execution_contracts:
         result['formula_execution_contracts'] = execution_contracts
-        if any(contract['use_minute_data'] for contract in execution_contracts):
-            result['formula_runtime_action'] = 'unsupported_minute_package'
-            result['runtime_warning'] = 'MINUTE_PACKAGE_UNSUPPORTED'
     structure, status, warning = normalize_answer_structure(
         capsule.get('answer_structure'), capsule.get('validated_outputs', []), capsule.get('validated_insights', []))
     result['answer_structure_status'] = status if status != 'absent' else capsule.get('answer_structure_status', 'absent')
@@ -461,9 +455,13 @@ def build_publish_evidence(
     coverage = evaluate_handoff(handoff, [role_name])
     if coverage.get("coverage") != "covered" or role_name not in coverage.get("covered_roles", []):
         raise ValueError(str(coverage.get("reason") or "HANDOFF_ROLE_NOT_COVERED"))
-    if (coverage.get('formula_runtime_contract', {}).get('use_minute_data') or package_contract.get('use_minute_data')
-            or any(c.get('use_minute_data') for c in coverage.get('formula_execution_contracts', []))):
-        raise ValueError('MINUTE_PACKAGE_UNSUPPORTED')
+    handoff_minute = bool(
+        (coverage.get("formula_runtime_contract") or {}).get("use_minute_data")
+        or any(c.get("use_minute_data") for c in (coverage.get("formula_execution_contracts") or []))
+    )
+    package_minute = bool(package_contract.get("use_minute_data"))
+    if handoff_minute != package_minute:
+        raise ValueError("PACKAGE_MINUTE_MODE_MISMATCH")
     contract_entry = next(item for item in coverage["reusable_contracts"] if item.get("role") == role_name)
     output_entry = next(item for item in coverage["reusable_outputs"] if item.get("role") == role_name)
     if contract_entry.get("kind") != "quant_buddy_materialized_data":
@@ -540,11 +538,14 @@ def build_publish_evidence(
     }
     contract_fingerprint = str(contract_entry.get("contract_fingerprint") or "")
     reference_hash = str(output_entry.get("reference_hash") or "")
-    package_contract_fingerprint = _fingerprint({
+    package_contract_payload = {
         "begin_date": package_contract.get("begin_date"),
         "formulas": formulas,
         "reads": reads,
-    })
+    }
+    if package_minute:
+        package_contract_payload["use_minute_data"] = True
+    package_contract_fingerprint = _fingerprint(package_contract_payload)
     created_at = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
     receipt = {
         "schema": PUBLISH_RECEIPT_VERSION,

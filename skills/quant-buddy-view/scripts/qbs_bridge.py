@@ -747,15 +747,16 @@ def _validate_package_set(call_script, params, env):
                                     "reads": item["reads"], "begin_date": item["begin_date"],
                                     **({'use_minute_data': True} if item.get('use_minute_data') else {}),
                                     "validation_receipt_file": package_receipt},
-            "registration_capability": 'unsupported_minute_package' if item.get('use_minute_data') else 'supported',
+            "registration_capability": "supported",
             "batch_validation_receipt_files": batch_receipts,
             "summary": batch_summaries[-1] if batch_summaries else {},
             "batch_summaries": batch_summaries,
             "validation_outputs": validation_outputs,
         })
-        if not item.get('use_minute_data'):
-            results[-1].update(_registration_handoff('package', task_id,
-                {'formulas': item['formulas'], 'reads': item['reads'], 'begin_date': item['begin_date']}, package_receipt))
+        handoff_contract = {'formulas': item['formulas'], 'reads': item['reads'], 'begin_date': item['begin_date']}
+        if item.get('use_minute_data'):
+            handoff_contract['use_minute_data'] = True
+        results[-1].update(_registration_handoff('package', task_id, handoff_contract, package_receipt))
     evidence_stats, evidence_warnings = _package_reply_evidence(
         call_script, env, task_id, user_query, str(params.get("template_ref") or ""), normalized, results
     )

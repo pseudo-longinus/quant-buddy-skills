@@ -5,6 +5,11 @@
 
 ---
 
+## [0.8.29] — 2026-11-26
+
+- 适配分钟公式包交接与验证（`qbs_bridge.py` 与 `qbs_handoff_adapter.py` 支持 `use_minute_data` 透传）。
+- 适配图表与包合同对 `cn.chart:intra` 及分钟刷新模式的支持，补充相关单元测试。
+
 ## [0.8.28] — 2026-11-24
 
 - 对 `last_column_full` 截断返回（`is_truncated=true`）实施协议级直接阻断，覆盖查询透出、看板构建、浏览器/卡片验收与发布/Fork 核验，并纠偏文档默认省略 `max_rows` 与 `allow_zero_values`。

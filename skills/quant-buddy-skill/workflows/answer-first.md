@@ -87,9 +87,9 @@
 
 ## 分钟边界
 
-行情截面“最新”按最新可得行情处理；依据市场/交易日历和数据证据判定盘中或最近收盘。全市场盘中映射使用受支持的 `use_minute_data:true`，历史/收盘/财务不误开启。单资产四类 OHLC 需要持续公式包时，从首次验证开始使用 `收盘价(资产,最后一日分钟刷新)` 等显式参数和 false/缺省合同，保留日频轴，A股及派生输出按 `cn.chart:intra` 更新。行业日涨跌的当前截面不是最近一分钟收益。实际日期早于预期时先如实披露，不用 description 的“应更新到”替代 readData 日期，也不额外调用 refreshSnapshotTime 代替模式选择。
+行情截面“最新”按最新可得行情处理；依据市场/交易日历和数据证据判定盘中或最近收盘。全市场盘中映射使用受支持的 `use_minute_data:true`，历史/收盘/财务不误开启。单资产四类 OHLC 需要持续公式包时，可使用 `收盘价(资产,最后一日分钟刷新)` 等显式参数和 false/缺省合同，或在全市场盘中场景统一使用 `use_minute_data:true` 合同，均保留日频轴且 A股及派生输出按 `cn.chart:intra` 更新。行业日涨跌的当前截面不是最近一分钟收益。实际日期早于预期时先如实披露，不用 description 的“应更新到”替代 readData 日期，也不额外调用 refreshSnapshotTime 代替模式选择。
 
-分钟公式的 Receipt 和 formula_runtime_contract 原样交接。当前公式包注册服务不支持该模式，QBV 返回 `MINUTE_PACKAGE_UNSUPPORTED` 时，不删除 true 或改称日频来绕过。只有同口径且已验证的受支持运行时才可替代；否则遵循原发布降级门禁或明确页面未完成。
+分钟公式的 Receipt 和 `formula_runtime_contract` 必须原样交接；公式包注册服务已支持 `use_minute_data:true` 合同，登记与发布证据核验要求 `use_minute_data` 与验证收据严格一致，不得删除 true 或改称日频来绕过。
 
 Receipt 的 `execution_contract` 总是保存可验证的实际公式执行参数；`runtime_contract` 只在读取语义已安全确认时存在。Top50 等无安全 reads 的执行证据仍随胶囊 `formula_execution_contracts` 交接，但不能凭此自动注册包，也不能把其分钟模式当成日频。
 

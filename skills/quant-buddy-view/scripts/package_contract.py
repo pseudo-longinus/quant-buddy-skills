@@ -50,8 +50,7 @@ def normalize(value):
 
 
 def registration_capability_error(contract):
-    if contract.get('use_minute_data') is True:
-        return {'code': 1, 'error': 'MINUTE_PACKAGE_UNSUPPORTED',
-                'message': '当前公式包注册服务未支持分钟执行合同；不得静默改为日频。保留QBS答案，仅使用已验证且口径一致的受支持运行时，或按现有门禁报告页面未完成。',
-                'retryable': False}
+    # Server supports both daily (default/false) and intraday minute-refresh (use_minute_data=True)
+    # formula package contracts; keep contract normalized with distinct fingerprints.
+    del contract
     return None

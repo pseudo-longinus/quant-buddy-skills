@@ -62,15 +62,15 @@ dynamic 的图表、数字与正文必须消费同一轮运行数据；dynamic �
 
 ## 分钟合同
 
-`收盘价/开盘价/最高价/最低价(资产,最后一日分钟刷新)` 属于保留日频轴的末日盘中更新，可以从首次验证起使用 false/缺省合同并原样登记，A股输出按 `cn.chart:intra` 刷新。下面的 unsupported 限制专指 `use_minute_data:true` 合同；已有 true 证据要重新验证显式参数公式，不能删字段复用。
+`收盘价/开盘价/最高价/最低价(资产,最后一日分钟刷新)` 属于保留日频轴的末日盘中更新，可以从首次验证起使用 false/缺省合同并原样登记；涉及全市场盘中映射或需要统一盘中刷新的公式包可从首次验证起使用 `use_minute_data:true` 并原样登记，服务端会自动按分钟刷新口径落库，A股及全市场映射输出按 `cn.chart:intra` 刷新。历史日频、回测与财务查询仍保持 `false`/缺省。
 
-adapter 遇到分钟执行合同会返回 `formula_runtime_action:unsupported_minute_package` 和 `runtime_warning:MINUTE_PACKAGE_UNSUPPORTED`；已物化结果仍可复用，但不能作为日频包重新登记。
+adapter 遇到带安全 reads 的 `formula_runtime_contract`（含 `use_minute_data:true`）会返回 `formula_runtime_action:register_exact` 并原样保留 `use_minute_data:true`；发布证据核验会校验交接合同与注册包的 `use_minute_data` 一致，模式不一致时返回 `PACKAGE_MINUTE_MODE_MISMATCH`，不能把分钟结果静默改称日频包重新登记。
 
-bridge 的验证执行与收据保留 use_minute_data；`registration_params` 也保留，注册器在鉴权/网络之前拒绝当前未支持的分钟包。日频 false/缺省保持旧指纹，true 使用不同合同。不得删除该字段、换用旧收据或跳过指纹比较。
+bridge 的验证执行、收据、`registration_params` 和 `registration_command` 均原样保留 `use_minute_data`（`registration_capability:supported`）。日频 false/缺省保持旧指纹，true 使用独立合同与指纹。不得删除该字段、换用旧收据或跳过指纹比较。
 
-无安全读取模式的公式也有 Receipt `execution_contract` 和胶囊 `formula_execution_contracts`。它们只证明原始执行，不证明可以注册包；adapter 同样会识别其中的分钟限制。未提供 reads 时，不能擅自用只返回十项的 `last_day_stats` 代替全截面。
+无安全读取模式的公式也有 Receipt `execution_contract` 和胶囊 `formula_execution_contracts`。它们只证明原始执行，不证明可以自动注册包；adapter 不会为其生成 `formula_runtime_contract`，且同样保留其中的 `use_minute_data` 标记。未提供 reads 时，不能擅自用只返回十项的 `last_day_stats` 代替全截面。
 
-只有已验证同口径的受支持运行时可替代；否则按原静态降级规则或明确未完成，不修改服务端、不新增任意放行开关。`is_live=true`、定时请求、仅有验证成功都不代表页面分钟更新已实现。
+`is_live=true`、定时请求、仅有验证成功都不代表页面分钟更新已实现；需结合页面轮询、实际返回日期及行情更新时间共同验收。
 
 模板来源返回 SOURCE_CREDENTIAL_UNPAIRED 时，先按同一 source_template_id 调用 research_templates(include:["layout","style"])，安全提取布局后继续 fork_compose；不要重建任务绕过绑定。注册失败保留已验证结果，按 [同页恢复](../workflows/planned-delivery-recovery.md#同页恢复而非停留在失败页) 执行 recover_snapshot 并继续构建、验收。只有受支持恢复路径确实无法满足请求时才记录最终失败；量化建页仍只在验收成功后补链接。
 

@@ -377,7 +377,7 @@ python scripts/executor.py runMultiFormulaBatchStream '{
 
 参数属于取价控制项，不能作为第二个资产解析。A股取价结果及均线、涨跌幅等下游结果必须继承 `cn.chart:intra`；刷新时按交易时段和刷新间隔判陈旧，过期后先重算再读取，不应被普通公式包读缓存固定。不要承诺逐笔实时或每次请求都发生变化。
 
-**活页公式包**：从首次验证开始使用显式参数公式和 `use_minute_data:false`（或省略），保持原公式、reads 与收据一致后登记；这类日频时间轴公式可使用公式包，盘中更新由依赖类别决定。已有 `use_minute_data:true` 收据不能删掉字段冒充同一合同，须以完整显式参数公式重新验证后登记；该开关的公式包合同仍受原有 `MINUTE_PACKAGE_UNSUPPORTED` 限制。
+**活页公式包**：单资产盘中取价可从首次验证起使用显式参数公式和 `use_minute_data:false`（或省略），涉及全市场盘中刷新映射时也可从首次验证起使用 `use_minute_data:true` 原样注册公式包（服务端会自动持久化转换后的分钟刷新公式并按 `cn.chart:intra` 策略重算）。无论哪种方式，登记时都必须保持公式、reads、`use_minute_data` 与验证收据一致，禁止删掉 `use_minute_data:true` 冒充日频合同复用。
 
 ### 执行模式与全市场数据映射
 

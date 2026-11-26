@@ -256,6 +256,12 @@ def cmd_register(params, ctx):
     for k in ("intents", "begin_date", "ttl_days"):
         if params.get(k) is not None:
             body[k] = params[k]
+    use_minute_data = params.get("use_minute_data")
+    if use_minute_data is not None:
+        if type(use_minute_data) is not bool:
+            return {"code": 1, "message": "use_minute_data 必须是布尔值 (true/false)"}
+        if use_minute_data:
+            body["use_minute_data"] = True
     _inject_session(body, ctx)
     reg = _http_json("POST", endpoint + _PATH["register"],
                      _headers(api_key, task_id=ctx.get("task_id")), body, timeout=_DEFAULT_TIMEOUT)
