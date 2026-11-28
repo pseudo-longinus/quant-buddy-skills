@@ -67,7 +67,7 @@ python scripts/call.py downloadData '{"id": "60a1b2c3d4e5f6a7b8c9d0e1", "format"
 |----------|----------|
 | `mydata` | 只能下载自己上传的数据 |
 | `guanzhao` | 所有 API Key 用户均可访问 |
-| `dunhe` | 需要后台开通 `access_dunhe` 权限 |
+| `dunhe` | 需要后台开通 `access_dunhe` 权限（`indexInfoCore` 宏观指标对所有用户开放，不受此限制） |
 
 ## 注意事项
 

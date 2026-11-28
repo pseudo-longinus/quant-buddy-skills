@@ -1005,6 +1005,25 @@ class QuantAPI:
         params.update(kwargs)
         return self._call("downloadData", params)
 
+    def query_macro(self, indicators: list, mode: str = "snapshot",
+                    as_of_date=None, start_date=None, end_date=None,
+                    nan_handling: str = None, decimal_places: int = None,
+                    **kwargs) -> dict:
+        """宏观及一维时序指标快捷查询（仅返回原始值）。"""
+        params = {"indicators": indicators, "mode": mode}
+        if as_of_date is not None:
+            params["as_of_date"] = as_of_date
+        if start_date is not None:
+            params["start_date"] = start_date
+        if end_date is not None:
+            params["end_date"] = end_date
+        if nan_handling is not None:
+            params["nan_handling"] = nan_handling
+        if decimal_places is not None:
+            params["decimal_places"] = decimal_places
+        params.update(kwargs)
+        return self._call("queryMacro", params)
+
     # ────────────────────────────────────────────
     # 数据提取工具（纯本地，不调 API）
     # ────────────────────────────────────────────

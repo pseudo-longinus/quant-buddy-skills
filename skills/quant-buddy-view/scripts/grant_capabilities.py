@@ -7,6 +7,7 @@ from datetime import datetime
 
 TOOL_BY_KIND = {
     'query_kline': 'query_kline',
+    'query_macro': 'queryMacro',
     'option_contracts': 'query_option_contracts',
     'option_chain': 'query_option_chain',
     'option_chain_minute': 'fast_query_option_chain_minute',
@@ -68,6 +69,23 @@ def contract_errors(contract, role_id=''):
     if kind == 'query_kline':
         from kline_contract import validate_request
         for code, message in validate_request(payload, grant=True): add(code, message)
+    if kind == 'query_macro':
+        allowed = {'indicators', 'mode', 'as_of_date', 'start_date', 'end_date', 'nan_handling', 'decimal_places'}
+        extra = sorted(set(payload) - allowed)
+        if extra:
+            add('MACRO_PARAM_UNSUPPORTED', '宏观授权不支持参数：' + ', '.join(extra))
+        indicators = payload.get('indicators')
+        if (not isinstance(indicators, list) or not 1 <= len(indicators) <= 50
+                or any(not isinstance(item, str) or not item.strip() for item in indicators)):
+            add('MACRO_INDICATORS_INVALID', 'indicators必须是1～50个非空字符串数组')
+        mode = payload.get('mode', 'snapshot')
+        if mode not in ('snapshot', 'series'):
+            add('MACRO_MODE_INVALID', 'mode必须为snapshot或series')
+        if mode == 'series' and not payload.get('start_date'):
+            add('MACRO_START_DATE_REQUIRED', 'series模式必须提供start_date')
+        nan_handling = payload.get('nan_handling')
+        if nan_handling is not None and nan_handling not in ('keep', 'fill_forward'):
+            add('MACRO_NAN_HANDLING_INVALID', 'nan_handling只能为keep或fill_forward')
     if kind == 'fast_query_minute':
         extra = sorted(set(payload) - {'asset', 'fields'})
         if extra:
@@ -404,3 +422,33 @@ def evaluate_option_chain_minute(payload, result):
         return _failure('OPTION_CHAIN_MINUTE_DATA_EMPTY', 'data')
     return {'success': True, 'row_count': len(rows), 'columns': cols,
             'mode': data.get('mode'), 'start_date': hydrated.get('start_date'), 'end_date': hydrated.get('end_date')}
+
+
+def evaluate_query_macro(payload, result):
+    """验证宏观及一维时序指标快捷授权响应（snapshot / series 原始值）。"""
+    if not isinstance(result, dict) or result.get('code') not in (0, None) or result.get('success') is False:
+        return _failure('MACRO_QUERY_FAILED')
+    data = result.get('data')
+    if not isinstance(data, dict):
+        return _failure('MACRO_RESPONSE_INVALID')
+    if data.get('indicator_errors'):
+        return _failure('MACRO_INDICATOR_ERROR', 'data')
+    results = data.get('results')
+    if not isinstance(results, dict) or not results:
+        return _failure('MACRO_DATA_EMPTY', 'data')
+    mode = payload.get('mode', 'snapshot')
+    def finite(value):
+        return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+    for item in results.values():
+        if not isinstance(item, dict):
+            return _failure('MACRO_RESPONSE_INVALID')
+        if mode == 'snapshot':
+            if type(item.get('date')) is not int or not finite(item.get('value')):
+                return _failure('MACRO_SNAPSHOT_INVALID', 'data')
+        else:
+            dates, values = item.get('dates'), item.get('values')
+            if (not isinstance(dates, list) or not isinstance(values, list)
+                    or not dates or len(dates) != len(values)
+                    or not any(finite(v) for v in values)):
+                return _failure('MACRO_SERIES_INVALID', 'data')
+    return {'success': True, 'mode': mode, 'indicator_count': len(results)}

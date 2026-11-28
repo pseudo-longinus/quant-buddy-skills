@@ -4,7 +4,7 @@ slug: quant-buddy-view
 displayName: QuantBuddy 宽宝活页
 summary: 将量化分析与多媒体成果一键生成可分享的 QuantBuddy 活页与实时看板，支持实时数据绑定、自适应多端展示与持续原位更新。
 author: guanzhao
-version: 0.8.30
+version: 0.8.31
 description: |
   将量化分析或已有 JPG/PNG、HTML、PDF 发布为 Quant Buddy 可分享活页或实时看板，并支持创建、更新、复用、验收和公开链接交付。适用于个股画像、估值财务、指数异动、多因子筛选、商品日报、模板、分享壳及卡片等页面。
   国内期货期权页面支持部分商品、国内股指及部分 ETF 期权（明细见 guides/cn-index-options.md）；日频槽位行情经 QBS 验证后用公式包绑定，完整期权链 T 型报价/分钟与槽位分钟使用对应 Data Grant。
@@ -14,7 +14,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 0.8.30
+  version: 0.8.31
   author: guanzhao
   category: quant-finance
   tags: [quant, dashboard, formula-package, static-page, publish, visualization]

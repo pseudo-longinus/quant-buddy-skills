@@ -19,6 +19,7 @@
 | kind | 底层接口 | 钉死内容 | 页面拿到 |
 |------|---------|---------|---------|
 | `query_kline` | queryKLine | 只固定begin_date、limit_candles与指标；取数时动态传asset | 同轴日频OHLCV与服务端技术指标，见[工具合同](query_kline.md) |
+| `query_macro` | queryMacro | `indicators`（1~50 项简称或 ID）、`mode`（`snapshot`/`series`）、日期范围与 `nan_handling` | 宏观及一维时序指标原始值（`snapshot` 含各自真实 `date`/`value`；`series` 含 `dates`/`values`） |
 | `fast_query` | fastQuery | 一次快查请求（assets/query_type/fields…），字段须命中平台白名单 | 值 / 序列 |
 | `fast_query_minute_range` | fastQueryMinuteRange | `{asset,start_date,end_date}` 或 `{asset,start_offset,end_offset}`；历史全列，无fields/format/remove_nan | CSV分钟长表manifest，内核物化为columns/rows；见下方新增规则 |
 | `fast_query_minute_range_multi` | fastQueryMinuteRangeMulti | assets/asset/market三选一；absolute/rolling/current_trade_day及每日分钟窗口；无tickers/fields/format | JSON columns/data或CSV url；内核归一为含ticker的长表，见「多资产分钟授权」 |
@@ -75,7 +76,7 @@ python scripts/data_grant.py refresh '{"grant_id":"dg_xxx","rotate_signature":tr
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `kind` | `string` | ✅ | `asset_info` / `query_kline` / `option_contracts` / `option_chain` / `option_chain_minute` / `fast_query` / `fast_query_minute` / `fast_query_minute_range` / `fast_query_minute_range_multi` / `fast_query_option_minute` / `stock_profile` / `composition_select` |
+| `kind` | `string` | ✅ | `asset_info` / `query_kline` / `query_macro` / `option_contracts` / `option_chain` / `option_chain_minute` / `fast_query` / `fast_query_minute` / `fast_query_minute_range` / `fast_query_minute_range_multi` / `fast_query_option_minute` / `stock_profile` / `composition_select` |
 | `payload` | `object` | ✅ | 冻结的完整请求体，形状随 kind（见下） |
 | `ttl_days` | `number` | ❌ | 有效期（天），默认 365 |
 | `task_id` / `user_query` | `string` | ❌ | 随 audit 落库 |
@@ -83,6 +84,10 @@ python scripts/data_grant.py refresh '{"grant_id":"dg_xxx","rotate_signature":tr
 ### payload 按 kind
 
 ```jsonc
+// query_macro —— 宏观及一维指标快照/区间序列（仅返回原始值；series 省略 end_date 时取数持续滚到最新）
+{ "indicators": ["中国CPI同比", "中国PPI同比", "中采PMI"], "mode": "snapshot" }
+{ "indicators": ["中国CPI同比", "中国10年国债收益"], "mode": "series", "start_date": 20240101 }
+
 // fast_query —— 字段必须命中平台白名单（否则注册拒 FIELD_NOT_WHITELISTED）
 { "assets": ["600519.SH"], "query_type": "snapshot", "fields": ["收盘价","涨跌幅"] }
 
@@ -114,6 +119,7 @@ python scripts/data_grant.py refresh '{"grant_id":"dg_xxx","rotate_signature":tr
 
 ## 取数返回（与在线接口同构，build_dashboard/data-kernel 据此渲染）
 
+- `query_macro`：与在线 `queryMacro` 同构，仅返回原始值。`snapshot` 下各指标按自身频率返回最近有效 `{id, index_short_title, index_title, timezone, date, value}`；`series` 返回 `{dates, values, count, is_truncated}`。
 - `fast_query`：与在线 fastQuery 同构的值/序列结构。固定日期的 `value` 查询中，日频行情和估值刷新时点不同是正常情况：服务端先选请求区间，若 PE/PB 等字段尚未更新才回看 10 个自然日并返回 `{v, d, fallback:true}` + `DATE_RANGE_FALLBACK`。页面必须使用字段自己的 `d` 显示日期，不能把该字段显示为空、也不能用公共 `dates.trade_date` 覆盖；`series` / `window` 仍严格只含请求区间内的数据。A 股场内 ETF 份额/净申购（T+1 更新）与当日行情混查时同样按字段自身 `d` 展示日期，`ETF折溢价率` 已是百分比数值。
 - `option_contracts`：`data={ticker,records,notes?}`，美股records为11项扁平合约字段，国内另有product_id及decision_date/underlying_contract/status，empty行附empty_reason；build_dashboard归一为行数组。按每行真实trade_date展示，不改成刷新时间；changes可带is_baseline。
 - `fast_query_option_minute`：国内期权槽位 1 分钟原始长表（统一 13 列：`trade_date,ticker,slots,timestamp,open,high,low,close,volume,amount,open_interest,self_iv,self_delta`），小结果 JSON 内联、大结果自动返回 `mode:"csv"` + `url`/`url_expires_at`（data-kernel 自动 hydrate）；传 `include_contracts:true` 时附 `option_contracts`。

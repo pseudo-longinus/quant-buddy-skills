@@ -455,6 +455,27 @@ def _machine_presentation_for_panels(task, panels, title, summary, metrics, file
     return _machine_presentation(task,mounts,title,summary,metrics,filename,sources_note=sources_note)
 
 
+def _assign_recovery_modules(changes, panels, *, existing_modules=None, preserve_existing=False):
+    used = list(dict.fromkeys(p['compose_module'] for p in panels if p.get('compose_module')))
+    if not used:
+        return
+    existing_by_name = {
+        m['module']: copy.deepcopy(m)
+        for m in (existing_modules or [])
+        if isinstance(m, dict) and m.get('module')
+    }
+    changes['borrow_modules'] = [
+        existing_by_name[m] if (preserve_existing and m in existing_by_name)
+        else {'module': m, 'borrow_level': 'original', 'analysis_role': m, 'rationale': '有限修复后的可读研究页恢复'}
+        for m in used
+    ]
+    data_modules = [
+        m for m in used
+        if any(p.get('compose_module') == m and p.get('type') not in ('text', 'image') for p in panels)
+    ]
+    changes['module_order'] = data_modules + [m for m in used if m not in data_modules]
+
+
 def _handoff_snapshot_recovery(params,plan,changes,modules,panels):
     handoff=_find_handoff(plan['task_id'],params)
     if not isinstance(handoff,dict): return None
@@ -515,6 +536,10 @@ def _handoff_snapshot_recovery(params,plan,changes,modules,panels):
                          'missing_roles':missing},
         description='已验证Handoff快照的研究页，展示实际观察日、数据来源与研究边界。'
     )
+    used = list(dict.fromkeys(p['compose_module'] for p in text_panels if p.get('compose_module')))
+    existing_modules = [m for m in (plan.get('borrow_modules') or []) if isinstance(m, dict) and m.get('module')]
+    if used and (plan.get('build_mode') != 'compose_page' or not existing_modules or not set(used).issubset(m['module'] for m in existing_modules)):
+        _assign_recovery_modules(changes, text_panels, existing_modules=existing_modules, preserve_existing=plan.get('source_route') != 'unmatched')
     return {'bundle':bundle,'phase':'partial_snapshot' if missing else 'handoff_snapshot'}
 
 
@@ -911,10 +936,7 @@ def _recover(params):
             if research_claim_errors(panel.get('title',''),'partial'): panel['title']='研究观察与核验边界'
             parts=re.split(r'(?<=[。\n；])',panel.get('text',''))
             panel['text']=''.join('当前仅展示已核验部分，完整股票池与全部条件仍待核验。\n' if research_claim_errors(part,'partial') else part for part in parts)
-    used = list(dict.fromkeys(p['compose_module'] for p in panels))
-    changes['borrow_modules'] = [{'module':m,'borrow_level':'original','analysis_role':m,'rationale':'有限修复后的可读研究页恢复'} for m in used]
-    data_modules=[m for m in used if any(p['compose_module']==m and p.get('type') not in ('text','image') for p in panels)]
-    changes['module_order'] = data_modules+[m for m in used if m not in data_modules]
+    _assign_recovery_modules(changes, panels)
     if not changes.get('title'): changes['title'] = '策略研究与核验结果'
     researched = (not frozen) and not params.get('methodology_only')
     out = SP.cmd_execution_plan(changes)

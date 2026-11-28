@@ -160,6 +160,7 @@ TOOL_ROUTES = {
     "query_kline":           ("POST", "/queryKLine"),
     "query_option_contracts": ("POST", "/queryOptionContracts"),
     "fast_query":            ("POST", "/fastQuery"),
+    "queryMacro":            ("POST", "/queryMacro"),
     "fast_query_minute":     ("POST", "/fastQueryMinute"),
     "fast_query_minute_range": ("POST", "/fastQueryMinuteRange"),
     "fast_query_minute_range_multi": ("POST", "/fastQueryMinuteRangeMulti"),
@@ -192,6 +193,7 @@ TOOL_ROUTES = {
 # 未在此表的工具统一使用 call_post/call_get 的默认值（900s）
 TOOL_TIMEOUTS = {
     "query_kline": 120,  # 单资产结构化日K线，含指标；基础2RU，含计算指标整次3RU
+    "queryMacro": 120,   # 宏观及一维指标快捷查询
     "query_option_contracts": 120,  # 合约映射只读查询；服务端Celery等待30s
 
     "runMultiFormulaBatchStream": 1800,   # SSE 主路径绕开网关 5min，整体上限 30min

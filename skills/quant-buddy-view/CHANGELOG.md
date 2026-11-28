@@ -5,6 +5,11 @@
 
 ---
 
+## [0.8.31] — 2026-11-28
+
+- 修复 `_handoff_snapshot_recovery` 在 `unmatched` 计划下未补齐模块升格为 `compose_page` 导致 `HOST_RECOVERY_CANDIDATE_MISSING` 的问题，补充对应回归单测。
+- 支持 `query_macro` 数据授权在实时数据能力登记、桥接与核验快照中的接入（`grant_capabilities.py` / `qbs_bridge.py` / `verified_snapshot.py`），补充 `tests/test_macro_grants.py`。
+
 ## [0.8.30] — 2026-11-26
 
 - 修复移动端独立活页“问一问”弹层无法拖动问题（`assets/share-shell/*`），补充 `tests/test_share_shell_runtime.cjs` 单元测试。

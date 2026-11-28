@@ -20,7 +20,7 @@
 - `us_option_market_data.yaml`：美股期权 E1/E2、ATM/25 Delta 的价格、成交量、持仓量、隐含波动率、所选合约到期日及行权价（共 48 项）。
 - `cn_future_option_market_data.yaml`：国内期货期权 E1/E2 × ATM-CALL/ATM-PUT/25C/25P × 收盘价/隐含波动率/持仓量/成交额（32 项）。除商品外，也包含沪深300主连（IF.CFE / IO）、上证50主连（IH.CFE / HO）、中证1000主连（IM.CFE / MO）三个股指维度；斜线前为数据列代码，斜线后为期权品种代码。也包含南方中证500ETF（SH510500）、华夏科创50ETF（SH588000）、易方达创业板ETF（SZ159915）三个ETF期权维度，沿用相同32个字段。实际有效字段与日期须查询验证，不代表完整期权链或合约映射接口已开放。隐含波动率为 self-IV，小数 0.25 表示 25%；空值保留。目录 ID 为正式环境快照，跨环境使用精确标题重新解析，不复用 index_id。查询见 [国内股指及ETF期权槽位行情](../../workflows/cn-index-options.md)。
 - `cn_etf_market_data.yaml`：A 股沪深场内 ETF 份额、净申购、参考净值（IOPV）与折溢价率（4 项），覆盖主流宽基、行业与主题 ETF（不含港美股 ETF 及场外基金）；日频、T+1 更新，折算已还原。
-- `macro_indicators.yaml`：宏观指标目录；数据来源为 `indexInfoCore` 表，使用 `index_short_title` 与 `indexinfo_id`。
+- `macro_indicators.yaml`：宏观指标目录；数据来源为 `indexInfoCore` 表，使用 `index_short_title` 与 `indexinfo_id`。按 `index_title` 分组整理，可直接用于 `queryMacro`（`snapshot` / `series`）查询原始值，或取 `id` 调用 `readData` / `downloadData`。
 - `manifest.yaml`：业务分类文件清单和记录数。
 
 分类仅用于检索组织，不代表数据的原创归属。不要手工修改记录；维护流程及真实来源记录保存在用户侧 Skill 目录之外。

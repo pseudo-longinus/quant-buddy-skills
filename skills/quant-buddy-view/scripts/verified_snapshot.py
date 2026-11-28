@@ -164,6 +164,10 @@ def materialize_registered(params):
                 import grant_capabilities as GC
                 evaluated=GC.evaluate_option_chain_minute(contract['payload'],result)
                 if not evaluated.get('success'):return {'code':1,'error':evaluated.get('error_code')}
+            elif kind=='query_macro':
+                import grant_capabilities as GC
+                evaluated=GC.evaluate_query_macro(contract['payload'],result)
+                if not evaluated.get('success'):return {'code':1,'error':evaluated.get('error_code')}
             data=BD._normalize_grant_data(kind,(result or {}).get('data'))
             if BD._inspect_output_data(data) is not None:raise EP.PlanError('SNAPSHOT_DATA_EMPTY','数据为空，不能冻结为成品')
         else:

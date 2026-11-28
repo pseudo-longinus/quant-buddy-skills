@@ -4,7 +4,7 @@ slug: quant-buddy-skill
 displayName: QuantBuddy 宽宝量化技能
 summary: 提供 A 股、港美股实时行情与估值数据、财务指标、K线与分钟序列、多维股票画像、期权行情、选股筛选与策略回测量化工具箱。
 author: guanzhao
-version: 4.25.77
+version: 4.25.78
 description: |
   查询A股、港股、美股股票及指数的最新收盘价、开盘价、涨跌幅、成交额、成交量、换手率、PE、PB、市值等实时行情与估值数据；支持查询 A 股股票所属行业，以及 A 股沪深场内 ETF 的基金份额、净申购、参考净值（IOPV）与折溢价率。
   显式日期的单值快照可同时返回按实际更新日对齐的日频行情与估值；字段日期不同时按字段自身日期展示，不将较晚刷新字段误判为无数据。
@@ -23,7 +23,7 @@ description: |
 runtime: python
 primaryCredential: quant-buddy API Key
 metadata:
-  version: 4.25.77
+  version: 4.25.78
   author: guanzhao
   category: quant-finance
   tags: [quant, market-data, finance, A-stock, HK-stock, US-stock, backtest, factor]
@@ -321,6 +321,7 @@ SKILL_ROOT/
 ├── tools/                   ← API 工具完整参数文档（默认不读；workflow 标注「必读」或报错时再查）
 │   │                           ⚠️ 下表列出所有可用工具的**实际调用名**，调用时必须使用此名，不得变体
 │   ├── fast_query.md            → 工具名 `fast_query`          快速合并查询（行情/估值/财务，≤1000资产，支持CSV）
+│   ├── query_macro.md           → 工具名 `queryMacro`          宏观及一维时序指标快捷查询（仅返回原始值，支持快照/区间序列）
 │   ├── fast_query_minute_range.md → 历史单资产跨日1分钟CSV全列（日期/自然日offset）
 │   ├── fast_query_minute_range_multi.md → 多资产/全市场1分钟、每日时段、交易日滚动及JSON/CSV
 │   ├── fast_query_minute.md     → 工具名 `fast_query_minute`   单资产当前盘中/最近完整日分钟 OHLCVA 序列
@@ -357,7 +358,7 @@ SKILL_ROOT/
 │   ├── functions.yaml           常用函数（171 条）
 │   ├── dimensions.yaml          千维业务维度与指标本地目录（325 项；按需检索，命中可直接用于 fast_query 历史快照/序列、查公式与选股；未命中或异常时再调 listDimensionIndicators 在线确认）
 │   ├── data_catalog.yaml        常用精选数据集（高频 index_title）
-│   ├── index_info_catalog/      系统支持数据名全量索引（2783 条，按业务分类分 YAML，grep 检索）
+│   ├── index_info_catalog/      系统支持数据名全量索引（2755 条，按业务分类分 YAML，grep 检索）
 │   ├── sectors.yaml             行业板块（742 条，10 个分类）
 │   └── themes.yaml              题材板块
 │
@@ -427,6 +428,7 @@ SKILL_ROOT/
 | 多资产/全市场分钟、每日时段或交易日滚动 | 多个资产、market、分钟范围、最近N个交易日或current_trade_day规则 | `tools/fast_query_minute_range_multi.md` → `fast_query_minute_range_multi`；用assets/asset/market三选一，不传tickers/fields/format |
 | 单资产日内分钟 / 分时序列 | 明确要求分钟、分时、1分钟、每分钟、日内 OHLCV、逐分钟开高低收/成交量；不含历史日期、区间或多资产 | 先按资产库规则确认唯一资产 → 直接调用 `fast_query_minute` → 成功即停 |
 | 最新/历史时点行情 / 估值 / 千维指标 / 基础信息（快照） | 最新价、今日收盘、最新涨跌幅、当前换手率、最新PE/PB/市值、所属行业、某日千维维度分/细分指标快照… | Fast Path 条件满足 → 只读 `fast-snapshot.md`（千维指标检索 `presets/dimensions.yaml`）；不满足/无法查询 → `global-rules.md` → `quick-snapshot.md` |
+| 宏观指标 / 全球股指 / 商品现货一维时序 | CPI、PPI、GDP、PMI、社融、M2、LPR、国债收益率、美元指数、原油/现货、海外股指最新值或历史序列 | 先搜 `presets/index_info_catalog/macro_indicators.yaml` 确认精确名称 → 读 `tools/query_macro.md` → `queryMacro`（`snapshot` / `series`，仅返回原始值；需做剪刀差等二次公式计算时再转 `quant-standard.md`） |
 | 最近N日序列 / 历史区间走势 / 窗口统计 | 最近5日、最近20日、近N个交易日、指定起止日期的行情/估值/千维物化指标走势、窗口最高/最低/振幅… | Fast Path 条件满足 → 只读 `fast-window.md`（千维指标检索 `presets/dimensions.yaml`）；不满足/无法查询 → `global-rules-lite.md` → `quick-window.md` |
 | 最近报告期财务 | 营收、净利润、归母净利润、ROE、总资产、总负债、资产负债率… | Fast Path 条件满足 → 只读 `fast-report-period.md`；不满足/无法查询 → `global-rules.md` → `quick-report-period.md` |
 | 单只 A 股快速画像 | 贵州茅台、茅台、600519、SH600519；或“分析一下贵州茅台”“分析下深圳新星(SH:603978)”等简单综合分析，资产唯一且名称代码一致 | `live-page-routing.md` → `single_a_stock_fast` → QBV `guides/answer-first.md`，先答再 `new_asset_page` |

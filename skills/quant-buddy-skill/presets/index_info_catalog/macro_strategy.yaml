@@ -1,7 +1,7 @@
 # Auto-generated business catalog; do not edit records by hand.
 schema_version: 2
 category: macro_strategy
-record_count: 153
+record_count: 125
 records:
   - {id: "6a1e83c7031ae7c8e9b89731", index_title: "A股中单资金当日流量净占比"}
   - {id: "6a1e83af031ae7c8e9b893fe", index_title: "A股中单资金当日流量净额"}
@@ -25,29 +25,12 @@ records:
   - {id: "63bfcff7846429fd6d572d06", index_title: "A股财报季度标注"}
   - {id: "6a1e8362031ae7c8e9b88382", index_title: "A股超大单资金当日流量净占比"}
   - {id: "6a1e8348031ae7c8e9b880b1", index_title: "A股超大单资金当日流量净额"}
-  - {id: "67c6ada2bdf8e329800a6a2e", index_title: "BTC现货ETF_总flow"}
-  - {id: "67c6adf3bdf8e329800a6a2f", index_title: "BTC现货ETF_灰度flow"}
-  - {id: "67c6af21bdf8e329800a6a30", index_title: "ETH现货ETF_总flow"}
-  - {id: "67c6af56bdf8e329800a6a31", index_title: "ETH现货ETF_灰度flow"}
   - {id: "68aedeaf6f3b0259d3cc25bf", index_title: "GS-Memes-Stocks"}
-  - {id: "667953a3ae16ac3f475e7a7d", index_title: "U3O8 3 Year Spot Price"}
-  - {id: "65f26262e38366bf78e390f0", index_title: "US.QQQ信号"}
-  - {id: "66a21e5d3f72735988c809f6", index_title: "Uranium Market Price Close"}
-  - {id: "66a224602afc2726492a071c", index_title: "Uranium Premium/Discount to Net Asset Value"}
-  - {id: "678f4c6f9909b67eac6b82fe", index_title: "Verisign active .com domain names"}
-  - {id: "678f4c569909b67eac6b82fd", index_title: "Verisign active .net domain names"}
-  - {id: "678f4c759909b67eac6b82ff", index_title: "Verisign active total domain names"}
-  - {id: "669f62b2d028cff5d6e8f630", index_title: "【日频】趋势跟踪"}
-  - {id: "669f60dba04672df21779fab", index_title: "【日频测试】趋势跟踪"}
   - {id: "6400517a0192979ea4b27978", index_title: "万得资产所属指数"}
-  - {id: "65f25ee7e38366bf78e390ef", index_title: "上证50-中证500信号"}
   - {id: "691bd8bbc8e3a12d6a9d305e", index_title: "上证50指数成分股"}
   - {id: "6aaf9fea26fd808eb160fbe3", index_title: "中国交易日"}
-  - {id: "68e761d5f08519ce5c8b0c4a", index_title: "中国股市重要政策干预事件"}
-  - {id: "68f5c774e119f55a66899f5f", index_title: "中美贸易战关键事件时间序列"}
   - {id: "65670df81c9fd3c9c6a9b829", index_title: "中证1000指数成分股"}
   - {id: "65670e111c9fd3c9c6a9b82b", index_title: "中证100指数成分股"}
-  - {id: "661f3335737fc3a88d2429b8", index_title: "中证500信号"}
   - {id: "65670e171c9fd3c9c6a9b82d", index_title: "中证500指数成分股"}
   - {id: "65670e1d1c9fd3c9c6a9b82f", index_title: "中证800指数成分股"}
   - {id: "6a753b57c8a907c178f6b1b7", index_title: "中证A500指数成分股"}
@@ -98,9 +81,7 @@ records:
   - {id: "6a3e4c470bd77498e4967c76", index_title: "创业板50指数成分股"}
   - {id: "6a759dd874f85851f8850028", index_title: "创业板指指数成分股"}
   - {id: "6a753b54c8a907c178f6b1b5", index_title: "创业板指数成分股"}
-  - {id: "66a1b6cdcfd2bda827bb77a4", index_title: "区间震荡(日频)"}
   - {id: "64180d4f0873839671939ade", index_title: "半年末基准日期"}
-  - {id: "66a0b964e0c3d2de5123ca94", index_title: "反转(日频)"}
   - {id: "65328681d1e19c689846ca1d", index_title: "可交易日"}
   - {id: "626611b09da37f3691b6005e", index_title: "周末基准日期"}
   - {id: "643e37de4bb9049c6fc43212", index_title: "基准收益(万得)"}
@@ -115,7 +96,6 @@ records:
   - {id: "6a1ff7e2031ae7c8e9ee51e9", index_title: "恒生一级行业所属指数"}
   - {id: "6a1ff7e7031ae7c8e9ee5310", index_title: "恒生二级行业所属指数"}
   - {id: "69afc8352c813be28857e6c6", index_title: "收盘涨停"}
-  - {id: "66589e23b2a7fbcec4789cd5", index_title: "最近一个月后复权因子"}
   - {id: "66432d2cabfd1b87d5562a80", index_title: "月末农历日期"}
   - {id: "624e9d3db1b8730e7ae3a235", index_title: "月末基准日期"}
   - {id: "66309f6d454ccd7a5c28f5ea", index_title: "月末自然日期"}
@@ -127,8 +107,6 @@ records:
   - {id: "6a3a466597e2dbd70a82d6a6", index_title: "期货日内量权价跌减仓强度"}
   - {id: "6a3a466797e2dbd70a82d6a7", index_title: "期货日内量权价跌增仓强度"}
   - {id: "6a3a465b97e2dbd70a82d6a2", index_title: "期货每日持仓量"}
-  - {id: "664307a9a46e20605d7c5a66", index_title: "沪深300信号"}
-  - {id: "6642bb32a46e20605d7c5a65", index_title: "沪深300多空信号信号"}
   - {id: "65670e231c9fd3c9c6a9b831", index_title: "沪深300指数成分股"}
   - {id: "6a1e829a031ae7c8e9b86ddb", index_title: "港股南向十大活跃股成交额"}
   - {id: "6a1e826b031ae7c8e9b86182", index_title: "港股南向资金净买入"}
@@ -141,18 +119,12 @@ records:
   - {id: "68f6152923dc79d2d7949736", index_title: "申万二级行业所属指数"}
   - {id: "650967b9a318ecd5718efbd5", index_title: "申万资产所属指数"}
   - {id: "66448014f535c4133d7990ad", index_title: "百川商品参考价"}
-  - {id: "623af0a7a777c60160a108eb", index_title: "社融预期差因子"}
-  - {id: "689ae6c8601e663172c2130a", index_title: "科创50信号"}
   - {id: "691bd8c1c8e3a12d6a9d3060", index_title: "科创50指数成分股"}
   - {id: "6abb839944155897a96e3fe7", index_title: "美国交易日"}
-  - {id: "670ccbf112152b90ea7836e9", index_title: "美股信号"}
   - {id: "6a8e27f3812accfdfb929277", index_title: "美股总股本换手率"}
   - {id: "6a8d0c3f35cc131a04986cac", index_title: "美股换手率"}
   - {id: "643e35460b376461b098ad0d", index_title: "自由流通市值(万得)"}
   - {id: "6437ae9ad287318c2b50f195", index_title: "自由流通股本(万得)"}
-  - {id: "66a0a571c194dd9d6dabbdc8", index_title: "趋势跟踪(日频)"}
   - {id: "641d61544da4d6f8bdb3467b", index_title: "长历史全部工作日"}
   - {id: "650ac8b93bacb9677473254a", index_title: "非ST股"}
   - {id: "6ace017f08bd98cea015cb6a", index_title: "香港交易日"}
-  - {id: "6780c9118011f3039d01d1ca", index_title: "高盛美国金融条件指数"}
-  - {id: "664c47957436d243582bb735", index_title: "黄金海信号"}

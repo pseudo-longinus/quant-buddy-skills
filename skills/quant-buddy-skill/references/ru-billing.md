@@ -17,6 +17,7 @@
 | `download_data` | fixed | 1 | |
 | `render_kline` | fixed | 1 | |
 | `re_render_chart` | fixed | 1 | |
+| `queryMacro` | fixed | 1 | 宏观及一维指标直读（纯 DB 查询） |
 | `read_data` | fixed | 2 | |
 | `search_similar_cases` | fixed | 5 | |
 | `assets_db` 本地资产库 | deferred | 1～6 × 意图数 | DB 精确匹配 1 RU，LLM 路径 6 RU |
